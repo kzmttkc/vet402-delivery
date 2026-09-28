@@ -84,6 +84,19 @@ export interface PayDeps {
   dryRun?: boolean;
   /** Address that signs the transaction (the payer when live; a throwaway key in a dry run). */
   signerAddress?: string;
+  /**
+   * Optional delivery judgement on the paid response (full body). When absent, delivered =
+   * 2xx and a non-empty body (gate 1). Never affects whether or what is paid.
+   */
+  judge?: (d: { status: number; contentType: string | null; bodyText: string }) => DeliveryJudgementLike;
+}
+
+export interface DeliveryJudgementLike {
+  delivered: boolean;
+  reason: string;
+  summary: string;
+  missingKeys: string[];
+  note?: string;
 }
 
 export interface PurchaseRecord {
@@ -100,6 +113,7 @@ export interface PurchaseRecord {
   settled?: boolean;
   response?: { status: number | null; contentType: string | null; first300: string | null; error?: string };
   delivered?: boolean;
+  judgement?: DeliveryJudgementLike;
   solBefore?: string;
   solAfter?: string;
   solDecreased?: boolean;
@@ -196,7 +210,12 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
     } catch {
       rec.settlementHeader = null;
     }
-    rec.delivered = paid.status >= 200 && paid.status < 300 && text.trim().length > 0;
+    if (deps.judge && rec.response.first300 !== null) {
+      rec.judgement = deps.judge({ status: paid.status, contentType: paid.headers.get("content-type"), bodyText: text });
+      rec.delivered = rec.judgement.delivered;
+    } else {
+      rec.delivered = paid.status >= 200 && paid.status < 300 && text.trim().length > 0;
+    }
   }
   const sigFromHeader = rec.settlementHeader?.transaction && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(rec.settlementHeader.transaction) ? rec.settlementHeader.transaction : null;
   rec.onChain = await deps.waitForSettlement(sigFromHeader, tc.facts.memo, a.payTo);
