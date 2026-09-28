@@ -1,0 +1,44 @@
+{
+  "url": "https://api.onesource.io/api/chain/block-number",
+  "checkedAt": "2026-09-28T07:10:53.567Z",
+  "verdict": "delivered",
+  "summary": "delivered: vet402 paid 2026-09-21 (tx 0x6ddc6edd3822e4e4c5f7f9eb57012d62ec225c5e3d0bebd7e0cca02e4a9c147e); Bazaar says 1072 calls/30d, vet402 sees 899 settlements on-chain.",
+  "lastDelivery": {
+    "attemptedAt": "2026-09-21T12:08:50.612Z",
+    "status": "settled",
+    "amountUnits": "1000",
+    "txHash": "0x6ddc6edd3822e4e4c5f7f9eb57012d62ec225c5e3d0bebd7e0cca02e4a9c147e",
+    "httpStatusPaid": 200,
+    "l2Schema": "match",
+    "network": "eip155:8453",
+    "explorer": "https://basescan.org/tx/0x6ddc6edd3822e4e4c5f7f9eb57012d62ec225c5e3d0bebd7e0cca02e4a9c147e"
+  },
+  "lastAttempt": {
+    "attemptedAt": "2026-09-21T12:08:50.612Z",
+    "status": "settled",
+    "amountUnits": "1000",
+    "txHash": "0x6ddc6edd3822e4e4c5f7f9eb57012d62ec225c5e3d0bebd7e0cca02e4a9c147e",
+    "httpStatusPaid": 200,
+    "l2Schema": "match",
+    "network": "eip155:8453"
+  },
+  "counts": {
+    "vet402Attempts": 4,
+    "vet402Settled": 3,
+    "vet402Delivered": 3,
+    "onchainSettlements30dReal": 899,
+    "bazaarCalls30d": 1072,
+    "gap": 173
+  },
+  "next": {
+    "action": "pay",
+    "command": "npx awal@2.12.1 x402 pay 'https://api.onesource.io/api/chain/block-number' --max-amount 10000",
+    "reason": "vet402 paid this URL and it delivered on the last settled purchase."
+  },
+  "evidence": [
+    "https://api.cdp.coinbase.com/platform/v2/x402/discovery/search?query=https%3A%2F%2Fapi.onesource.io%2Fapi%2Fchain%2Fblock-number",
+    "https://vet402.com/api/v1/resolve?q=https%3A%2F%2Fapi.onesource.io%2Fapi%2Fchain%2Fblock-number",
+    "https://vet402.com/api/v1/observatory/endpoints/f0a1f210-dc51-4ccf-b454-6c72025e3153/facts",
+    "https://vet402.com/observatory/e/f0a1f210-dc51-4ccf-b454-6c72025e3153"
+  ]
+}

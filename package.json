@@ -9,7 +9,11 @@
     "typecheck": "tsc --noEmit",
     "gate1": "tsx scripts/gate1.ts",
     "census": "tsx scripts/census.ts",
-    "tempo-census": "tsx scripts/tempo-census.ts"
+    "tempo-census": "tsx scripts/tempo-census.ts",
+    "check": "tsx scripts/vet402-check.ts",
+    "erc8004:simulate": "tsx scripts/erc8004-simulate.ts --out results/erc8004-simulate.json",
+    "base:buy:dry": "tsx scripts/base-buy.ts --dry-run",
+    "base:feedback:dry": "tsx scripts/base-feedback.ts --dry-run --input results/base-buy-dryrun.json"
   },
   "engines": {
     "node": ">=22"
@@ -20,10 +24,11 @@
     "@solana-program/token": "0.9.0",
     "@solana/kit": "5.5.1",
     "@x402/core": "2.27.0",
+    "@x402/evm": "2.27.0",
     "@x402/fetch": "2.27.0",
     "@x402/svm": "2.27.0",
     "mppx": "0.11.0",
-    "viem": "2.55.1"
+    "viem": "2.56.9"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
