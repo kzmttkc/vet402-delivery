@@ -88,7 +88,13 @@ export interface Signer {
 
 /** Load the payer key from a JSON file `{ "privateKey": "0x..." }`. The key is never printed. */
 export function loadSigner(keyFile: string, rpc = TEMPO_RPC_URL): Signer {
-  const raw = JSON.parse(readFileSync(keyFile, "utf8")) as { privateKey?: string };
+  let raw: { privateKey?: string };
+  try {
+    raw = JSON.parse(readFileSync(keyFile, "utf8")) as { privateKey?: string };
+  } catch {
+    // Fixed message: a JSON.parse error can quote the file's contents, i.e. the key.
+    throw new Error(`${keyFile}: unreadable key file (expected JSON {"privateKey":"0x..."})`);
+  }
   if (!raw.privateKey || !/^0x[0-9a-fA-F]{64}$/.test(raw.privateKey)) throw new Error(`${keyFile}: no privateKey`);
   const account = privateKeyToAccount(raw.privateKey as Hex);
   if (normAddr(account.address) !== normAddr(PAYER_ADDRESS)) throw new Error("key does not belong to the census payer");

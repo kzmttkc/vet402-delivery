@@ -85,27 +85,40 @@ async function pay(): Promise<void> {
   // Network and key are loaded only on this path.
   const chain = await import("../src/tempo/chain.js");
   const { Ledger } = await import("../src/tempo/ledger.js");
-  const { payOne } = await import("../src/tempo/pay.js");
+  const { runPlan } = await import("../src/tempo/pay.js");
   await chain.assertMainnet();
   const keyFile = arg("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json");
   const signer = chain.loadSigner(keyFile);
-  const ledger = new Ledger(arg("--ledger") ?? join(ROOT, "results", "tempo-ledger.json"), PAYER_ADDRESS, cap);
+  const ledger = new Ledger(arg("--ledger") ?? join(ROOT, "results", "tempo-ledger.json"), PAYER_ADDRESS, cap, { lock: true });
   console.error(`[pay] payer ${signer.address} cap ${atomicToUnits(cap)} USDC.e, ledger committed ${atomicToUnits(ledger.committed())}`);
 
   const plan: PlanEntry[] = rep.plan.slice(0, max);
-  for (const entry of plan) {
-    const o = await payOne(entry, {
-      fetchImpl: fetch,
-      signer,
-      ledger,
-      payer: PAYER_ADDRESS,
-      balance: () => chain.usdcBalance(PAYER_ADDRESS),
-      chainSpent: () => chain.usdcOutflowSinceStart(PAYER_ADDRESS),
-      verify: (h, e) => chain.verifySettlement(h, e),
-    });
-    const tx = o.txHash ? ` ${TEMPO_EXPLORER_TX}${o.txHash}` : "";
-    console.log(`${pad(entry.serviceId, 34)} ${o.result} ${o.refusal ? `${o.refusal.refused} (${o.refusal.detail})` : `http ${o.httpStatus} settled ${o.settled} delivered ${o.delivered}${tx}`}`);
-    if (o.refusal?.refused === "total_cap_reached" || o.refusal?.refused === "insufficient_balance") break;
+  try {
+    const { stopped } = await runPlan(
+      plan,
+      {
+        fetchImpl: fetch,
+        signer,
+        ledger,
+        payer: PAYER_ADDRESS,
+        balance: () => chain.usdcBalance(PAYER_ADDRESS),
+        chainSpent: () => chain.usdcOutflowSinceStart(PAYER_ADDRESS),
+        verify: (h, e) => chain.verifySettlement(h, e),
+      },
+      (entry, o) => {
+        const tx = o.txHash ? ` ${TEMPO_EXPLORER_TX}${o.txHash}` : "";
+        const fee = o.feePaid ? ` fee ${o.feePaid}` : "";
+        console.log(
+          `${pad(entry.serviceId, 34)} ${o.result} ${o.refusal ? `${o.refusal.refused} (${o.refusal.detail})` : `http ${o.httpStatus} settled ${o.settled} delivered ${o.delivered}${fee}${tx}`}`,
+        );
+      },
+    );
+    if (stopped) {
+      console.error(`[pay] STOPPED at ${stopped.serviceId}: ${stopped.reason}. Nothing further was signed.`);
+      process.exitCode = 2;
+    }
+  } finally {
+    ledger.release();
   }
 }
 

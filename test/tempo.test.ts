@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { custom, encodeFunctionData, type Hex } from "viem";
@@ -18,11 +18,11 @@ import { checkCharge, pickTempoCharge } from "../src/tempo/guard.js";
 import { Ledger } from "../src/tempo/ledger.js";
 import { buildRequest, chooseEndpoint, fillPath, type MercatorService } from "../src/tempo/mercator.js";
 import { checkSignedTransfer } from "../src/tempo/txcheck.js";
-import { authorizationHeader, payOne, type PayDeps } from "../src/tempo/pay.js";
+import { authorizationHeader, payOne, runPlan, stopReason, type PayDeps, type PayOutcome } from "../src/tempo/pay.js";
 import { Credential } from "mppx";
 import { breakdown, parseCsv, type LedgerRow } from "../src/tempo/l1-breakdown.js";
 import type { PlanEntry } from "../src/tempo/census.js";
-import { signerFor, type Signer } from "../src/tempo/chain.js";
+import { loadSigner, signerFor, type Signer } from "../src/tempo/chain.js";
 
 const SELLER = "0x060b0fB0Be9d90557577B3AEE480711067149Ff0";
 const OTHER = "0x1111111111111111111111111111111111111111";
@@ -462,4 +462,141 @@ test("payOne: insufficient balance -> refused before reserving", async () => {
   f.deps.balance = async () => 7_999n;
   assert.equal((await payOne(planEntry, f.deps)).refusal?.refused, "insufficient_balance");
   assert.equal(f.deps.ledger.count(), 0);
+});
+
+// ---------- review B1: stop conditions ----------
+
+test("payOne: on-chain outflow above the ledger -> chain_spend_exceeds_ledger, nothing reserved or signed", async () => {
+  const f = fakeDeps({});
+  f.deps.chainSpent = async () => 1n; // ledger is empty: committed 0
+  const out = await payOne(planEntry, f.deps);
+  assert.equal(out.refusal?.refused, "chain_spend_exceeds_ledger");
+  assert.equal(f.signCalls.n, 0);
+  assert.equal(f.deps.ledger.count(), 0);
+});
+
+test("payOne: outflow equal to the ledger is not a stop", async () => {
+  const f = fakeDeps({});
+  f.deps.ledger.reserve({ key: "earlier", url: "u", recipient: SELLER, amount: 5_000n, sponsored: true });
+  f.deps.chainSpent = async () => 5_000n;
+  assert.equal((await payOne(planEntry, f.deps)).result, "sent");
+});
+
+test("stopReason: which outcomes stop the run", () => {
+  const sent = (o: Partial<PayOutcome>): PayOutcome => ({ serviceId: "s", result: "sent", settled: true, delivered: true, ...o });
+  const ref = (r: string): PayOutcome => ({ serviceId: "s", result: "refused", refusal: { refused: r as never, detail: "" } });
+  assert.equal(stopReason(ref("tx_check_failed")), "tx_check_failed");
+  assert.equal(stopReason(ref("chain_spend_exceeds_ledger")), "chain_spend_exceeds_ledger");
+  assert.equal(stopReason(ref("total_cap_reached")), "total_cap_reached");
+  assert.equal(stopReason(ref("insufficient_balance")), "insufficient_balance");
+  assert.equal(stopReason({ serviceId: "s", result: "unknown" }), "outcome_unknown");
+  assert.equal(stopReason(sent({ settled: false, delivered: false })), "not_settled");
+  assert.equal(stopReason(sent({ feePaid: String(FEE_RESERVE_ATOMIC + 1n) })), "fee_over_reserve");
+  // not stops: a per-seller refusal, a delivered purchase, a paid 4xx that settled, a fee at the reserve
+  assert.equal(stopReason(ref("recipient_mismatch")), null);
+  assert.equal(stopReason(ref("price_raised")), null);
+  assert.equal(stopReason(sent({})), null);
+  assert.equal(stopReason(sent({ httpStatus: 400, delivered: false })), null);
+  assert.equal(stopReason(sent({ feePaid: String(FEE_RESERVE_ATOMIC) })), null);
+});
+
+const second: PlanEntry = { ...planEntry, serviceId: "second" };
+
+async function runTwo(setup: (f: ReturnType<typeof fakeDeps>) => void, o: Parameters<typeof fakeDeps>[0] = {}) {
+  const f = fakeDeps(o);
+  setup(f);
+  const r = await runPlan([planEntry, second], f.deps);
+  return { f, r };
+}
+
+test("runPlan: tx_check_failed stops the run before the next entry", async () => {
+  const { f, r } = await runTwo(() => undefined, { signed: () => signedTransfer({ to: OTHER }) });
+  assert.deepEqual(r.stopped, { serviceId: "openweather", reason: "tx_check_failed" });
+  assert.equal(r.outcomes.length, 1);
+  assert.equal(f.signCalls.n, 1);
+});
+
+test("runPlan: chain_spend_exceeds_ledger stops the run", async () => {
+  const { f, r } = await runTwo((f) => (f.deps.chainSpent = async () => 1n));
+  assert.equal(r.stopped?.reason, "chain_spend_exceeds_ledger");
+  assert.equal(r.outcomes.length, 1);
+  assert.equal(f.signCalls.n, 0);
+});
+
+test("runPlan: an unknown outcome (paid request threw) stops the run", async () => {
+  const { f, r } = await runTwo((f) => {
+    const inner = f.deps.fetchImpl;
+    f.deps.fetchImpl = async (url, init) => {
+      if (new Headers(init?.headers).get("authorization")) throw new Error("socket hang up");
+      return inner(url, init);
+    };
+  });
+  assert.equal(r.stopped?.reason, "outcome_unknown");
+  assert.equal(r.outcomes.length, 1);
+  assert.equal(JSON.parse(readFileSync(f.path, "utf8")).entries[0].status, "unknown");
+});
+
+test("runPlan: settled === false stops the run", async () => {
+  const { r } = await runTwo((f) => (f.deps.verify = async () => ({ settled: false, detail: "no matching transfer", feePaid: null })));
+  assert.equal(r.stopped?.reason, "not_settled");
+  assert.equal(r.outcomes.length, 1);
+});
+
+test("runPlan: a fee above FEE_RESERVE_ATOMIC stops the run", async () => {
+  const { r } = await runTwo(
+    (f) => (f.deps.verify = async () => ({ settled: true, detail: "transfer found", feePaid: String(FEE_RESERVE_ATOMIC + 1n) })),
+  );
+  assert.equal(r.stopped?.reason, "fee_over_reserve");
+  assert.equal(r.outcomes.length, 1);
+});
+
+test("runPlan: normal outcomes do not stop the run", async () => {
+  const { r } = await runTwo(() => undefined);
+  assert.equal(r.stopped, null);
+  assert.equal(r.outcomes.length, 2);
+  assert.ok(r.outcomes.every((o) => o.delivered === true));
+});
+
+test("runPlan: a per-seller refusal does not stop the run", async () => {
+  const f = fakeDeps({});
+  const moved: PlanEntry = { ...planEntry, serviceId: "moved", lockedRecipient: OTHER, allowlist: [] };
+  const r = await runPlan([moved, second], f.deps);
+  assert.equal(r.outcomes[0]!.refusal?.refused, "recipient_mismatch");
+  assert.equal(r.stopped, null);
+  assert.equal(r.outcomes.length, 2);
+});
+
+// ---------- review W4: ledger lock ----------
+
+test("ledger lock: a second process cannot open the same ledger until the first releases", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "tempo-lock-")), "ledger.json");
+  const a = new Ledger(path, PAYER_ADDRESS, 30_000n, { lock: true });
+  assert.ok(existsSync(`${path}.lock`));
+  assert.throws(() => new Ledger(path, PAYER_ADDRESS, 30_000n, { lock: true }), /lock exists|holds this ledger/);
+  a.release();
+  assert.ok(!existsSync(`${path}.lock`));
+  const b = new Ledger(path, PAYER_ADDRESS, 30_000n, { lock: true });
+  b.release();
+  b.release(); // idempotent
+});
+
+test("ledger lock: released when the ledger fails to load", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "tempo-lock-")), "ledger.json");
+  writeFileSync(path, JSON.stringify({ version: 1, payer: OTHER, capAtomic: "1", entries: [] }));
+  assert.throws(() => new Ledger(path, PAYER_ADDRESS, 30_000n, { lock: true }), /payer differs/);
+  assert.ok(!existsSync(`${path}.lock`));
+});
+
+// ---------- review W3: key file errors do not echo the file ----------
+
+test("loadSigner: an unreadable key file fails with a fixed message that does not quote it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tempo-key-"));
+  const file = join(dir, "evm.json");
+  const secretish = "0xdeadbeef-not-json-SECRET";
+  writeFileSync(file, `{"privateKey": ${secretish}`);
+  assert.throws(
+    () => loadSigner(file),
+    (e: Error) => /unreadable key file/.test(e.message) && !e.message.includes("SECRET") && !e.message.includes("deadbeef"),
+  );
+  assert.throws(() => loadSigner(join(dir, "missing.json")), /unreadable key file/);
 });

@@ -5,7 +5,7 @@
  * Counted against the caps: every entry that is not `refused_before_sign`.
  * A `reserved` entry that never got an outcome stays counted (fail closed).
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   DEFAULT_TOTAL_CAP_ATOMIC,
@@ -50,17 +50,54 @@ export class Ledger {
   readonly cap: bigint;
   private data: LedgerFile;
 
-  constructor(path: string | null, payer: string, capAtomic: bigint = DEFAULT_TOTAL_CAP_ATOMIC) {
+  private lockPath: string | null = null;
+
+  /**
+   * `lock: true` takes `<path>.lock` exclusively (O_EXCL) so two --pay processes cannot share a
+   * ledger. A leftover lock (crash) is never broken automatically: remove it by hand after checking
+   * the ledger and the chain.
+   */
+  constructor(path: string | null, payer: string, capAtomic: bigint = DEFAULT_TOTAL_CAP_ATOMIC, opts: { lock?: boolean } = {}) {
     if (capAtomic <= 0n || capAtomic > MAX_TOTAL_ATOMIC) throw new Error(`cap ${capAtomic} outside (0, ${MAX_TOTAL_ATOMIC}]`);
     this.path = path;
     this.cap = capAtomic;
     this.data = { version: 1, payer, capAtomic: capAtomic.toString(), entries: [] };
-    if (path && existsSync(path)) {
-      const raw = JSON.parse(readFileSync(path, "utf8")) as LedgerFile;
-      if (raw.version !== 1 || !Array.isArray(raw.entries)) throw new Error("ledger: unexpected shape");
-      if (raw.payer.toLowerCase() !== payer.toLowerCase()) throw new Error("ledger: payer differs from this run");
-      this.data = { ...raw, capAtomic: capAtomic.toString() };
+    if (opts.lock) {
+      if (!path) throw new Error("ledger: a lock needs a ledger path");
+      mkdirSync(dirname(path), { recursive: true });
+      const lp = `${path}.lock`;
+      let fd: number;
+      try {
+        fd = openSync(lp, "wx");
+      } catch {
+        throw new Error(`ledger: ${lp} exists; another --pay run holds this ledger (or one crashed). Check, then delete the lock.`);
+      }
+      writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
+      closeSync(fd);
+      this.lockPath = lp;
     }
+    try {
+      if (path && existsSync(path)) {
+        const raw = JSON.parse(readFileSync(path, "utf8")) as LedgerFile;
+        if (raw.version !== 1 || !Array.isArray(raw.entries)) throw new Error("ledger: unexpected shape");
+        if (raw.payer.toLowerCase() !== payer.toLowerCase()) throw new Error("ledger: payer differs from this run");
+        this.data = { ...raw, capAtomic: capAtomic.toString() };
+      }
+    } catch (e) {
+      this.release();
+      throw e;
+    }
+  }
+
+  /** Drop the lock taken by `lock: true`. Safe to call more than once. */
+  release(): void {
+    if (!this.lockPath) return;
+    try {
+      unlinkSync(this.lockPath);
+    } catch {
+      // already gone
+    }
+    this.lockPath = null;
   }
 
   entries(): readonly LedgerEntry[] {

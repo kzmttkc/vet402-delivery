@@ -39,6 +39,8 @@ export interface PayOutcome {
   txHashSource?: "payment_receipt" | "signed_tx" | null;
   settled?: boolean | null;
   delivered?: boolean | null;
+  /** USDC.e (atomic) the payer paid as fee in this tx, read back from the chain. */
+  feePaid?: string | null;
   bodySha256?: string | null;
   bodyBytes?: number | null;
   contentType?: string | null;
@@ -95,6 +97,11 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
 
   // 4. reserve (persisted before signing)
   const spent = await deps.chainSpent();
+  // More USDC.e left the payer on chain than the ledger accounts for: the ledger is lost, stale,
+  // or someone else spends from this key. Nothing more is signed until a human looks.
+  const committed = ledger.committed();
+  if (spent > committed)
+    return refused(id, { refused: "chain_spend_exceeds_ledger", detail: `on-chain outflow ${spent} > ledger ${committed}` });
   const r = ledger.reserve({ key: id, url: entry.request.url, recipient, amount, sponsored }, spent, now());
   if ("refused" in r) return refused(id, r);
 
@@ -166,6 +173,7 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
       txHashSource,
       settled,
       delivered,
+      feePaid: settlement?.feePaid ?? null,
       bodySha256: buf ? createHash("sha256").update(buf).digest("hex") : null,
       bodyBytes: buf ? buf.length : null,
       contentType: res.headers.get("content-type"),
@@ -177,6 +185,43 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
     ledger.update(id, { status: "unknown", note: `after send: ${detail}` });
     return { serviceId: id, result: "unknown", detail, latencyMs: Date.now() - t0 };
   }
+}
+
+/**
+ * Whether the whole --pay run must stop after this outcome (review B1). Any sign that the money
+ * path is not behaving as checked stops everything; a human looks before the next purchase.
+ *   tx_check_failed            mppx produced a transaction other than the approved transfer
+ *   chain_spend_exceeds_ledger more left the payer on chain than the ledger accounts for
+ *   total_cap_reached / insufficient_balance   nothing further can be bought anyway
+ *   result "unknown"           a credential left the process and the outcome was not recorded
+ *   settled === false          a sent credential did not produce the expected on-chain transfer
+ *   feePaid > FEE_RESERVE      the fee is larger than the budget reserves for it
+ */
+export function stopReason(o: PayOutcome): string | null {
+  const r = o.refusal?.refused;
+  if (r === "tx_check_failed" || r === "chain_spend_exceeds_ledger" || r === "total_cap_reached" || r === "insufficient_balance")
+    return r;
+  if (o.result === "unknown") return "outcome_unknown";
+  if (o.result === "sent" && o.settled === false) return "not_settled";
+  if (o.feePaid && /^\d+$/.test(o.feePaid) && BigInt(o.feePaid) > FEE_RESERVE_ATOMIC) return "fee_over_reserve";
+  return null;
+}
+
+/** Pay each entry in order; stop at the first outcome `stopReason` flags. */
+export async function runPlan(
+  plan: readonly PlanEntry[],
+  deps: PayDeps,
+  onOutcome: (entry: PlanEntry, o: PayOutcome) => void = () => undefined,
+): Promise<{ outcomes: PayOutcome[]; stopped: { serviceId: string; reason: string } | null }> {
+  const outcomes: PayOutcome[] = [];
+  for (const entry of plan) {
+    const o = await payOne(entry, deps);
+    outcomes.push(o);
+    onOutcome(entry, o);
+    const reason = stopReason(o);
+    if (reason) return { outcomes, stopped: { serviceId: entry.serviceId, reason } };
+  }
+  return { outcomes, stopped: null };
 }
 
 /**

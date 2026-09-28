@@ -143,3 +143,11 @@ mppx in pull mode (the tx stays in the process); decode the signed tx and requir
 `transfer`/`transferWithMemo` of that amount to that recipient, signed by the payer, on 4217, fee in
 USDC.e; only then send the paid request (redirects refused, 90 s timeout); re-read the receipt on
 chain; record settled and delivered separately with the tx hash.
+
+The run stops (exit code 2, nothing further signed) on: `tx_check_failed`,
+`chain_spend_exceeds_ledger` (on-chain USDC.e outflow since block 41,600,000 > ledger committed),
+`total_cap_reached`, `insufficient_balance`, an `unknown` outcome, `settled === false`, or a fee
+above the 0.002 reserve. Per-seller refusals (recipient or price changed, unpaid 4xx) do not stop it.
+The ledger is locked with `<ledger>.lock` (O_EXCL) for the run; a leftover lock is removed by hand.
+Because the outflow counts every purchase since block 41,600,000, the ledger that recorded those
+purchases must be the one passed with `--ledger`; a fresh ledger stops at the first entry.
