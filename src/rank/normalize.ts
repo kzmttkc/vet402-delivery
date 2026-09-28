@@ -152,7 +152,7 @@ export function normalizeAlgorand(json: unknown, source: string): Attempt[] {
         declaredMatch = false;
       } else if (reason === "http_error") category = "settled_error_status";
       else if (reason === "payment_failed") {
-        // vet402-algorand 3db3e6e (README, Corrections): vet402's transfer settled on chain, the facilitator's
+        // vet402-algorand 127addc (README, Corrections): vet402's transfer settled on chain, the facilitator's
         // own submit then failed with "already in ledger", and the seller answered 402 and delivered nothing.
         category = "settled_error_status";
         httpStatus = statusIn(optStr(row, "detail")) ?? d.status;

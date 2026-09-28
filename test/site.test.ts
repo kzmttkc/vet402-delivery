@@ -204,7 +204,7 @@ test("site/: the pages' own wording has no we/us/our, no Japanese, no em dash", 
   assert.ok(!/\b(we|us|our)\b/i.test(readme) && !readme.includes("—"), "src/rank/README.md");
 });
 
-test("algorand correction (vet402-algorand 3db3e6e): paid on chain, answered 402, delivered nothing counts on the seller side", () => {
+test("algorand correction (vet402-algorand 127addc): paid on chain, answered 402, delivered nothing counts on the seller side", () => {
   const tx = "E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6ZILCA7YDAHPU5WKSTA";
   const [a] = normalizeAlgorand(
     {

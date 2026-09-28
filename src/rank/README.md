@@ -43,14 +43,14 @@ built only from ids that match the chain's format.
 
 | path | copy of |
 |---|---|
-| `algorand/census-2026-09-27.json`, `census-2026-09-28.json` | `kzmttkc/vet402-algorand` `board/` at main 1d81ebc (includes the 6-row correction of 3db3e6e) |
+| `algorand/census-2026-09-27.json`, `census-2026-09-28.json` | `kzmttkc/vet402-algorand` `board/` at main 20857e6 (includes the 6-row correction of 127addc) |
 | `solana/census-2026-09-28.json`, `gate1-2026-09-29.json` | the Solana census and gate1 result files |
 | `tempo/ledger.json`, `run-log.txt`, `census-plan-2026-09-28.json` | the Tempo ledger, run log and census plan; the manifest keeps the log's write time (`loggedAt`) because its refusal lines carry no time |
 | `base/purchases.jsonl`, `feedback-ledger.json` | the Base purchases and ERC-8004 feedback ledger |
 | `cdp/discovery-2026-09-28.json` | CDP Bazaar discovery, reduced to `resource` and three `quality` fields per item (the only fields the comparison reads), with the sha256 of each of the 18 raw pages |
 
 Payer addresses, payTo addresses and tx ids are public on-chain and stay in. The files hold no keys.
-`vet402-algorand` commit 3db3e6e records 6 rows of gateway-x402.vercel.app ("already in ledger") as paid
+`vet402-algorand` commit 127addc records 6 rows of gateway-x402.vercel.app ("already in ledger") as paid
 (`paid: true` with `payment_failed`, see Corrections in the vet402-algorand README). They are read as
 settled with a 402 answer and count on the seller side (rule `settled_not_delivered`).
 
