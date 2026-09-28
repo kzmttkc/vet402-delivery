@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vet402.com/schemas/x402-observation-v0.json",
+  "title": "x402-observation/v0",
+  "description": "A buyer-side observer's signed record of one paid x402/MPP call. Facts only; hashes only, no body. Payment names from x402, response hash names from x402 PR #3186, request hash names from x402 issue #2833.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "version", "id", "observer", "issuedAt", "verdict", "resourceUrl", "payment", "request", "response", "offer", "sellerReceipt", "scope", "notRecorded", "source", "contact", "anchor", "corrections", "signature"],
+  "properties": {
+    "type": { "const": "x402-observation" },
+    "version": { "const": 0 },
+    "id": { "type": "string", "pattern": "^obs_\\d{4}-\\d{2}-\\d{2}_\\d{6}$" },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "address", "sequence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^did:web:" },
+        "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+        "sequence": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "issuedAt": { "type": "integer", "minimum": 0 },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "reason", "recheck", "checks"],
+      "properties": {
+        "code": { "enum": ["DELIVERED", "MISMATCH", "NOT_DELIVERED", "UNCLEAR"] },
+        "reason": { "type": "string" },
+        "recheck": { "type": ["string", "null"] },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["paymentSettled", "httpStatus", "bodyNonEmpty", "declaredFormatMatched", "sellerReceiptValid", "responseHashMatchesSeller"],
+          "properties": {
+            "paymentSettled": { "type": "boolean" },
+            "httpStatus": { "type": ["integer", "null"] },
+            "bodyNonEmpty": { "type": ["boolean", "null"] },
+            "declaredFormatMatched": { "type": ["boolean", "null"] },
+            "sellerReceiptValid": { "type": ["boolean", "null"] },
+            "responseHashMatchesSeller": { "type": ["boolean", "null"] }
+          }
+        }
+      }
+    },
+    "resourceUrl": { "type": "string", "pattern": "^https?://[^?#]+$" },
+    "payment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "scheme", "transaction", "payer", "payTo", "asset", "amount", "decimals", "assetSymbol", "settledAt"],
+      "properties": {
+        "network": { "type": "string", "pattern": "^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$" },
+        "scheme": { "enum": ["x402-exact", "mpp-charge"] },
+        "transaction": { "type": "string", "minLength": 1 },
+        "payer": { "type": "string", "minLength": 1 },
+        "payTo": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "amount": { "type": "string", "pattern": "^[0-9]+$" },
+        "decimals": { "type": "integer", "minimum": 0 },
+        "assetSymbol": { "type": "string" },
+        "settledAt": { "type": ["string", "null"] }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url_hash", "params_hash", "params_salted", "ts"],
+      "properties": {
+        "method": { "type": ["string", "null"] },
+        "url_hash": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+        "params_hash": { "type": ["string", "null"], "pattern": "^0x[0-9a-f]{64}$" },
+        "params_salted": { "type": "boolean" },
+        "ts": { "type": ["string", "null"] }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "responseHash", "responseHashAlg", "responseHashEncoding", "responseHashNote", "contentType", "bytes", "receivedAt", "latencyMs"],
+      "properties": {
+        "status": { "type": ["integer", "null"] },
+        "responseHash": { "type": ["string", "null"], "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "responseHashAlg": { "enum": ["sha256", null] },
+        "responseHashEncoding": { "enum": ["raw", "jcs", null] },
+        "responseHashNote": { "type": ["string", "null"] },
+        "contentType": { "type": ["string", "null"] },
+        "bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "receivedAt": { "type": ["string", "null"] },
+        "latencyMs": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "offer": { "$ref": "#/$defs/signedArtifactOrNull" },
+    "sellerReceipt": { "$ref": "#/$defs/signedArtifactOrNull" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proves", "doesNotProve", "vantage", "text"],
+      "properties": {
+        "proves": { "type": "array", "items": { "type": "string" } },
+        "doesNotProve": { "type": "array", "items": { "type": "string" } },
+        "vantage": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "notRecorded": { "type": "array", "items": { "type": "string" } },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset", "row"],
+      "properties": { "dataset": { "type": "string" }, "row": { "type": "string" } }
+    },
+    "contact": { "type": "string" },
+    "anchor": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["status", "day", "network", "tx", "root", "leafIndex", "proof", "count", "sequenceRange", "observerAddress", "anchoredAt"],
+      "properties": {
+        "status": { "enum": ["pending", "anchored"] },
+        "day": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "network": { "type": "string" },
+        "tx": { "type": ["string", "null"] },
+        "root": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+        "leafIndex": { "type": "integer", "minimum": 0 },
+        "proof": { "type": "array", "items": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" } },
+        "count": { "type": "integer", "minimum": 1 },
+        "sequenceRange": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+        "observerAddress": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+        "anchoredAt": { "type": ["string", "null"] }
+      }
+    },
+    "corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "kind", "by", "text", "ref"],
+        "properties": {
+          "at": { "type": "string" },
+          "kind": { "enum": ["seller-receipt", "seller-note", "recheck", "retraction"] },
+          "by": { "type": "string" },
+          "text": { "type": "string" },
+          "ref": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "signature": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["format", "signature"],
+      "properties": {
+        "format": { "const": "eip712" },
+        "signature": { "type": "string", "pattern": "^0x[0-9a-fA-F]{130}$" }
+      }
+    }
+  },
+  "$defs": {
+    "signedArtifactOrNull": {
+      "type": ["object", "null"],
+      "required": ["format", "signature"],
+      "properties": {
+        "format": { "enum": ["eip712", "jws"] },
+        "payload": { "type": "object" },
+        "signature": { "type": "string" }
+      }
+    }
+  }
+}
