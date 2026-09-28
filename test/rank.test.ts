@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { classifyFailure, FAULT_RULES } from "../src/rank/classify.js";
 import { cdpByHost, compareWithCatalog, spearman } from "../src/rank/compare.js";
-import { escapeHtml, renderHtml, txHtml, txUrl } from "../src/rank/html.js";
+import { appealUrl, escapeHtml, renderSite, sellerSlugs, txHtml, txUrl } from "../src/rank/html.js";
+import { SellerPacer } from "../src/measure.js";
+import { MEASURE_MAX_PER_SELLER } from "../src/constants.js";
 import {
   normalizeAlgorand,
   normalizeBase,
@@ -11,7 +15,7 @@ import {
   parseTempoRunLog,
 } from "../src/rank/normalize.js";
 import { buildReport } from "../src/rank/report.js";
-import { aggregate, rank, wilsonLower } from "../src/rank/score.js";
+import { aggregate, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 
 const ALGO_TX = "KXCP3MI7BZWZ2EYQLEC7BJUIQEORE43I35W7QOD6XT7Q4QQSNNEA";
@@ -31,31 +35,34 @@ test("algorand: verdicts map to categories; only committed payments are tried", 
     {
       mode: "census",
       rows: [
-        algoRow({ verdict: "ALLOW", reason: "delivered", paid: true, tx: ALGO_TX }),
-        algoRow({ verdict: "REFUSE", reason: "delivery_missing_keys", paid: true, tx: ALGO_TX, delivery: "200 object{}" }),
-        algoRow({ verdict: "REFUSE", reason: "http_error", paid: true, tx: ALGO_TX }),
-        algoRow({ verdict: "REFUSE", reason: "payment_failed", paid: false, detail: "status 400, no settlement receipt" }),
+        algoRow({ verdict: "ALLOW", reason: "delivered", paid: true, tx: ALGO_TX, declared: { expectedKeys: ["a"] }, delivery: "200 application/json object{a:string}" }),
+        algoRow({ verdict: "REFUSE", reason: "delivery_missing_keys", paid: true, tx: ALGO_TX, declared: { expectedKeys: ["a"] }, delivery: "200 application/json; charset=utf-8 object{b:string}" }),
+        algoRow({ verdict: "REFUSE", reason: "http_error", paid: true, tx: ALGO_TX, delivery: "400 application/json; charset=utf-8 status 400" }),
+        algoRow({ verdict: "REFUSE", reason: "payment_failed", paid: false, detail: "status 429, no settlement receipt" }),
         algoRow({ verdict: "REFUSE", reason: "not_x402", paid: false }),
         algoRow({ verdict: "REFUSE", reason: "price_over_cap", paid: false }),
+        algoRow({ verdict: "REFUSE", reason: "not_json", paid: true, tx: ALGO_TX, delivery: "200 image/png content-type image/png, 0 bytes: " }),
+        algoRow({ verdict: "ALLOW", reason: "delivered", paid: true, tx: ALGO_TX, declared: { expectedKeys: [] }, delivery: "200 application/json object{}" }),
       ],
     },
     "algorand/t",
   );
   assert.deepEqual(
-    rows.map((r) => [r.category, r.tried, r.settled, r.delivered]),
+    rows.map((r) => [r.category, r.tried, r.settled, r.delivered, r.declaredMatch, r.httpStatus]),
     [
-      ["delivered", true, true, true],
-      ["settled_bad_content", true, true, false],
-      ["settled_error_status", true, true, false],
-      ["not_settled", true, false, false],
-      ["not_payable", false, null, false],
-      ["vet402_skipped", false, null, false],
+      ["delivered", true, true, true, true, 200],
+      ["delivered", true, true, true, false, 200], // 2xx with a body arrives; key mismatch is a separate column
+      ["settled_error_status", true, true, false, null, 400],
+      ["not_settled", true, false, false, null, 429],
+      ["not_payable", false, null, false, null, null],
+      ["vet402_skipped", false, null, false, null, null],
+      ["settled_empty_body", true, true, false, false, 200],
+      ["delivered", true, true, true, null, 200], // nothing declared: not checked
     ],
   );
   assert.equal(rows[0]!.host, "a.example");
   assert.equal(rows[0]!.tx, ALGO_TX);
-  assert.equal(rows[1]!.detail, "200 object{}");
-  assert.equal(rows[0]!.deliveryCheck, "declared_keys");
+  assert.equal(rows[1]!.detail, "200 application/json; charset=utf-8 object{b:string}");
 });
 
 test("algorand: an unknown reason fails loud instead of being dropped", () => {
@@ -71,8 +78,8 @@ test("solana census: status/category map; refused rows are not tried", () => {
       kind: "census-live",
       rows: [
         { ...base, status: "delivered", settled: true, delivered: true, reason: "delivered", category: null, signature: SOL_SIG },
-        { ...base, status: "settled_not_delivered", settled: true, delivered: false, reason: "delivery_missing_keys", category: "missing_keys", signature: SOL_SIG },
-        { ...base, status: "settled_not_delivered", settled: true, delivered: false, reason: "http_error", category: "server_error_paid", signature: SOL_SIG },
+        { ...base, status: "settled_not_delivered", settled: true, delivered: false, reason: "delivery_missing_keys", category: "missing_keys", signature: SOL_SIG, httpStatus: 200, first300: '{"x":1}', declared: { outputExample: { y: 1 } } },
+        { ...base, status: "settled_not_delivered", settled: true, delivered: false, reason: "http_error", category: "server_error_paid", signature: SOL_SIG, httpStatus: 500 },
         { ...base, status: "not_settled", settled: false, delivered: false, reason: "payment_failed", category: "payment_refused", signature: null },
         { ...base, status: "refused", settled: false, delivered: false, reason: "not_x402", category: "rate_limited", signature: null },
       ],
@@ -81,8 +88,11 @@ test("solana census: status/category map; refused rows are not tried", () => {
   );
   assert.deepEqual(
     rows.map((r) => r.category),
-    ["delivered", "settled_bad_content", "settled_error_status", "not_settled", "not_payable"],
+    ["delivered", "delivered", "settled_error_status", "not_settled", "not_payable"],
   );
+  assert.equal(rows[0]!.declaredMatch, null, "nothing declared: not checked");
+  assert.equal(rows[1]!.declaredMatch, false);
+  assert.equal(rows[2]!.httpStatus, 500);
   assert.equal(rows[4]!.tried, false);
   assert.equal(rows[4]!.settled, null);
 });
@@ -102,7 +112,7 @@ test("solana gate1: sent and refused records", () => {
   );
   assert.deepEqual(rows.map((r) => [r.category, r.tried, r.payTo]), [["not_payable", false, null], ["delivered", true, "P1"], ["not_settled", true, "P1"]]);
   assert.equal(rows[1]!.at, "2026-09-28T06:52:30.661Z");
-  assert.equal(rows[1]!.deliveryCheck, "http_2xx");
+  assert.equal(rows[2]!.httpStatus, 402);
 });
 
 test("tempo: ledger rows and run-log payTo refusals", () => {
@@ -119,6 +129,7 @@ test("tempo: ledger rows and run-log payTo refusals", () => {
     "tempo/t",
   );
   assert.deepEqual(rows.map((r) => r.category), ["delivered", "settled_error_status", "unconfirmed_server_error", "not_settled"]);
+  assert.equal(rows[0]!.bodyChecked, false, "the Tempo runner keeps no body");
   assert.equal(rows[0]!.priceUsdc, "0.008000");
   assert.equal(rows[0]!.service, "svc");
 
@@ -178,40 +189,174 @@ function att(over: Partial<Attempt>): Attempt {
     detail: null,
     tx: SOL_SIG,
     priceUsdc: "0.001000",
-    deliveryCheck: "http_2xx",
+    httpStatus: 200,
+    declaredMatch: null,
+    bodyChecked: true,
     feedbackTx: null,
     ...over,
   };
 }
-const fail = (over: Partial<Attempt>) => att({ delivered: false, category: "not_settled", settled: false, tx: null, rawReason: "payment_failed", ...over });
+/** A seller-side failure: paid, settled, then 500. */
+const fail = (over: Partial<Attempt>) => att({ delivered: false, category: "settled_error_status", settled: true, httpStatus: 500, rawReason: "http_error", ...over });
+/** A vet402-side failure: 429 during a burst, nothing settled. */
+const burst = (over: Partial<Attempt>) => att({ delivered: false, category: "not_settled", settled: false, tx: null, httpStatus: 429, rawReason: "payment_failed", detail: "status 429, no settlement receipt", ...over });
+const DAY1 = "2026-09-27T04:00:00.000Z";
+const DAY2 = "2026-09-28T04:00:00.000Z";
+/** n rows for one host, alternating across two days. */
+const series = (host: string, ok: number, bad: number, days = [DAY1, DAY2]): Attempt[] =>
+  Array.from({ length: ok + bad }, (_, i) => (i < ok ? att : fail)({ host, at: days[i % days.length]! }));
 
-test("rank: sample size matters; one lucky try does not beat a long record", () => {
-  const rows: Attempt[] = [
-    att({ host: "one.example" }),
-    ...Array.from({ length: 20 }, (_, i) => (i < 18 ? att({ host: "many.example" }) : fail({ host: "many.example" }))),
-    ...Array.from({ length: 5 }, () => fail({ host: "never.example" })),
-    att({ host: "skipped.example", tried: false, delivered: false, category: "not_payable", settled: null }),
+// ---------- classification (rule 1) ----------
+
+test("classify: each reason goes to the fault the method page promises", () => {
+  const nf = (over: Partial<Attempt>) => att({ delivered: false, category: "not_settled", settled: false, tx: null, rawReason: "payment_failed", httpStatus: null, ...over });
+  const cases: [Attempt, string, string][] = [
+    [fail({}), "seller", "paid_not_delivered"],
+    [att({ delivered: false, category: "settled_empty_body", settled: true }), "seller", "paid_not_delivered"],
+    [nf({ detail: "status 429, no settlement receipt" }), "vet402_or_facilitator", "rate_limited_429"],
+    [nf({ httpStatus: 429 }), "vet402_or_facilitator", "rate_limited_429"],
+    [nf({ detail: "status 402, subcent_quota_exceeded" }), "vet402_or_facilitator", "subcent_quota"],
+    [nf({ detail: 'status 402, {"error":"Payment rejected (invalid_exact_svm_transaction_simulation_failed): Simulation failed: \\"BlockhashNotFound\\""}' }), "vet402_or_facilitator", "payment_tx_rejected"],
+    [nf({ detail: "status 402, Transaction simulation failed: transaction already in ledger: X" }), "vet402_or_facilitator", "payment_tx_rejected"],
+    [nf({ detail: "status 402, Transaction T submitted but not confirmed: Transaction Rejected: txn dead: round 2 outside of 1--1" }), "vet402_or_facilitator", "payment_tx_rejected"],
+    [nf({ detail: "status 503, no settlement receipt" }), "seller", "server_error_5xx"],
+    [nf({ category: "unconfirmed_server_error", settled: null, rawReason: "http 502" }), "seller", "server_error_5xx"],
+    [nf({ detail: "The operation was aborted due to timeout" }), "unknown", "timeout"],
+    [nf({ detail: "status 400, no settlement receipt" }), "unknown", "request_rejected_4xx"],
+    [nf({ rawReason: "http_error/example_rejected", httpStatus: 404 }), "unknown", "request_rejected_4xx"],
+    [nf({ detail: "status 402, {}" }), "unknown", "payment_not_accepted_402"],
+    [nf({ detail: "status 200, no settlement receipt" }), "unknown", "answer_without_settlement"],
+    [nf({ rawReason: "sent/http ?", detail: null }), "unknown", "unclassified"],
   ];
-  const ranked = rank(aggregate(rows));
-  assert.deepEqual(ranked.map((s) => s.key), ["many.example", "one.example", "never.example"]);
-  assert.equal(ranked[0]!.delivered, 18);
-  assert.equal(ranked[0]!.tried, 20);
-  assert.equal(ranked[2]!.wilsonLower, 0);
-  assert.ok(!ranked.some((s) => s.key === "skipped.example"), "a seller with no tried purchase is not ranked");
+  for (const [a, fault, rule] of cases) assert.deepEqual(classifyFailure(a), { fault, rule }, `${a.rawReason} ${a.detail}`);
+  assert.throws(() => classifyFailure(att({})), /only tried, not delivered/);
 });
 
-test("rank: non-tried rows never move the score", () => {
-  const base = [att({}), fail({})];
-  const withNoise = [...base, ...Array.from({ length: 50 }, () => att({ tried: false, delivered: false, category: "vet402_skipped", settled: null }))];
-  const a = aggregate(base)[0]!;
-  const b = aggregate(withNoise)[0]!;
-  assert.equal(a.wilsonLower, b.wilsonLower);
-  assert.equal(b.notTried.vet402_skipped, 50);
+test("classify: a 429 after settlement is still the seller's (money moved, nothing came back)", () => {
+  assert.equal(classifyFailure(fail({ httpStatus: 429 })).fault, "seller");
 });
 
-test("rank: ties share a rank", () => {
-  const ranked = rank(aggregate([att({ host: "a.example" }), att({ host: "b.example" }), fail({ host: "c.example" })]));
-  assert.deepEqual(ranked.map((s) => s.rank), [1, 1, 3]);
+test("classify: README lists every rule with its fault, in order", () => {
+  const readme = readFileSync(new URL("../src/rank/README.md", import.meta.url), "utf8");
+  let from = 0;
+  for (const r of FAULT_RULES) {
+    const line = `| \`${r.id}\` | ${r.fault} |`;
+    const at = readme.indexOf(line, from);
+    assert.ok(at >= 0, `README is missing or out of order: ${line}`);
+    from = at + line.length;
+  }
+});
+
+test("aggregate: only seller-side failures enter the grade; others are counts", () => {
+  const rows = [...series("s.example", 20, 0), ...Array.from({ length: 500 }, () => burst({ host: "s.example" })), att({ host: "s.example", delivered: false, category: "not_settled", settled: false, tx: null, httpStatus: 400, rawReason: "payment_failed" })];
+  const s = aggregate(rows)[0]!;
+  assert.equal(s.tried, 521);
+  assert.equal(s.counted, 20);
+  assert.equal(s.delivered, 20);
+  assert.deepEqual(s.excluded, { vet402_or_facilitator: 500, unknown: 1 });
+  assert.equal(s.failuresByRule.rate_limited_429, 500);
+  assert.equal(s.wilsonLower, wilsonLower(20, 20), "excluded failures do not move the score");
+  assert.equal(s.sellerFailures.length, 0);
+});
+
+test("aggregate: declared match is its own column and never changes delivery", () => {
+  const s = aggregate([att({ declaredMatch: true }), att({ declaredMatch: false }), att({ declaredMatch: null })])[0]!;
+  assert.equal(s.delivered, 3);
+  assert.deepEqual(s.declared, { checked: 2, matched: 1 });
+});
+
+// ---------- rank numbers (rule 3) ----------
+
+test("rank number: needs 10 counted purchases on 2+ different days", () => {
+  assert.equal(MIN_COUNTED, 10);
+  assert.equal(MIN_DAYS, 2);
+  assert.equal(qualifies(10, 2), true);
+  assert.equal(qualifies(9, 5), false);
+  assert.equal(qualifies(500, 1), false);
+  const ranked = rank(
+    aggregate([
+      ...series("ten-two-days.example", 10, 0),
+      ...series("ten-one-day.example", 10, 0, [DAY1]),
+      ...series("nine-two-days.example", 9, 0),
+      // 10 tries, but one was vet402's 429: 9 counted
+      ...series("burst.example", 9, 0),
+      burst({ host: "burst.example", at: DAY2 }),
+      att({ host: "one.example" }),
+      fail({ host: "one-fail.example" }),
+      att({ host: "skipped.example", tried: false, delivered: false, category: "not_payable", settled: null }),
+    ]),
+  );
+  assert.deepEqual(
+    ranked.map((s) => [s.key, s.rank, s.grade]),
+    [
+      ["ten-two-days.example", 1, "C"],
+      ["burst.example", null, "measuring"],
+      ["nine-two-days.example", null, "measuring"],
+      ["one-fail.example", null, "measuring"],
+      ["one.example", null, "measuring"],
+      ["ten-one-day.example", null, "measuring"],
+    ],
+  );
+  assert.ok(!ranked.some((s) => s.key === "skipped.example"), "a seller with no tried purchase is not listed");
+});
+
+test("rank: order by lower bound among qualified sellers; ties share a number", () => {
+  const ranked = rank(aggregate([...series("a.example", 40, 0), ...series("b.example", 40, 0), ...series("c.example", 18, 2), ...series("d.example", 12, 0)]));
+  assert.deepEqual(
+    ranked.map((s) => [s.key, s.rank]),
+    [
+      ["a.example", 1],
+      ["b.example", 1],
+      ["d.example", 3],
+      ["c.example", 4],
+    ],
+  );
+});
+
+// ---------- marks (rule 4) ----------
+
+test("wilsonUpper: known values", () => {
+  assert.equal(wilsonUpper(0, 0), 1);
+  assert.ok(Math.abs(wilsonUpper(0, 1) - 0.7935) < 1e-3, "one failure alone cannot be called bad");
+  assert.ok(Math.abs(wilsonUpper(0, 10) - 0.2775) < 1e-3);
+  assert.ok(Math.abs(wilsonUpper(10, 10) - 1) < 1e-9);
+});
+
+test("grades: good marks by the lower bound, D only by the upper bound", () => {
+  assert.equal(gradeFor(35, 35, 2), "A"); // lower 0.901
+  assert.equal(gradeFor(34, 34, 2), "B"); // lower 0.898
+  assert.equal(gradeFor(10, 10, 2), "C"); // lower 0.722: all delivered is not enough evidence for B
+  assert.equal(gradeFor(8, 10, 2), "undecided"); // lower 0.490, upper 0.943
+  assert.equal(gradeFor(4, 10, 2), "undecided", "a 40% rate is not a D while the upper bound is 0.69");
+  assert.equal(gradeFor(1, 10, 2), "D"); // upper 0.404
+  assert.equal(gradeFor(0, 10, 2), "D");
+  assert.equal(gradeFor(0, 1, 1), "measuring");
+  assert.equal(gradeFor(0, 9, 2), "measuring");
+  for (let n = MIN_COUNTED; n <= 60; n++)
+    for (let k = 0; k <= n; k++) {
+      const g = gradeFor(k, n, 2);
+      if (g === "D") assert.ok(wilsonUpper(k, n) < 0.5, `D at ${k}/${n}`);
+      if (g === "A") assert.ok(wilsonLower(k, n) >= 0.9, `A at ${k}/${n}`);
+      if (g === "B") assert.ok(wilsonLower(k, n) >= 0.75, `B at ${k}/${n}`);
+      if (g === "C") assert.ok(wilsonLower(k, n) >= 0.5, `C at ${k}/${n}`);
+    }
+});
+
+// ---------- measurement pacing (rule 2) ----------
+
+test("pacer: at most 5 per seller per run, spaced apart; other sellers are independent", () => {
+  assert.equal(MEASURE_MAX_PER_SELLER, 5);
+  let now = 0;
+  const p = new SellerPacer(5, 60_000, () => now);
+  for (let i = 0; i < 5; i++) {
+    assert.equal(p.waitMs("s"), 0);
+    p.record("s");
+    assert.equal(p.waitMs("s"), i < 4 ? 60_000 : null);
+    assert.throws(() => p.record("s"), /not due/);
+    assert.equal(p.waitMs("other"), 0);
+    now += 60_000;
+  }
+  assert.equal(p.waitMs("s"), null, "sixth purchase from the same seller is refused");
 });
 
 test("payTo: change on the same chain and URL is flagged; one recipient per chain is not", () => {
@@ -263,8 +408,8 @@ test("cdpByHost sums calls per host and ignores bad items", () => {
 
 test("compareWithCatalog: counts high-but-never-delivered and low-but-always-delivered", () => {
   const rows: Attempt[] = [
-    fail({ host: "popular-broken.example" }),
-    att({ host: "popular-broken2.example", delivered: false, category: "settled_bad_content", settled: true, tx: SOL_SIG }),
+    fail({ host: "popular-broken.example", settled: null, category: "unconfirmed_server_error", tx: null, httpStatus: 503 }),
+    att({ host: "popular-broken2.example", delivered: false, category: "settled_error_status", settled: true, httpStatus: 500, tx: SOL_SIG }),
     att({ host: "popular-good.example" }),
     att({ host: "quiet-good.example" }),
     fail({ host: "quiet-broken.example" }),
@@ -316,12 +461,15 @@ test("txUrl: only well-formed ids become links, onto fixed explorers", () => {
   assert.ok(!html.includes("href"), "malformed tx is text, not a link");
 });
 
-test("renderHtml: seller-controlled strings cannot inject markup", () => {
+test("renderSite: seller-controlled strings cannot inject markup on any page", () => {
   const evil = `<script>alert(1)</script>`;
   const evilHost = `evil.example"><img src=x onerror=alert(1)>`;
   const rows: Attempt[] = [
-    att({ host: evilHost, url: `https://evil.example/${evil}`, payTo: `P1${evil}`, at: "2026-09-27T00:00:00.000Z" }),
-    fail({ host: evilHost, url: `https://evil.example/${evil}`, payTo: `P2'${evil}`, rawReason: evil, detail: `{"error":"${evil}"}`, tx: `x${evil}`, at: "2026-09-28T00:00:00.000Z" }),
+    ...series(evilHost, 10, 0).map((a) => ({ ...a, url: `https://evil.example/${evil}`, payTo: `P1${evil}` })),
+    fail({ host: evilHost, url: `https://evil.example/${evil}`, payTo: `P2'${evil}`, rawReason: evil, detail: `{"error":"${evil}"}`, tx: `x${evil}`, at: DAY2 }),
+    burst({ host: evilHost, detail: `status 429 ${evil}` }),
+    att({ chain: "tempo", host: "proxy.example", service: `../../${evil}`, at: DAY1 }),
+    att({ chain: "tempo", host: "proxy.example", service: "s2", at: DAY1 }),
   ];
   const report = buildReport({
     date: "2026-09-28",
@@ -332,11 +480,46 @@ test("renderHtml: seller-controlled strings cannot inject markup", () => {
     mercator: null,
     inputs: [{ label: evil, location: evil, sha256: "0".repeat(64) }],
   });
-  const html = renderHtml(report);
-  assert.ok(!html.includes("<script"), "no script tag survives");
-  assert.ok(!html.includes("<img"), "no img tag survives");
-  assert.ok(!html.includes('"><img'), "attribute breakout is escaped");
-  assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
-  assert.ok(html.includes("script-src 'none'"), "CSP forbids scripts as a second line");
-  assert.ok(html.includes('name="viewport"'), "phone-width viewport");
+  const pages = renderSite(report);
+  assert.ok(pages.has("index.html") && pages.has("method.html"));
+  assert.equal(pages.size, 2 + report.ranking.length, "one page per listed seller");
+  for (const [path, html] of pages) {
+    assert.match(path, /^(index|method)\.html$|^s\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
+    assert.ok(!path.includes(".."), path);
+    assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
+    assert.ok(!html.includes("<img"), `${path}: no img tag survives`);
+    assert.ok(!html.includes('"><img'), `${path}: attribute breakout is escaped`);
+    assert.ok(html.includes("script-src 'none'"), `${path}: CSP forbids scripts as a second line`);
+    assert.ok(html.includes('name="viewport"'), `${path}: phone-width viewport`);
+  }
+  const sellerPage = [...pages].find(([p, h]) => p.startsWith("s/") && h.includes("evil.example&quot;&gt;&lt;img"))!;
+  assert.ok(sellerPage, "seller page shows the escaped host");
+  assert.ok(sellerPage[1].includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+  assert.ok(sellerPage[1].includes("https://github.com/kzmttkc/vet402-algorand/issues/new?title="), "correction link");
+});
+
+test("appeal link and slugs: encoded query on a fixed origin, file names reduced to a safe set", () => {
+  const u = appealUrl(`a.example#"><script>&x=1`, "2026-09-28");
+  assert.ok(u.startsWith("https://github.com/kzmttkc/vet402-algorand/issues/new?title="));
+  assert.ok(!/[<>"# ]/.test(u.slice(u.indexOf("?"))), u);
+  const slugs = sellerSlugs(["a.example", "A.example", "p.example#../../x", ".hidden", "p.example#s/1"]);
+  assert.deepEqual([...slugs.values()], ["a.example", "a.example-2", "p.example_____x", "_hidden", "p.example_s_1"]);
+});
+
+test("index: grade, arrived count and last date per row; measuring rows carry no number", () => {
+  const report = buildReport({
+    date: "2026-09-28",
+    generatedAt: "2026-09-28T00:00:00.000Z",
+    attempts: [...series("good.example", 40, 0), att({ host: "new.example", at: DAY2 })],
+    excludeHosts: [],
+    cdp: null,
+    mercator: null,
+    inputs: [],
+  });
+  const html = renderSite(report).get("index.html")!;
+  assert.ok(html.includes("We buy from each seller with our own money"));
+  assert.ok(html.includes('<span class="rk">1</span><span class="g gA"'), html);
+  assert.ok(html.includes('href="s/good.example.html">good.example</a><span class="num">40/40</span><span class="date">2026-09-28</span>'));
+  assert.ok(html.includes('<span class="rk"></span><span class="g gmeasuring"'), "measuring row has no rank number");
+  assert.ok(html.includes('href="method.html"'), "one link to the method");
 });

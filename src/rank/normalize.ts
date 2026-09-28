@@ -3,8 +3,12 @@
  *
  * Fail loud: an unknown reason string or a missing field throws, so a new failure mode in a runner
  * cannot be silently counted as "delivered" or dropped.
+ *
+ * Delivery is judged here with one test for every chain: settled, then a 2xx answer with a non-empty
+ * body (text.trim() not empty — the same test the Solana gate1 and Base runners use). Whether the answer
+ * matched what the seller declared is kept apart in `declaredMatch` and never changes delivery.
  */
-import { TRIED_CATEGORIES, type Attempt, type Chain, type DeliveryCheck, type ReasonCategory } from "./types.js";
+import { TRIED_CATEGORIES, type Attempt, type Chain, type ReasonCategory } from "./types.js";
 
 type Obj = Record<string, unknown>;
 
@@ -54,14 +58,16 @@ function cut(v: string | null): string | null {
   return v === null ? null : v.length > 200 ? `${v.slice(0, 200)}…` : v;
 }
 
-function make(
-  base: Omit<Attempt, "tried" | "expectedPayTo" | "feedbackTx" | "service" | "detail"> &
-    Partial<Pick<Attempt, "expectedPayTo" | "feedbackTx" | "service" | "detail">>,
-): Attempt {
+type Defaulted = "expectedPayTo" | "feedbackTx" | "service" | "detail" | "httpStatus" | "declaredMatch" | "bodyChecked";
+
+function make(base: Omit<Attempt, "tried" | Defaulted> & Partial<Pick<Attempt, Defaulted>>): Attempt {
   return {
     service: null,
     expectedPayTo: null,
     feedbackTx: null,
+    httpStatus: null,
+    declaredMatch: null,
+    bodyChecked: true,
     ...base,
     detail: cut(base.detail ?? null),
     tried: TRIED_CATEGORIES.has(base.category),
@@ -97,6 +103,25 @@ function unpaidCategory(raw: string, where: string): ReasonCategory {
   throw new Error(`${where}: unknown refusal reason "${raw}"`);
 }
 
+/** "status 429, no settlement receipt" -> 429 */
+function statusIn(text: string | null): number | null {
+  const m = text ? /\bstatus (\d{3})\b/.exec(text) : null;
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * The Algorand runner's `delivery` text: "<status> <content-type> <summary>", e.g.
+ * "200 application/json object{a:string}" or "200 image/png content-type image/png, 15657 bytes: …".
+ * Body is empty when the summary is missing or says 0 bytes.
+ */
+export function parseAlgorandDelivery(delivery: string | null): { status: number | null; body: boolean | null } {
+  if (!delivery) return { status: null, body: null };
+  const m = /^(\d{3})(?:\s+(\S+\/\S+?;\s*charset=\S+|\S+\/\S+))?\s*(.*)$/s.exec(delivery.trim());
+  if (!m) return { status: null, body: null };
+  const summary = (m[3] ?? "").trim();
+  return { status: Number(m[1]), body: summary.length > 0 && !/(^|[\s,])0 bytes\b/.test(summary) };
+}
+
 // ---------- Algorand (vet402-algorand board/census-*.json) ----------
 
 export function normalizeAlgorand(json: unknown, source: string): Attempt[] {
@@ -108,16 +133,28 @@ export function normalizeAlgorand(json: unknown, source: string): Attempt[] {
     const verdict = str(row, "verdict", where);
     const reason = str(row, "reason", where);
     const paid = bool(row, "paid", where);
+    const delivery = optStr(row, "delivery");
+    const d = parseAlgorandDelivery(delivery);
+    const declared = isObj(row.declared) ? row.declared : {};
+    const keysDeclared = Array.isArray(declared.expectedKeys) && declared.expectedKeys.length > 0;
     let category: ReasonCategory;
+    let declaredMatch: boolean | null = null;
+    let httpStatus: number | null = d.status;
     if (verdict === "ALLOW") {
       if (!paid || reason !== "delivered") throw new Error(`${where}: ALLOW without a paid delivery`);
       category = "delivered";
+      declaredMatch = keysDeclared ? true : null;
     } else if (verdict === "REFUSE" && paid) {
-      if (reason === "delivery_missing_keys" || reason === "not_json") category = "settled_bad_content";
-      else if (reason === "http_error") category = "settled_error_status";
+      if (reason === "delivery_missing_keys" || reason === "not_json") {
+        // The runner's stricter check failed; the common test only asks for 2xx and a body.
+        if (!is2xx(d.status)) throw new Error(`${where}: ${reason} without a 2xx delivery line`);
+        category = d.body === false ? "settled_empty_body" : "delivered";
+        declaredMatch = false;
+      } else if (reason === "http_error") category = "settled_error_status";
       else throw new Error(`${where}: unknown paid refusal "${reason}"`);
     } else if (verdict === "REFUSE" || verdict === "UNCLEAR") {
       category = reason === "payment_failed" ? "not_settled" : unpaidCategory(reason, where);
+      if (reason === "payment_failed") httpStatus = statusIn(optStr(row, "detail"));
     } else {
       throw new Error(`${where}: unknown verdict "${verdict}"`);
     }
@@ -132,10 +169,11 @@ export function normalizeAlgorand(json: unknown, source: string): Attempt[] {
       delivered: category === "delivered",
       category,
       rawReason: reason,
-      detail: optStr(row, "detail") ?? optStr(row, "delivery"),
+      detail: optStr(row, "detail") ?? delivery,
       tx: optStr(row, "tx"),
       priceUsdc: optStr(row, "priceUsdc"),
-      deliveryCheck: "declared_keys",
+      httpStatus,
+      declaredMatch,
     });
   });
 }
@@ -153,15 +191,27 @@ export function normalizeSolanaCensus(json: unknown, source: string): Attempt[] 
     const reason = str(row, "reason", where);
     const settled = bool(row, "settled", where);
     const delivered = bool(row, "delivered", where);
+    const httpStatus = optNum(row, "httpStatus");
+    const body = (optStr(row, "first300") ?? "").trim().length > 0;
+    const declared = isObj(row.declared) ? row.declared : {};
+    const shapeDeclared = isObj(declared.outputSchema) || isObj(declared.outputExample);
     let category: ReasonCategory;
+    let declaredMatch: boolean | null = null;
     if (status === "delivered") {
       if (!settled || !delivered) throw new Error(`${where}: delivered without settlement`);
       category = "delivered";
+      declaredMatch = shapeDeclared ? true : null;
     } else if (status === "not_settled") {
       if (settled) throw new Error(`${where}: not_settled but settled=true`);
       category = "not_settled";
     } else if (status === "settled_not_delivered") {
-      category = cat === "missing_keys" ? "settled_bad_content" : "settled_error_status";
+      if (cat === "missing_keys") {
+        if (!is2xx(httpStatus)) throw new Error(`${where}: missing_keys without a 2xx status`);
+        category = body ? "delivered" : "settled_empty_body";
+        declaredMatch = false;
+      } else {
+        category = is2xx(httpStatus) ? (body ? "delivered" : "settled_empty_body") : "settled_error_status";
+      }
     } else if (status === "refused") {
       category = unpaidCategory(cat ?? reason, where);
     } else {
@@ -181,7 +231,8 @@ export function normalizeSolanaCensus(json: unknown, source: string): Attempt[] 
       detail: optStr(row, "detail"),
       tx: optStr(row, "signature"),
       priceUsdc: optStr(row, "priceUsdc"),
-      deliveryCheck: "declared_keys",
+      httpStatus,
+      declaredMatch,
     });
   });
 }
@@ -202,6 +253,7 @@ export function normalizeSolanaGate1(json: unknown, source: string): Attempt[] {
     let settled: boolean | null = null;
     let rawReason: string;
     let detail: string | null = null;
+    let httpStatus: number | null = null;
     if (outcome === "refused") {
       const refusal = obj(rec.refusal, `${where}.refusal`);
       rawReason = str(refusal, "refused", `${where}.refusal`);
@@ -212,9 +264,11 @@ export function normalizeSolanaGate1(json: unknown, source: string): Attempt[] {
       settled = bool(rec, "settled", where);
       const delivered = bool(rec, "delivered", where);
       const status = isObj(rec.response) ? optNum(rec.response, "status") : null;
+      httpStatus = status;
+      // The gate1 runner's own test is already settled + 2xx + non-empty body.
       if (settled && delivered) category = "delivered";
       else if (!settled) category = "not_settled";
-      else category = is2xx(status) ? "settled_bad_content" : "settled_error_status";
+      else category = is2xx(status) ? "settled_empty_body" : "settled_error_status";
       rawReason = `sent/http ${status ?? "?"}`;
     } else {
       throw new Error(`${where}: unknown outcome "${outcome}"`);
@@ -233,7 +287,7 @@ export function normalizeSolanaGate1(json: unknown, source: string): Attempt[] {
       detail,
       tx: optStr(rec, "signature"),
       priceUsdc: optStr(rec, "priceUsdc"),
-      deliveryCheck: "http_2xx",
+      httpStatus,
     });
   });
 }
@@ -250,9 +304,10 @@ export function normalizeTempoLedger(json: unknown, source: string): Attempt[] {
     const settled = optBool(en, "settled");
     const delivered = en.delivered === true;
     const http = optNum(en, "httpStatus");
+    // The Tempo runner records no body, so its test is settled + 2xx (bodyChecked: false).
     let category: ReasonCategory;
     if (settled === true && delivered) category = "delivered";
-    else if (settled === true) category = is2xx(http) ? "settled_bad_content" : "settled_error_status";
+    else if (settled === true) category = is2xx(http) ? "delivered" : "settled_error_status";
     else if (settled === false) category = "not_settled";
     else category = "unconfirmed_server_error";
     const url = str(en, "url", where);
@@ -271,7 +326,8 @@ export function normalizeTempoLedger(json: unknown, source: string): Attempt[] {
       detail: optStr(en, "note"),
       tx: optStr(en, "txHash"),
       priceUsdc: atomicToUsdc(optStr(en, "amount")),
-      deliveryCheck: "http_2xx",
+      httpStatus: http,
+      bodyChecked: false,
     });
   });
 }
@@ -314,7 +370,6 @@ export function parseTempoRunLog(text: string, urlByService: ReadonlyMap<string,
         detail: m[3] ?? null,
         tx: null,
         priceUsdc: null,
-        deliveryCheck: "http_2xx",
       }),
     );
   }
@@ -365,9 +420,10 @@ export function normalizeBase(jsonl: string, feedbackLedger: unknown, source: st
     if (outcome === "sent") {
       settled = bool(rec, "settledOnChain", where);
       const delivered = bool(rec, "delivered", where);
+      // The Base runner's own test is already settled + 2xx + non-empty body.
       if (settled && delivered) category = "delivered";
       else if (!settled) category = "not_settled";
-      else category = is2xx(status) ? "settled_bad_content" : "settled_error_status";
+      else category = is2xx(status) ? "settled_empty_body" : "settled_error_status";
       rawReason = `sent/http ${status ?? "?"}`;
     } else if (outcome === "refused") {
       rawReason = str(rec, "reason", where);
@@ -393,7 +449,7 @@ export function normalizeBase(jsonl: string, feedbackLedger: unknown, source: st
         detail,
         tx,
         priceUsdc: optStr(rec, "priceUsdc"),
-        deliveryCheck: "http_2xx",
+        httpStatus: status,
         feedbackTx: fbEntry ? optStr(fbEntry, "feedbackTx") : null,
       }),
     );
@@ -408,4 +464,3 @@ function atomicToUsdc(atomic: string | null): string | null {
 }
 
 export const CHAINS: readonly Chain[] = ["algorand", "solana", "tempo", "base"];
-export type { DeliveryCheck };

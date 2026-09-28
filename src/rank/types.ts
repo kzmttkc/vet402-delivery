@@ -13,10 +13,10 @@ export type Chain = "algorand" | "solana" | "tempo" | "base";
  * The last three are "not tried": they are recorded but never count toward a seller's rate.
  */
 export type ReasonCategory =
-  | "delivered" // paid, settled, and the answer passed the chain runner's delivery check
+  | "delivered" // settled, then a 2xx answer with a non-empty body (the same test on every chain)
   | "not_settled" // vet402 sent a payment; the seller did not settle it (and did not deliver)
   | "settled_error_status" // settled, then the seller answered with a non-2xx status
-  | "settled_bad_content" // settled, 2xx, but the answer did not match what the seller declared
+  | "settled_empty_body" // settled, 2xx, but the body was empty
   | "unconfirmed_server_error" // seller answered 5xx and no settlement could be confirmed either way
   | "not_payable" // listed in a catalog but not buyable (no 402, no usable accept, unreachable)
   | "payto_changed" // vet402 refused because the recipient differed from the one recorded earlier
@@ -26,17 +26,15 @@ export const TRIED_CATEGORIES: ReadonlySet<ReasonCategory> = new Set<ReasonCateg
   "delivered",
   "not_settled",
   "settled_error_status",
-  "settled_bad_content",
+  "settled_empty_body",
   "unconfirmed_server_error",
 ]);
 
 /**
- * What "delivered" meant in the run that produced the row. Each chain runner judged delivery itself;
- * this module does not re-judge.
- *   declared_keys: 2xx JSON whose keys match what the seller declared (when it declared any)
- *   http_2xx:      settled, then any 2xx answer (Base also requires a non-empty body)
+ * Who a tried-but-not-delivered purchase is attributed to. Only "seller" counts toward the grade.
+ * The mapping from reason to fault lives in ./classify.ts (FAULT_RULES) and in README.md.
  */
-export type DeliveryCheck = "declared_keys" | "http_2xx";
+export type Fault = "seller" | "vet402_or_facilitator" | "unknown";
 
 export interface Attempt {
   chain: Chain;
@@ -64,7 +62,15 @@ export interface Attempt {
   detail: string | null;
   tx: string | null;
   priceUsdc: string | null;
-  deliveryCheck: DeliveryCheck;
+  /** HTTP status of the paid request (or of the answer that ended it), when the runner recorded one. */
+  httpStatus: number | null;
+  /**
+   * Separate from delivery: did the answer match what the seller declared (keys / schema)?
+   * null = not checked (the runner did not check, the seller declared nothing, or nothing was delivered).
+   */
+  declaredMatch: boolean | null;
+  /** false when the runner recorded no body size or text for this chain (Tempo), so the body test could not run. */
+  bodyChecked: boolean;
   /** ERC-8004 feedback tx vet402 wrote for this purchase (Base only). */
   feedbackTx: string | null;
 }

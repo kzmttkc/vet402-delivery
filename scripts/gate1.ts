@@ -7,11 +7,13 @@
  *
  * Money limits (absolute, in src/constants.ts): 0.10 USDC per purchase, 1.00 USDC total,
  * 10 purchases, persisted in results/gate1-ledger.json.
+ * Pacing (src/constants.ts MEASURE_*): at most 5 purchases per seller (host) per run, 60 s apart.
  * Pass condition: >= 5 of 10 settled on chain AND returned content.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { CDP_DISCOVERY, MAX_PURCHASES, PAYAI_DISCOVERY, PAYER_ADDRESS, atomicToUsdc } from "../src/constants.js";
+import { CDP_DISCOVERY, MAX_PURCHASES, MEASURE_MAX_PER_SELLER, PAYAI_DISCOVERY, PAYER_ADDRESS, atomicToUsdc } from "../src/constants.js";
+import { SellerPacer } from "../src/measure.js";
 import { fetchCatalog, selectPayaiOnly, type CatalogCandidate } from "../src/discovery.js";
 import { Budget, checkAccept, pickSolanaAccept } from "../src/guard.js";
 import { payOne, probe402, type PlanEntry, type PurchaseRecord } from "../src/pay.js";
@@ -181,7 +183,15 @@ async function pay() {
   };
   const save = (aborted?: string) =>
     writeJson(OUT_FILE, { kind: "gate1-live", ranAt: new Date().toISOString(), payer: PAYER_ADDRESS, plan: PLAN_FILE, startBalances: { lamports: start.lamports.toString(), usdc: atomicToUsdc(start.usdcAtomic) }, summary: summarize(), ...(aborted ? { aborted } : {}), records });
+  const pacer = new SellerPacer();
   for (const e of entries) {
+    const wait = pacer.waitMs(e.host);
+    if (wait === null) {
+      console.log(`skip     ${e.host.padEnd(40)} already ${MEASURE_MAX_PER_SELLER} purchases from this seller in this run`);
+      continue;
+    }
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    pacer.record(e.host);
     const rec = await payOne(e, deps);
     records.push(rec);
     save();

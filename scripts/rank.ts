@@ -1,5 +1,5 @@
 /**
- * Build results/rank-<date>.json and results/rank-<date>.html from vet402's own purchase results
+ * Build results/rank-<date>.json and the pages in results/rank-<date>/ from vet402's own purchase results
  * on Algorand, Solana, Tempo and Base, and compare with catalog order (CDP Bazaar, Mercator).
  *
  * Read-only: GET requests to public JSON (vet402-algorand board on GitHub, CDP discovery) and local
@@ -9,12 +9,12 @@
  *   npm run rank -- --date 2026-09-28 --offline
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { OWN_HOSTS } from "../src/constants.js";
 import { cdpByHost } from "../src/rank/compare.js";
-import { renderHtml } from "../src/rank/html.js";
+import { renderSite } from "../src/rank/html.js";
 import {
   mercatorBestRanks,
   normalizeAlgorand,
@@ -126,19 +126,29 @@ async function main(): Promise<void> {
 
   mkdirSync(join(ROOT, "results"), { recursive: true });
   const jsonPath = join(ROOT, "results", `rank-${date}.json`);
-  const htmlPath = join(ROOT, "results", `rank-${date}.html`);
+  const siteDir = join(ROOT, "results", `rank-${date}`);
   writeFileSync(jsonPath, JSON.stringify(report, null, 2) + "\n");
-  writeFileSync(htmlPath, renderHtml(report));
+  rmSync(siteDir, { recursive: true, force: true });
+  const pages = renderSite(report);
+  for (const [rel, html] of pages) {
+    const p = join(siteDir, rel);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, html);
+  }
 
   console.log(`attempts ${report.totals.attempts}, tried ${report.totals.tried}, delivered ${report.totals.delivered}`);
-  console.log(`sellers seen ${report.totals.sellersSeen}, ranked ${report.totals.sellersRanked}, payTo changed ${report.totals.payToChanged}`);
+  const t = report.totals;
+  console.log(`counted ${t.counted}, not counted: vet402/facilitator ${t.excluded.vet402_or_facilitator}, can't tell ${t.excluded.unknown}`);
+  console.log(`sellers seen ${t.sellersSeen}, listed ${t.sellersListed}, ranked ${t.sellersRanked}, payTo changed ${t.payToChanged}`);
+  console.log(`grades ${JSON.stringify(t.grades)}`);
+  console.log(`failures by rule ${JSON.stringify(t.failuresByRule)}`);
   for (const c of report.chains) {
     console.log(`  ${c.chain.padEnd(9)} rows ${c.rows} tried ${c.tried} settled ${c.settled} delivered ${c.delivered} sellers ${c.sellersTried} notTried ${JSON.stringify(c.notTried)}`);
   }
   for (const c of report.comparisons) {
     console.log(`${c.catalog}: overlap ${c.overlap}, high-but-never-delivered ${c.highButNeverDelivered.length}, low-but-always-delivered ${c.lowButAlwaysDelivered.length}, misaligned ${c.misaligned}, spearman ${c.spearman?.toFixed(3) ?? "-"}`);
   }
-  console.log(`wrote ${jsonPath}\nwrote ${htmlPath}`);
+  console.log(`wrote ${jsonPath}\nwrote ${pages.size} pages in ${siteDir}`);
 }
 
 main().catch((e) => {

@@ -53,7 +53,9 @@ export interface CompareRow {
   host: string;
   catalogValue: number;
   catalogPos: number;
-  vet402Rank: number;
+  /** null = "measuring" (not enough counted purchases or days for a rank number). */
+  vet402Rank: number | null;
+  /** delivered + seller-side failures (vet402/facilitator-side and can't-tell failures are left out). */
   tried: number;
   delivered: number;
   deliveredRate: number;
@@ -128,7 +130,9 @@ export function compareWithCatalog(
   direction: "desc" | "asc",
   catalogValue: (s: RankedSeller) => number | null,
 ): Comparison {
+  // Sellers with no counted purchase (every failure on vet402's side or unclear) are not compared.
   const listed = ranked
+    .filter((s) => s.counted > 0)
     .map((s) => ({ s, v: catalogValue(s) }))
     .filter((x): x is { s: RankedSeller; v: number } => x.v !== null);
   listed.sort((a, b) => (direction === "desc" ? b.v - a.v : a.v - b.v) || (a.s.key < b.s.key ? -1 : a.s.key > b.s.key ? 1 : 0));
@@ -139,7 +143,7 @@ export function compareWithCatalog(
     catalogValue: v,
     catalogPos: i + 1,
     vet402Rank: s.rank,
-    tried: s.tried,
+    tried: s.counted,
     delivered: s.delivered,
     deliveredRate: s.deliveredRate,
     wilsonLower: s.wilsonLower,
@@ -172,7 +176,8 @@ export function compareWithCatalog(
     ),
     rule:
       `Among ranked sellers the catalog lists (${rows.length}), "high" = top ${cutoff} by ${metric}. ` +
-      `"High but never delivered" = high and 0 delivered out of every vet402 try. ` +
-      `"Low but always delivered" = not high and every vet402 try delivered.`,
+      `"High but never delivered" = high and 0 delivered out of every counted vet402 purchase. ` +
+      `"Low but always delivered" = not high and every counted vet402 purchase delivered. ` +
+      `Counted = delivered or failed on the seller's side.`,
   };
 }
