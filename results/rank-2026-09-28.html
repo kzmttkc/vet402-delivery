@@ -1,0 +1,2899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>vet402 seller ranking</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1d1b;--dim:#6b6b66;--line:#e2e1dc;--card:#fff;--warn:#9a3b00;--link:#0b5cad}
+@media (prefers-color-scheme: dark){:root{--bg:#141413;--fg:#ecebe6;--dim:#a09f99;--line:#34332f;--card:#1d1d1b;--warn:#ffb27a;--link:#8cc2ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.15rem;margin:32px 0 8px}h3{font-size:1rem;margin:20px 0 6px}
+p{margin:6px 0}a{color:var(--link)}
+.dim{color:var(--dim)}.warn{color:var(--warn);margin:4px 0 0}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
+.host{font-weight:600;overflow-wrap:anywhere}
+.big{font-size:1.25rem;font-weight:700;font-variant-numeric:tabular-nums}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:12px 0}
+.stats>div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.85rem;color:var(--dim)}
+.stats .big{color:var(--fg)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:6px 4px;text-align:right}th:first-child,td:first-child{text-align:left}
+ol.plain,ul.sellers{padding-left:0;list-style:none;margin:0}
+ol.plain li{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+li.seller{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0}
+.row1{display:flex;gap:8px;align-items:baseline}.rank{color:var(--dim);font-variant-numeric:tabular-nums;min-width:3ch}
+.meta{font-size:.85rem;color:var(--dim);overflow-wrap:anywhere}
+details{margin:8px 0}summary{cursor:pointer}
+</style>
+</head>
+<body><main>
+<h1>vet402 seller ranking</h1>
+<p class="dim">2026-09-28 · generated 2026-09-28T09:54:36.355Z</p>
+<p>Sellers ranked by what happened when vet402, an independent buyer, paid them with its own money. Not by how many calls or payers a catalog reports.</p>
+<div class="stats">
+  <div><span class="big">294</span><br>sellers ranked</div>
+  <div><span class="big">2578</span><br>paid tries</div>
+  <div><span class="big">1182</span><br>delivered</div>
+  <div><span class="big">2</span><br>payTo changed</div>
+</div>
+
+<section>
+<h2>How the rank is made</h2>
+<ul>
+<li><b>Score:</b> Wilson score lower bound of delivered / tried, 95% (z = 1.96).</li>
+<li><b>Counted:</b> Tried purchases only: vet402 committed to pay from its own wallet (delivered, not settled, settled then error status, settled then content not as declared, 5xx with settlement unknown).</li>
+<li><b>Not counted:</b> Endpoints that were not buyable (no 402, no usable accept, unreachable), vet402&#39;s own skips (price cap, input it will not make up, duplicates), and refusals because payTo changed. These are listed per seller but never change the score.</li>
+<li><b>Order:</b> Score desc, then delivered rate desc, then number of tries desc, then seller key. Equal score, rate and tries share a rank.</li>
+<li><b>Seller:</b> Seller = hostname. When one host fronts several catalog services that each pay their own recipient (a proxy), each service is its own seller: host#service.</li>
+<li><b>payTo:</b> payTo changed = the same chain and URL asked for a different recipient in a later run, or vet402 refused to pay because the recipient differed from the one it had recorded. One recipient per chain is not a change. Shown as a flag; it does not change the score.</li>
+<li><b>Money:</b> vet402 buys with its own funds and takes no money from sellers: no listing fee, no paid placement, no referral cut. Call counts, payer counts and anything a seller reports about itself are not inputs, so a seller cannot buy a better rank by paying itself (wash trading).</li>
+<li><b>Delivery check:</b> Each chain runner judged delivery itself and this report does not re-judge. Algorand and the Solana census check the answer&#39;s keys against what the seller declared (when it declared any); Tempo, Base and Solana gate1 accept any 2xx after settlement. The stricter check makes Algorand and Solana census failures more likely for the same seller behaviour.</li>
+</ul>
+<p class="dim">Limits: A seller that recognises vet402&#39;s payer address could serve vet402 better than others. The payer addresses are public. One or two tries give a low score by design; the score rises only with more tries. Sellers with many endpoints (and so many tries) dominate the top because their bound is tight. &#39;Payment not settled&#39; can have causes on the facilitator&#39;s or vet402&#39;s side (e.g. a Solana BlockhashNotFound simulation failure), not only the seller&#39;s. The raw reason is kept on every row.</p>
+</section>
+
+<section>
+<h2>By chain</h2>
+<table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>delivered</th><th>sellers</th></tr></thead>
+<tbody>
+<tr><td>algorand</td><td>2356</td><td>1142</td><td>1043</td><td>79</td></tr>
+<tr><td>solana</td><td>141</td><td>96</td><td>86</td><td>141</td></tr>
+<tr><td>tempo</td><td>73</td><td>70</td><td>46</td><td>73</td></tr>
+<tr><td>base</td><td>8</td><td>7</td><td>7</td><td>8</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>CDP Bazaar order vs vet402</h2>
+<p>Among ranked sellers the catalog lists (124), &quot;high&quot; = top 62 by l30DaysTotalCalls (sum per host). &quot;High but never delivered&quot; = high and 0 delivered out of every vet402 try. &quot;Low but always delivered&quot; = not high and every vet402 try delivered.</p>
+<div class="stats">
+  <div><span class="big">124</span><br>sellers in both</div>
+  <div><span class="big">20</span><br>high in catalog, never delivered (3 after a settled payment)</div>
+  <div><span class="big">29</span><br>low in catalog, always delivered</div>
+  <div><span class="big">0.10</span><br>rank correlation</div>
+</div>
+<h3>High in the catalog, never delivered to vet402</h3>
+<ol class="plain"><li><span class="host">api.deepnets.ai</span><br>
+  catalog #14 (705 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · paid, answer not as declared 1 <a class="mono" href="https://solscan.io/tx/29FLVZNwKq1MJZWVzETM5huAuwqeP1vzSN1HZgQb2L4srTattwttezXip3YtUFUKraHeFDCRa7NHsdTRpPfumC82" rel="noopener noreferrer nofollow">29FLVZNw…fumC82</a>
+  <div class="meta">solana · paid, answer not as declared · <span class="mono">delivery_missing_keys/missing_keys</span> · <span class="mono">missing: _hint</span></div>
+  <div class="meta mono">https://api.deepnets.ai/api/token/holder-graph</div></li>
+<li><span class="host">agentworld.me</span><br>
+  catalog #51 (36 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · paid, answer not as declared 1 <a class="mono" href="https://solscan.io/tx/g5iaCSxF9fEV2Wszj1XFJfy3V49Bza6T99MoxhpDPoKwhrY7iheXdaX7M6gd9DMAoG43FpnYaveeoEb8NnW7XrS" rel="noopener noreferrer nofollow">g5iaCSxF…nW7XrS</a>
+  <div class="meta">solana · paid, answer not as declared · <span class="mono">delivery_missing_keys/missing_keys</span> · <span class="mono">missing: status</span></div>
+  <div class="meta mono">https://agentworld.me/api/agentworld/agents/ranked</div></li>
+<li><span class="host">www.getbags.app</span><br>
+  catalog #62 (27 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · paid, answer not as declared 1 <a class="mono" href="https://solscan.io/tx/5yLfRYRRpBeaYk1zdXu6Em7HmwE5WDnLYoMZ49RGpQsaeYWQ3bskV4SjS342pSeqjYJ8LLVozoKkp1QtspSAYuz7" rel="noopener noreferrer nofollow">5yLfRYRR…SAYuz7</a>
+  <div class="meta">solana · paid, answer not as declared · <span class="mono">delivery_missing_keys/missing_keys</span> · <span class="mono">missing: description, ok</span></div>
+  <div class="meta mono">https://www.getbags.app/api/agent/link/pl-85f28558-0f86-40bd-9a8a-1b485ca8f7fa</div></li>
+<li><span class="host">stableenrich.dev</span><br>
+  catalog #1 (58,148 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">http_error/example_rejected</span> · <span class="mono">status 400</span></div>
+  <div class="meta mono">https://stableenrich.dev/api/google-maps/place-details/partial</div></li>
+<li><span class="host">svm402.com</span><br>
+  catalog #3 (10,864 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">http_error/example_rejected</span> · <span class="mono">status 400</span></div>
+  <div class="meta mono">https://svm402.com/price</div></li>
+<li><span class="host">stabletravel.dev</span><br>
+  catalog #6 (3,557 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">payment_failed/payment_refused</span> · <span class="mono">status 402, {&quot;error&quot;:&quot;Payment rejected (invalid_exact_svm_transaction_simulation_failed): Simulation failed: \&quot;BlockhashNotFound\&quot;&quot;,</span></div>
+  <div class="meta mono">https://stabletravel.dev/api/flightaware/airports/KJFK/weather/observations</div></li>
+<li><span class="host">x402.orthogonal.com</span><br>
+  catalog #9 (1,553 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">payment_failed/payment_refused</span> · <span class="mono">status 402, {}</span></div>
+  <div class="meta mono">https://x402.orthogonal.com/findymail/api/technologies/search</div></li>
+<li><span class="host">readx.sh</span><br>
+  catalog #11 (791 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">http_error/example_rejected</span> · <span class="mono">status 400</span></div>
+  <div class="meta mono">https://readx.sh/api/search/tweets</div></li>
+<li><span class="host">api.you.com</span><br>
+  catalog #16 (537 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">payment_failed/payment_refused</span> · <span class="mono">status 402, {&quot;type&quot;: &quot;https://paymentauth.org/problems/payment-required&quot;, &quot;title&quot;: &quot;Payment Required&quot;, &quot;status&quot;: 402, &quot;detail&quot;: &quot;Pay</span></div>
+  <div class="meta mono">https://api.you.com/v1/search</div></li>
+<li><span class="host">api.zerion.io</span><br>
+  catalog #17 (507 calls/30d) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">solana · payment not settled · <span class="mono">payment_failed/payment_refused</span> · <span class="mono">status 402, {
+    &quot;errors&quot;: [
+        {
+            &quot;title&quot;: &quot;x402 payment rejected&quot;,
+            &quot;detail&quot;: &quot;invalid_payload: invali</span></div>
+  <div class="meta mono">https://api.zerion.io/v1/fungibles/</div></li></ol><p class="dim">…and 10 more in the JSON.</p>
+<h3>Low in the catalog, delivered every time</h3>
+<ol class="plain"><li><span class="host">api.agentwork.run</span><br>
+  catalog #95 (6 calls/30d) · vet402 #17: <b>6/6</b> delivered
+   <a class="mono" href="https://allo.info/tx/LKUE5V4DFDERQ5KPZMTKPP2DR3EWGXWXIY7HDOI2DZC7JZ37JRDQ" rel="noopener noreferrer nofollow">LKUE5V4D…37JRDQ</a>
+  </li>
+<li><span class="host">x402.911fund.io</span><br>
+  catalog #123 (1 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/2nNze1ftsdGcMx1ZxWjuNSyaNpEsR1RwmZRCjfZK2P8RUhStGoQ4RxK2NaN9BKKiqwPzniJGDdbMfjMStwhErMHY" rel="noopener noreferrer nofollow">2nNze1ft…hErMHY</a>
+  </li>
+<li><span class="host">vealth.net</span><br>
+  catalog #122 (1 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://basescan.org/tx/0xc0684bf2225f1da18459c8049553d113a9a3052155d4b586b3b1cd8823d4b38a" rel="noopener noreferrer nofollow">0xc0684b…d4b38a</a>
+  </li>
+<li><span class="host">tick.twzrd.xyz</span><br>
+  catalog #121 (1 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/3fTwZiUxReXXKQ83izX4kYjavKNbfEp8jhVditUQjWghtBLZpSoEc7KoZNSuPYq4FmdkMZD79G7rqGtLHXwYYZee" rel="noopener noreferrer nofollow">3fTwZiUx…wYYZee</a>
+  </li>
+<li><span class="host">api.rxatlas.dev</span><br>
+  catalog #115 (1 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0xcc680cf12f3e5c4aa371d0ac3fae41ca8423ecf86042905e22663d3983510a73" rel="noopener noreferrer nofollow">0xcc680c…510a73</a>
+  </li>
+<li><span class="host">api.groundtruths.xyz</span><br>
+  catalog #114 (1 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/2g9GSqdB7yz1aieNmvatxHLz37C9ffvfiFAvkGkJ3hKGTbg8GLrNWufeBzNVj8XRY7UwzAAY1NJowVSdi2zjBBqm" rel="noopener noreferrer nofollow">2g9GSqdB…zjBBqm</a>
+  </li>
+<li><span class="host">aijobsboom-x402.sonofgus.workers.dev</span><br>
+  catalog #113 (1 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/5X7BDz3EUBE5cqc37zSbptu1ANf8Ji2iHCavxSsTb5DDNmoD1ou2JBqJDPU91Bpj6136Ugjwt64jLwLCaLRo1PSh" rel="noopener noreferrer nofollow">5X7BDz3E…Ro1PSh</a>
+  </li>
+<li><span class="host">helprentdanang.com</span><br>
+  catalog #110 (2 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/5TejrzSg6qv7SF64YE9EWb4NvNxQ7BsXEyvgSXnSRQgnv95cY1GoCedUnQkZPQ5mmhsTrLCS2uyRVxeYwhLCpDwu" rel="noopener noreferrer nofollow">5TejrzSg…LCpDwu</a>
+  </li>
+<li><span class="host">x402-crypto-data.vercel.app</span><br>
+  catalog #108 (4 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/4p4iW1UnivsLVdfaTuxRjqARbsggrYGdhNr4D9e3R6wNbqsYaABYmg3hRUCvbJ7hw8fszEGjuLNXuQdb5824xDKY" rel="noopener noreferrer nofollow">4p4iW1Un…24xDKY</a>
+  </li>
+<li><span class="host">kaisha-api.hp-vladic.workers.dev</span><br>
+  catalog #105 (4 calls/30d) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://solscan.io/tx/3kB8bZKRThj746NhtQazDBy6nKzfMA8z8EKTkWxLW55mPQesDdAGmszbvZ4tGaaWpovfAUfoYxq3oVnJ22d4upg8" rel="noopener noreferrer nofollow">3kB8bZKR…d4upg8</a>
+  </li></ol><p class="dim">…and 19 more in the JSON.</p>
+</section>
+<section>
+<h2>Mercator order vs vet402</h2>
+<p>Among ranked sellers the catalog lists (20), &quot;high&quot; = top 10 by best search rank (1 = first). &quot;High but never delivered&quot; = high and 0 delivered out of every vet402 try. &quot;Low but always delivered&quot; = not high and every vet402 try delivered.</p>
+<div class="stats">
+  <div><span class="big">20</span><br>sellers in both</div>
+  <div><span class="big">2</span><br>high in catalog, never delivered (0 after a settled payment)</div>
+  <div><span class="big">10</span><br>low in catalog, always delivered</div>
+  <div><span class="big">-0.47</span><br>rank correlation</div>
+</div>
+<h3>High in the catalog, never delivered to vet402</h3>
+<ol class="plain"><li><span class="host">modal.mpp.tempo.xyz</span><br>
+  catalog #2 (best rank 1) · vet402 #211: <b>0/1</b> delivered
+  · 5xx, settlement unknown 1 
+  <div class="meta">tempo · 5xx, settlement unknown · <span class="mono">http 500</span></div>
+  <div class="meta mono">https://modal.mpp.tempo.xyz/sandbox/exec</div></li>
+<li><span class="host">stableemail.dev</span><br>
+  catalog #4 (best rank 1) · vet402 #211: <b>0/1</b> delivered
+  · payment not settled 1 
+  <div class="meta">tempo · payment not settled · <span class="mono">http 404</span> · <span class="mono">receipt not found</span></div>
+  <div class="meta mono">https://stableemail.dev/api/subdomain/inbox/messages</div></li></ol>
+<h3>Low in the catalog, delivered every time</h3>
+<ol class="plain"><li><span class="host">coingecko.mpp.paywithlocus.com</span><br>
+  catalog #20 (best rank 13) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0x5cb10f7084c00a241aa2a8a2d90c2ed1334e48e5a3aed5de9a9fb5949af9d677" rel="noopener noreferrer nofollow">0x5cb10f…f9d677</a>
+  </li>
+<li><span class="host">groq.mpp.paywithlocus.com</span><br>
+  catalog #19 (best rank 10) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0x2f3cdd39383cb9cee42dbe1b2bb2ccf2ad4904231f38ab26675b811799da3beb" rel="noopener noreferrer nofollow">0x2f3cdd…da3beb</a>
+  </li>
+<li><span class="host">alphavantage.mpp.paywithlocus.com</span><br>
+  catalog #18 (best rank 9) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0xdb4fbc76ef920653217974915625b4d0a3d2d3c33bad6449af126d9d6ffaa776" rel="noopener noreferrer nofollow">0xdb4fbc…faa776</a>
+  </li>
+<li><span class="host">mistral.mpp.paywithlocus.com</span><br>
+  catalog #17 (best rank 8) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0x235fbbc14a6d0574897af20b80aa325a329ce2ef52e3e81a71e03aa62fd5f77f" rel="noopener noreferrer nofollow">0x235fbb…d5f77f</a>
+  </li>
+<li><span class="host">deepgram.mpp.paywithlocus.com</span><br>
+  catalog #16 (best rank 8) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0x9a2866697bf600b5716826a58fea526a2ae0aaaaed3341fcc205f4a05852b85a" rel="noopener noreferrer nofollow">0x9a2866…52b85a</a>
+  </li>
+<li><span class="host">mpp.orthogonal.com#orth-andi</span><br>
+  catalog #15 (best rank 7) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0x810de3bb48adca8234316c8826f4121c0d1fecc6e907b55ffecb3398f8e83746" rel="noopener noreferrer nofollow">0x810de3…e83746</a>
+  </li>
+<li><span class="host">edgar-search.mpp.paywithlocus.com</span><br>
+  catalog #14 (best rank 7) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0xc41cd00537ef50fed35d45a6d2476137771c3a8c653814963e0a0a0c81df4a0b" rel="noopener noreferrer nofollow">0xc41cd0…df4a0b</a>
+  </li>
+<li><span class="host">perplexity.mpp.paywithlocus.com</span><br>
+  catalog #13 (best rank 6) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0xadece56df6b6aad3e427800fb95ef6d264bfd491338120612d8461ba7377750a" rel="noopener noreferrer nofollow">0xadece5…77750a</a>
+  </li>
+<li><span class="host">openweather.mpp.paywithlocus.com</span><br>
+  catalog #12 (best rank 5) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0xd2c0ed6e1a90d55576132471abc4fe670b3f3ccd747be2bcf225c09f5ee0300d" rel="noopener noreferrer nofollow">0xd2c0ed…e0300d</a>
+  </li>
+<li><span class="host">mpp.orthogonal.com#orth-linkup</span><br>
+  catalog #11 (best rank 5) · vet402 #44: <b>1/1</b> delivered
+   <a class="mono" href="https://explore.tempo.xyz/tx/0x5651faf93248e5ca57ea9bef5464532e3fb57e90e2cf854c1e27f59f0b9ae535" rel="noopener noreferrer nofollow">0x5651fa…9ae535</a>
+  </li></ol>
+</section>
+<section><h2>Catalogs with no order to compare</h2>
+<ul><li><b>PayAI discovery</b>: Items carry no catalog-level call, payer or quality field (checked on 1,000 of 7,040 items on 2026-09-28; such words appear only inside sellers&#39; own output examples), so there is no catalog order to compare.</li><li><b>mpp.dev/api/services</b>: A directory of 142 services with no usage, quality or rank field (checked 2026-09-28). Mercator&#39;s rank covers the same Tempo services.</li></ul>
+</section>
+
+<section>
+<h2>Ranking</h2>
+<ul class="sellers">
+<li class="seller">
+  <div class="row1"><span class="rank">#1</span><span class="host">coil.trade</span></div>
+  <div class="row2"><span class="big">40/41</span> delivered · score 0.874 · settled 100%</div>
+  <div class="meta">algorand 39/40 · solana 1/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · delivered <a class="mono" href="https://solscan.io/tx/aPy1k1uz6fmTbGS5zpB8o3n57YRBZG71AV9odhuHp7RJ8bbAKKmPkzPBykZ4rSp32wV6enJN7f1UxdjTkQd4aGZ" rel="noopener noreferrer nofollow">aPy1k1uz…Qd4aGZ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#2</span><span class="host">eth-avm-light-client.vercel.app</span></div>
+  <div class="row2"><span class="big">35/36</span> delivered · score 0.858 · settled 97.2%</div>
+  <div class="meta">algorand 35/36</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:41 UTC · delivered <a class="mono" href="https://allo.info/tx/ZCCJ2CPBRDTHA2YRPGAITRUXQDTGHPK7OLCZJZDEWPAO5VXRXSZQ" rel="noopener noreferrer nofollow">ZCCJ2CPB…XRXSZQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#3</span><span class="host">moltworld.xyz</span></div>
+  <div class="row2"><span class="big">20/20</span> delivered · score 0.839 · settled 100%</div>
+  <div class="meta">algorand 20/20</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:39 UTC · delivered <a class="mono" href="https://allo.info/tx/XXF5QZMWBATOATXZCUSZYYABIXYYIZ6A7GRY7RZ6YVFZ4YIPWXPA" rel="noopener noreferrer nofollow">XXF5QZMW…IPWXPA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#4</span><span class="host">blocksigner.org</span></div>
+  <div class="row2"><span class="big">27/28</span> delivered · score 0.823 · settled 100%</div>
+  <div class="meta">algorand 27/28</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:39 UTC · delivered <a class="mono" href="https://allo.info/tx/F6NHMAR2VJKQNJWCZ2WZE3WAIUJDTEAZE3OKHILAJNZY6SISCV7Q" rel="noopener noreferrer nofollow">F6NHMAR2…ISCV7Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#5</span><span class="host">algo.ochinimus.app</span></div>
+  <div class="row2"><span class="big">16/16</span> delivered · score 0.806 · settled 100%</div>
+  <div class="meta">algorand 16/16</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:36 UTC · delivered <a class="mono" href="https://allo.info/tx/6PURMYRQBLIVXKSYWD637K6QIAITBEO2B7SJSUD4D5JBLTXZ6B6A" rel="noopener noreferrer nofollow">6PURMYRQ…XZ6B6A</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#5</span><span class="host">api.sitelenz.online</span></div>
+  <div class="row2"><span class="big">16/16</span> delivered · score 0.806 · settled 100%</div>
+  <div class="meta">algorand 16/16</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:36 UTC · delivered <a class="mono" href="https://allo.info/tx/PBMKFKATNNNBR5BLHAPRX3PSYDTM2WL44N6SZECK6664V4UQP7RQ" rel="noopener noreferrer nofollow">PBMKFKAT…UQP7RQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#7</span><span class="host">algo.netintel.dev</span></div>
+  <div class="row2"><span class="big">201/236</span> delivered · score 0.801 · settled 94.9%</div>
+  <div class="meta">algorand 201/236</div>
+  <div class="meta">failed: paid, answer not as declared 23, payment not settled 12</div>
+  
+  <div class="meta">last: 2026-09-28 01:57 UTC · delivered <a class="mono" href="https://allo.info/tx/T45QAKKYLWZQDQW6A2BJVTAOBDIWUTTVKRHMO2DX4I7ETI7WCNBA" rel="noopener noreferrer nofollow">T45QAKKY…7WCNBA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#8</span><span class="host">api.algometrics.org</span></div>
+  <div class="row2"><span class="big">30/32</span> delivered · score 0.799 · settled 93.8%</div>
+  <div class="meta">algorand 30/32</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:40 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#9</span><span class="host">noahs-mac-mini.tail571e99.ts.net</span></div>
+  <div class="row2"><span class="big">15/15</span> delivered · score 0.796 · settled 100%</div>
+  <div class="meta">algorand 15/15</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:37 UTC · delivered <a class="mono" href="https://allo.info/tx/GXIGN4JEZDQL32KNKYQY2SXNAGNQTHLZLGZHU3OCBZ7TC22AXM5Q" rel="noopener noreferrer nofollow">GXIGN4JE…2AXM5Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#10</span><span class="host">whaletape.xyz</span></div>
+  <div class="row2"><span class="big">49/55</span> delivered · score 0.782 · settled 92.7%</div>
+  <div class="meta">algorand 48/54 · solana 1/1</div>
+  <div class="meta">failed: payment not settled 4, paid, answer not as declared 2</div>
+  
+  <div class="meta">last: 2026-09-28 07:31 UTC · delivered <a class="mono" href="https://solscan.io/tx/3YRirT4FMfdXawVX65S2deAFyRPNEcDgPHWQ6bjKszcqcv6FaxTyFmAA3HUnY5bgCSRnVnMu65Qqyqt14MFoctUk" rel="noopener noreferrer nofollow">3YRirT4F…FoctUk</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#11</span><span class="host">algorandtracker.com</span></div>
+  <div class="row2"><span class="big">240/310</span> delivered · score 0.724 · settled 80.0%</div>
+  <div class="meta">algorand 240/310</div>
+  <div class="meta">failed: payment not settled 62, paid, answer not as declared 8</div>
+  
+  <div class="meta">last: 2026-09-28 01:59 UTC · delivered <a class="mono" href="https://allo.info/tx/GPN4FHAOCMADN6KM3WHD6N2IHBKUX47RCFSJCEMCGBYUTHRYTRWA" rel="noopener noreferrer nofollow">GPN4FHAO…RYTRWA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#12</span><span class="host">api.callrack.xyz</span></div>
+  <div class="row2"><span class="big">18/20</span> delivered · score 0.699 · settled 90.0%</div>
+  <div class="meta">algorand 18/20</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:37 UTC · delivered <a class="mono" href="https://allo.info/tx/363CXYV4C3STR5GBSFPJ5ZNIOELZPNFIG6SHV5HMW4PBCLTU7Q4A" rel="noopener noreferrer nofollow">363CXYV4…TU7Q4A</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#13</span><span class="host">api.ripar.io</span></div>
+  <div class="row2"><span class="big">8/8</span> delivered · score 0.676 · settled 100%</div>
+  <div class="meta">algorand 8/8</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:32 UTC · delivered <a class="mono" href="https://allo.info/tx/PMPP2TS6VVKYDPZAKSSJU5T4BTRZ3BW3TV3JR6SFNYH7BNKIDYCQ" rel="noopener noreferrer nofollow">PMPP2TS6…KIDYCQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#13</span><span class="host">api.validex.space</span></div>
+  <div class="row2"><span class="big">8/8</span> delivered · score 0.676 · settled 100%</div>
+  <div class="meta">algorand 8/8</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:32 UTC · delivered <a class="mono" href="https://allo.info/tx/CX7N5K65UPKDPFBD25GAKZ5ECCJZMHLXRXIUBPTZNOAMI6Z5FL3Q" rel="noopener noreferrer nofollow">CX7N5K65…Z5FL3Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#15</span><span class="host">api.depth402.workers.dev</span></div>
+  <div class="row2"><span class="big">16/18</span> delivered · score 0.672 · settled 100%</div>
+  <div class="meta">algorand 16/18</div>
+  <div class="meta">failed: paid, answer not as declared 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:36 UTC · delivered <a class="mono" href="https://allo.info/tx/BZQCA54O6H73EGVTCNMOKKZCHDZZ4J74OJ6SXFBEXMEBGVOGMX3Q" rel="noopener noreferrer nofollow">BZQCA54O…OGMX3Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#16</span><span class="host">algorand.ottoai.services</span></div>
+  <div class="row2"><span class="big">99/138</span> delivered · score 0.637 · settled 87.0%</div>
+  <div class="meta">algorand 99/138</div>
+  <div class="meta">failed: payment not settled 18, paid, answer not as declared 21</div>
+  
+  <div class="meta">last: 2026-09-28 01:48 UTC · delivered <a class="mono" href="https://allo.info/tx/ZOQJU3WA4OFEW4EEYRC6DLVTWSDKQZWJJNL2ZPXQWCRC4ARGEFIQ" rel="noopener noreferrer nofollow">ZOQJU3WA…RGEFIQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#17</span><span class="host">api.agentwork.run</span></div>
+  <div class="row2"><span class="big">6/6</span> delivered · score 0.610 · settled 100%</div>
+  <div class="meta">algorand 6/6</div>
+  
+  <div class="meta dim">not counted: not buyable 2</div>
+  <div class="meta">last: 2026-09-28 01:30 UTC · delivered <a class="mono" href="https://allo.info/tx/LKUE5V4DFDERQ5KPZMTKPP2DR3EWGXWXIY7HDOI2DZC7JZ37JRDQ" rel="noopener noreferrer nofollow">LKUE5V4D…37JRDQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#18</span><span class="host">api.synergybcpacific.com</span></div>
+  <div class="row2"><span class="big">13/16</span> delivered · score 0.570 · settled 87.5%</div>
+  <div class="meta">algorand 13/16</div>
+  <div class="meta">failed: payment not settled 2, paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:35 UTC · delivered <a class="mono" href="https://allo.info/tx/TL4BU7HMUAFNU7XQNUMD6WGXL6XVZ5HMUSLRDLWGVKFK3GN3VRCQ" rel="noopener noreferrer nofollow">TL4BU7HM…N3VRCQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#19</span><span class="host">agent-keep-684642514120.europe-west1.run.app</span></div>
+  <div class="row2"><span class="big">10/12</span> delivered · score 0.552 · settled 100%</div>
+  <div class="meta">algorand 10/12</div>
+  <div class="meta">failed: paid, answer not as declared 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:34 UTC · delivered <a class="mono" href="https://allo.info/tx/OSXZWSVBD46A4ZID6DSMNKZ4WIYV5KLHXWV7JOVKWUMOCR3XWAJQ" rel="noopener noreferrer nofollow">OSXZWSVB…3XWAJQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#19</span><span class="host">api.agentkeep.online</span></div>
+  <div class="row2"><span class="big">10/12</span> delivered · score 0.552 · settled 100%</div>
+  <div class="meta">algorand 10/12</div>
+  <div class="meta">failed: paid, answer not as declared 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:34 UTC · delivered <a class="mono" href="https://allo.info/tx/RL5YE57LN7KY3EKOS5PR7VGW5H4YEEREDWWHXYEOCLVMWYJR3I6Q" rel="noopener noreferrer nofollow">RL5YE57L…JR3I6Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#21</span><span class="host">canix402-api.compx.io</span></div>
+  <div class="row2"><span class="big">23/32</span> delivered · score 0.546 · settled 71.9%</div>
+  <div class="meta">algorand 23/32</div>
+  <div class="meta">failed: payment not settled 9</div>
+  
+  <div class="meta">last: 2026-09-28 01:40 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#22</span><span class="host">api.d0xeddev.com</span></div>
+  <div class="row2"><span class="big">4/4</span> delivered · score 0.510 · settled 100%</div>
+  <div class="meta">algorand 4/4</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · delivered <a class="mono" href="https://allo.info/tx/M4XE2VSYKQOJB7XDGU3SBPIAYDX337J3RQQG6EYCRZVG7F6BNG2Q" rel="noopener noreferrer nofollow">M4XE2VSY…6BNG2Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#22</span><span class="host">arbsignal-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">4/4</span> delivered · score 0.510 · settled 100%</div>
+  <div class="meta">algorand 4/4</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:28 UTC · delivered <a class="mono" href="https://allo.info/tx/XEWK5MKTOYQ6C4QMQUILQO4FFIUGRDH7G2DCK7DRFJ7JX3L2Q42Q" rel="noopener noreferrer nofollow">XEWK5MKT…L2Q42Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#24</span><span class="host">agenthub-production-8c75.up.railway.app</span></div>
+  <div class="row2"><span class="big">16/24</span> delivered · score 0.467 · settled 83.3%</div>
+  <div class="meta">algorand 16/24</div>
+  <div class="meta">failed: paid, answer not as declared 4, payment not settled 4</div>
+  <div class="meta dim">not counted: not buyable 8</div>
+  <div class="meta">last: 2026-09-28 01:40 UTC · delivered <a class="mono" href="https://allo.info/tx/UJ4MBWJLC4YGR7F2EUFSJ3EX5A6ARPCB7P2XKFT7FZNR2GVK7BMA" rel="noopener noreferrer nofollow">UJ4MBWJL…VK7BMA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#25</span><span class="host">agriintellect.site</span></div>
+  <div class="row2"><span class="big">5/6</span> delivered · score 0.436 · settled 83.3%</div>
+  <div class="meta">algorand 5/6</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:31 UTC · delivered <a class="mono" href="https://allo.info/tx/QBYQHXPQ4RMXKOLCRWP2IFKFFJ5LKOHGMVRTQ4YTNZECBJVTWJEA" rel="noopener noreferrer nofollow">QBYQHXPQ…VTWJEA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#25</span><span class="host">fry.farm</span></div>
+  <div class="row2"><span class="big">5/6</span> delivered · score 0.436 · settled 83.3%</div>
+  <div class="meta">algorand 5/6</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:30 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#27</span><span class="host">oyapicks.app</span></div>
+  <div class="row2"><span class="big">13/20</span> delivered · score 0.433 · settled 70.0%</div>
+  <div class="meta">algorand 13/20</div>
+  <div class="meta">failed: payment not settled 6, paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:37 UTC · delivered <a class="mono" href="https://allo.info/tx/HDAT6JGRTIPHW66KK5XDNQG6QQGAPYCV6EYBQ5VQ7JO7IFG72PIQ" rel="noopener noreferrer nofollow">HDAT6JGR…G72PIQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">algocheckmain.vercel.app</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · delivered <a class="mono" href="https://allo.info/tx/GAVYWVCRUSZJZIZR2JOAULIUXG27A7OP6YLGMN4KLQDPHM3GTODA" rel="noopener noreferrer nofollow">GAVYWVCR…3GTODA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">algorand-api.pxke.me</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  <div class="meta dim">not counted: not buyable 12</div>
+  <div class="meta">last: 2026-09-28 01:24 UTC · delivered <a class="mono" href="https://allo.info/tx/5P52ZYO7GFZ2JR2KPNVHNZFQYBWHANOIGNWFYQVKKNNG3YXFHG5A" rel="noopener noreferrer nofollow">5P52ZYO7…XFHG5A</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">api.pqattest.com</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:25 UTC · delivered <a class="mono" href="https://allo.info/tx/OPH2XCZYQQMC5YI6APLAIC34JZWFT322F3L3KWL3FI7ATSW7UFBQ" rel="noopener noreferrer nofollow">OPH2XCZY…W7UFBQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">api.x402node.dev</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · delivered <a class="mono" href="https://allo.info/tx/Q2GQQK7TLB7CUKEZGVYH4EREHAOMFNISCEELZNIT7PVGSVYA4JKA" rel="noopener noreferrer nofollow">Q2GQQK7T…YA4JKA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">consensa-endpoint-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · delivered <a class="mono" href="https://allo.info/tx/4Z4BJUZVBVN6DVJTLGPZ7VI54IJW5XT3G4CWXX74FKLI5BOEPIUQ" rel="noopener noreferrer nofollow">4Z4BJUZV…OEPIUQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">elara-verify-x402.aivelikivodja.workers.dev</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · delivered <a class="mono" href="https://allo.info/tx/7TDWDSIJ7VEIOQNILITC6DUULZOUQJP5AQ6GAHOLQH5B7MJ3RAHQ" rel="noopener noreferrer nofollow">7TDWDSIJ…J3RAHQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">fluent-x402-algorand-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · delivered <a class="mono" href="https://allo.info/tx/FT4T3AZFVM5QNHPPDA4OMPFWHLDNTT4U7S3MWDQCIXNB7QT3PBRQ" rel="noopener noreferrer nofollow">FT4T3AZF…T3PBRQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">pdc-pilot-endpoint.synergyblockchaintf.workers.dev</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · delivered <a class="mono" href="https://allo.info/tx/W6KMC47LZPOTM72PIZNE32XKONOYEOHHYQ4ULLOF53BC64KNGYIQ" rel="noopener noreferrer nofollow">W6KMC47L…KNGYIQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">scvd.store</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">solana 1/1 · base 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:16 UTC · delivered <a class="mono" href="https://basescan.org/tx/0x675435c97721f8a00db42af85fedb829ccaf374b3f9a919db08e488166a2cbdf" rel="noopener noreferrer nofollow">0x675435…a2cbdf</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">thetrench.fun</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · delivered <a class="mono" href="https://allo.info/tx/47JKBE6S2LSYMMENKB7BHBUKSGZ2ZLUR3XNVROWXLHQDTQJTM7HQ" rel="noopener noreferrer nofollow">47JKBE6S…JTM7HQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#28</span><span class="host">x402-algo.pkgproof.net</span></div>
+  <div class="row2"><span class="big">2/2</span> delivered · score 0.342 · settled 100%</div>
+  <div class="meta">algorand 2/2</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · delivered <a class="mono" href="https://allo.info/tx/BTKXMMXMAM64I5VA4F63I45MFTE2MYUG5S2HP5RZDX4JN5ZIBR5A" rel="noopener noreferrer nofollow">BTKXMMXM…ZIBR5A</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#39</span><span class="host">api.bottrunk.com</span></div>
+  <div class="row2"><span class="big">6/10</span> delivered · score 0.313 · settled 80.0%</div>
+  <div class="meta">algorand 6/10</div>
+  <div class="meta">failed: payment not settled 2, paid, answer not as declared 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:33 UTC · delivered <a class="mono" href="https://allo.info/tx/U3VLAESLJWWWRPOJYHDW3X7SF6XVXVUFF2VNX4WJG6USNHEEBP2Q" rel="noopener noreferrer nofollow">U3VLAESL…EEBP2Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#40</span><span class="host">api.proptech.watch</span></div>
+  <div class="row2"><span class="big">5/8</span> delivered · score 0.306 · settled 62.5%</div>
+  <div class="meta">algorand 5/8</div>
+  <div class="meta">failed: payment not settled 3</div>
+  
+  <div class="meta">last: 2026-09-28 01:32 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#41</span><span class="host">api-algo.stelardigital.com</span></div>
+  <div class="row2"><span class="big">4/6</span> delivered · score 0.300 · settled 100%</div>
+  <div class="meta">algorand 4/6</div>
+  <div class="meta">failed: paid, answer not as declared 2</div>
+  <div class="meta dim">not counted: not buyable 4</div>
+  <div class="meta">last: 2026-09-28 01:33 UTC · delivered <a class="mono" href="https://allo.info/tx/HV57VOP2Z2SQEAET2ARZVCGX56IXOKB3I7332DQFIIOWQBW2QYWQ" rel="noopener noreferrer nofollow">HV57VOP2…W2QYWQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#41</span><span class="host">api.iomarkets.ai</span></div>
+  <div class="row2"><span class="big">4/6</span> delivered · score 0.300 · settled 66.7%</div>
+  <div class="meta">algorand 4/6</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:30 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#43</span><span class="host">midax402.com</span></div>
+  <div class="row2"><span class="big">2/3</span> delivered · score 0.208 · settled 100%</div>
+  <div class="meta">algorand 1/2 · solana 1/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:27 UTC · delivered <a class="mono" href="https://solscan.io/tx/4rx5ftcQ6c9MMzyR3Du6gSZUSe6kBgqHezVbkaLEWdsksbrVcMd3y24Hy1uukX2yKEt5Vf5vku73v7q6oW2PYntD" rel="noopener noreferrer nofollow">4rx5ftcQ…2PYntD</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">2s-3cpr6qm6j-alleyford.vercel.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:14 UTC · delivered <a class="mono" href="https://solscan.io/tx/5t3ZLiqDAE8GLrhCGkJnEwTftj73yhZxEWMT3LqVVxqTHUjGG31X8DYmBMHMNLTypK1b1kYZZ8vTWhemgECkJq6u" rel="noopener noreferrer nofollow">5t3ZLiqD…CkJq6u</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">47620.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:48 UTC · delivered <a class="mono" href="https://solscan.io/tx/eGhpgcFAh1H5RBPMTHjJP7AJoPQYFgw3m6kdyUMUsd2Uz8zjc7uZXfeBt2bc77dLvUszHP56XVnL4w7w8wxeuge" rel="noopener noreferrer nofollow">eGhpgcFA…wxeuge</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">agentic-reservations.vercel.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · delivered <a class="mono" href="https://solscan.io/tx/56LqNmRcK2xsdoZcY7TKQ5AeFSNbTfELsrdaw6aEPbvzjPnTfNydhUS729ML2wWEuveU2nyreEuv39BNiBezy466" rel="noopener noreferrer nofollow">56LqNmRc…ezy466</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">aijobsboom-x402.sonofgus.workers.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · delivered <a class="mono" href="https://solscan.io/tx/5X7BDz3EUBE5cqc37zSbptu1ANf8Ji2iHCavxSsTb5DDNmoD1ou2JBqJDPU91Bpj6136Ugjwt64jLwLCaLRo1PSh" rel="noopener noreferrer nofollow">5X7BDz3E…Ro1PSh</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">alphavantage.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:55 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xdb4fbc76ef920653217974915625b4d0a3d2d3c33bad6449af126d9d6ffaa776" rel="noopener noreferrer nofollow">0xdb4fbc…faa776</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.aidress.ai</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:15 UTC · delivered <a class="mono" href="https://solscan.io/tx/Jc5RYa6udpjnK7Uk1wPkDFcXiX3q7Thiz7mGwmXs1KPkKJYRScbmnJfQ7t2Z3swPy3wBqh5onD6ruSzPGFRA4F1" rel="noopener noreferrer nofollow">Jc5RYa6u…FRA4F1</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.apex-db.org</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:55 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xa9ff5be451aa202c951f1378d6a39c3958b7a769aadcee1ae85e7f8304d2c9fd" rel="noopener noreferrer nofollow">0xa9ff5b…d2c9fd</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.bentcrypto.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/4jMHjmX95Xmke5jngeSjpGkhez4i4E6qfWpXSfUu3LwknTGjkNJAaFesgLV8Kyo4i3uxbRczzSy3g7v4gKvQpmbz" rel="noopener noreferrer nofollow">4jMHjmX9…vQpmbz</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.biotechcatalystsentinel.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · delivered <a class="mono" href="https://solscan.io/tx/2UZmaYAqpodTCqXB5NgDY1fvzwzEmCBrTQSojVEkF3TWARVjkauNwVmRqg2ajQRMNVn8JqASG1wtNpYTDcKMphfs" rel="noopener noreferrer nofollow">2UZmaYAq…KMphfs</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.botpay.network</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:27 UTC · delivered <a class="mono" href="https://solscan.io/tx/358rjtdDZ6METMoTKcdt8zA5rpezDWioH2Te952cMbMYWcBeNcqAUGXLqERkWdq9LyqGhESFnQqVahAmq8722tvi" rel="noopener noreferrer nofollow">358rjtdD…722tvi</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.carbon-cashmere.de</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · delivered <a class="mono" href="https://solscan.io/tx/463cGVaJdymnyLMTeXfZNernSjgsGSP272LFBhQE2k2PH8FnRn23Q6gsefZFzy7DQkokikEgXJitQfZM28u4owZE" rel="noopener noreferrer nofollow">463cGVaJ…u4owZE</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.cookin.fun</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · delivered <a class="mono" href="https://solscan.io/tx/4jpoKYeC7odPWJ8T5e65x4VkwERdr1K9u6BpL23oUd1UqBLEXoqRmnoZTLNuVTjDrgMdrRLGGKCREhGYaokRFfmf" rel="noopener noreferrer nofollow">4jpoKYeC…kRFfmf</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.cryptoetfsentinel.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · delivered <a class="mono" href="https://solscan.io/tx/Ww5homnT6yYRtwKs3quHgU5WezzZYQhcGw7iZbVcA16HNmM1FPRKYJzf99XHm1kUsEXcyAPZE9pUJnpzn6JxmFc" rel="noopener noreferrer nofollow">Ww5homnT…6JxmFc</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.exa.ai</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x629286a60cae358381a93eb29bcab9c61d5a210217293611f0c851dd9bc30860" rel="noopener noreferrer nofollow">0x629286…c30860</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.groundtruths.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · delivered <a class="mono" href="https://solscan.io/tx/2g9GSqdB7yz1aieNmvatxHLz37C9ffvfiFAvkGkJ3hKGTbg8GLrNWufeBzNVj8XRY7UwzAAY1NJowVSdi2zjBBqm" rel="noopener noreferrer nofollow">2g9GSqdB…zjBBqm</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.hergertsynthora.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">base 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · delivered <a class="mono" href="https://basescan.org/tx/0xe68e3d6073ff8646dc189552c308e9d4fae28ba9647748f8ce3ba2841a4fe6cc" rel="noopener noreferrer nofollow">0xe68e3d…4fe6cc</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.loopholetape.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · delivered <a class="mono" href="https://solscan.io/tx/5xwtvmqxGwJHjx7SLSBchxYjAuLfKnvpLSvXe2LgYfeDrCLWzebpc42YwkFYs1ZugEs3QNhDTvuypJUhWLuZZEGN" rel="noopener noreferrer nofollow">5xwtvmqx…uZZEGN</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.losbeto.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:41 UTC · delivered <a class="mono" href="https://solscan.io/tx/2ChuBKxkU2BGiaMrkN7JnCwR4f7CBCtz5yQXFHVvu8B3UfaazeQdV41eRp3mBz4kXZ2YbRJaxsaswqT7ssQrdDtt" rel="noopener noreferrer nofollow">2ChuBKxk…QrdDtt</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.messari.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:27 UTC · delivered <a class="mono" href="https://solscan.io/tx/3w9Y1dGL7SDJGnB3MiHNXPqh56GsAEEXUdf3WbTezJt9gicpH65wNnsU2VoPLEd845MV1ncBDfHREpTCFfxmhqwp" rel="noopener noreferrer nofollow">3w9Y1dGL…xmhqwp</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.oblique.markets</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:36 UTC · delivered <a class="mono" href="https://solscan.io/tx/TtdXeFbwBkBR6H2wk1R1ppKtY7M3ZHxjvzC12P8fk1aJQxqQt1nVmpTQ51AW7eTt5eVaHcWJFJqDK6mtqJNugTJ" rel="noopener noreferrer nofollow">TtdXeFbw…JNugTJ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.prereason.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · delivered <a class="mono" href="https://solscan.io/tx/34seNXqUAa4arsaeSecEU3DgxRFENw8BiN5a4JvgMU4qsR6Jo6br8GNFdJGzNWqvgu55bqX5PSxiCdqfbCQiK7Cw" rel="noopener noreferrer nofollow">34seNXqU…QiK7Cw</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.printmoneylab.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · delivered <a class="mono" href="https://solscan.io/tx/3YPAQmZK2e8kgRZSLGKHdd86FZhhZoZCAtkQCmNC89fWXYaAmmV4QaGCo9j92oUAv1qGy1DKp5nSz3WY98dDjPVB" rel="noopener noreferrer nofollow">3YPAQmZK…dDjPVB</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.recallradar.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x1bf427cbec8797f7f339985f26e8f099d080d7fea8778b015aba3538decc0b9c" rel="noopener noreferrer nofollow">0x1bf427…cc0b9c</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.rxatlas.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xcc680cf12f3e5c4aa371d0ac3fae41ca8423ecf86042905e22663d3983510a73" rel="noopener noreferrer nofollow">0xcc680c…510a73</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.solsentry.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:46 UTC · delivered <a class="mono" href="https://solscan.io/tx/64kAv5RgUmicwmCDHTRmcLXVW7U8CSALPEfs6YTmrScsxHd4tzBhVdQNJZWepLHWTQFRrwtwiUFjevZqhEmmx3H8" rel="noopener noreferrer nofollow">64kAv5Rg…mmx3H8</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.telemost.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://solscan.io/tx/2EZZuAb9Njtu22q6smhyY9qWj5L8Yw3nn7RvcF5BHqEWfTnWCeBFJLw4twiZWV6nuVYA9WTtAJ8xc6MPijPuMYGY" rel="noopener noreferrer nofollow">2EZZuAb9…PuMYGY</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">api.x-402.online</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · delivered <a class="mono" href="https://solscan.io/tx/jxpwforH4Wa1XyvRcWMMmvW4wQ8efP75TwnfnNnWPNJBt4QshE525r1zmZe5KJySoWkSEPBDPKhjnwQAQAjaajv" rel="noopener noreferrer nofollow">jxpwforH…Ajaajv</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">apollo.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:56 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x2fee4937767f05f3450dabb89370e5105208fdc121e2b8438808ecddfa62d2e6" rel="noopener noreferrer nofollow">0x2fee49…62d2e6</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">app.fortiblox.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · delivered <a class="mono" href="https://solscan.io/tx/3nRPzXPf3eY9oWwoGr7FLZbi1aNi27HZb8VYRjXbK8oPQB8C5j1mV43cc42CELA8337bmWg5fWXuQo5VUfgeZC8v" rel="noopener noreferrer nofollow">3nRPzXPf…geZC8v</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">aviationstack.mpp.tempo.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xec80895540fa35feff75356880231cd5fa086a83e30c1fb068d531499d920b84" rel="noopener noreferrer nofollow">0xec8089…920b84</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">aws-bedrock.grok.me</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/3EHK1zFPyvn88Gy9ucdCUfL6QFSVa3NbEMXqK4ACxtRyw3a9YVoRWfy3hwZqSbMfdmcHMnDkgTPRsBsYcbrtqeVi" rel="noopener noreferrer nofollow">3EHK1zFP…rtqeVi</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">bentcrypto-x402-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:56 UTC · delivered <a class="mono" href="https://solscan.io/tx/4f1mFKMyMKRZsc2E7kHS6YEEEZDYCZTChDGAQL9epkGySWQj3S9XQYccqPC4ArbKJ6dWT5rb2Z1wPy9e9deNweNv" rel="noopener noreferrer nofollow">4f1mFKMy…eNweNv</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">brasil-dados-api.onrender.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:36 UTC · delivered <a class="mono" href="https://solscan.io/tx/iNHoPBPWqB1bdnhFUKwX8QVuAYARTcEdHMd1XuPteEESDZQgBad33Cb9gTS1od1XGKhApFf3BxiFXW6VoPELCeE" rel="noopener noreferrer nofollow">iNHoPBPW…PELCeE</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">brave.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x14ad2d5e9334d03962c3335a58b4f4f593ad3603f80938e78f73864633855bf9" rel="noopener noreferrer nofollow">0x14ad2d…855bf9</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">builtwith.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x1caaf0f1eeeaa1b8fc38c5e90887ba0d22e52befa0f9f5ed8dc6e7d3953bd2c8" rel="noopener noreferrer nofollow">0x1caaf0…3bd2c8</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">bykaranteli.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:29 UTC · delivered <a class="mono" href="https://solscan.io/tx/4WrJLDGLmZXrRkoJF7LQV2gp9JAoA4KKZgqZPw5KFdJ4C8QFsuYMzGmVVw67swsLLfiY3kBhjnLQ8pXvEMamQ2G6" rel="noopener noreferrer nofollow">4WrJLDGL…amQ2G6</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">changelog-state-api.replit.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/32kjf4vDogFwrukWim5bCXmYwsyZja4kcPDVhvZ22LTEZS7q4RaFrGpp51tkCpccNXwVdBeJzTDS1vmr5QpCwoZF" rel="noopener noreferrer nofollow">32kjf4vD…pCwoZF</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">citable.run</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/3BEmz7ydbwB1PBpxGJivTEZtxR8XJaXH3cmGxKYJ5u5wp2GxPnb3pjFFpM1g1DZyGSZuCkfVQ5vSjsLMWYr9JRCZ" rel="noopener noreferrer nofollow">3BEmz7yd…r9JRCZ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">clawhunter.fun</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · delivered <a class="mono" href="https://solscan.io/tx/5Le8qmNZXokWNQQVSDbaK1FFGbC5MYWzM7JJMpHcp7bZFGt91LuNZunqxsBR6BFJbjSxgY8VWtFto9zYiL7EcG88" rel="noopener noreferrer nofollow">5Le8qmNZ…7EcG88</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">coingecko.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x5cb10f7084c00a241aa2a8a2d90c2ed1334e48e5a3aed5de9a9fb5949af9d677" rel="noopener noreferrer nofollow">0x5cb10f…f9d677</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">coingecko.use.x402atlas.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/5uXDj2uYLESY1TirhoedQa6pzdPLYoWvnoJvvpyJ7ToU3wDjvFCyd1kqhyi5hcawviB8HBxeybsv5b7c7QVBMWkt" rel="noopener noreferrer nofollow">5uXDj2uY…VBMWkt</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">content.hugen.tokyo</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:56 UTC · delivered <a class="mono" href="https://solscan.io/tx/rmNqsQisjKesH5QqrSFFVxQ9vfytVQKKp6nvdDN4RpRGBC6cAtiqqvTnFTBdhC4QZM7fvFu4aUE5S5oMXanJ5Hz" rel="noopener noreferrer nofollow">rmNqsQis…anJ5Hz</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">crypto.apitoll.cloud</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · delivered <a class="mono" href="https://solscan.io/tx/2QfkbBY31AyJJqQJ4bbTAentWnNPooKRSrs9Yt3aDTYFTrEm6sanCDLuAnnMYtrmRe1yQPqLY9g1M1mfxQZK2p4w" rel="noopener noreferrer nofollow">2QfkbBY3…ZK2p4w</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">deepgram.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x9a2866697bf600b5716826a58fea526a2ae0aaaaed3341fcc205f4a05852b85a" rel="noopener noreferrer nofollow">0x9a2866…52b85a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">deepl.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x7affe98a20ed4a9696e04b7563e05984a55b43759ef6ccbe1b423bc007978bad" rel="noopener noreferrer nofollow">0x7affe9…978bad</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">deepseek.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x9061ac60e86c9645dff02e13ac60ac6e6170bbf6e2bc40593cf0298e7ed93a7a" rel="noopener noreferrer nofollow">0x9061ac…d93a7a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">diffbot-kg.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x8ae51a0ee96be1bf78ebef5707d9dede35fbdcae179bfc771af5678a91bfe26f" rel="noopener noreferrer nofollow">0x8ae51a…bfe26f</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">diffbot-nl.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x3bc6c5d48f22c966c973dea814c412a123356531e62b6fc0d87fe416e3ad0196" rel="noopener noreferrer nofollow">0x3bc6c5…ad0196</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">diffbot.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xc73846276d90baa5a7ac2c628ea989d9b0a1052a419e2865882eb24429c9e3ca" rel="noopener noreferrer nofollow">0xc73846…c9e3ca</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">earlythunder.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:57 UTC · delivered <a class="mono" href="https://solscan.io/tx/9Ehoq58kmfxYBp93FkFpWgupEAjQV8G3aN79JzCiDcG7dYnUePgbah89UyQV4ppmXzYDrCn3FttH8VFhT6baFhW" rel="noopener noreferrer nofollow">9Ehoq58k…6baFhW</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">edgar-search.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xc41cd00537ef50fed35d45a6d2476137771c3a8c653814963e0a0a0c81df4a0b" rel="noopener noreferrer nofollow">0xc41cd0…df4a0b</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">edgar.apitoll.cloud</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:44 UTC · delivered <a class="mono" href="https://solscan.io/tx/7DKfY6AoGLqNJPa26QX3PCLpvL15rdsB22vdHt6H1JyJgBH8apuRWo1Tm1Fx6Wduc1jdZVHZffkMsRgGRsE1kR3" rel="noopener noreferrer nofollow">7DKfY6Ao…sE1kR3</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">edgar.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x3f2a538fbb4052af7e866fd8cb06e071f65fe6e75ba06d3dbdce5c89a6d9adbd" rel="noopener noreferrer nofollow">0x3f2a53…d9adbd</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">gateway.spraay.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · delivered <a class="mono" href="https://solscan.io/tx/3GW4v4LTHswm4DUCCSgLET8kxbP7UpWSJNipYpMGDzNMSboYJj7yTbzZ2eD254DAAPDypuFYCLWXycsiTBYgo4AK" rel="noopener noreferrer nofollow">3GW4v4LT…Ygo4AK</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">gdzlcxskuhupymyxywzm.supabase.co</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  <div class="meta dim">not counted: not buyable 1</div>
+  <div class="meta">last: 2026-09-28 07:57 UTC · delivered <a class="mono" href="https://solscan.io/tx/4YE1divtA2es5XzZPrWkrCZb8umR3SEG7iwzgRFjLRd2g7WbfhhCDmq7WFX2cCoGkzNbm61TJWbaYEDCrC6QyLSc" rel="noopener noreferrer nofollow">4YE1divt…6QyLSc</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">graph.codex.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x559bce59bb3b5a52d29b9d069795bee9198a76180baf1d2de4c8efa6b42e3ed2" rel="noopener noreferrer nofollow">0x559bce…2e3ed2</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">grok.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xd7bce4d042c75a45b68ca158de00563b7a9636e992a34e077045a578e0abffd3" rel="noopener noreferrer nofollow">0xd7bce4…abffd3</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">groq.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x2f3cdd39383cb9cee42dbe1b2bb2ccf2ad4904231f38ab26675b811799da3beb" rel="noopener noreferrer nofollow">0x2f3cdd…da3beb</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">helprentdanang.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:57 UTC · delivered <a class="mono" href="https://solscan.io/tx/5TejrzSg6qv7SF64YE9EWb4NvNxQ7BsXEyvgSXnSRQgnv95cY1GoCedUnQkZPQ5mmhsTrLCS2uyRVxeYwhLCpDwu" rel="noopener noreferrer nofollow">5TejrzSg…LCpDwu</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">htrlhl3y49.execute-api.us-east-2.amazonaws.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/2QuyfxCfLgWrFChHpY5iBdAiXRmnVUGXLquXq4gBihCZBzc6GsTLFadNpaQHGrUwXudpH5ZMV2WLTH1ynFyYA8tX" rel="noopener noreferrer nofollow">2QuyfxCf…yYA8tX</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">hunter.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x48c704910a5dcdc3d2ce5fb899d401eda4f6f15d7c12a27f95ad35a285dd027a" rel="noopener noreferrer nofollow">0x48c704…dd027a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">hypernatt.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/3KdsLEmsZY1b7tzEseYg8ENrLutSGquE4hpzpc1UapTTm7pc6s3rMcs9EdTRvxiVQW1h6or43c1mFc5eaKk5kkU7" rel="noopener noreferrer nofollow">3KdsLEms…k5kkU7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">insider-radar-agent.insider-radar-agent.workers.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:57 UTC · delivered <a class="mono" href="https://solscan.io/tx/3P37SYr1Q2sUsW1Fgsi8mYHg5CtPKBjWYCKWCqsDbAoi7YZM3ictZ9bYiuVbZ18UgX4jPCGRRFkTCpAMrnhHGSZs" rel="noopener noreferrer nofollow">3P37SYr1…hHGSZs</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">intel.twzrd.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/5zMVz1Ezu3GerbVsSBTpXZGewgoHLbpmQQXtPbxfK6PFinTJvEKDohyfvhvxxGFg9BQYW8X5Hs42tYUuAkg31wjq" rel="noopener noreferrer nofollow">5zMVz1Ez…g31wjq</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">ip402.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:57 UTC · delivered <a class="mono" href="https://solscan.io/tx/5dMHQTgMYqTeqqso3m897gaEgUfSi6S4GWF9198n9ZiN4Bxm8EfejD6BeW38MbBLbCExefQPqeCdr7z5fnP5izBX" rel="noopener noreferrer nofollow">5dMHQTgM…P5izBX</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">ipinfo.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xc79643756df06513c452898e622dfa12629643884d509708972bbde412c1f02b" rel="noopener noreferrer nofollow">0xc79643…c1f02b</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">kael-ecosystem-pulse.onrender.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/wuHv3zQLDkMF9Sm8cEoUVW8ZJcpKA4ftmne5zygR4sPT6HfnVhjs3AEtiPK5JC8wUc58Pr3oT1KG2EAteDEMRR7" rel="noopener noreferrer nofollow">wuHv3zQL…DEMRR7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">kaisha-api.hp-vladic.workers.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:37 UTC · delivered <a class="mono" href="https://solscan.io/tx/3kB8bZKRThj746NhtQazDBy6nKzfMA8z8EKTkWxLW55mPQesDdAGmszbvZ4tGaaWpovfAUfoYxq3oVnJ22d4upg8" rel="noopener noreferrer nofollow">3kB8bZKR…d4upg8</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">kicksdb.mpp.tempo.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x265b677e68208334a2640c2d2426b3c8de05424601cce8c239a3407a7ab0cfe8" rel="noopener noreferrer nofollow">0x265b67…b0cfe8</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">laso.finance</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/4ws12PUEwKUYGdTTo7U5tCrzqQeN8JCh2x6Z7wCdWfYWUddqNAFTo5ConcjkpbDQsC2yCS4rsZtxm9XUQJDb3XhD" rel="noopener noreferrer nofollow">4ws12PUE…Db3XhD</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">lazareus.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:38 UTC · delivered <a class="mono" href="https://solscan.io/tx/4dC3E1JQQZxzjwpgLSaEBCS3czSGxuTt3SUVWAcpHT3Gmv1vXJbqrLWyFHE1mEQkCqprcGdWtEtuTHhdJrFyws3U" rel="noopener noreferrer nofollow">4dC3E1JQ…Fyws3U</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">loki.freedomlab.space</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/3DkS7cnMtR4zo3fPKfuf8SR5DcwpQFroJBZQ8pyedskvD6xMzc26CdvRjkvMBwvKp7DX15sN1pmtK9BfUwPmsm7g" rel="noopener noreferrer nofollow">3DkS7cnM…Pmsm7g</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">madeonsol.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/5HweXGvYoHb3kvb2YbFXFmnUxNy9CmaufJYVYqkpF9xKA1Upy1ZpYtHNNj7oKN7wvUbH6WZvytgu9XeFwXVL6inL" rel="noopener noreferrer nofollow">5HweXGvY…VL6inL</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mapbox.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xeaf8cdd85efb6f2a2bdea404c3bee414f4afb84b48872e0ec1ae02365f0a2eb7" rel="noopener noreferrer nofollow">0xeaf8cd…0a2eb7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mathpix.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x8236773368abe4faa2908bca6efad750493e36c91ec1599b0ec3799d5e627855" rel="noopener noreferrer nofollow">0x823677…627855</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mcp.blocksize.info</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:38 UTC · delivered <a class="mono" href="https://solscan.io/tx/62UtqkRDGD2m1Tb4iLbbuvYQaxGHpYGH2jvHcFz6CNdGijDa7cfP91yKeWNRyuMCA1iSK4eL6vNMWLVwXg3azEFD" rel="noopener noreferrer nofollow">62UtqkRD…3azEFD</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">minifetch.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/4HyrcMjGnCTV7LryqP2QBsEcGNHQePGGNg5M1qiVX6MABnhEGmhk1ECUajiwDUJFCvYzndQKrFV4zbtkgQpdT38v" rel="noopener noreferrer nofollow">4HyrcMjG…pdT38v</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mistral.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x235fbbc14a6d0574897af20b80aa325a329ce2ef52e3e81a71e03aa62fd5f77f" rel="noopener noreferrer nofollow">0x235fbb…d5f77f</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.hyreagent.fun</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:57 UTC · delivered <a class="mono" href="https://solscan.io/tx/5phrX2XjymBMStasuDC2eQffhXpU8wi4bvriPHVKgMZLASjnP9SL3UFwC2JjKhCAwUKtEHV69UeGq1RCYKENs1Sb" rel="noopener noreferrer nofollow">5phrX2Xj…ENs1Sb</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-andi</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x810de3bb48adca8234316c8826f4121c0d1fecc6e907b55ffecb3398f8e83746" rel="noopener noreferrer nofollow">0x810de3…e83746</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-aviato</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x087792d2fc07fab9d6910131aa4c0219175b0369ebb86cb784bd53798a8fcaa1" rel="noopener noreferrer nofollow">0x087792…8fcaa1</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-brand-dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x3933b8f78b3a5e3f61fbcd6b04d6ace2e5f3d9cbf59013456f8f19d14f2034fc" rel="noopener noreferrer nofollow">0x3933b8…2034fc</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-financial-datasets</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x9c533977e2c165967cd020bb96b4fb3758f98d130f2aef0aad4a6a1ed0a0732d" rel="noopener noreferrer nofollow">0x9c5339…a0732d</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-findymail</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x0494694e44221ed555e28a926e301f7723bf9fb4cc176678db60ac39d5b3ac51" rel="noopener noreferrer nofollow">0x049469…b3ac51</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-linkup</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x5651faf93248e5ca57ea9bef5464532e3fb57e90e2cf854c1e27f59f0b9ae535" rel="noopener noreferrer nofollow">0x5651fa…9ae535</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-olostep</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x2f8c5846abef374cd8e774e1c98533b0c3c464da2ea0d242124ccb096a2c4999" rel="noopener noreferrer nofollow">0x2f8c58…2c4999</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-openmart</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xfabbd39b92c7d8326b58569fc5c20b817dc96ceb2d5b24a0fdb4cbb526857947" rel="noopener noreferrer nofollow">0xfabbd3…857947</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-predictleads</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xefae5cb1c8ea85bc20ecd99ca011bf8210e86bb1c6720473a30513909bf51d84" rel="noopener noreferrer nofollow">0xefae5c…f51d84</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-scrapegraphai</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x482fd958b8d160fc96d4c74c5348c07f4c93fa206971def861a4ef45244587ca" rel="noopener noreferrer nofollow">0x482fd9…4587ca</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-seltz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xae244a158d694588c0cf339e1279c8e70f4181452fffda881e981480c751df58" rel="noopener noreferrer nofollow">0xae244a…51df58</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-serper</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x4c3a3a55e176eef7c2f57553fef9725b8aacf270be6cc99eea0237691daa7aef" rel="noopener noreferrer nofollow">0x4c3a3a…aa7aef</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-signalbase</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x589bdf56fad5d0079f9aa4b32143930cc43853d30012e9624e9023a294a37d0a" rel="noopener noreferrer nofollow">0x589bdf…a37d0a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-sixtyfour</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x9b06fb63ec2fc0113654e3e661c68a750c477270993b3f67f67159cffb551446" rel="noopener noreferrer nofollow">0x9b06fb…551446</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">mpp.orthogonal.com#orth-tako</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xc955806aae0f9e419c2e67034b9a74885a87e52a476f1acec5e0bc3c557060f7" rel="noopener noreferrer nofollow">0xc95580…7060f7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">netintel.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/5ZWFzaHGjiUyzaD79EPhztKR2y6MPihrg5vX1cdnjybryvMqFaiUPhvgaGRrz7QWSDkCe7d1Evi7Uy4DeVtHW2E7" rel="noopener noreferrer nofollow">5ZWFzaHG…tHW2E7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">news.apitoll.cloud</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/5XGGzTgVKMJW1w1RTixY6N9JWP4g2v8xjVhn3edr5kiqHzdFrWDoeCq8eAgk7jDi2eP2GmbZ8diQr3zSCjPvvSrK" rel="noopener noreferrer nofollow">5XGGzTgV…PvvSrK</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">nuza.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · delivered <a class="mono" href="https://solscan.io/tx/2UcNdVh1dfgFWGCUPiaUcUQyH4PVrfP7k6zbACeoSYSR4kpay4R9G1XdC94D2A2nWP1ohtPKk2Fkv2pVQ8mQWjG8" rel="noopener noreferrer nofollow">2UcNdVh1…mQWjG8</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">onchainpulse.theaslangroupllc.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/2jscVg8ggXtTLRB1fK9ECDqSRc3JT8Catrn8d8C1veHitnrszWuZ6qAJdWxD83vX3b3TTVELuzUppsWwkuyg6ExC" rel="noopener noreferrer nofollow">2jscVg8g…yg6ExC</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">openweather.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xd2c0ed6e1a90d55576132471abc4fe670b3f3ccd747be2bcf225c09f5ee0300d" rel="noopener noreferrer nofollow">0xd2c0ed…e0300d</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">pay.edge-agents.ai</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:00 UTC · delivered <a class="mono" href="https://solscan.io/tx/2MNdkcTcK178hqLPcaqrZNpATyE8ps8pZBK36uPWxL2cRzte1MQV3fUUfWV28XucsSpVPET3k2whBpEFnViDGigw" rel="noopener noreferrer nofollow">2MNdkcTc…iDGigw</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">payable.nsgoods.org</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/5uqguYP6kAn8DiEqGgZp97w4iEqJVPdPWnbyg6KighRCFLPMa5KcF54G2JAC637WYcS4Lp3vnqZ5YN5TJoVXJkXm" rel="noopener noreferrer nofollow">5uqguYP6…VXJkXm</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">payai.agentstools.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:25 UTC · delivered <a class="mono" href="https://solscan.io/tx/oaicvJvL7K72XmV2ATvTBGpxY8kS2MkqamKLkuFivLF2ZUTFebYXPi69NJkjKHBEqpk2mGHLnquZuANF3oPiX8q" rel="noopener noreferrer nofollow">oaicvJvL…oPiX8q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">perplexity.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xadece56df6b6aad3e427800fb95ef6d264bfd491338120612d8461ba7377750a" rel="noopener noreferrer nofollow">0xadece5…77750a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">polynews.news</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:25 UTC · delivered <a class="mono" href="https://solscan.io/tx/2x7RFAv1mZLhTa78zTYfYGBCez3bRAyvwQ9CvWWaP4Fkamo5s9R8xx7LuJxvmnJBJ6D9mDY7qwpuesZmmsWceTSS" rel="noopener noreferrer nofollow">2x7RFAv1…WceTSS</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">predict.memoryapi.org</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">base 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · delivered <a class="mono" href="https://basescan.org/tx/0xfb185789c1f7c1c6ce77ae1181fd02b46bad7d7314e6e18b7eba0e7e053a74cc" rel="noopener noreferrer nofollow">0xfb1857…3a74cc</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">pro-api.coingecko.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:00 UTC · delivered <a class="mono" href="https://solscan.io/tx/4YVpWC25MFu8Uk4VvidHQ9Jy1C3bVCiAdTfppFBKJYG9YYVz1WtDqPR3qnt9otH3mfR1FxahorAR6euAaFrkrBau" rel="noopener noreferrer nofollow">4YVpWC25…rkrBau</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">proxy.suverse.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:25 UTC · delivered <a class="mono" href="https://solscan.io/tx/4YHyRzaSMdsvf327ZyWsqh1HLc4pjZT1HLPV6RaRt4xZcEt7mkaBVAabANKGyvkSfgYTJzgXW53bSTaSta1GouSr" rel="noopener noreferrer nofollow">4YHyRzaS…1GouSr</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">quartermaster.surewhynot.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:25 UTC · delivered <a class="mono" href="https://solscan.io/tx/3stVc8rSeosXwETFUmKZ7yDH9PicrsH2nw5Q8tH4xkkgscmoqNyheH41396gF5Uyp685LbjmnVfnZk5wXYcEnTuV" rel="noopener noreferrer nofollow">3stVc8rS…cEnTuV</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">read.lonestaroracle.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/3bda1kDWc9x6qicrv7xQhaPZrk44LbQukbRsyid4QVfyNSAzxqDsHVVEHXURpwH47EyfKP8KUYicjynekzFgNsHd" rel="noopener noreferrer nofollow">3bda1kDW…FgNsHd</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">rentcast.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0x51a4cd8441ffffe8399e883c212e0e5d21a52011a892a5d694c3d2b8e994f4e7" rel="noopener noreferrer nofollow">0x51a4cd…94f4e7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">rewards-144-91-97-140.sslip.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:25 UTC · delivered <a class="mono" href="https://solscan.io/tx/gWkXnzc5obtW7j7BYpvWiroGQNyP64ChmX8ZnJxCffkuu1FRnjcvTswfXpTkkk8XoqZA3x9AyGmLPe2DpCAJ76u" rel="noopener noreferrer nofollow">gWkXnzc5…CAJ76u</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">saylorinnovations.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:27 UTC · delivered <a class="mono" href="https://solscan.io/tx/BzrxdaTVbTqnTpqMU1dM5zfJJPBkpUB7ZkGAFVtiENDDaQ2qnCSz42xoH2MY5oKHuAgN5CFfEsnahi1q7uWkmFk" rel="noopener noreferrer nofollow">BzrxdaTV…uWkmFk</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">screenshotone.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">tempo 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · delivered <a class="mono" href="https://explore.tempo.xyz/tx/0xc2e5597b7c39f86bbab43baaa2e837bd5254b4473c10274f0f588b9dbec9c9c3" rel="noopener noreferrer nofollow">0xc2e559…c9c9c3</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">scry.solanahub.de</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/33io91of3YEfsarZNSrt6W7JxMsMD1tcpgutDs8KhdthNPDds5kpeetjWmUp8mK88k7WQhnP6iKfjjUNUpYD7BwL" rel="noopener noreferrer nofollow">33io91of…YD7BwL</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">stockwaves.net</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:44 UTC · delivered <a class="mono" href="https://solscan.io/tx/2AzFZgT3iZQbqVgeybD9DKetbCFAmLo4wGstA7UPgoGJJtRXT1eewoyFKLGiUZpNHnhpee17CwievveV3dqVZn5F" rel="noopener noreferrer nofollow">2AzFZgT3…qVZn5F</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">terminal.themonexus.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:31 UTC · delivered <a class="mono" href="https://solscan.io/tx/67VDGiBMwu6tZ1Y8NfjWBoa6PGD3QaWLdeGKRkwwJZsvK7KTFzrMWwurppQCNnLDJCaUdWzN2kwQwe7TSynfVeww" rel="noopener noreferrer nofollow">67VDGiBM…nfVeww</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">tick.twzrd.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/3fTwZiUxReXXKQ83izX4kYjavKNbfEp8jhVditUQjWghtBLZpSoEc7KoZNSuPYq4FmdkMZD79G7rqGtLHXwYYZee" rel="noopener noreferrer nofollow">3fTwZiUx…wYYZee</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">toolvend.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:39 UTC · delivered <a class="mono" href="https://solscan.io/tx/38dQeJWYasSjujQMfmkgRWAJnGTr9Yk1KcW9Whfwn1jAsQafHibtBpZNHbWqN8LqiyFpgnhSwLPbgsNtkfSDSkaz" rel="noopener noreferrer nofollow">38dQeJWY…SDSkaz</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">underground.substratesymposium.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · delivered <a class="mono" href="https://solscan.io/tx/36HTTeJGcnzPPQSFvTSz1sRzBdgVLQLhVPoPqLoAQp7whguENDj5hkBQzbdkj5rWi51ZEmZqGUKsuVzhc4PKgLhF" rel="noopener noreferrer nofollow">36HTTeJG…PKgLhF</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">untarnished-ricky-nonhierarchically.ngrok-free.dev</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">algorand 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · delivered <a class="mono" href="https://allo.info/tx/WYR2STEKSLH5JL7AI6UEWBEYPRAHLNMOYVS4NWWBRUXO3ZYHZJQA" rel="noopener noreferrer nofollow">WYR2STEK…YHZJQA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">vealth.net</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">base 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · delivered <a class="mono" href="https://basescan.org/tx/0xc0684bf2225f1da18459c8049553d113a9a3052155d4b586b3b1cd8823d4b38a" rel="noopener noreferrer nofollow">0xc0684b…d4b38a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">werner.ddns.net</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · delivered <a class="mono" href="https://solscan.io/tx/4PJYWsJK1nVGPb9Rn4oTzpfiV3rNGs6jsWECEt86LRAqfNKJLTetqpyCb1Y5SNKMdPFQqWXN9D7rt3Daz63VowC5" rel="noopener noreferrer nofollow">4PJYWsJK…3VowC5</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">www.capminal.ai</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">base 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · delivered <a class="mono" href="https://basescan.org/tx/0xcbfe4fa368f5efbc3b13e320ca9fa922d3265750dac8a0e11644fc8cb03a6bac" rel="noopener noreferrer nofollow">0xcbfe4f…3a6bac</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">www.x402financialdata.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · delivered <a class="mono" href="https://solscan.io/tx/2HpfigyTzofKiGiH7R4wA4n9Dqg4NVJMVHSHndNQhBo4REAX1DYcYR67zzWUScWKaqifN8tzv8L2mhG3mZi88hKm" rel="noopener noreferrer nofollow">2HpfigyT…i88hKm</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402-api.vybenetwork.xyz</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · delivered <a class="mono" href="https://solscan.io/tx/5NoxxQ6pLoXgqjVpDmYCPb2cMWT8LWvvF1nfZhET7tL3VUqpQyGRAw4bo2LxPEdNxsMsCFtuAWGJ7cyHDuPCXZVQ" rel="noopener noreferrer nofollow">5NoxxQ6p…PCXZVQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402-crypto-data.vercel.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:39 UTC · delivered <a class="mono" href="https://solscan.io/tx/4p4iW1UnivsLVdfaTuxRjqARbsggrYGdhNr4D9e3R6wNbqsYaABYmg3hRUCvbJ7hw8fszEGjuLNXuQdb5824xDKY" rel="noopener noreferrer nofollow">4p4iW1Un…24xDKY</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402-doctor.onrender.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:34 UTC · delivered <a class="mono" href="https://solscan.io/tx/fBFWcRddccTw3ULR8DymFCXP2W4uuKB7c1HNM1Eb62LnjRAhgDzVCkSgoDBEuSDWvrA7efvE1z8yDUUyPpHRLHW" rel="noopener noreferrer nofollow">fBFWcRdd…pHRLHW</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402.911fund.io</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:15 UTC · delivered <a class="mono" href="https://solscan.io/tx/2nNze1ftsdGcMx1ZxWjuNSyaNpEsR1RwmZRCjfZK2P8RUhStGoQ4RxK2NaN9BKKiqwPzniJGDdbMfjMStwhErMHY" rel="noopener noreferrer nofollow">2nNze1ft…hErMHY</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402.agentutility.ai</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">base 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 08:16 UTC · delivered <a class="mono" href="https://basescan.org/tx/0xf40114d4b688ea92c21068ebaad17d2da551d9463660aea22ad57c1defbefda5" rel="noopener noreferrer nofollow">0xf40114…befda5</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402.ochinimus.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:34 UTC · delivered <a class="mono" href="https://solscan.io/tx/53vBd1ZnchtxTRujaDfe7e58v2uzvtpMWNjJzdMf9ATPjMEw9T24CKHWqinFCn6wdq8HdmwyDs1kenByZgEvJZtd" rel="noopener noreferrer nofollow">53vBd1Zn…EvJZtd</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402.sniperx.fun</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:35 UTC · delivered <a class="mono" href="https://solscan.io/tx/35yThvYNrB6QpiDSBCJWgxDRiC5AHb25amsXL2mW2enLKnxHT995iwqjBCnwxknjqgEgPmuqACNpTaEaeQ5dd4cA" rel="noopener noreferrer nofollow">35yThvYN…5dd4cA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402engine.app</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:36 UTC · delivered <a class="mono" href="https://solscan.io/tx/5WEajLwugkV9VLHycW4ZSJ5qwcE2NQ7dK5Q53ryNUCX4PGW27smhs9nJwXNt52xL9Skro6FUsGZCu9TBMJf6A2Ev" rel="noopener noreferrer nofollow">5WEajLwu…f6A2Ev</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#44</span><span class="host">x402tap.com</span></div>
+  <div class="row2"><span class="big">1/1</span> delivered · score 0.207 · settled 100%</div>
+  <div class="meta">solana 1/1</div>
+  
+  
+  <div class="meta">last: 2026-09-28 07:36 UTC · delivered <a class="mono" href="https://solscan.io/tx/4Kyi5SyJpKCXLTVYBSviDC78DNLFTqV1W6uMpeyiWGppP9ZHfavhdEy9MRmVtuA4qWnAPmdkjPKQG9AjE6A6pJMQ" rel="noopener noreferrer nofollow">4Kyi5SyJ…A6pJMQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#177</span><span class="host">gateway-x402.vercel.app</span></div>
+  <div class="row2"><span class="big">4/10</span> delivered · score 0.168 · settled 40.0%</div>
+  <div class="meta">algorand 4/10</div>
+  <div class="meta">failed: payment not settled 6</div>
+  
+  <div class="meta">last: 2026-09-28 01:33 UTC · delivered <a class="mono" href="https://allo.info/tx/KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A" rel="noopener noreferrer nofollow">KZ6YW34M…WDT46A</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#178</span><span class="host">43.162.105.66.sslip.io</span></div>
+  <div class="row2"><span class="big">2/4</span> delivered · score 0.150 · settled 50.0%</div>
+  <div class="meta">algorand 2/4</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#178</span><span class="host">api.playclock.xyz</span></div>
+  <div class="row2"><span class="big">2/4</span> delivered · score 0.150 · settled 50.0%</div>
+  <div class="meta">algorand 2/4</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#178</span><span class="host">hashlock.pronodealgo.xyz</span></div>
+  <div class="row2"><span class="big">2/4</span> delivered · score 0.150 · settled 50.0%</div>
+  <div class="meta">algorand 2/4</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · delivered <a class="mono" href="https://allo.info/tx/S32NIXXZ6LLPFUGGTRNXKJWGPTBXKS63MKBEBJAQWES33I7GC63Q" rel="noopener noreferrer nofollow">S32NIXXZ…7GC63Q</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#181</span><span class="host">finality-x402-backend.onrender.com</span></div>
+  <div class="row2"><span class="big">3/10</span> delivered · score 0.108 · settled 100%</div>
+  <div class="meta">algorand 3/10</div>
+  <div class="meta">failed: paid, answer not as declared 7</div>
+  
+  <div class="meta">last: 2026-09-28 01:34 UTC · paid, answer not as declared <a class="mono" href="https://allo.info/tx/4VQBXTILH64NFDBD3UURIJJX4BVM3M4B22SE5SVDEWEAL4KHKJRQ" rel="noopener noreferrer nofollow">4VQBXTIL…KHKJRQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#182</span><span class="host">api-production-36692.up.railway.app</span></div>
+  <div class="row2"><span class="big">1/2</span> delivered · score 0.095 · settled 50.0%</div>
+  <div class="meta">algorand 1/2</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#182</span><span class="host">kepaix.com</span></div>
+  <div class="row2"><span class="big">1/2</span> delivered · score 0.095 · settled 100%</div>
+  <div class="meta">algorand 1/2</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · delivered <a class="mono" href="https://allo.info/tx/ULRJ5BBF7VUKFV2BZAKOC5G2N4YDCKY5MQXBW64VP2Z7RMD6FESQ" rel="noopener noreferrer nofollow">ULRJ5BBF…D6FESQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#182</span><span class="host">legit.gonna.bond</span></div>
+  <div class="row2"><span class="big">1/2</span> delivered · score 0.095 · settled 100%</div>
+  <div class="meta">algorand 1/2</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:25 UTC · delivered <a class="mono" href="https://allo.info/tx/73QQMQL4Q5KILF37LMATBYVNDUGNGJJCOYHVHFHHDXKZXRK67CHQ" rel="noopener noreferrer nofollow">73QQMQL4…K67CHQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#182</span><span class="host">roundwatch-api.onrender.com</span></div>
+  <div class="row2"><span class="big">1/2</span> delivered · score 0.095 · settled 50.0%</div>
+  <div class="meta">algorand 1/2</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#182</span><span class="host">x402.diiisco.com</span></div>
+  <div class="row2"><span class="big">1/2</span> delivered · score 0.095 · settled 50.0%</div>
+  <div class="meta">algorand 1/2</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#187</span><span class="host">amarok-api.compx.io</span></div>
+  <div class="row2"><span class="big">2/12</span> delivered · score 0.047 · settled 16.7%</div>
+  <div class="meta">algorand 2/12</div>
+  <div class="meta">failed: payment not settled 10</div>
+  
+  <div class="meta">last: 2026-09-28 01:34 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#188</span><span class="host">agent402.tools</span></div>
+  <div class="row2"><span class="big">39/1016</span> delivered · score 0.028 · settled 4.4%</div>
+  <div class="meta">algorand 37/1014 · solana 1/1 · base 1/1</div>
+  <div class="meta">failed: payment not settled 971, paid, answer not as declared 6</div>
+  <div class="meta dim">not counted: not buyable 148</div>
+  <div class="meta">last: 2026-09-28 08:16 UTC · delivered <a class="mono" href="https://basescan.org/tx/0x2c9f52315eeb527428dc2592edb469548b4dfcfd5ad745a3e145a05ed9802490" rel="noopener noreferrer nofollow">0x2c9f52…802490</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#189</span><span class="host">api.syraa.fun</span></div>
+  <div class="row2"><span class="big">0/19</span> delivered · score 0.000 · settled 5.3%</div>
+  <div class="meta">algorand 0/18 · solana 0/1</div>
+  <div class="meta">failed: payment not settled 18, paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:36 UTC · paid, error status <a class="mono" href="https://solscan.io/tx/2M3eYQQj9y3s5bYEAeJU6irqyuVzGC6C5Hy3td7zBbdMywfE9U4E8sw9QHcM5nHz1kYCxo7fB9o5zuBvvLcBhpLS" rel="noopener noreferrer nofollow">2M3eYQQj…cBhpLS</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#190</span><span class="host">algorand-indexer.xyz</span></div>
+  <div class="row2"><span class="big">0/14</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/14</div>
+  <div class="meta">failed: payment not settled 14</div>
+  
+  <div class="meta">last: 2026-09-28 01:34 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#191</span><span class="host">api.algofile.io</span></div>
+  <div class="row2"><span class="big">0/6</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/6</div>
+  <div class="meta">failed: payment not settled 6</div>
+  <div class="meta dim">not counted: skipped by vet402 6, not buyable 2</div>
+  <div class="meta">last: 2026-09-28 01:30 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#191</span><span class="host">api.algorand-indexer.xyz</span></div>
+  <div class="row2"><span class="big">0/6</span> delivered · score 0.000 · settled 66.7%</div>
+  <div class="meta">algorand 0/6</div>
+  <div class="meta">failed: payment not settled 2, paid, answer not as declared 4</div>
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#191</span><span class="host">api.blueprintstech.org</span></div>
+  <div class="row2"><span class="big">0/6</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/6</div>
+  <div class="meta">failed: payment not settled 6</div>
+  
+  <div class="meta">last: 2026-09-28 01:30 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#194</span><span class="host">ora-gate-mainnet.vercel.app</span></div>
+  <div class="row2"><span class="big">0/5</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/5</div>
+  <div class="meta">failed: payment not settled 5</div>
+  
+  <div class="meta">last: 2026-09-28 01:31 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#195</span><span class="host">arbiter-hs23.onrender.com</span></div>
+  <div class="row2"><span class="big">0/4</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/4</div>
+  <div class="meta">failed: payment not settled 4</div>
+  
+  <div class="meta">last: 2026-09-28 01:28 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#195</span><span class="host">ogimage.goplausible.xyz</span></div>
+  <div class="row2"><span class="big">0/4</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/4</div>
+  <div class="meta">failed: payment not settled 4</div>
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#195</span><span class="host">secondopinionx402.com</span></div>
+  <div class="row2"><span class="big">0/4</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/4</div>
+  <div class="meta">failed: payment not settled 4</div>
+  
+  <div class="meta">last: 2026-09-28 01:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#195</span><span class="host">x402-mesh-gateway.fly.dev</span></div>
+  <div class="row2"><span class="big">0/4</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/4</div>
+  <div class="meta">failed: payment not settled 4</div>
+  
+  <div class="meta">last: 2026-09-28 01:28 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#199</span><span class="host">prism-99h2.onrender.com</span></div>
+  <div class="row2"><span class="big">0/3</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">algorand 0/3</div>
+  <div class="meta">failed: paid, answer not as declared 3</div>
+  <div class="meta dim">not counted: skipped by vet402 2, not buyable 1</div>
+  <div class="meta">last: 2026-09-28 01:29 UTC · paid, answer not as declared <a class="mono" href="https://allo.info/tx/JZIGXOQTCZTYQ356Y7LLUSIR4ZZXGHFVSAURHXH2PCQPD2E6V6ZQ" rel="noopener noreferrer nofollow">JZIGXOQT…E6V6ZQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">402signal.com</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">alpha-hunter-x402-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">api.celloforigin.com</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: paid, error status 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · paid, error status <a class="mono" href="https://allo.info/tx/XHJDTXXD2WZHONPJ6SYLZKTOKDW2GPOTVC7BQHLPWXJQ6TLNKXJA" rel="noopener noreferrer nofollow">XHJDTXXD…LNKXJA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">api.micropay.website</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: paid, error status 2</div>
+  <div class="meta dim">not counted: skipped by vet402 2</div>
+  <div class="meta">last: 2026-09-28 01:26 UTC · paid, error status <a class="mono" href="https://allo.info/tx/LEKH3HKEYYLODPCJEDBUO4W5X46ZRWVRUTDHFWIBYBXL2EJGMXFA" rel="noopener noreferrer nofollow">LEKH3HKE…JGMXFA</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">arbiter-mesh.gabrielaxy.workers.dev</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:25 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">eggcracker-server-1.onrender.com</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:26 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">proofmesh-x402.onrender.com</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">second-opinion-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  <div class="meta dim">not counted: skipped by vet402 2</div>
+  <div class="meta">last: 2026-09-28 01:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">tendrilhq.com</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">x402-echo-service.vercel.app</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#200</span><span class="host">x402.frostylabs.ai</span></div>
+  <div class="row2"><span class="big">0/2</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/2</div>
+  <div class="meta">failed: payment not settled 2</div>
+  
+  <div class="meta">last: 2026-09-28 01:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">ads.apitoll.cloud</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">agents.datamancer.io</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:48 UTC · paid, error status <a class="mono" href="https://solscan.io/tx/ASpnMrvWWjgchviww6TyLo6J7aovDqN9f1f6JMV5yBv1rwEKNKDqGioimbXMBacZdzbVHs7jhiuCmAtAvJDZ94M" rel="noopener noreferrer nofollow">ASpnMrvW…JDZ94M</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">agentworld.me</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:14 UTC · paid, answer not as declared <a class="mono" href="https://solscan.io/tx/g5iaCSxF9fEV2Wszj1XFJfy3V49Bza6T99MoxhpDPoKwhrY7iheXdaX7M6gd9DMAoG43FpnYaveeoEb8NnW7XrS" rel="noopener noreferrer nofollow">g5iaCSxF…nW7XrS</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.bitrefill.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:16 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.cn402.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:41 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.cra-agent.tech</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:18 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.deepnets.ai</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · paid, answer not as declared <a class="mono" href="https://solscan.io/tx/29FLVZNwKq1MJZWVzETM5huAuwqeP1vzSN1HZgQb2L4srTattwttezXip3YtUFUKraHeFDCRa7NHsdTRpPfumC82" rel="noopener noreferrer nofollow">29FLVZNw…fumC82</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.eucompliance.tools</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:19 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.govparse.io</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:21 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.marketintelligenceapi.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:43 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.maxwellinternational.ai</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:49 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.monpham.work</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:44 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.seerium.xyz</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:28 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.stelardigital.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:21 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.tcgapi.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:49 UTC · paid, answer not as declared <a class="mono" href="https://solscan.io/tx/5Nv86xG4xiWy3GjvDokWy2Rizzq5LWpd2C1QZdoKgtr4PA8mETa5Z29PpPt1ztgh1ThUMo9Htgi5bnjJbwGnF3XR" rel="noopener noreferrer nofollow">5Nv86xG4…GnF3XR</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.terradeed.co.uk</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">base 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:17 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.xona-agent.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:28 UTC · paid, error status <a class="mono" href="https://solscan.io/tx/snofPqfZEQ4NyfDepxepVUoYbfBujeq5C6uuK2xQFE38EYzk6yKkvEwvZKUa3cBjniN8QXQAdRZwjWWuQ9m4f8a" rel="noopener noreferrer nofollow">snofPqfZ…9m4f8a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.you.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:51 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api.zerion.io</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:55 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">api2ls.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:56 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">authen.hvym.link</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  <div class="meta dim">not counted: skipped by vet402 1</div>
+  <div class="meta">last: 2026-09-27 04:56 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">blocksearch.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:56 UTC · paid, error status <a class="mono" href="https://solscan.io/tx/4yUJhbYHcjHpyNULZJBuZydu1aeSFnhmuCXkWvpoLjAx6TaajBckpZLJVFc3PGhdm7oE7d6wq6KmpoyFf8UUMgU4" rel="noopener noreferrer nofollow">4yUJhbYH…UUMgU4</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">caravan-sable-nine.vercel.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">algorand 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  <div class="meta dim">not counted: not buyable 1</div>
+  <div class="meta">last: 2026-09-27 04:36 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">clado.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:03 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa" rel="noopener noreferrer nofollow">0xf5fbb2…f134aa</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">contextaiagent.xyz</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 06:52 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">dartapi.ljaysk.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:37 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">deposit.now</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">goflightlabs.mpp.tempo.xyz</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: 5xx, settlement unknown 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · 5xx, settlement unknown </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">houjin.agentic-jp.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:23 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">judge0.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27" rel="noopener noreferrer nofollow">0x2b7a80…e48c27</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">law-mcp.toulaw.workers.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:23 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">merchant-production-c224.up.railway.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:25 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">modal.mpp.tempo.xyz</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: 5xx, settlement unknown 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · 5xx, settlement unknown </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-agentphone</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x664d7f506c966bd3944eb895115a486f7023348e16e08a891a918d4c1c101513" rel="noopener noreferrer nofollow">0x664d7f…101513</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-baseten</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xa83b0bef34767e9d7f0609605cf4ba4ff7d59d7118e38cbbda46d5026cd12953" rel="noopener noreferrer nofollow">0xa83b0b…d12953</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-captaindata</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2" rel="noopener noreferrer nofollow">0x070d8d…ee27c2</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-company-enrich</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xcd5959fb4b25d044c985ee684ea2d29e450b8146ab6aa5bac97db788a37aabb6" rel="noopener noreferrer nofollow">0xcd5959…7aabb6</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-context-dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667" rel="noopener noreferrer nofollow">0xc5f758…b0d667</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-coresignal</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x2417c821f38d9b9488620eff1a8d106b9ce0c098c319b132d9059fc940b4d18a" rel="noopener noreferrer nofollow">0x2417c8…b4d18a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-didit</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xc9b38668c09f5fe0673a4e252f52ca3b4c82f83bca74fd52027e6e2f4d4c0a54" rel="noopener noreferrer nofollow">0xc9b386…4c0a54</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-edges</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x5bba805b6ad25f21bc9bcec3e0d44e148b5782fbd9b9e0ff63a500fc50c3f04f" rel="noopener noreferrer nofollow">0x5bba80…c3f04f</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-fiber</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x7bbc80788d1b513034f04f6932b19579bf8a93a78edea98069a740b283edb884" rel="noopener noreferrer nofollow">0x7bbc80…edb884</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-fundable</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x352f2788ade452a6b14b89f95693bfbd25d0cc46482ea2f4f27e64e152e3edc3" rel="noopener noreferrer nofollow">0x352f27…e3edc3</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-influencers-club</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x565efb7ac3ff2b172afb4413c47353de75d504607587b31e7c9cc3cfbf8d755e" rel="noopener noreferrer nofollow">0x565efb…8d755e</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-joinmassive</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x4ac2aecaffb0851ef2ff213258aa1d3a695345932e7d291ddb3061021dd4d749" rel="noopener noreferrer nofollow">0x4ac2ae…d4d749</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-leadsforge</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:06 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x683242ae1c68aa95bdd81dd78db7689de57eedd90371e984e7b4fd51a0d2b565" rel="noopener noreferrer nofollow">0x683242…d2b565</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-peopledatalabs</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xc81d09f68dd2ae0a4f9009159b0470f4856874ce89c3af64606bd3657deb7b37" rel="noopener noreferrer nofollow">0xc81d09…eb7b37</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-scrapecreators</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x0688dee325a939d6eaec1df4f6d9d4e47b93dde261c763bf680e00e4770776db" rel="noopener noreferrer nofollow">0x0688de…0776db</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-serper-scrape</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155" rel="noopener noreferrer nofollow">0x61bfab…f19155</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-tomba</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xbf88195e3e4b86781e9113c7305dc37cd629cc26dcbe350ce629e92444d89232" rel="noopener noreferrer nofollow">0xbf8819…d89232</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mpp.orthogonal.com#orth-voygr</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x08d1e154d2dce22fd8e3453bcc914d2ecef466253a2bcd9dfb01c251eb909018" rel="noopener noreferrer nofollow">0x08d1e1…909018</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">mysticapi.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:59 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">offersignal.io</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:30 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">overhang.ochinimus.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:10 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">palmyr.ai</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:25 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">parallax402.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:00 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">readx.sh</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:02 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">reddit.apitoll.cloud</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:20 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">rentcast.x402.paysponge.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:02 UTC · paid, error status <a class="mono" href="https://solscan.io/tx/4Z8Hk2Kch8aDKqpJAurx27XBBkXzEP1k1Zemm9jaeGzieVjGgWSjTBMQDxqtrQGoMmYMhSTDXwkxkWVkRoHy3YBQ" rel="noopener noreferrer nofollow">4Z8Hk2Kc…Hy3YBQ</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">replicate.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:08 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc" rel="noopener noreferrer nofollow">0x727622…9eeddc</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">rubric-protocol.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:27 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">serpapi.mpp.tempo.xyz</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xd19c7f115f421b31090db6d16f2e8802884923a9c9120cb8e021f8bffff8e12e" rel="noopener noreferrer nofollow">0xd19c7f…f8e12e</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">sol.blockrun.ai</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · paid, answer not as declared <a class="mono" href="https://solscan.io/tx/2w2C1Ut6DBqbEArj52Swy7rHq57kWG6fsH53rmzxxEbTfTuW2KSdmfMtYaUvvmgpiB1ZHBMyGJnt3Y8SHZAbn1nG" rel="noopener noreferrer nofollow">2w2C1Ut6…Abn1nG</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">spyfu.mpp.tempo.xyz</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a" rel="noopener noreferrer nofollow">0xcde494…53247a</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">stability-ai.mpp.paywithlocus.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: paid, error status 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · paid, error status <a class="mono" href="https://explore.tempo.xyz/tx/0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703" rel="noopener noreferrer nofollow">0x847d4c…d48703</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">stable-financial.vercel.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:12 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">stableemail.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">tempo 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:09 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">stableenrich.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:13 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">stabletravel.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:47 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">store.agentexchange.work</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:29 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">svm402.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:04 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">tariffmonkee.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:31 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">tokensafe-production.up.railway.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:15 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">toolrail.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:39 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">voidfeed.ai</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:32 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">wallet-intelligence-three.vercel.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:26 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">www.fomoscan.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:05 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">www.getbags.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 100%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: paid, answer not as declared 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:26 UTC · paid, answer not as declared <a class="mono" href="https://solscan.io/tx/5yLfRYRRpBeaYk1zdXu6Em7HmwE5WDnLYoMZ49RGpQsaeYWQ3bskV4SjS342pSeqjYJ8LLVozoKkp1QtspSAYuz7" rel="noopener noreferrer nofollow">5yLfRYRR…SAYuz7</a></div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">x402-accelerometer-feed.fly.dev</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:34 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">x402-service-production-e242.up.railway.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:53 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">x402-stall-l3bb.onrender.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:07 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">x402.orthogonal.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:35 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">x402.spendthebits.com</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 07:46 UTC · payment not settled </div>
+  
+</li>
+<li class="seller">
+  <div class="row1"><span class="rank">#211</span><span class="host">yieldsignal.vercel.app</span></div>
+  <div class="row2"><span class="big">0/1</span> delivered · score 0.000 · settled 0%</div>
+  <div class="meta">solana 0/1</div>
+  <div class="meta">failed: payment not settled 1</div>
+  
+  <div class="meta">last: 2026-09-28 08:33 UTC · payment not settled </div>
+  
+</li>
+</ul>
+</section>
+
+<section>
+<h2>Inputs</h2>
+<ul><li class="meta"><b>algorand/census-2026-09-27</b> <span class="mono">https://raw.githubusercontent.com/kzmttkc/vet402-algorand/main/board/census-2026-09-27.json</span> sha256 <span class="mono">30fb3942c7f40cbe</span> fetched 2026-09-28T09:50:36.995Z</li><li class="meta"><b>algorand/census-2026-09-28</b> <span class="mono">https://raw.githubusercontent.com/kzmttkc/vet402-algorand/main/board/census-2026-09-28.json</span> sha256 <span class="mono">7aac8e7e85e42701</span> fetched 2026-09-28T09:50:37.286Z</li><li class="meta"><b>solana/census-2026-09-28</b> <span class="mono">~/vet402-solana-census/results/census-2026-09-28.json</span> sha256 <span class="mono">fc6c9ceb718dbd67</span></li><li class="meta"><b>solana/gate1-2026-09-29</b> <span class="mono">~/vet402-solana/results/gate1-2026-09-29.json</span> sha256 <span class="mono">318dc42801a57553</span></li><li class="meta"><b>tempo/census-plan-2026-09-28</b> <span class="mono">~/vet402-solana-tempo/results/tempo-census-2026-09-28.dry-run.json</span> sha256 <span class="mono">1c20ec2b4e4e6376</span></li><li class="meta"><b>tempo/ledger</b> <span class="mono">~/vet402-solana-tempo/results/tempo-ledger.json</span> sha256 <span class="mono">9fea33ff2fa56578</span></li><li class="meta"><b>tempo/run-log</b> <span class="mono">~/vet402-solana-tempo/results/tempo-run.log</span> sha256 <span class="mono">22db988ecb349cbe</span></li><li class="meta"><b>base/feedback-ledger</b> <span class="mono">~/vet402-solana-base/results/base-feedback-ledger.json</span> sha256 <span class="mono">22dc74d3c7f0166b</span></li><li class="meta"><b>base/purchases</b> <span class="mono">~/vet402-solana-base/results/base-purchases.jsonl</span> sha256 <span class="mono">eafe828314c85b71</span></li><li class="meta"><b>cdp/offset-0</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=0</span> sha256 <span class="mono">40f441e58f28cdfd</span> fetched 2026-09-28T09:50:39.125Z</li><li class="meta"><b>cdp/offset-1000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=1000</span> sha256 <span class="mono">35e432fa060c086b</span> fetched 2026-09-28T09:50:41.037Z</li><li class="meta"><b>cdp/offset-2000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=2000</span> sha256 <span class="mono">41cd0aee1a8b2539</span> fetched 2026-09-28T09:50:42.830Z</li><li class="meta"><b>cdp/offset-3000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=3000</span> sha256 <span class="mono">ae2b299e3663b8b7</span> fetched 2026-09-28T09:50:44.451Z</li><li class="meta"><b>cdp/offset-4000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=4000</span> sha256 <span class="mono">800799f9058ca152</span> fetched 2026-09-28T09:50:46.181Z</li><li class="meta"><b>cdp/offset-5000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=5000</span> sha256 <span class="mono">17eae8a2a800df0f</span> fetched 2026-09-28T09:50:47.982Z</li><li class="meta"><b>cdp/offset-6000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=6000</span> sha256 <span class="mono">07c06acbe661d4de</span> fetched 2026-09-28T09:50:50.282Z</li><li class="meta"><b>cdp/offset-7000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=7000</span> sha256 <span class="mono">2ce7b534ad373800</span> fetched 2026-09-28T09:50:52.773Z</li><li class="meta"><b>cdp/offset-8000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=8000</span> sha256 <span class="mono">ceed9cb586b4cf40</span> fetched 2026-09-28T09:50:54.978Z</li><li class="meta"><b>cdp/offset-9000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=9000</span> sha256 <span class="mono">f7262a5b50d665d9</span> fetched 2026-09-28T09:50:57.061Z</li><li class="meta"><b>cdp/offset-10000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=10000</span> sha256 <span class="mono">2aa3dd5b207142a4</span> fetched 2026-09-28T09:50:58.883Z</li><li class="meta"><b>cdp/offset-11000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=11000</span> sha256 <span class="mono">64138afd5ece5cd9</span> fetched 2026-09-28T09:51:00.479Z</li><li class="meta"><b>cdp/offset-12000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=12000</span> sha256 <span class="mono">c404ccd115a325f0</span> fetched 2026-09-28T09:51:02.045Z</li><li class="meta"><b>cdp/offset-13000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=13000</span> sha256 <span class="mono">755983bc819c7167</span> fetched 2026-09-28T09:51:04.137Z</li><li class="meta"><b>cdp/offset-14000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=14000</span> sha256 <span class="mono">6124ad0b41966a73</span> fetched 2026-09-28T09:51:05.478Z</li><li class="meta"><b>cdp/offset-15000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=15000</span> sha256 <span class="mono">cb2fa6798e43d977</span> fetched 2026-09-28T09:51:07.207Z</li><li class="meta"><b>cdp/offset-16000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=16000</span> sha256 <span class="mono">43d51c63ff59ee1a</span> fetched 2026-09-28T09:51:08.691Z</li><li class="meta"><b>cdp/offset-17000</b> <span class="mono">https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1000&amp;offset=17000</span> sha256 <span class="mono">532cbc6799ed2a61</span> fetched 2026-09-28T09:51:10.013Z</li></ul>
+</section>
+</main></body></html>
