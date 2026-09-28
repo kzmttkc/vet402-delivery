@@ -495,12 +495,12 @@ test("renderSite: seller-controlled strings cannot inject markup on any page", (
   const sellerPage = [...pages].find(([p, h]) => p.startsWith("s/") && h.includes("evil.example&quot;&gt;&lt;img"))!;
   assert.ok(sellerPage, "seller page shows the escaped host");
   assert.ok(sellerPage[1].includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
-  assert.ok(sellerPage[1].includes("https://github.com/kzmttkc/vet402-algorand/issues/new?title="), "correction link");
+  assert.ok(sellerPage[1].includes("https://github.com/kzmttkc/vet402-delivery/issues/new?title="), "correction link");
 });
 
 test("appeal link and slugs: encoded query on a fixed origin, file names reduced to a safe set", () => {
   const u = appealUrl(`a.example#"><script>&x=1`, "2026-09-28");
-  assert.ok(u.startsWith("https://github.com/kzmttkc/vet402-algorand/issues/new?title="));
+  assert.ok(u.startsWith("https://github.com/kzmttkc/vet402-delivery/issues/new?title="));
   assert.ok(!/[<>"# ]/.test(u.slice(u.indexOf("?"))), u);
   const slugs = sellerSlugs(["a.example", "A.example", "p.example#../../x", ".hidden", "p.example#s/1"]);
   assert.deepEqual([...slugs.values()], ["a.example", "a.example-2", "p.example_____x", "_hidden", "p.example_s_1"]);

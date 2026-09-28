@@ -672,16 +672,6 @@ ${recent}
   return publicPage(`${s.key} · vet402 delivery ranking`, `${s.key}: ${s.delivered} of ${s.counted} counted purchases arrived.`, body);
 }
 
-/** The report's limits, with the one about unpublished inputs replaced once every input is in data/. */
-function publicLimits(r: RankReport): string[] {
-  const published = r.inputs.length > 0 && r.inputs.every((i) => i.location.startsWith("data/"));
-  return r.method.limits.map((l) =>
-    published && /not yet published/.test(l)
-      ? "Every input is a copy in data/ of a vet402 runner's result file, with its sha256. The runners' wallets and full logs are not published."
-      : l,
-  );
-}
-
 function inputLink(location: string): string {
   return location.startsWith("data/")
     ? `<a class="mono" href="${escapeHtml(`${PUBLIC_REPO_URL}/blob/main/${location}`)}" rel="noopener noreferrer nofollow">${escapeHtml(location)}</a>`
@@ -753,7 +743,7 @@ ${chainRows}
 <p><a href="${escapeHtml(APPEAL_ISSUES_URL.replace(/\/new$/, ""))}" rel="noopener noreferrer nofollow">GitHub issues</a> · each seller page has a prefilled link.</p>
 
 <h2>8. Limits</h2>
-<ul>${publicLimits(r).map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>
+<ul>${m.limits.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>
 
 <h2 id="reproduce">9. Reproduce</h2>
 <pre class="cmd">git clone ${escapeHtml(PUBLIC_REPO_URL)}

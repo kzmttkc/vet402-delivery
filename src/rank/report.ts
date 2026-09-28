@@ -94,8 +94,8 @@ export interface RankReport {
   ranking: RankedSeller[];
 }
 
-/** Where sellers ask for a correction (public repo, issues on; checked 2026-09-28). */
-export const APPEAL_ISSUES_URL = "https://github.com/kzmttkc/vet402-algorand/issues/new";
+/** Where sellers ask for a correction: new issue in the public repo that holds this ranking (issues on; checked 2026-09-28). */
+export const APPEAL_ISSUES_URL = "https://github.com/kzmttkc/vet402-delivery/issues/new";
 
 export const METHOD_VERSION = "v2";
 
@@ -110,6 +110,7 @@ export const CHANGE_LOG: ChangeLogEntry[] = [
       `Rank numbers only with ${MIN_COUNTED}+ counted purchases on ${MIN_DAYS}+ different days; everyone else is "measuring".`,
       `Grades A–D. Good marks by the interval's lower bound; D only when the upper bound is below ${D_UPPER}.`,
       `Measuring from now on: at most ${MEASURE_MAX_PER_SELLER} purchases per seller per run, ${MEASURE_SPACING_MS / 1000} s apart.`,
+      "2026-09-28: the 6 corrected rows of the Algorand census are in (see Corrections in the vet402-algorand README): paid on chain, answered 402, delivered nothing; counted on the seller side.",
     ],
   },
   {
@@ -128,7 +129,7 @@ export const METHOD: RankReport["method"] = {
   declared:
     "Separate column, never part of the grade: whether the answer's keys or shape matched what the seller declared. Checked only where the runner compared them (Algorand census, Solana census) and the seller declared something.",
   counted:
-    "Counted = delivered purchases plus failures on the seller's side (payment settled and nothing usable came back, or the seller's server answered 5xx).",
+    "Counted = delivered purchases plus failures on the seller's side (payment settled and nothing usable came back, or the seller's server answered 5xx). Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
   notCounted:
     "Not counted, shown as numbers: failures on vet402's or the facilitator's side, failures where the cause can't be told, endpoints that were not buyable, vet402's own skips (price cap, input it will not make up, duplicates) and refusals because payTo changed.",
   faultRules: FAULT_RULES.map((r) => ({ id: r.id, fault: r.fault, when: r.when })),
@@ -157,7 +158,7 @@ export const METHOD: RankReport["method"] = {
     "Purchases from one seller in the same run are not independent (one outage fails many at once), so the interval is narrower than it should be for runs before v2 pacing.",
     "The Tempo runner kept no response body, so on Tempo 'delivered' means settled + 2xx without the body test.",
     "The vet402-or-facilitator rules for 429 and subcent_quota_exceeded rest on how vet402 bought, not on the seller's word. If paced purchases still get them, they move to the seller side.",
-    "Some inputs are local files of vet402's runners; their sha256 is recorded but the files are not yet published.",
+    "Every input is a copy in data/ of a vet402 runner's result file, listed with its sha256 in data/manifest.json. The runners' wallets and full logs are not published.",
   ],
   changeLog: CHANGE_LOG,
 };

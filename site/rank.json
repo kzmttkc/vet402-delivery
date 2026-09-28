@@ -1,14 +1,19 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-09-28",
-  "generatedAt": "2026-09-28T12:14:19.834Z",
+  "generatedAt": "2026-09-28T12:17:40.679Z",
   "method": {
     "version": "v2",
     "delivered": "Delivered = vet402's payment settled, then the seller answered 2xx with a non-empty body. The same test on every chain.",
     "declared": "Separate column, never part of the grade: whether the answer's keys or shape matched what the seller declared. Checked only where the runner compared them (Algorand census, Solana census) and the seller declared something.",
-    "counted": "Counted = delivered purchases plus failures on the seller's side (payment settled and nothing usable came back, or the seller's server answered 5xx).",
+    "counted": "Counted = delivered purchases plus failures on the seller's side (payment settled and nothing usable came back, or the seller's server answered 5xx). Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
     "notCounted": "Not counted, shown as numbers: failures on vet402's or the facilitator's side, failures where the cause can't be told, endpoints that were not buyable, vet402's own skips (price cap, input it will not make up, duplicates) and refusals because payTo changed.",
     "faultRules": [
+      {
+        "id": "settled_not_delivered",
+        "fault": "seller",
+        "when": "Paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as \"already in ledger\" included), then the seller answered 402. The buyer paid and received nothing."
+      },
       {
         "id": "paid_not_delivered",
         "fault": "seller",
@@ -85,7 +90,7 @@
       "Purchases from one seller in the same run are not independent (one outage fails many at once), so the interval is narrower than it should be for runs before v2 pacing.",
       "The Tempo runner kept no response body, so on Tempo 'delivered' means settled + 2xx without the body test.",
       "The vet402-or-facilitator rules for 429 and subcent_quota_exceeded rest on how vet402 bought, not on the seller's word. If paced purchases still get them, they move to the seller side.",
-      "Some inputs are local files of vet402's runners; their sha256 is recorded but the files are not yet published."
+      "Every input is a copy in data/ of a vet402 runner's result file, listed with its sha256 in data/manifest.json. The runners' wallets and full logs are not published."
     ],
     "changeLog": [
       {
@@ -97,7 +102,8 @@
           "One delivery test on every chain: settled, then 2xx with a non-empty body. Whether the answer matched what the seller declared is a separate column.",
           "Rank numbers only with 10+ counted purchases on 2+ different days; everyone else is \"measuring\".",
           "Grades A–D. Good marks by the interval's lower bound; D only when the upper bound is below 0.5.",
-          "Measuring from now on: at most 5 purchases per seller per run, 60 s apart."
+          "Measuring from now on: at most 5 purchases per seller per run, 60 s apart.",
+          "2026-09-28: the 6 corrected rows of the Algorand census are in (see Corrections in the vet402-algorand README): paid on chain, answered 402, delivered nothing; counted on the seller side."
         ]
       },
       {
@@ -113,16 +119,16 @@
     {
       "label": "algorand/census-2026-09-27",
       "location": "data/algorand/census-2026-09-27.json",
-      "sha256": "30fb3942c7f40cbe5bd996bd91742a3c9c4cd7f3c8a6daa81e0fe289d442ad3e",
-      "fetchedAt": "2026-09-28T09:50:36.995Z",
-      "note": "Copy of kzmttkc/vet402-algorand board/census-2026-09-27.json at commit 357d736, the version this report was built from. Commit 3db3e6e later records 6 rows (gateway-x402.vercel.app, \"already in ledger\") as paid; that version is not used here yet. origin https://raw.githubusercontent.com/kzmttkc/vet402-algorand/357d736/board/census-2026-09-27.json"
+      "sha256": "efeb722fae6f898f3d821bcf43d6533b6c2e83f511146409cc70fc4d42d58a6d",
+      "fetchedAt": "2026-09-28T12:16:15.782Z",
+      "note": "Copy of kzmttkc/vet402-algorand board/census-2026-09-27.json at main 1d81ebc, which includes the 6-row correction of 3db3e6e (see Corrections in the vet402-algorand README). origin https://raw.githubusercontent.com/kzmttkc/vet402-algorand/1d81ebc96f8ede60b276fe409b2a88d9161fa70c/board/census-2026-09-27.json"
     },
     {
       "label": "algorand/census-2026-09-28",
       "location": "data/algorand/census-2026-09-28.json",
-      "sha256": "7aac8e7e85e42701f93f0e6d1c69ff9c3d71f4d5a7a9d041f4695727e6adc251",
-      "fetchedAt": "2026-09-28T09:50:37.286Z",
-      "note": "Copy of kzmttkc/vet402-algorand board/census-2026-09-28.json at commit d78baf2, the version this report was built from. Commit 3db3e6e later records 6 rows (gateway-x402.vercel.app, \"already in ledger\") as paid; that version is not used here yet. origin https://raw.githubusercontent.com/kzmttkc/vet402-algorand/d78baf2/board/census-2026-09-28.json"
+      "sha256": "52391ba4d67f55918b3e7524e206edd95042e1f3c3c70c4e8030c4b87ac236e3",
+      "fetchedAt": "2026-09-28T12:16:15.782Z",
+      "note": "Copy of kzmttkc/vet402-algorand board/census-2026-09-28.json at main 1d81ebc, which includes the 6-row correction of 3db3e6e (see Corrections in the vet402-algorand README). origin https://raw.githubusercontent.com/kzmttkc/vet402-algorand/1d81ebc96f8ede60b276fe409b2a88d9161fa70c/board/census-2026-09-28.json"
     },
     {
       "label": "solana/census-2026-09-28",
@@ -182,7 +188,7 @@
       ],
       "rows": 3659,
       "tried": 2356,
-      "settled": 1142,
+      "settled": 1148,
       "delivered": 1138,
       "notTried": {
         "vet402_skipped": 54,
@@ -256,10 +262,10 @@
   "totals": {
     "attempts": 3886,
     "tried": 2578,
-    "counted": 1364,
+    "counted": 1370,
     "delivered": 1282,
     "excluded": {
-      "vet402_or_facilitator": 986,
+      "vet402_or_facilitator": 980,
       "unknown": 228
     },
     "failuresByRule": {
@@ -268,21 +274,22 @@
       "rate_limited_429": 605,
       "server_error_5xx": 49,
       "timeout": 19,
-      "payment_tx_rejected": 18,
+      "payment_tx_rejected": 12,
       "answer_without_settlement": 13,
       "payment_not_accepted_402": 43,
-      "paid_not_delivered": 33
+      "paid_not_delivered": 31,
+      "settled_not_delivered": 8
     },
     "sellersSeen": 334,
     "sellersListed": 294,
-    "sellersRanked": 23,
+    "sellersRanked": 24,
     "grades": {
       "A": 6,
       "B": 14,
       "C": 2,
       "D": 0,
-      "undecided": 1,
-      "measuring": 271
+      "undecided": 2,
+      "measuring": 270
     },
     "firstPurchaseAt": "2026-09-27T04:32:04.398Z",
     "lastPurchaseAt": "2026-09-28T08:33:41.619Z",
@@ -5842,6 +5849,275 @@
       "firstAt": "2026-09-27T04:39:36.783Z",
       "lastAt": "2026-09-28T01:33:19.455Z",
       "rank": 23
+    },
+    {
+      "key": "gateway-x402.vercel.app",
+      "host": "gateway-x402.vercel.app",
+      "service": null,
+      "services": [],
+      "chains": {
+        "algorand": {
+          "tried": 10,
+          "counted": 10,
+          "delivered": 4
+        }
+      },
+      "tried": 10,
+      "counted": 10,
+      "settled": 10,
+      "delivered": 4,
+      "settledRate": 1,
+      "deliveredRate": 0.4,
+      "wilsonLower": 0.16817758120350967,
+      "wilsonUpper": 0.6873304525498135,
+      "days": [
+        "2026-09-27",
+        "2026-09-28"
+      ],
+      "grade": "undecided",
+      "qualified": true,
+      "excluded": {
+        "vet402_or_facilitator": 0,
+        "unknown": 0
+      },
+      "failuresByRule": {
+        "settled_not_delivered": 6
+      },
+      "declared": {
+        "checked": 2,
+        "matched": 2
+      },
+      "notTried": {},
+      "failures": {
+        "settled_error_status": 6
+      },
+      "lastMeasuredAt": "2026-09-28T01:33:05.658Z",
+      "last": {
+        "at": "2026-09-28T01:33:05.658Z",
+        "chain": "algorand",
+        "category": "delivered",
+        "rawReason": "delivered",
+        "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata",
+        "tx": "KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A"
+      },
+      "exampleDeliveredTx": {
+        "chain": "algorand",
+        "tx": "KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A",
+        "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata"
+      },
+      "exampleFailedTx": {
+        "chain": "algorand",
+        "tx": "UJMRGXWMVS76EBKQCV4F2VXOMWLV3FA5BYRYPTLKJNETL7CRKLAA",
+        "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
+        "category": "settled_error_status"
+      },
+      "lastFailure": {
+        "at": "2026-09-28T01:31:42.796Z",
+        "chain": "algorand",
+        "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
+        "category": "settled_error_status",
+        "fault": "seller",
+        "rule": "settled_not_delivered",
+        "httpStatus": 402,
+        "rawReason": "payment_failed",
+        "detail": "status 402, Transaction simulation failed: transaction already in ledger: LOCC2VTUE3B3AGGWA3D7FN47GQQKP7A43GAIYODIWZ25MMKTO4BA · settled on chain: vet402's transfer UJMRGXWMVS76EBKQCV4F2VXOMWLV3FA5BYR…",
+        "tx": "UJMRGXWMVS76EBKQCV4F2VXOMWLV3FA5BYRYPTLKJNETL7CRKLAA"
+      },
+      "sellerFailures": [
+        {
+          "at": "2026-09-28T01:31:42.796Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
+          "category": "settled_error_status",
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "rawReason": "payment_failed",
+          "detail": "status 402, Transaction simulation failed: transaction already in ledger: LOCC2VTUE3B3AGGWA3D7FN47GQQKP7A43GAIYODIWZ25MMKTO4BA · settled on chain: vet402's transfer UJMRGXWMVS76EBKQCV4F2VXOMWLV3FA5BYR…",
+          "tx": "UJMRGXWMVS76EBKQCV4F2VXOMWLV3FA5BYRYPTLKJNETL7CRKLAA"
+        },
+        {
+          "at": "2026-09-28T01:30:20.019Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe",
+          "category": "settled_error_status",
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "rawReason": "payment_failed",
+          "detail": "status 402, Transaction simulation failed: transaction already in ledger: GDZ6LONCGYTM2S7IEP7AQT7BDELLENY3IJWXVJ4MXQUW5Y7WCV7Q · settled on chain: vet402's transfer JORFXNJRTP7MRXDESMXXLSTZT4SWYCJNG4O…",
+          "tx": "JORFXNJRTP7MRXDESMXXLSTZT4SWYCJNG4OKV2LPDPM2TPF34RYA"
+        },
+        {
+          "at": "2026-09-28T01:25:23.975Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/discover?q=best+yield+on+algorand&limit=5",
+          "category": "settled_error_status",
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "rawReason": "payment_failed",
+          "detail": "status 402, Transaction simulation failed: transaction already in ledger: X4XM7ZJ3BBWNHMYPYC3RX3PY4IAG2NVFYIY3JKJ74QPSJUQ33PUQ · settled on chain: vet402's transfer BNDAE7VS74VREBS3XJCF5CNOVH77VZEISO6…",
+          "tx": "BNDAE7VS74VREBS3XJCF5CNOVH77VZEISO6VYXZ7FFWO2IYZIYWQ"
+        },
+        {
+          "at": "2026-09-27T04:36:31.847Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
+          "category": "settled_error_status",
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "rawReason": "payment_failed",
+          "detail": "status 402, Transaction simulation failed: transaction already in ledger: 7RU7OBL6FE4GBFTZEEF5RZNA2RDG5PZ5XPL2M5IGO2DT5KHTUSFA · settled on chain: vet402's transfer P25A5IUF5KC5MH2W72UWPUBIHQPI7QBIPSO…",
+          "tx": "P25A5IUF5KC5MH2W72UWPUBIHQPI7QBIPSO7XITOAAWJUHQZRLUA"
+        },
+        {
+          "at": "2026-09-27T04:36:29.145Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe",
+          "category": "settled_error_status",
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "rawReason": "payment_failed",
+          "detail": "status 402, Transaction simulation failed: transaction already in ledger: F7JYHO4M2IJLBN43WIYCB6G7EJW7VYDT4WIRBQAJG7A2R4O2G3PA · settled on chain: vet402's transfer EDZW62HZGU2QUYJKBYFEYGPH4QXEADBLXSF…",
+          "tx": "EDZW62HZGU2QUYJKBYFEYGPH4QXEADBLXSFJJMLEGX5WB57B5NNQ"
+        },
+        {
+          "at": "2026-09-27T04:34:58.634Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/discover?q=best+yield+on+algorand&limit=5",
+          "category": "settled_error_status",
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "rawReason": "payment_failed",
+          "detail": "status 402, Transaction simulation failed: transaction already in ledger: FERMVIUU246OT75GIPI54SSZ6TS3LHPSSZ43T747EXYZFUAWFQIQ · settled on chain: vet402's transfer E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6Z…",
+          "tx": "E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6ZILCA7YDAHPU5WKSTA"
+        }
+      ],
+      "recent": [
+        {
+          "at": "2026-09-28T01:33:05.658Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata",
+          "delivered": true,
+          "fault": null,
+          "rule": null,
+          "httpStatus": 200,
+          "declaredMatch": null,
+          "tx": "KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A"
+        },
+        {
+          "at": "2026-09-28T01:31:42.796Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
+          "delivered": false,
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "declaredMatch": null,
+          "tx": "UJMRGXWMVS76EBKQCV4F2VXOMWLV3FA5BYRYPTLKJNETL7CRKLAA"
+        },
+        {
+          "at": "2026-09-28T01:30:20.019Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe",
+          "delivered": false,
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "declaredMatch": null,
+          "tx": "JORFXNJRTP7MRXDESMXXLSTZT4SWYCJNG4OKV2LPDPM2TPF34RYA"
+        },
+        {
+          "at": "2026-09-28T01:28:29.346Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/diff?since=2026-07-23T00%3A00%3A00.000Z",
+          "delivered": true,
+          "fault": null,
+          "rule": null,
+          "httpStatus": 200,
+          "declaredMatch": null,
+          "tx": "PM5CLBEGM4ZNPDDKS4DIBSBO2EYXIUO6WK72RW5TP2NHUO7QEDGQ"
+        },
+        {
+          "at": "2026-09-28T01:25:23.975Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/discover?q=best+yield+on+algorand&limit=5",
+          "delivered": false,
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "declaredMatch": null,
+          "tx": "BNDAE7VS74VREBS3XJCF5CNOVH77VZEISO6VYXZ7FFWO2IYZIYWQ"
+        },
+        {
+          "at": "2026-09-27T04:40:33.922Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata",
+          "delivered": true,
+          "fault": null,
+          "rule": null,
+          "httpStatus": 200,
+          "declaredMatch": true,
+          "tx": "M3FX5WOZBRLZSSRLPAC246FZYBPJQHMLDUUCVBZHVQIEFLKJK4UQ"
+        },
+        {
+          "at": "2026-09-27T04:36:31.847Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
+          "delivered": false,
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "declaredMatch": null,
+          "tx": "P25A5IUF5KC5MH2W72UWPUBIHQPI7QBIPSO7XITOAAWJUHQZRLUA"
+        },
+        {
+          "at": "2026-09-27T04:36:29.168Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/diff?since=2026-07-23T00%3A00%3A00.000Z",
+          "delivered": true,
+          "fault": null,
+          "rule": null,
+          "httpStatus": 200,
+          "declaredMatch": true,
+          "tx": "JW7GZ3BKRNKQ3ZAOVILRBJDCFXW3IZAPTCPHH2AX3PH32OOS6IEQ"
+        },
+        {
+          "at": "2026-09-27T04:36:29.145Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/probe",
+          "delivered": false,
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "declaredMatch": null,
+          "tx": "EDZW62HZGU2QUYJKBYFEYGPH4QXEADBLXSFJJMLEGX5WB57B5NNQ"
+        },
+        {
+          "at": "2026-09-27T04:34:58.634Z",
+          "chain": "algorand",
+          "url": "https://gateway-x402.vercel.app/discover?q=best+yield+on+algorand&limit=5",
+          "delivered": false,
+          "fault": "seller",
+          "rule": "settled_not_delivered",
+          "httpStatus": 402,
+          "declaredMatch": null,
+          "tx": "E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6ZILCA7YDAHPU5WKSTA"
+        }
+      ],
+      "paidButNotDelivered": 6,
+      "payTos": [
+        "LXPC4GQPYH2EZQX2QDYMHCP2I7MXIZMVRPIYTQ3D7R7HXJ4SIHCSYLF5YA"
+      ],
+      "payToChanged": false,
+      "payToChanges": [],
+      "firstAt": "2026-09-27T04:34:58.634Z",
+      "lastAt": "2026-09-28T01:33:05.658Z",
+      "rank": 24
     },
     {
       "key": "2s-3cpr6qm6j-alleyford.vercel.app",
@@ -14285,7 +14561,7 @@
         "unknown": 0
       },
       "failuresByRule": {
-        "paid_not_delivered": 1
+        "settled_not_delivered": 1
       },
       "declared": {
         "checked": 0,
@@ -14317,7 +14593,7 @@
         "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
         "category": "settled_error_status",
         "fault": "seller",
-        "rule": "paid_not_delivered",
+        "rule": "settled_not_delivered",
         "httpStatus": 402,
         "rawReason": "http 402",
         "detail": "transfer found",
@@ -14330,7 +14606,7 @@
           "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
           "category": "settled_error_status",
           "fault": "seller",
-          "rule": "paid_not_delivered",
+          "rule": "settled_not_delivered",
           "httpStatus": 402,
           "rawReason": "http 402",
           "detail": "transfer found",
@@ -14344,7 +14620,7 @@
           "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
           "delivered": false,
           "fault": "seller",
-          "rule": "paid_not_delivered",
+          "rule": "settled_not_delivered",
           "httpStatus": 402,
           "declaredMatch": null,
           "tx": "0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa"
@@ -16262,186 +16538,6 @@
       "payToChanges": [],
       "firstAt": "2026-09-27T04:40:31.246Z",
       "lastAt": "2026-09-28T01:30:41.582Z",
-      "rank": null
-    },
-    {
-      "key": "gateway-x402.vercel.app",
-      "host": "gateway-x402.vercel.app",
-      "service": null,
-      "services": [],
-      "chains": {
-        "algorand": {
-          "tried": 10,
-          "counted": 4,
-          "delivered": 4
-        }
-      },
-      "tried": 10,
-      "counted": 4,
-      "settled": 4,
-      "delivered": 4,
-      "settledRate": 0.4,
-      "deliveredRate": 1,
-      "wilsonLower": 0.5100999795960008,
-      "wilsonUpper": 1,
-      "days": [
-        "2026-09-27",
-        "2026-09-28"
-      ],
-      "grade": "measuring",
-      "qualified": false,
-      "excluded": {
-        "vet402_or_facilitator": 6,
-        "unknown": 0
-      },
-      "failuresByRule": {
-        "payment_tx_rejected": 6
-      },
-      "declared": {
-        "checked": 2,
-        "matched": 2
-      },
-      "notTried": {},
-      "failures": {
-        "not_settled": 6
-      },
-      "lastMeasuredAt": "2026-09-28T01:33:05.658Z",
-      "last": {
-        "at": "2026-09-28T01:33:05.658Z",
-        "chain": "algorand",
-        "category": "delivered",
-        "rawReason": "delivered",
-        "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata",
-        "tx": "KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A"
-      },
-      "exampleDeliveredTx": {
-        "chain": "algorand",
-        "tx": "KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A",
-        "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata"
-      },
-      "exampleFailedTx": null,
-      "lastFailure": null,
-      "sellerFailures": [],
-      "recent": [
-        {
-          "at": "2026-09-28T01:33:05.658Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata",
-          "delivered": true,
-          "fault": null,
-          "rule": null,
-          "httpStatus": 200,
-          "declaredMatch": null,
-          "tx": "KZ6YW34M233IGRECL7MLDF5KTI4OZO4I5LMHWEGJ25DVYYWDT46A"
-        },
-        {
-          "at": "2026-09-28T01:31:42.796Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
-          "delivered": false,
-          "fault": "vet402_or_facilitator",
-          "rule": "payment_tx_rejected",
-          "httpStatus": 402,
-          "declaredMatch": null,
-          "tx": null
-        },
-        {
-          "at": "2026-09-28T01:30:20.019Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/probe",
-          "delivered": false,
-          "fault": "vet402_or_facilitator",
-          "rule": "payment_tx_rejected",
-          "httpStatus": 402,
-          "declaredMatch": null,
-          "tx": null
-        },
-        {
-          "at": "2026-09-28T01:28:29.346Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/diff?since=2026-07-23T00%3A00%3A00.000Z",
-          "delivered": true,
-          "fault": null,
-          "rule": null,
-          "httpStatus": 200,
-          "declaredMatch": null,
-          "tx": "PM5CLBEGM4ZNPDDKS4DIBSBO2EYXIUO6WK72RW5TP2NHUO7QEDGQ"
-        },
-        {
-          "at": "2026-09-28T01:25:23.975Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/discover?q=best+yield+on+algorand&limit=5",
-          "delivered": false,
-          "fault": "vet402_or_facilitator",
-          "rule": "payment_tx_rejected",
-          "httpStatus": 402,
-          "declaredMatch": null,
-          "tx": null
-        },
-        {
-          "at": "2026-09-27T04:40:33.922Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/discover/batch?q=yield%2Crisk%2Cdata",
-          "delivered": true,
-          "fault": null,
-          "rule": null,
-          "httpStatus": 200,
-          "declaredMatch": true,
-          "tx": "M3FX5WOZBRLZSSRLPAC246FZYBPJQHMLDUUCVBZHVQIEFLKJK4UQ"
-        },
-        {
-          "at": "2026-09-27T04:36:31.847Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/probe?url=https%3A%2F%2Fexample.com%2Fx402",
-          "delivered": false,
-          "fault": "vet402_or_facilitator",
-          "rule": "payment_tx_rejected",
-          "httpStatus": 402,
-          "declaredMatch": null,
-          "tx": null
-        },
-        {
-          "at": "2026-09-27T04:36:29.168Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/diff?since=2026-07-23T00%3A00%3A00.000Z",
-          "delivered": true,
-          "fault": null,
-          "rule": null,
-          "httpStatus": 200,
-          "declaredMatch": true,
-          "tx": "JW7GZ3BKRNKQ3ZAOVILRBJDCFXW3IZAPTCPHH2AX3PH32OOS6IEQ"
-        },
-        {
-          "at": "2026-09-27T04:36:29.145Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/probe",
-          "delivered": false,
-          "fault": "vet402_or_facilitator",
-          "rule": "payment_tx_rejected",
-          "httpStatus": 402,
-          "declaredMatch": null,
-          "tx": null
-        },
-        {
-          "at": "2026-09-27T04:34:58.634Z",
-          "chain": "algorand",
-          "url": "https://gateway-x402.vercel.app/discover?q=best+yield+on+algorand&limit=5",
-          "delivered": false,
-          "fault": "vet402_or_facilitator",
-          "rule": "payment_tx_rejected",
-          "httpStatus": 402,
-          "declaredMatch": null,
-          "tx": null
-        }
-      ],
-      "paidButNotDelivered": 0,
-      "payTos": [
-        "LXPC4GQPYH2EZQX2QDYMHCP2I7MXIZMVRPIYTQ3D7R7HXJ4SIHCSYLF5YA"
-      ],
-      "payToChanged": false,
-      "payToChanges": [],
-      "firstAt": "2026-09-27T04:34:58.634Z",
-      "lastAt": "2026-09-28T01:33:05.658Z",
       "rank": null
     },
     {
@@ -22388,7 +22484,7 @@
         "unknown": 0
       },
       "failuresByRule": {
-        "paid_not_delivered": 1
+        "settled_not_delivered": 1
       },
       "declared": {
         "checked": 0,
@@ -22420,7 +22516,7 @@
         "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
         "category": "settled_error_status",
         "fault": "seller",
-        "rule": "paid_not_delivered",
+        "rule": "settled_not_delivered",
         "httpStatus": 402,
         "rawReason": "http 402",
         "detail": "transfer found",
@@ -22433,7 +22529,7 @@
           "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
           "category": "settled_error_status",
           "fault": "seller",
-          "rule": "paid_not_delivered",
+          "rule": "settled_not_delivered",
           "httpStatus": 402,
           "rawReason": "http 402",
           "detail": "transfer found",
@@ -22447,7 +22543,7 @@
           "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
           "delivered": false,
           "fault": "seller",
-          "rule": "paid_not_delivered",
+          "rule": "settled_not_delivered",
           "httpStatus": 402,
           "declaredMatch": null,
           "tx": "0x08d1e154d2dce22fd8e3453bcc914d2ecef466253a2bcd9dfb01c251eb909018"

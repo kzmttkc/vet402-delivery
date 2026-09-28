@@ -30,6 +30,12 @@ const status = (a: Attempt, text: string): number | null => {
  */
 export const FAULT_RULES: readonly FaultRule[] = [
   {
+    id: "settled_not_delivered",
+    fault: "seller",
+    when: "Paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as \"already in ledger\" included), then the seller answered 402. The buyer paid and received nothing.",
+    match: (a, t) => a.settled === true && status(a, t) === 402,
+  },
+  {
     id: "paid_not_delivered",
     fault: "seller",
     when: "vet402's payment settled, then the seller answered non-2xx or an empty body.",

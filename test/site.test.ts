@@ -14,7 +14,9 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifyFailure } from "../src/rank/classify.js";
 import { PUBLIC_LEAD, renderPublicSite } from "../src/rank/html.js";
+import { normalizeAlgorand } from "../src/rank/normalize.js";
 import { buildReport, type RankReport } from "../src/rank/report.js";
 import { MIN_COUNTED, MIN_DAYS } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
@@ -200,4 +202,27 @@ test("site/: the pages' own wording has no we/us/our, no Japanese, no em dash", 
   }
   const readme = readFileSync(join(ROOT, "src", "rank", "README.md"), "utf8");
   assert.ok(!/\b(we|us|our)\b/i.test(readme) && !readme.includes("—"), "src/rank/README.md");
+});
+
+test("algorand correction (vet402-algorand 3db3e6e): paid on chain, answered 402, delivered nothing counts on the seller side", () => {
+  const tx = "E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6ZILCA7YDAHPU5WKSTA";
+  const [a] = normalizeAlgorand(
+    {
+      mode: "census",
+      rows: [
+        {
+          at: DAY1, url: "https://g.example/x", host: "g.example", method: "GET", input: "", payTo: "P", priceUsdc: "0.001000", declared: {},
+          verdict: "REFUSE", reason: "payment_failed", paid: true, tx,
+          detail: `status 402, Transaction simulation failed: transaction already in ledger: X · settled on chain: vet402's transfer ${tx} (same group, round 1); no delivery`,
+        },
+      ],
+    },
+    "algorand/t",
+  );
+  assert.equal(a!.tried, true);
+  assert.equal(a!.settled, true);
+  assert.equal(a!.delivered, false);
+  assert.equal(a!.httpStatus, 402);
+  assert.equal(a!.tx, tx);
+  assert.deepEqual(classifyFailure(a!), { fault: "seller", rule: "settled_not_delivered" });
 });

@@ -43,16 +43,16 @@ built only from ids that match the chain's format.
 
 | path | copy of |
 |---|---|
-| `algorand/census-2026-09-27.json`, `census-2026-09-28.json` | `kzmttkc/vet402-algorand` `board/` at commits 357d736 and d78baf2 (the versions this report was built from) |
+| `algorand/census-2026-09-27.json`, `census-2026-09-28.json` | `kzmttkc/vet402-algorand` `board/` at main 1d81ebc (includes the 6-row correction of 3db3e6e) |
 | `solana/census-2026-09-28.json`, `gate1-2026-09-29.json` | the Solana census and gate1 result files |
 | `tempo/ledger.json`, `run-log.txt`, `census-plan-2026-09-28.json` | the Tempo ledger, run log and census plan; the manifest keeps the log's write time (`loggedAt`) because its refusal lines carry no time |
 | `base/purchases.jsonl`, `feedback-ledger.json` | the Base purchases and ERC-8004 feedback ledger |
 | `cdp/discovery-2026-09-28.json` | CDP Bazaar discovery, reduced to `resource` and three `quality` fields per item (the only fields the comparison reads), with the sha256 of each of the 18 raw pages |
 
 Payer addresses, payTo addresses and tx ids are public on-chain and stay in. The files hold no keys.
-`vet402-algorand` commit 3db3e6e later records 6 rows of gateway-x402.vercel.app ("already in ledger") as
-paid. The normalizer does not read that shape yet (`paid: true` with `payment_failed`), so data/ keeps the
-earlier commits until the method decides which side those 6 are on.
+`vet402-algorand` commit 3db3e6e records 6 rows of gateway-x402.vercel.app ("already in ledger") as paid
+(`paid: true` with `payment_failed`, see Corrections in the vet402-algorand README). They are read as
+settled with a 402 answer and count on the seller side (rule `settled_not_delivered`).
 
 ## Inputs
 
@@ -99,6 +99,7 @@ shown as counts (per seller, per rule, and in the report totals) and never lower
 
 | rule | fault | when |
 |---|---|---|
+| `settled_not_delivered` | seller | paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as "already in ledger" included), then the seller answered 402. The buyer paid and received nothing, and the seller chose the facilitator |
 | `paid_not_delivered` | seller | vet402's payment settled, then non-2xx or an empty body |
 | `rate_limited_429` | vet402_or_facilitator | HTTP 429 during vet402's burst buying (hundreds of one seller's items within minutes) |
 | `subcent_quota` | vet402_or_facilitator | `subcent_quota_exceeded`: vet402's many sub-cent purchases used up the per-payer quota |
@@ -161,7 +162,8 @@ The Tempo runner kept no body, so on Tempo delivered = settled + 2xx (`bodyCheck
 
 ### 5. Corrections
 
-Each seller page links to a prefilled GitHub issue (`APPEAL_ISSUES_URL` in `src/rank/report.ts`). A wrong
+Each seller page links to a prefilled GitHub issue in https://github.com/kzmttkc/vet402-delivery/issues
+(`APPEAL_ISSUES_URL` in `src/rank/report.ts`). A wrong
 row is fixed after checking the chain and the raw result, and the fix goes in the change log.
 
 ### Change log
@@ -169,6 +171,8 @@ row is fixed after checking the chain and the raw result, and the fix goes in th
 - **v2 (2026-09-28)**: fault split (seller / vet402 or facilitator / can't tell), one delivery test on
   every chain with the declared match as a separate column, rank numbers only with 10 counted purchases on
   2+ days, grades A–D with asymmetric bounds, measurement pacing 5 per seller per run, 60 s apart.
+- **2026-09-28**: the 6 corrected rows of the Algorand census are in (see Corrections in the vet402-algorand
+  README): paid on chain, answered 402, delivered nothing; counted on the seller side.
 - **v1 (2026-09-28, 08addc8)**: Wilson lower bound of delivered / every tried purchase, each runner's own
   delivery check, every seller with one try ranked.
 
@@ -193,9 +197,8 @@ Among ranked sellers the catalog lists, "high" = top half by the catalog's order
   interval is narrower than it should be for runs before v2 pacing.
 - The fault rules read the runner's reason text. A reason that matches no rule lands in `unclassified`
   (can't tell), which is safe for sellers but hides nothing: the count is in the report.
-- The inputs are copies in `data/` of vet402's runners' result files. The runners' wallets and full logs
-  are not published. (The report JSON's own `limits` list still carries the older line about unpublished
-  inputs; the public method page replaces it when every input comes from `data/`.)
+- Every input is a copy in `data/` of a vet402 runner's result file, listed with its sha256 in
+  `data/manifest.json`. The runners' wallets and full logs are not published.
 - A seller that recognises vet402's payer addresses (they are public) could treat vet402 better than
   other buyers.
 - Sellers with many endpoints get many tries and a tight bound, so they fill the top.
