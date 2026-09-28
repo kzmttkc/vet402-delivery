@@ -13,6 +13,7 @@ This repository is the multi-chain part of vet402: it buys sellers on **Solana, 
 | Base | Buys ERC-8004-registered sellers and writes the delivered result to the ERC-8004 ReputationRegistry with `proofOfPayment`, from the same address that paid | `scripts/base-buy.ts`, `scripts/base-feedback.ts`, `src/evm/` |
 | Check skill | A check to run between "search" and "pay" in an agent's x402 flow | `skills/vet402-check/` |
 | Delivery ranking | Ranks sellers by independent purchases; failures caused by vet402 or the facilitator are not counted against the seller | `src/rank/` (method: `src/rank/README.md`) |
+| Public ranking site | Static pages (list, one page per seller, method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |
 
 ## Money safety
 

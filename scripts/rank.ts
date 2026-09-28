@@ -7,6 +7,9 @@
  *
  *   npm run rank                 # today (UTC), fetch what is not cached yet
  *   npm run rank -- --date 2026-09-28 --offline
+ *   npm run rank -- --data data --offline   # only the published copies in data/ (data/manifest.json), no network
+ *
+ * --out <dir> writes rank-<date>.json and rank-<date>/ there instead of results/.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -48,21 +51,66 @@ const INPUTS = {
 };
 
 const args = process.argv.slice(2);
-const offline = args.includes("--offline");
-const dateArg = args[args.indexOf("--date") + 1];
-const date = args.includes("--date") && dateArg ? dateArg : new Date().toISOString().slice(0, 10);
+const argValue = (name: string): string | undefined => {
+  const i = args.indexOf(name);
+  if (i < 0) return undefined;
+  const v = args[i + 1];
+  if (!v || v.startsWith("--")) throw new Error(`${name} needs a value`);
+  return v;
+};
+
+/** data/manifest.json: the published copies of every input, with the sha256 each copy must have. */
+interface DataEntry {
+  label: string;
+  path: string;
+  sha256: string;
+  source: string;
+  note?: string;
+  origin?: string;
+  fetchedAt?: string;
+  /** tempo/run-log only: when the runner last wrote the log (its refusal lines carry no time). */
+  loggedAt?: string;
+}
+const dataDir = argValue("--data") ? resolve(argValue("--data")!) : null;
+const manifest = dataDir ? (JSON.parse(readFileSync(join(dataDir, "manifest.json"), "utf8")) as { date: string; files: DataEntry[] }) : null;
+const offline = args.includes("--offline") || dataDir !== null;
+const date = argValue("--date") ?? manifest?.date ?? new Date().toISOString().slice(0, 10);
 if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`bad --date ${date}`);
+const outDir = argValue("--out") ? resolve(argValue("--out")!) : join(ROOT, "results");
 
 const inputs: InputRecord[] = [];
 const sha = (b: string | Buffer) => createHash("sha256").update(b).digest("hex");
 
+function fail(msg: string): never {
+  throw new Error(msg);
+}
+
+function dataEntry(label: string): DataEntry {
+  const e = manifest!.files.find((f) => f.label === label);
+  if (!e) throw new Error(`data/manifest.json has no input "${label}"`);
+  return e;
+}
+
+/** Read one published copy; its sha256 must match the manifest. */
+function readData(label: string): string {
+  const e = dataEntry(label);
+  const text = readFileSync(join(dataDir!, e.path), "utf8");
+  const got = sha(text);
+  if (got !== e.sha256) throw new Error(`data/${e.path}: sha256 ${got} != manifest ${e.sha256}`);
+  const note = [e.note, e.origin ? `origin ${e.origin}` : `copied from ${e.source}`].filter(Boolean).join(" ");
+  inputs.push({ label, location: `data/${e.path}`, sha256: got, ...(e.fetchedAt ? { fetchedAt: e.fetchedAt } : {}), note });
+  return text;
+}
+
 function readLocal(label: string, path: string): string {
+  if (dataDir) return readData(label);
   const text = readFileSync(path, "utf8");
   inputs.push({ label, location: path.replace(HOME, "~"), sha256: sha(text) });
   return text;
 }
 
 async function fetchCached(label: string, url: string, cacheName: string): Promise<string> {
+  if (dataDir) return readData(label);
   mkdirSync(CACHE, { recursive: true });
   const p = join(CACHE, cacheName);
   const meta = `${p}.meta.json`;
@@ -80,6 +128,8 @@ async function fetchCached(label: string, url: string, cacheName: string): Promi
 }
 
 async function fetchCdpItems(): Promise<unknown[]> {
+  // data/ keeps only the fields cdpByHost reads, in page order (see the file's own note).
+  if (dataDir) return (JSON.parse(readData(`cdp/discovery-${date}`)) as { items: unknown[] }).items;
   const items: unknown[] = [];
   const limit = 1000;
   for (let offset = 0; ; offset += limit) {
@@ -105,7 +155,7 @@ async function main(): Promise<void> {
 
   const plan = JSON.parse(readLocal("tempo/census-plan-2026-09-28", INPUTS.tempoPlan));
   attempts.push(...normalizeTempoLedger(JSON.parse(readLocal("tempo/ledger", INPUTS.tempoLedger)), "tempo/ledger"));
-  const logAt = statSync(INPUTS.tempoLog).mtime.toISOString();
+  const logAt = dataDir ? (dataEntry("tempo/run-log").loggedAt ?? fail("data/manifest.json: tempo/run-log has no loggedAt")) : statSync(INPUTS.tempoLog).mtime.toISOString();
   attempts.push(...parseTempoRunLog(readLocal("tempo/run-log", INPUTS.tempoLog), tempoPlanUrls(plan, "tempo/plan"), logAt, "tempo/run-log"));
 
   const feedback = JSON.parse(readLocal("base/feedback-ledger", INPUTS.baseFeedback));
@@ -124,9 +174,9 @@ async function main(): Promise<void> {
     inputs,
   });
 
-  mkdirSync(join(ROOT, "results"), { recursive: true });
-  const jsonPath = join(ROOT, "results", `rank-${date}.json`);
-  const siteDir = join(ROOT, "results", `rank-${date}`);
+  mkdirSync(outDir, { recursive: true });
+  const jsonPath = join(outDir, `rank-${date}.json`);
+  const siteDir = join(outDir, `rank-${date}`);
   writeFileSync(jsonPath, JSON.stringify(report, null, 2) + "\n");
   rmSync(siteDir, { recursive: true, force: true });
   const pages = renderSite(report);

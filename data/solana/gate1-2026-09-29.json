@@ -1,0 +1,402 @@
+{
+  "kind": "gate1-live",
+  "ranAt": "2026-09-28T06:52:30.661Z",
+  "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+  "plan": "~/vet402-solana/results/gate1-2026-09-29.dry-run.json",
+  "startBalances": {
+    "lamports": "100000000",
+    "usdc": "50.000000"
+  },
+  "summary": {
+    "attempted": 10,
+    "sent": 9,
+    "settled": 8,
+    "delivered": 8,
+    "settledAndDelivered": 8,
+    "spentUsdc": "0.079000",
+    "gate": "PASS (>=5/10): proceed as planned"
+  },
+  "records": [
+    {
+      "host": "gdzlcxskuhupymyxywzm.supabase.co",
+      "requestUrl": "https://gdzlcxskuhupymyxywzm.supabase.co/functions/v1/frcompany/v1/company?siren=403052111",
+      "probe": {
+        "status": 503,
+        "x402Version": null,
+        "payTo": null,
+        "amount": null,
+        "asset": null,
+        "feePayer": null
+      },
+      "outcome": "refused",
+      "refusal": {
+        "refused": "no_solana_accept",
+        "detail": "unpaid request returned 503"
+      }
+    },
+    {
+      "host": "aws-bedrock.grok.me",
+      "requestUrl": "https://aws-bedrock.grok.me/api/v1/search?q=x402+protocol",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "8s2VtNV5E1C9XJbfk4WGpMTiSJVPLeB8wcuJYQS5MFQa",
+        "amount": "5000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.005000",
+      "memo": "1fbcec47c75be402658c2a25504cc43c",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json",
+        "first300": "{\"ok\":true,\"tool\":\"search\",\"priceUsd\":0.005,\"tx\":\"3EHK1zFPyvn88Gy9ucdCUfL6QFSVa3NbEMXqK4ACxtRyw3a9YVoRWfy3hwZqSbMfdmcHMnDkgTPRsBsYcbrtqeVi\",\"data\":{\"query\":\"x402 protocol\",\"answer\":\"x402 is an open payment protocol by Coinbase using HTTP 402 for micropayments. It enables autonomous machine-to-machin"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "3EHK1zFPyvn88Gy9ucdCUfL6QFSVa3NbEMXqK4ACxtRyw3a9YVoRWfy3hwZqSbMfdmcHMnDkgTPRsBsYcbrtqeVi",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "3EHK1zFPyvn88Gy9ucdCUfL6QFSVa3NbEMXqK4ACxtRyw3a9YVoRWfy3hwZqSbMfdmcHMnDkgTPRsBsYcbrtqeVi",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "1fbcec47c75be402658c2a25504cc43c",
+        "payToDeltaAtomic": "5000",
+        "payerDeltaAtomic": "-5000",
+        "payerLamportsDelta": "0",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "signature": "3EHK1zFPyvn88Gy9ucdCUfL6QFSVa3NbEMXqK4ACxtRyw3a9YVoRWfy3hwZqSbMfdmcHMnDkgTPRsBsYcbrtqeVi",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "madeonsol.com",
+      "requestUrl": "https://madeonsol.com/api/x402/kol/feed?limit=50&action=buy",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "GLu63pRCYrp4BJu5P5ciYKxgeZFW9c8TJ8jWzK3TB9AR",
+        "amount": "5000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.005000",
+      "memo": "369976b1bd52d030fe95a8e30ed66c18",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json",
+        "first300": "{\"trades\":[{\"wallet_address\":\"2W14ahXD3XBfWJchQ4K5NLXmguWWcTTUTuHDhEzeuvP3\",\"kol_name\":\"Veloce\",\"kol_twitter\":\"https://x.com/VeloceSVJ\",\"token_mint\":\"9STjSq5YoD6xfB8PsbmYuBNaeiYhrpmjWirfou9RPrHT\",\"token_name\":\"The Meme Currency\",\"token_symbol\":\"KEKELS\",\"action\":\"buy\",\"sol_amount\":0.26389251400000546"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "5HweXGvYoHb3kvb2YbFXFmnUxNy9CmaufJYVYqkpF9xKA1Upy1ZpYtHNNj7oKN7wvUbH6WZvytgu9XeFwXVL6inL",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "5HweXGvYoHb3kvb2YbFXFmnUxNy9CmaufJYVYqkpF9xKA1Upy1ZpYtHNNj7oKN7wvUbH6WZvytgu9XeFwXVL6inL",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "369976b1bd52d030fe95a8e30ed66c18",
+        "payToDeltaAtomic": "5000",
+        "payerDeltaAtomic": "-5000",
+        "payerLamportsDelta": "0",
+        "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+      },
+      "signature": "5HweXGvYoHb3kvb2YbFXFmnUxNy9CmaufJYVYqkpF9xKA1Upy1ZpYtHNNj7oKN7wvUbH6WZvytgu9XeFwXVL6inL",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "changelog-state-api.replit.app",
+      "requestUrl": "https://changelog-state-api.replit.app/api/monitors/chainlink/changes?type=new_release&limit=50&since=2026-01-15T09%3A30%3A00.000Z",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "6UNbfD8mgSqgFDxxwE29LfgKrBqrZBt4R4L4Resh4yct",
+        "amount": "10000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.010000",
+      "memo": "011f3c0cd9d4e09f8b72f23d4a46e0ab",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json; charset=utf-8",
+        "first300": "{\"slug\":\"chainlink\",\"name\":\"Chainlink\",\"changeCount\":3,\"watchedSince\":\"2026-09-20T11:44:51.848Z\",\"releaseCount\":13,\"limit\":50,\"hasMore\":false,\"changes\":[{\"id\":686,\"changeType\":\"new_release\",\"summary\":\"Chainlink published a new entry: CCIP deprecated on Superseed Sepolia\",\"previousValue\":null,\"newVal"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "32kjf4vDogFwrukWim5bCXmYwsyZja4kcPDVhvZ22LTEZS7q4RaFrGpp51tkCpccNXwVdBeJzTDS1vmr5QpCwoZF",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "32kjf4vDogFwrukWim5bCXmYwsyZja4kcPDVhvZ22LTEZS7q4RaFrGpp51tkCpccNXwVdBeJzTDS1vmr5QpCwoZF",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "011f3c0cd9d4e09f8b72f23d4a46e0ab",
+        "payToDeltaAtomic": "10000",
+        "payerDeltaAtomic": "-10000",
+        "payerLamportsDelta": "0",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "signature": "32kjf4vDogFwrukWim5bCXmYwsyZja4kcPDVhvZ22LTEZS7q4RaFrGpp51tkCpccNXwVdBeJzTDS1vmr5QpCwoZF",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "werner.ddns.net",
+      "requestUrl": "https://werner.ddns.net/price?pair=BTC-USDC",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "vz9No3Xm1EfPcuF56bWc7zV4r1k9TRs9UuDckGCocvv",
+        "amount": "1000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.001000",
+      "memo": "36e47fed5e44783dc0d9d40e61fb8c4d",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json",
+        "first300": "{\"prices\":{\"BTC-USDC\":{\"ask\":\"83146.92\",\"bid\":\"83146.91\",\"price\":null,\"time\":null},\"SHIB-USDC\":{\"ask\":\"0.00000568\",\"bid\":\"0.00000567\",\"price\":null,\"time\":null},\"SOL-USDC\":{\"ask\":\"118.71\",\"bid\":\"118.7\",\"price\":null,\"time\":null}}}\n"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "4PJYWsJK1nVGPb9Rn4oTzpfiV3rNGs6jsWECEt86LRAqfNKJLTetqpyCb1Y5SNKMdPFQqWXN9D7rt3Daz63VowC5",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "4PJYWsJK1nVGPb9Rn4oTzpfiV3rNGs6jsWECEt86LRAqfNKJLTetqpyCb1Y5SNKMdPFQqWXN9D7rt3Daz63VowC5",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "36e47fed5e44783dc0d9d40e61fb8c4d",
+        "payToDeltaAtomic": "1000",
+        "payerDeltaAtomic": "-1000",
+        "payerLamportsDelta": "0",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "signature": "4PJYWsJK1nVGPb9Rn4oTzpfiV3rNGs6jsWECEt86LRAqfNKJLTetqpyCb1Y5SNKMdPFQqWXN9D7rt3Daz63VowC5",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "kael-ecosystem-pulse.onrender.com",
+      "requestUrl": "https://kael-ecosystem-pulse.onrender.com/v1/pulse/headlines?window=24h&ecosystem=solana",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "7Ny8us7f1wBkNJZ2tYKWPBQhQsLxJ18xot8jxCNd9YGG",
+        "amount": "20000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.020000",
+      "memo": "15f609a8fdbf713e9a57b9cc67b49f20",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json; charset=utf-8",
+        "first300": "{\"ecosystem\":\"solana\",\"window\":\"24h\",\"as_of\":\"2026-09-27T07:05:00-07:00\",\"headlines\":[{\"id\":\"n-infra-simd-0525-250ms-slots-epoch-1037\",\"lane\":\"infra\",\"title\":\"250ms slots still LIVE (epoch 1037+) — SIMD-0525 step four; ~225h+ skip-rate watch\",\"confidence\":\"high\",\"actionability\":\"upgrade_stack\"},{\"id"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "wuHv3zQLDkMF9Sm8cEoUVW8ZJcpKA4ftmne5zygR4sPT6HfnVhjs3AEtiPK5JC8wUc58Pr3oT1KG2EAteDEMRR7",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "wuHv3zQLDkMF9Sm8cEoUVW8ZJcpKA4ftmne5zygR4sPT6HfnVhjs3AEtiPK5JC8wUc58Pr3oT1KG2EAteDEMRR7",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "15f609a8fdbf713e9a57b9cc67b49f20",
+        "payToDeltaAtomic": "20000",
+        "payerDeltaAtomic": "-20000",
+        "payerLamportsDelta": "0",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "signature": "wuHv3zQLDkMF9Sm8cEoUVW8ZJcpKA4ftmne5zygR4sPT6HfnVhjs3AEtiPK5JC8wUc58Pr3oT1KG2EAteDEMRR7",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "api.bentcrypto.com",
+      "requestUrl": "https://api.bentcrypto.com/v1/token/risk?chain=solana&address=So11111111111111111111111111111111111111112",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "5bZdrGYAbHdbVCqw7RVUpxma22kJehaQCHhp4nHuHCyy",
+        "amount": "10000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.010000",
+      "memo": "25bd4764d9f6a79f38689204c4ee5e6b",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json; charset=utf-8",
+        "first300": "{\"success\":true,\"chain\":\"solana\",\"address\":\"So11111111111111111111111111111111111111112\",\"asset_context\":{\"type\":\"wrapped_infrastructure_asset\",\"registry_match\":true},\"token\":{\"name\":\"Wrapped SOL\",\"symbol\":\"SOL\"},\"risk\":{\"score\":1,\"level\":\"low\",\"provisional\":false,\"base_score\":1,\"floor_applied\":null"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "4jMHjmX95Xmke5jngeSjpGkhez4i4E6qfWpXSfUu3LwknTGjkNJAaFesgLV8Kyo4i3uxbRczzSy3g7v4gKvQpmbz",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "4jMHjmX95Xmke5jngeSjpGkhez4i4E6qfWpXSfUu3LwknTGjkNJAaFesgLV8Kyo4i3uxbRczzSy3g7v4gKvQpmbz",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "25bd4764d9f6a79f38689204c4ee5e6b",
+        "payToDeltaAtomic": "10000",
+        "payerDeltaAtomic": "-10000",
+        "payerLamportsDelta": "0",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "signature": "4jMHjmX95Xmke5jngeSjpGkhez4i4E6qfWpXSfUu3LwknTGjkNJAaFesgLV8Kyo4i3uxbRczzSy3g7v4gKvQpmbz",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "citable.run",
+      "requestUrl": "https://citable.run/v1/serp?keyword=seo+api",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "6nWrWRTqrqpqbu5MsMW8mPDpZjKLwPb9Wf8BdMwNMWzK",
+        "amount": "8000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.008000",
+      "memo": "d3c0ef51ba734287de3186bb5fd22c16",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json",
+        "first300": "{\"keyword\":\"seo api\",\"gl\":\"us\",\"hl\":\"en\",\"results\":[{\"position\":1,\"url\":\"https://dataforseo.com/\",\"domain\":\"dataforseo.com\",\"title\":\"DataForSEO: Powerful API Stack For Data-Driven SEO Tools\",\"snippet\":\"We provide comprehensive data solutions for SEO and SEM analytics via API. DataForSEO is a trusted"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "3BEmz7ydbwB1PBpxGJivTEZtxR8XJaXH3cmGxKYJ5u5wp2GxPnb3pjFFpM1g1DZyGSZuCkfVQ5vSjsLMWYr9JRCZ",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "3BEmz7ydbwB1PBpxGJivTEZtxR8XJaXH3cmGxKYJ5u5wp2GxPnb3pjFFpM1g1DZyGSZuCkfVQ5vSjsLMWYr9JRCZ",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "d3c0ef51ba734287de3186bb5fd22c16",
+        "payToDeltaAtomic": "8000",
+        "payerDeltaAtomic": "-8000",
+        "payerLamportsDelta": "0",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "signature": "3BEmz7ydbwB1PBpxGJivTEZtxR8XJaXH3cmGxKYJ5u5wp2GxPnb3pjFFpM1g1DZyGSZuCkfVQ5vSjsLMWYr9JRCZ",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "htrlhl3y49.execute-api.us-east-2.amazonaws.com",
+      "requestUrl": "https://htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/graduations/recent?limit=50&window_s=21600",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "9HkwyUhDMyjbpSpnyu5xuZ9vRaFQeajnJsavhie7XcsT",
+        "amount": "20000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "GVJJ7rdGiXr5xaYbRwRbjfaJL7fmwRygFi1H6aGqDveb"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.020000",
+      "memo": "4bcc8ee469f8deabbd4f8c5e3dada489",
+      "solBefore": "100000000",
+      "response": {
+        "status": 200,
+        "contentType": "application/json",
+        "first300": "{\"ok\":true,\"schema_version\":\"2.0\",\"generated_at\":\"2026-09-28T06:50:54Z\",\"t\":1790578254.0421581,\"coverage\":\"full\",\"data\":{\"count\":50,\"items\":[{\"mint\":\"5ZEARh8jSszoxNkHuHs4DbGSztaJrB19G7TfSoYopump\",\"name\":\"Wojak coin\",\"symbol\":\"Jak\",\"uri\":\"https://ipfs.io/ipfs/bafkreic2xkvalhgpo3o3a7z4yroutela3q44dknl"
+      },
+      "settlementHeader": {
+        "success": true,
+        "transaction": "2QuyfxCfLgWrFChHpY5iBdAiXRmnVUGXLquXq4gBihCZBzc6GsTLFadNpaQHGrUwXudpH5ZMV2WLTH1ynFyYA8tX",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+      },
+      "delivered": true,
+      "onChain": {
+        "signature": "2QuyfxCfLgWrFChHpY5iBdAiXRmnVUGXLquXq4gBihCZBzc6GsTLFadNpaQHGrUwXudpH5ZMV2WLTH1ynFyYA8tX",
+        "found": true,
+        "confirmed": true,
+        "err": null,
+        "memo": "4bcc8ee469f8deabbd4f8c5e3dada489",
+        "payToDeltaAtomic": "20000",
+        "payerDeltaAtomic": "-20000",
+        "payerLamportsDelta": "0",
+        "feePayer": "GVJJ7rdGiXr5xaYbRwRbjfaJL7fmwRygFi1H6aGqDveb"
+      },
+      "signature": "2QuyfxCfLgWrFChHpY5iBdAiXRmnVUGXLquXq4gBihCZBzc6GsTLFadNpaQHGrUwXudpH5ZMV2WLTH1ynFyYA8tX",
+      "settled": true,
+      "solAfter": "100000000",
+      "solDecreased": false
+    },
+    {
+      "host": "contextaiagent.xyz",
+      "requestUrl": "https://contextaiagent.xyz/api/percolator/funding/signals?type=streak&market=SOL-PERP",
+      "probe": {
+        "status": 402,
+        "x402Version": 2,
+        "payTo": "3zzUAYvpjqPBmdwqQKUh952LZSqijHHVCFymCtanFP3N",
+        "amount": "10000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+      },
+      "outcome": "sent",
+      "priceUsdc": "0.010000",
+      "memo": "53227a37a6276f97ecbf8f51d6ed1cd4",
+      "solBefore": "100000000",
+      "response": {
+        "status": 402,
+        "contentType": "application/json",
+        "first300": "{\"x402Version\":2,\"error\":\"No matching payment requirements\",\"resource\":{\"url\":\"https://contextaiagent.xyz/api/percolator/funding/signals?type=streak&market=SOL-PERP\",\"description\":\"Get funding rate pattern signals (streaks, extremes, divergences)\",\"mimeType\":\"application/json\"},\"accepts\":[{\"scheme\":"
+      },
+      "settlementHeader": null,
+      "delivered": false,
+      "onChain": null,
+      "signature": null,
+      "settled": false,
+      "solAfter": "100000000",
+      "solDecreased": false
+    }
+  ]
+}

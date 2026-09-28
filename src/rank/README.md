@@ -5,7 +5,8 @@ buyer, paid them with its own money. Call counts, payer counts and anything a se
 are not inputs, so a seller cannot buy a better rank by paying itself from many wallets (wash trading).
 
 ```
-npm run rank -- --date 2026-09-28            # fetches what is not cached (.cache/rank/)
+npm run rank -- --data data --offline --out /tmp/rank   # only the published inputs in data/, no network
+npm run rank -- --date 2026-09-28            # the runners' own files; fetches what is not cached (.cache/rank/)
 npm run rank -- --date 2026-09-28 --offline  # cache only
 ```
 
@@ -14,6 +15,44 @@ Output: `results/rank-<date>.json` and the pages in `results/rank-<date>/` (stat
 fault rules, grades, change log, how to reproduce) and `s/<seller>.html` (failures by who was at fault,
 recent tx, how to ask for a correction).
 The run is read-only: GET requests to public JSON and local result files. Nothing is signed or sent.
+
+## Public site
+
+`scripts/build-site.ts` turns one report JSON into the site that GitHub Pages serves
+(`.github/workflows/pages.yml`, on every push to main, no secrets):
+
+```
+npm run rank -- --data data --offline --out /tmp/rank
+npx tsx scripts/build-site.ts --report /tmp/rank/rank-2026-09-28.json --out site
+```
+
+| page | what it shows |
+|---|---|
+| `index.html` | one sentence on who pays, the purchase period and method version, a one-line grade legend, then the table: rank number (only with 10 counted purchases on 2+ days), grade, seller, chain, arrived n/N, last purchase. Undecided and measuring sellers are folded. The number of failed purchases that were not counted (vet402 or facilitator side, can't tell) is always shown. |
+| `seller/<id>.html` | arrived n/N, 95% interval, chains, not-counted failures by rule, failures counted against the seller, recent purchases with each tx linked to an explorer (Solana: solscan.io, Algorand: allo.info, Tempo: explore.tempo.xyz, Base: basescan.org), a prefilled GitHub issue link |
+| `method.html` | version and change log, counted and not counted, fault rules, grade thresholds, limits, the reproduce commands, every input with its sha256, and vet402's own record (failures on its side) |
+| `rank.json` | the report itself, byte for byte: the same numbers as the pages |
+
+`site/` in the repo is a built copy for review; the workflow builds its own from `data/`.
+Every string a seller controls is escaped, pages carry a CSP with `script-src 'none'`, and tx links are
+built only from ids that match the chain's format.
+
+## Published inputs (`data/`)
+
+`data/manifest.json` lists every input with its sha256; `--data` refuses a file whose sha256 differs.
+
+| path | copy of |
+|---|---|
+| `algorand/census-2026-09-27.json`, `census-2026-09-28.json` | `kzmttkc/vet402-algorand` `board/` at commits 357d736 and d78baf2 (the versions this report was built from) |
+| `solana/census-2026-09-28.json`, `gate1-2026-09-29.json` | the Solana census and gate1 result files |
+| `tempo/ledger.json`, `run-log.txt`, `census-plan-2026-09-28.json` | the Tempo ledger, run log and census plan; the manifest keeps the log's write time (`loggedAt`) because its refusal lines carry no time |
+| `base/purchases.jsonl`, `feedback-ledger.json` | the Base purchases and ERC-8004 feedback ledger |
+| `cdp/discovery-2026-09-28.json` | CDP Bazaar discovery, reduced to `resource` and three `quality` fields per item (the only fields the comparison reads), with the sha256 of each of the 18 raw pages |
+
+Payer addresses, payTo addresses and tx ids are public on-chain and stay in. The files hold no keys.
+`vet402-algorand` commit 3db3e6e later records 6 rows of gateway-x402.vercel.app ("already in ledger") as
+paid. The normalizer does not read that shape yet (`paid: true` with `payment_failed`), so data/ keeps the
+earlier commits until the method decides which side those 6 are on.
 
 ## Inputs
 
@@ -40,9 +79,9 @@ Reason categories. The first five count as **tried** (vet402 committed to pay):
 | `settled_error_status` | settled, then a non-2xx answer |
 | `settled_empty_body` | settled, 2xx, but the body was empty |
 | `unconfirmed_server_error` | 5xx and settlement could not be confirmed either way |
-| `not_payable` | listed but not buyable (no 402, no usable accept, unreachable) — not tried |
-| `payto_changed` | vet402 refused because the recipient differed from the recorded one — not tried, flagged |
-| `vet402_skipped` | vet402's own policy (price cap, input it will not make up, duplicate) — not tried |
+| `not_payable` | listed but not buyable (no 402, no usable accept, unreachable); not tried |
+| `payto_changed` | vet402 refused because the recipient differed from the recorded one; not tried, flagged |
+| `vet402_skipped` | vet402's own policy (price cap, input it will not make up, duplicate); not tried |
 
 An unknown raw reason throws: a new failure mode cannot be silently counted or dropped.
 
@@ -117,7 +156,7 @@ The Tempo runner kept no body, so on Tempo delivered = settled + 2xx (`bodyCheck
 - payTo changed = the same chain and URL asked for a different recipient in a later run, or vet402
   refused to pay because the recipient differed from the one recorded. A seller that accepts several
   chains has one recipient per chain; that is not a change. Shown as a flag, no effect on the grade.
-- **Money: vet402 buys with its own funds and takes no money from sellers** — no listing fee, no paid
+- **Money: vet402 buys with its own funds and takes no money from sellers**: no listing fee, no paid
   placement, no referral cut.
 
 ### 5. Corrections
@@ -139,8 +178,8 @@ row is fixed after checking the chain and the raw result, and the fix goes in th
 |---|---|---|
 | CDP Bazaar | `quality.l30DaysTotalCalls`, summed per host | public discovery API; both calls and unique payers can be raised by a seller paying itself |
 | Mercator | best search rank across the Tempo census query sweep (1 = first) | `relevance-price-v1`; no reliability number |
-| PayAI discovery | — | no catalog-level usage or quality field |
-| mpp.dev/api/services | — | no usage, quality or rank field |
+| PayAI discovery | none | no catalog-level usage or quality field |
+| mpp.dev/api/services | none | no usage, quality or rank field |
 
 Among ranked sellers the catalog lists, "high" = top half by the catalog's order (rounded up).
 - high but never delivered = high, and 0 delivered out of every vet402 try
@@ -154,7 +193,9 @@ Among ranked sellers the catalog lists, "high" = top half by the catalog's order
   interval is narrower than it should be for runs before v2 pacing.
 - The fault rules read the runner's reason text. A reason that matches no rule lands in `unclassified`
   (can't tell), which is safe for sellers but hides nothing: the count is in the report.
-- Some inputs are local files of vet402's runners; their sha256 is recorded but they are not yet public.
+- The inputs are copies in `data/` of vet402's runners' result files. The runners' wallets and full logs
+  are not published. (The report JSON's own `limits` list still carries the older line about unpublished
+  inputs; the public method page replaces it when every input comes from `data/`.)
 - A seller that recognises vet402's payer addresses (they are public) could treat vet402 better than
   other buyers.
 - Sellers with many endpoints get many tries and a tight bound, so they fill the top.
