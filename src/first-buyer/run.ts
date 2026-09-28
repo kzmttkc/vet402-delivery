@@ -3,11 +3,13 @@
  *
  * The loop only calls the existing money path (src/pay.ts payOne, with its guard, read-back and
  * Budget). What it adds, in this order, before payOne may sign:
- *   own payTo / opt-out -> ledger eligibility (lifetime once) -> outside receipts re-read on chain
- *   -> the payTo's USDC account exists -> run and month caps would fit
+ *   own payTo / opt-out -> ledger eligibility (lifetime once) -> run and month caps would fit
+ *   -> chain fence, read live right before the attempt (no USDC ever received by the payTo, from
+ *      anyone including vet402; readable to the end; USDC account exists), whatever the ledger says
  *   -> the attempt is written to the ledger (pending) -> payOne.
  * A missing USDC account is the seller's cause of "cannot be paid"; it is reported, and it does not
  * use up the seller's one attempt (the payment could not settle, see receipts.ts).
+ * A refusal because the live 402 names another payTo is published as "pay_to_changed".
  */
 import { PAYER_ADDRESS, atomicToUsdc } from "../constants.js";
 import { checkAccept, pickSolanaAccept } from "../guard.js";
@@ -17,7 +19,7 @@ import { judgeDelivery, type Declaration } from "../verdict.js";
 import type { CensusCandidate, HostPlan, Source } from "../census.js";
 import type { FirstBuyerBudget } from "./budget.js";
 import type { FirstBuyerLedger } from "./ledger.js";
-import { noOutsideReceipt, type ReceiptCheck } from "./receipts.js";
+import { chainFence, type ReceiptCheck } from "./receipts.js";
 import type { Excluded } from "./select.js";
 
 export interface FirstBuyerTarget extends PlanEntry {
@@ -128,20 +130,23 @@ export async function buyAll(targets: FirstBuyerTarget[], deps: BuyDeps): Promis
       skip(t, e.reason, e.detail);
       continue;
     }
-    const rc = await deps.checkReceipts(p);
-    if (!noOutsideReceipt(rc)) {
-      skip(t, rc.verdict === "outside" ? "outside_receipts" : "receipts_unverified", rc.detail, rc);
-      continue;
-    }
-    if (!rc.ataExists) {
-      skip(t, "payto_no_usdc_account", "the payTo has no USDC associated token account; a transfer to it cannot settle until the seller creates it", rc);
-      continue;
-    }
     const amount = BigInt(t.lock.amount);
     if (deps.budget.runSpentAtomic + amount > deps.budget.runCap || deps.budget.spent + amount > deps.budget.maxTotal) {
       skip(t, "total_cap_reached", `run ${deps.budget.runSpentAtomic}/${deps.budget.runCap}, month ${deps.budget.spent}/${deps.budget.maxTotal}, next ${amount}`);
       if (deps.continueAfterCap) continue;
       return { rows, stopped: "cap reached" };
+    }
+    let rc: ReceiptCheck;
+    try {
+      rc = await deps.checkReceipts(p);
+    } catch (e) {
+      skip(t, "chain_unreadable", `receipt check threw: ${(e as Error).message}`.slice(0, 200));
+      continue;
+    }
+    const fence = chainFence(rc);
+    if (fence) {
+      skip(t, fence.reason, fence.detail, rc);
+      continue;
     }
     const began = deps.ledger.begin(p, { host: t.host, requestUrl: t.requestUrl, amountAtomic: t.lock.amount }, now());
     if ("refused" in began) {
@@ -149,7 +154,8 @@ export async function buyAll(targets: FirstBuyerTarget[], deps: BuyDeps): Promis
       continue;
     }
     const rec = await payOne(t, { ...deps.pay, budget: deps.budget, ownAddresses: ownList, judge: (d) => judgeDelivery(t.declared, d) });
-    const c: Classified = classifyRecord(rec);
+    const base: Classified = classifyRecord(rec);
+    const c: Classified = rec.refusal?.refused === "payto_mismatch" ? { ...base, reason: "pay_to_changed", category: null } : base;
     deps.ledger.finish(p, began.index, rec, c);
     push({
       host: t.host,

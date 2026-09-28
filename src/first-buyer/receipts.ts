@@ -6,6 +6,7 @@
  * A receipt is a transaction in which the payTo's USDC balance went up; it is "own" when every
  * owner whose USDC went down in that transaction is a vet402 address, otherwise "outside".
  * Anything that cannot be read to the end is "unverified", and an unverified payTo is not bought.
+ * A payTo that already received USDC from vet402 ("only_own") is not bought either (chainFence).
  *
  * It also reports whether the payTo's USDC associated token account exists. The x402 transfer goes
  * to that account and nothing in the payment creates it, so without it the payment cannot settle
@@ -118,7 +119,16 @@ export async function checkOutsideReceipts(
   }
 }
 
-/** Eligible for a first purchase: no outside receipt, read to the end. */
-export function noOutsideReceipt(c: ReceiptCheck): boolean {
-  return c.verdict === "none" || c.verdict === "only_own";
+/**
+ * The chain-side fence, checked right before an attempt is recorded and signed, whatever the local
+ * ledger says (a missing or reset ledger cannot cause a second payment): the payTo may be paid only
+ * when its USDC accounts were read to the end and never received USDC from anyone, vet402 included,
+ * and its USDC associated token account exists. Anything unreadable refuses. null = allowed.
+ */
+export function chainFence(c: ReceiptCheck): { reason: string; detail: string } | null {
+  if (c.verdict === "outside") return { reason: "outside_receipts", detail: c.detail };
+  if (c.verdict === "only_own") return { reason: "paid_by_vet402_before", detail: `vet402 already paid this payTo on chain (${c.ownReceipts} receipts)` };
+  if (c.verdict !== "none") return { reason: "chain_unreadable", detail: c.detail || "the payTo's USDC history could not be read to the end" };
+  if (!c.ataExists) return { reason: "payto_no_usdc_account", detail: "the payTo has no USDC associated token account; a transfer to it cannot settle until the seller creates it" };
+  return null;
 }

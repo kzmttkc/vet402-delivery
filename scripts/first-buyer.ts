@@ -3,16 +3,20 @@
  * vet402 has paid yet, and publish whether the payment settled and content came back.
  *
  *   npx tsx scripts/first-buyer.ts --dry-run --since 2026-09-21   # everything except paying
+ *   npx tsx scripts/first-buyer.ts --init-ledger                  # once, before the first --pay: empty ledger
  *   npx tsx scripts/first-buyer.ts --pay                          # pays today's dry-run plan (explicit flag only)
  *
  * Who: the census union (PayAI + CDP Bazaar + Pay.sh; one cheapest GET per host at or under 0.10 USDC,
  * example input filled, vet402's own hosts removed), minus tunnel hosts, minus hosts not new since
  * --since, one target per payTo, minus vet402's own payTos, opt-outs (src/first-buyer/first-buyer-optout.json),
- * payTos the ledger does not allow, and payTos that already received USDC from outside vet402.
+ * payTos the ledger does not allow, and payTos that ever received USDC (vet402 included; read live on chain before each attempt).
  *
  * Money: the existing path only (src/pay.ts payOne: payTo lock, guard, transaction read-back, Budget).
  * Caps: 0.10 USDC per purchase, 5 USDC per run, 20 USDC per month (results/first-buyer-budget-YYYY-MM.json).
- * Lifetime once per payTo: results/first-buyer-ledger.json, written before anything is signed.
+ * Lifetime once per payTo: results/first-buyer-ledger.json, written before anything is signed, and
+ * on chain: a payTo whose USDC account ever received USDC (vet402 included) is never signed for.
+ * --pay stops when the ledger file is missing, when results/first-buyer.lock exists (another run),
+ * or when the ledger and the month budget file disagree.
  * The run stops if the payer's SOL goes down.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -26,7 +30,8 @@ import { fetchPaysh, payshListings } from "../src/paysh.js";
 import { selectCensus } from "../src/census.js";
 import { FB_MAX_PER_MONTH_ATOMIC, FB_MAX_PER_PURCHASE_ATOMIC, FB_MAX_PER_RUN_ATOMIC, FB_NOTE, FB_OWN_ADDRESSES, FB_PLAN_MAX_AGE_MS } from "../src/first-buyer/constants.js";
 import { FirstBuyerBudget, monthKey } from "../src/first-buyer/budget.js";
-import { FirstBuyerLedger } from "../src/first-buyer/ledger.js";
+import { FirstBuyerLedger, initLedgerFile } from "../src/first-buyer/ledger.js";
+import { openPayRun } from "../src/first-buyer/payrun.js";
 import { checkOutsideReceipts, type ReceiptCheck } from "../src/first-buyer/receipts.js";
 import { choosePerPayTo, emptySeen, ownPayTosFromListings, parseOptOut, preselectHosts, recordSeen, tally, type Excluded, type SeenSnapshot } from "../src/first-buyer/select.js";
 import { buyAll, probeHost, type BuyRow, type FirstBuyerTarget } from "../src/first-buyer/run.js";
@@ -46,6 +51,7 @@ const RESULTS = join(ROOT, "results");
 const PLAN_FILE = opt("--plan") ?? join(RESULTS, `first-buyer-${DATE}.dry-run.json`);
 const OUT_FILE = join(RESULTS, `first-buyer-${DATE}.json`);
 const LEDGER_FILE = join(RESULTS, "first-buyer-ledger.json");
+const LOCK_FILE = join(RESULTS, "first-buyer.lock");
 const SEEN_FILE = join(RESULTS, "first-buyer-seen.json");
 const WALLETS_FILE = join(RESULTS, "first-buyer", "wallets.json");
 const PUBLIC_ROWS_FILE = join(RESULTS, "first-buyer", "purchases.json");
@@ -192,7 +198,7 @@ async function dryRun() {
     payer: PAYER_ADDRESS,
     note: FB_NOTE,
     definition:
-      "Census union (PayAI, CDP Bazaar, Pay.sh), one cheapest GET per host at or under 0.10 USDC with a usable example; not a tunnel host; new since --since; one per payTo; not vet402's own payTo; not opted out; allowed by the lifetime ledger; no USDC ever received from outside vet402; within 5 USDC per run and 20 USDC per month.",
+      "Census union (PayAI, CDP Bazaar, Pay.sh), one cheapest GET per host at or under 0.10 USDC with a usable example; not a tunnel host; new since --since; one per payTo; not vet402's own payTo; not opted out; allowed by the lifetime ledger; no USDC ever received by the payTo, vet402 included, and its USDC account exists; within 5 USDC per run and 20 USDC per month.",
     catalogs: { payai: payai.total, cdp: cdp.total, payshProviders: paysh.providerCount, payshDetailFilesFailed: paysh.failed },
     ownPayTos: [...own].sort(),
     summary,
@@ -212,56 +218,65 @@ async function dryRun() {
   console.log(`payer USDC before ${summary.payerUsdcBefore} after ${summary.payerUsdcAfter}; SOL lamports before ${summary.payerLamportsBefore} after ${summary.payerLamportsAfter}`);
 }
 
-async function pay() {
-  if (!existsSync(PLAN_FILE)) throw new Error(`no plan at ${PLAN_FILE}; run --dry-run first`);
-  const plan = JSON.parse(readFileSync(PLAN_FILE, "utf8")) as { kind: string; createdAt: string; targets: FirstBuyerTarget[]; ownPayTos: string[] };
-  if (plan.kind !== "first-buyer-dry-run") throw new Error("plan file is not a first-buyer dry run");
-  if (!(Date.now() - Date.parse(plan.createdAt) <= FB_PLAN_MAX_AGE_MS)) throw new Error("plan is older than 24 hours; run --dry-run again");
+async function pay(): Promise<number> {
   const now = new Date();
-  const rpc = jsonRpc(RPC_URL);
-  const signer = await loadPayer(KEY_FILE);
-  const payerAta = await usdcAta(PAYER_ADDRESS);
-  const own = new Set([...FB_OWN_ADDRESSES, ...plan.ownPayTos]);
-  const ledger = new FirstBuyerLedger(LEDGER_FILE);
-  const budget = new FirstBuyerBudget(monthFile(now));
-  const start = await readBalances(rpc, PAYER_ADDRESS);
-  budget.setBaselineIfMissing(start.usdcAtomic);
-  const rows: BuyRow[] = [];
-  const save = (stopped: string | null) => {
-    writeJson(OUT_FILE, { kind: "first-buyer-live", ranAt: now.toISOString(), payer: PAYER_ADDRESS, note: FB_NOTE, plan: PLAN_FILE, ledger: LEDGER_FILE, stopped, rows });
-    writeJson(PUBLIC_ROWS_FILE, { kind: "vet402-first-buyer-purchases", note: FB_NOTE, rows: publicRows(ledger.data) });
-    writeJson(WALLETS_FILE, walletsJson());
-  };
-  const res = await buyAll(plan.targets, {
-    pay: {
-      fetch,
-      payer: PAYER_ADDRESS,
-      createPayment: makeCreatePayment(signer, RPC_URL),
-      checkTx: checkPaymentTransaction,
-      readBalances: () => readBalances(rpc, PAYER_ADDRESS),
-      waitForSettlement: (sig: string | null, memo: string | null, payTo: string) =>
-        waitForSettlement({ rpc, signature: sig, memo, payer: PAYER_ADDRESS, payerUsdcAta: payerAta, payTo }),
-    },
-    budget,
-    ledger,
-    own,
-    optOut: readOptOut(),
-    checkReceipts: (p) => checkOutsideReceipts(rpc, p, own),
-    log: (r) => {
-      rows.push(r);
-      save(null);
-      console.log(`${r.outcome.padEnd(8)} ${r.host.padEnd(40)} ${r.priceUsdc ?? "-"} settled=${r.settled ?? "-"} delivered=${r.delivered ?? "-"} tx=${r.tx ?? "-"} ${r.reason}`);
-    },
-  });
-  save(res.stopped);
-  console.log(`sent ${rows.filter((r) => r.outcome === "sent").length}, run spent ${atomicToUsdc(budget.runSpentAtomic)} USDC, month ledger ${atomicToUsdc(budget.spent)} USDC${res.stopped ? `; stopped: ${res.stopped}` : ""}`);
-  console.log(`results: ${OUT_FILE}`);
-  if (res.stopped?.startsWith("payer SOL decreased")) process.exit(1);
+  // Lock, then the ledger (must exist), then the month budget; each stops the run on failure.
+  const run = openPayRun({ lock: LOCK_FILE, ledger: LEDGER_FILE, month: monthFile(now) }, now);
+  try {
+    if (!existsSync(PLAN_FILE)) throw new Error(`no plan at ${PLAN_FILE}; run --dry-run first`);
+    const plan = JSON.parse(readFileSync(PLAN_FILE, "utf8")) as { kind: string; createdAt: string; targets: FirstBuyerTarget[]; ownPayTos: string[] };
+    if (plan.kind !== "first-buyer-dry-run") throw new Error("plan file is not a first-buyer dry run");
+    if (!(Date.now() - Date.parse(plan.createdAt) <= FB_PLAN_MAX_AGE_MS)) throw new Error("plan is older than 24 hours; run --dry-run again");
+    const { ledger, budget } = run;
+    const rpc = jsonRpc(RPC_URL);
+    const signer = await loadPayer(KEY_FILE);
+    const payerAta = await usdcAta(PAYER_ADDRESS);
+    const own = new Set([...FB_OWN_ADDRESSES, ...plan.ownPayTos]);
+    const start = await readBalances(rpc, PAYER_ADDRESS);
+    budget.setBaselineIfMissing(start.usdcAtomic);
+    const rows: BuyRow[] = [];
+    const save = (stopped: string | null) => {
+      writeJson(OUT_FILE, { kind: "first-buyer-live", ranAt: now.toISOString(), payer: PAYER_ADDRESS, note: FB_NOTE, plan: PLAN_FILE, ledger: LEDGER_FILE, stopped, rows });
+      writeJson(PUBLIC_ROWS_FILE, { kind: "vet402-first-buyer-purchases", note: FB_NOTE, rows: publicRows(ledger.data) });
+      writeJson(WALLETS_FILE, walletsJson());
+    };
+    const res = await buyAll(plan.targets, {
+      pay: {
+        fetch,
+        payer: PAYER_ADDRESS,
+        createPayment: makeCreatePayment(signer, RPC_URL),
+        checkTx: checkPaymentTransaction,
+        readBalances: () => readBalances(rpc, PAYER_ADDRESS),
+        waitForSettlement: (sig: string | null, memo: string | null, payTo: string) =>
+          waitForSettlement({ rpc, signature: sig, memo, payer: PAYER_ADDRESS, payerUsdcAta: payerAta, payTo }),
+      },
+      budget,
+      ledger,
+      own,
+      optOut: readOptOut(),
+      // Live chain read right before each attempt (the chain fence); never a cached result.
+      checkReceipts: (p) => checkOutsideReceipts(rpc, p, own),
+      log: (r) => {
+        rows.push(r);
+        save(null);
+        console.log(`${r.outcome.padEnd(8)} ${r.host.padEnd(40)} ${r.priceUsdc ?? "-"} settled=${r.settled ?? "-"} delivered=${r.delivered ?? "-"} tx=${r.tx ?? "-"} ${r.reason}`);
+      },
+    });
+    save(res.stopped);
+    console.log(`sent ${rows.filter((r) => r.outcome === "sent").length}, run spent ${atomicToUsdc(budget.runSpentAtomic)} USDC, month ledger ${atomicToUsdc(budget.spent)} USDC${res.stopped ? `; stopped: ${res.stopped}` : ""}`);
+    console.log(`results: ${OUT_FILE}`);
+    return res.stopped?.startsWith("payer SOL decreased") ? 1 : 0;
+  } finally {
+    run.release();
+  }
 }
 
 if (flag("--dry-run")) await dryRun();
-else if (flag("--pay")) await pay();
+else if (flag("--init-ledger")) {
+  initLedgerFile(LEDGER_FILE);
+  console.log(`empty ledger created: ${LEDGER_FILE}`);
+} else if (flag("--pay")) process.exitCode = await pay();
 else {
-  console.error("usage: first-buyer.ts --dry-run --since YYYY-MM-DD | --pay   (paying requires the explicit --pay flag)");
+  console.error("usage: first-buyer.ts --dry-run --since YYYY-MM-DD | --init-ledger (once) | --pay   (paying requires the explicit --pay flag)");
   process.exit(2);
 }

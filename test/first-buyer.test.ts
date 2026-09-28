@@ -21,6 +21,10 @@ import { checkOutsideReceipts, receiptOf, type ReceiptCheck } from "../src/first
 import { choosePerPayTo, isTempHost, ownPayTosFromListings, parseOptOut, preselectHosts, recordSeen, emptySeen } from "../src/first-buyer/select.js";
 import { buyAll, type BuyDeps, type FirstBuyerTarget } from "../src/first-buyer/run.js";
 import { publicRows, walletsJson } from "../src/first-buyer/publish.js";
+import { initLedgerFile } from "../src/first-buyer/ledger.js";
+import { acquireRunLock, LockHeld } from "../src/first-buyer/lock.js";
+import { openPayRun } from "../src/first-buyer/payrun.js";
+import { existsSync } from "node:fs";
 
 const S1 = (await generateKeyPairSigner()).address;
 const S2 = (await generateKeyPairSigner()).address;
@@ -280,7 +284,7 @@ test("outside receipts, unverified receipts, opt-out and own payTo are skipped b
   );
   assert.deepEqual(r.rows.map((x) => [x.host, x.outcome, x.reason]), [
     ["a.example", "skipped", "outside_receipts"],
-    ["b.example", "skipped", "receipts_unverified"],
+    ["b.example", "skipped", "chain_unreadable"],
     ["c.example", "skipped", "opted_out"],
     ["d.example", "skipped", "own_payto"],
     ["e.example", "sent", "delivered"],
@@ -455,4 +459,105 @@ test("published JSON carries the note and no we/us/our, Japanese or em dash", as
   }
   const rows = publicRows(led.data);
   assert.deepEqual([rows[0]!.payTo, rows[0]!.tx, rows[0]!.settled, rows[0]!.delivered, rows[0]!.failureReason, rows[0]!.reciprocal], [S1, SIG, true, true, null, false]);
+});
+
+// ---------- review BLOCK: the chain fence, --pay preflight, lock, pay_to_changed ----------
+
+/** RPC stub: the payTo's USDC account shows one past transfer from `from` (or nothing, or an error). */
+function chainWith(payTo: string, past: { from: string } | null, fail = false): Rpc {
+  return async (method, params) => {
+    if (fail) throw new Error("rpc getTokenAccountsByOwner: rate limited");
+    if (method === "getTokenAccountsByOwner") return { value: [{ pubkey: await usdcAta(payTo) }] };
+    if (method === "getSignaturesForAddress") return past ? [{ signature: "p1", err: null }] : [];
+    if (method === "getTransaction" && params[0] === "p1") {
+      return { meta: { err: null, preTokenBalances: [tb(past!.from, "100000")], postTokenBalances: [tb(past!.from, "90000"), tb(payTo, "10000")] } };
+    }
+    throw new Error(method);
+  };
+}
+
+test("chain fence: no ledger at all, but vet402 paid this payTo on chain before -> nothing is signed", async () => {
+  const w = world({ "a.example": { payTo: S1, amount: "10000" } });
+  const own = new Set([PAYER_ADDRESS]);
+  const r = await buyAll([target("a.example", S1)], deps(w.pay, { ledger: new FirstBuyerLedger(null), checkReceipts: (p) => checkOutsideReceipts(chainWith(S1, { from: PAYER_ADDRESS }), p, own) }));
+  assert.deepEqual([r.rows[0]!.outcome, r.rows[0]!.reason], ["skipped", "paid_by_vet402_before"]);
+  assert.deepEqual(w.counts(), { signerCalls: 0, paidRequests: 0 });
+});
+
+test("chain fence: a ledger retry (not_sent, due) is still refused when the chain shows a vet402 payment", async () => {
+  const w = world({ "a.example": { payTo: S1, amount: "10000" } });
+  const led = new FirstBuyerLedger(null);
+  const b = led.begin(S1, { host: "a.example", requestUrl: "https://a.example/x", amountAtomic: "10000" }, T0) as { index: number };
+  led.finish(S1, b.index, { host: "a.example", requestUrl: "https://a.example/x", outcome: "not_sent", probe: { status: 402, x402Version: 2, payTo: S1, amount: "10000", asset: USDC_MINT, feePayer: FACILITATOR }, refusal: { refused: "tx_check_failed", detail: "d" } }, { status: "not_sent", settled: false, delivered: false, reason: "tx_check_failed", detail: "d", category: "vet402_limit", displayClass: "UNCLEAR" });
+  assert.deepEqual(led.eligibility(S1, new Date(T0.getTime() + 8 * DAY)), { ok: true, retry: true });
+  const r = await buyAll([target("a.example", S1)], deps(w.pay, { ledger: led, now: () => new Date(T0.getTime() + 8 * DAY), checkReceipts: (p) => checkOutsideReceipts(chainWith(S1, { from: PAYER_ADDRESS }), p, new Set([PAYER_ADDRESS])) }));
+  assert.equal(r.rows[0]!.reason, "paid_by_vet402_before");
+  assert.equal(w.counts().signerCalls, 0);
+});
+
+test("chain fence: unreadable chain (RPC error, or the check throws) -> nothing is signed", async () => {
+  const w = world({ "a.example": { payTo: S1, amount: "10000" }, "b.example": { payTo: S2, amount: "10000" } });
+  const r = await buyAll([target("a.example", S1), target("b.example", S2)], deps(w.pay, {
+    checkReceipts: async (p) => {
+      if (p === S2) throw new Error("socket hang up");
+      return checkOutsideReceipts(chainWith(S1, null, true), p, new Set([PAYER_ADDRESS]));
+    },
+  }));
+  assert.deepEqual(r.rows.map((x) => [x.host, x.reason]), [["a.example", "chain_unreadable"], ["b.example", "chain_unreadable"]]);
+  assert.equal(w.counts().signerCalls, 0);
+});
+
+test("chain fence: a payTo with an existing, never-paid USDC account is allowed", async () => {
+  const w = world({ "a.example": { payTo: S1, amount: "10000" } });
+  const r = await buyAll([target("a.example", S1)], deps(w.pay, { checkReceipts: (p) => checkOutsideReceipts(chainWith(S1, null), p, new Set([PAYER_ADDRESS])) }));
+  assert.equal(r.rows[0]!.outcome, "sent");
+  assert.equal(w.counts().signerCalls, 1);
+});
+
+const payFiles = () => {
+  const dir = mkdtempSync(join(tmpdir(), "fb-pay-"));
+  return { lock: join(dir, "first-buyer.lock"), ledger: join(dir, "first-buyer-ledger.json"), month: join(dir, "first-buyer-budget-2026-10.json") };
+};
+
+test("--pay preflight: a missing ledger stops the run (and frees the lock); --init-ledger creates it once", () => {
+  const f = payFiles();
+  assert.throws(() => openPayRun(f, T0), /no first-buyer ledger/);
+  assert.equal(existsSync(f.lock), false);
+  initLedgerFile(f.ledger);
+  assert.throws(() => initLedgerFile(f.ledger), /already exists/);
+  const run = openPayRun(f, T0);
+  assert.deepEqual(run.ledger.data.sellers, {});
+  run.release();
+  assert.equal(existsSync(f.lock), false);
+});
+
+test("--pay preflight: a second run is stopped by the lock; a leftover lock stops with the reason", () => {
+  const f = payFiles();
+  initLedgerFile(f.ledger);
+  const first = openPayRun(f, T0);
+  assert.throws(() => openPayRun(f, T0), (e: unknown) => e instanceof LockHeld && /another first-buyer --pay run holds/.test((e as Error).message) && /startedAt/.test((e as Error).message));
+  first.release();
+  const again = openPayRun(f, T0);
+  again.release();
+  writeFileSync(f.lock, "left by a killed run\n");
+  assert.throws(() => acquireRunLock(f.lock), /left by a killed run/);
+});
+
+test("--pay preflight: ledger spend this month above the month budget file stops the run", async () => {
+  const f = payFiles();
+  initLedgerFile(f.ledger);
+  const w = world({ "a.example": { payTo: S1, amount: "10000" } });
+  await buyAll([target("a.example", S1)], deps(w.pay, { ledger: new FirstBuyerLedger(f.ledger) })); // month budget file never written
+  assert.throws(() => openPayRun(f, T0), /refusing to pay until they agree/);
+  assert.equal(existsSync(f.lock), false);
+});
+
+test("a live 402 that names another payTo is published as pay_to_changed, nothing signed", async () => {
+  const w = world({ "a.example": { payTo: S2, amount: "10000" } }); // the plan locked S1
+  const led = new FirstBuyerLedger(null);
+  const r = await buyAll([target("a.example", S1)], deps(w.pay, { ledger: led }));
+  assert.deepEqual([r.rows[0]!.outcome, r.rows[0]!.reason], ["refused", "pay_to_changed"]);
+  assert.equal(w.counts().signerCalls, 0);
+  assert.equal(publicRows(led.data)[0]!.failureReason, "pay_to_changed");
+  assert.equal(led.eligibility(S1, T0).ok, false); // retry waits for +7 days
 });

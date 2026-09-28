@@ -6,7 +6,7 @@
  *      own hosts removed, example input filled), minus tunnel hosts, minus hosts not new since --since.
  *   2. payTo: after the unpaid 402 gave each host a locked payTo, one target per payTo (cheapest),
  *      minus vet402's own payTos, opt-outs, and payTos the ledger does not allow.
- *   3. chain: minus payTos that already received USDC from outside vet402 (src/first-buyer/receipts.ts).
+ *   3. chain: minus payTos that ever received USDC, vet402 included (src/first-buyer/receipts.ts chainFence).
  *   4. caps: in price order, what fits in the run and month caps.
  */
 import { OWN_HOSTS, SOLANA_MAINNET } from "../constants.js";

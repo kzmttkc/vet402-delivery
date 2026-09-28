@@ -87,7 +87,25 @@ function validAttempt(a: unknown): a is Attempt {
   return !!x && typeof x.at === "string" && ["pending", "sent", "not_sent", "refused"].includes(x.state) && typeof x.moneyMayHaveMoved === "boolean";
 }
 
+/** --init-ledger: create an empty ledger file. Refuses when one already exists. */
+export function initLedgerFile(file: string): void {
+  if (existsSync(file)) throw new Error(`${file} already exists; not overwritten`);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(emptyLedger(), null, 2) + "\n", { flag: "wx" });
+}
+
 export class FirstBuyerLedger {
+  /**
+   * The ledger a --pay run uses. A missing file stops the run: a run somewhere without the ledger
+   * must not start from empty. The first run creates it with --init-ledger.
+   */
+  static openForPay(file: string): FirstBuyerLedger {
+    if (!existsSync(file)) {
+      throw new Error(`no first-buyer ledger at ${file}; refusing to pay. For the very first run only, create it with --init-ledger.`);
+    }
+    return new FirstBuyerLedger(file);
+  }
+
   private state: LedgerFile;
 
   /** `file` null = in memory. `readOnly` = read the file but never write it (dry run). */
@@ -127,6 +145,17 @@ export class FirstBuyerLedger {
 
   get data(): LedgerFile {
     return this.state;
+  }
+
+  /** USDC (atomic) of attempts in `month` (YYYY-MM, UTC) where money may have moved. */
+  monthSpentAtomic(month: string): bigint {
+    let s = 0n;
+    for (const e of Object.values(this.state.sellers)) {
+      for (const a of e.attempts) {
+        if (a.moneyMayHaveMoved && a.at.slice(0, 7) === month && a.amountAtomic && /^\d+$/.test(a.amountAtomic)) s += BigInt(a.amountAtomic);
+      }
+    }
+    return s;
   }
 
   eligibility(payTo: string, now: Date = new Date()): Eligibility {

@@ -1,7 +1,7 @@
 /**
  * First-buyer mode: fixed values. Changing any of these changes what money can move.
  *
- * vet402 buys, once per payTo for life, from a Solana x402 seller that no one outside vet402
+ * vet402 buys, once per payTo for life, from a Solana x402 seller that no one (vet402 included)
  * has paid yet, and publishes whether the payment settled and whether content came back.
  */
 import { MAX_PER_PURCHASE_ATOMIC, PAYER_ADDRESS, SOLANA_MAINNET, USDC_MINT } from "../constants.js";
