@@ -18,7 +18,8 @@ import { checkCharge, pickTempoCharge } from "../src/tempo/guard.js";
 import { Ledger } from "../src/tempo/ledger.js";
 import { buildRequest, chooseEndpoint, fillPath, type MercatorService } from "../src/tempo/mercator.js";
 import { checkSignedTransfer } from "../src/tempo/txcheck.js";
-import { payOne, type PayDeps } from "../src/tempo/pay.js";
+import { authorizationHeader, payOne, type PayDeps } from "../src/tempo/pay.js";
+import { Credential } from "mppx";
 import { breakdown, parseCsv, type LedgerRow } from "../src/tempo/l1-breakdown.js";
 import type { PlanEntry } from "../src/tempo/census.js";
 import { signerFor, type Signer } from "../src/tempo/chain.js";
@@ -329,15 +330,28 @@ function fakeDeps(o: {
   const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
     const auth = new Headers(init?.headers).get("authorization");
     calls.push({ url, auth });
-    if (!auth) return new Response("{}", { status: 402, headers: { "www-authenticate": challengeHeader(o.liveReq ?? goodReq()) } });
+    const challenge = () =>
+      new Response("{}", { status: 402, headers: { "www-authenticate": challengeHeader(o.liveReq ?? goodReq()) } });
+    if (!auth) return challenge();
+    // Parse the Authorization header the way an MPP server does; unreadable -> 402 malformed-credential.
+    try {
+      Credential.deserialize(auth);
+    } catch {
+      return new Response(JSON.stringify({ type: "https://paymentauth.org/problems/malformed-credential", detail: "Credential is malformed" }), {
+        status: 402,
+        headers: { "content-type": "application/problem+json", "www-authenticate": challengeHeader(o.liveReq ?? goodReq()) },
+      });
+    }
     return new Response(JSON.stringify({ ok: true }), { status: o.paidStatus ?? 200, headers: { "content-type": "application/json" } });
   };
+  const real = signerFor(throwaway, fakeRpc);
   const signer: Signer = {
     address: throwaway.address,
-    async credentialFor() {
+    async credentialFor(res, id, recipient) {
       signCalls.n++;
-      const tx = await (o.signed ?? (() => signedTransfer()))();
-      return { credential: "cred", serializedTx: tx };
+      if (o.signed) return { credential: "Payment eyJ4IjoxfQ", serializedTx: await o.signed() };
+      // the real mppx credential, exactly what --pay sends
+      return real.credentialFor(res, id, recipient);
     },
   };
   const deps: PayDeps = {
@@ -348,7 +362,7 @@ function fakeDeps(o: {
     balance: async () => 1_000_000n,
     chainSpent: async () => 0n,
     verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
-    now: () => new Date("2026-09-28T00:00:00Z"),
+    now: () => new Date(),
   };
   return { deps, calls, signCalls, path };
 }
@@ -370,10 +384,40 @@ test("payOne: happy path records settled and delivered with the tx hash of the s
   assert.equal(out.txHashSource, "signed_tx");
   assert.match(out.txHash!, /^0x[0-9a-f]{64}$/);
   assert.equal(f.calls.length, 2);
-  assert.equal(f.calls[1]!.auth, "Payment cred");
+  // one scheme token, and a credential an MPP server can read
+  assert.match(f.calls[1]!.auth!, /^Payment eyJ/);
+  assert.doesNotMatch(f.calls[1]!.auth!, /^Payment\s+Payment/i);
+  const cred = Credential.deserialize<{ type: string }>(f.calls[1]!.auth!);
+  assert.equal(cred.payload.type, "transaction");
+  // the 2026-09-28 bug: prefixing mppx's credential again makes it unreadable to the server
+  assert.throws(() => Credential.deserialize(`Payment ${f.calls[1]!.auth!}`));
   const saved = JSON.parse(readFileSync(f.path, "utf8"));
   assert.equal(saved.entries[0].status, "sent");
   assert.equal(saved.entries[0].delivered, true);
+});
+
+test("authorizationHeader never doubles the Payment scheme", () => {
+  assert.equal(authorizationHeader("Payment eyJhIjoxfQ"), "Payment eyJhIjoxfQ");
+  assert.equal(authorizationHeader("payment eyJhIjoxfQ"), "payment eyJhIjoxfQ");
+  assert.equal(authorizationHeader("eyJhIjoxfQ"), "Payment eyJhIjoxfQ");
+});
+
+test("payOne: a paid 402 with no receipt on chain reports no tx hash and records the problem", async () => {
+  const f = fakeDeps({});
+  f.deps.fetchImpl = async (url, init) => {
+    const auth = new Headers(init?.headers).get("authorization");
+    f.calls.push({ url, auth });
+    const www = challengeHeader(goodReq());
+    if (!auth) return new Response("{}", { status: 402, headers: { "www-authenticate": www } });
+    return new Response(JSON.stringify({ type: "https://paymentauth.org/problems/verification-failed", detail: "nope" }), { status: 402, headers: { "www-authenticate": www } });
+  };
+  f.deps.verify = async () => ({ settled: false, detail: "receipt not found", feePaid: null });
+  const out = await payOne(planEntry, f.deps);
+  assert.equal(out.httpStatus, 402);
+  assert.equal(out.settled, false);
+  assert.equal(out.txHash, null);
+  assert.match(out.detail!, /verification-failed/);
+  assert.match(JSON.parse(readFileSync(f.path, "utf8")).entries[0].note, /verification-failed/);
 });
 
 test("payOne: a paid 4xx is settled but not delivered", async () => {

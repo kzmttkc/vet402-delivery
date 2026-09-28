@@ -120,38 +120,43 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
   const t0 = Date.now();
   try {
     const res = await deps.fetchImpl(entry.request.url, {
-      ...requestInit(entry.request, { authorization: `Payment ${credential}` }),
+      ...requestInit(entry.request, { authorization: authorizationHeader(credential) }),
       redirect: "error",
       signal: AbortSignal.timeout(deps.paidTimeoutMs ?? PAID_TIMEOUT_MS),
     });
     const buf = await readCapped(res);
     const latencyMs = Date.now() - t0;
-    let txHash: string | null = null;
+    let candidate: string | null = null;
     let txHashSource: PayOutcome["txHashSource"] = null;
     const rh = res.headers.get("payment-receipt");
     if (rh) {
       try {
-        txHash = Receipt.deserialize(rh).reference;
+        candidate = Receipt.deserialize(rh).reference;
         txHashSource = "payment_receipt";
       } catch {
-        txHash = null;
+        candidate = null;
       }
     }
-    if (!txHash && !sponsored) {
-      // Unsponsored: the server broadcasts our envelope unchanged, so its hash is ours to compute.
-      txHash = keccak256(serializedTx as Hex);
+    if (!candidate && !sponsored) {
+      // Unsponsored: if the server broadcast our envelope unchanged, this is its hash. Only a
+      // candidate: it is reported as the tx only when the chain has a receipt for it.
+      candidate = keccak256(serializedTx as Hex);
       txHashSource = "signed_tx";
     }
-    const settlement = txHash ? await deps.verify(txHash, { payer: deps.payer, recipient, amount }) : null;
+    const settlement = candidate ? await deps.verify(candidate, { payer: deps.payer, recipient, amount }) : null;
     const settled = settlement ? settlement.settled : null;
+    const onChain = settlement !== null && settlement.detail !== "receipt not found";
+    const txHash = onChain ? candidate : null;
+    if (!onChain) txHashSource = null;
     const delivered = settled === true && res.status >= 200 && res.status <= 299;
+    const problem = res.status === 402 && buf ? problemOf(buf) : null;
     ledger.update(id, {
       httpStatus: res.status,
       txHash,
       settled,
       delivered,
       feePaid: settlement?.feePaid ?? null,
-      ...(settlement ? { note: settlement.detail } : {}),
+      note: [problem, settlement?.detail].filter(Boolean).join("; "),
     });
     return {
       serviceId: id,
@@ -165,11 +170,34 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
       bodyBytes: buf ? buf.length : null,
       contentType: res.headers.get("content-type"),
       latencyMs,
+      ...(problem ? { detail: problem } : {}),
     };
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     ledger.update(id, { status: "unknown", note: `after send: ${detail}` });
     return { serviceId: id, result: "unknown", detail, latencyMs: Date.now() - t0 };
+  }
+}
+
+/**
+ * The Authorization value for a credential. mppx's createCredential / Credential.serialize already
+ * return `Payment <base64url>`; prefixing again sent `Payment Payment …`, which sellers reject as
+ * `malformed-credential` (402, nothing broadcast) — the 2026-09-28 smoke-test failure.
+ */
+export function authorizationHeader(credential: string): string {
+  const c = credential.trim();
+  if (/^Payment\s+/i.test(c)) return c;
+  return `Payment ${c}`;
+}
+
+/** RFC 9457 problem `type` + `detail` from a paid 402, for the ledger. */
+function problemOf(buf: Buffer): string | null {
+  try {
+    const p = JSON.parse(buf.toString("utf8")) as { type?: unknown; detail?: unknown; title?: unknown };
+    const parts = [p.type, p.detail ?? p.title].filter((x) => typeof x === "string") as string[];
+    return parts.length ? `paid 402: ${parts.join(" — ").slice(0, 300)}` : null;
+  } catch {
+    return null;
   }
 }
 
