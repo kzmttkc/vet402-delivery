@@ -132,7 +132,7 @@ for (const [day, obs] of days) {
     const v = await verifyOffline(o, { expectedSigner: account.address });
     if (!v.signature.ok || !v.merkle.ok || !v.verdict.ok) throw new Error(`${o.id} does not verify: ${JSON.stringify(v)}`);
     writeFileSync(join(dir, `${o.id}.json`), `${JSON.stringify(o, null, 2)}\n`);
-    writeFileSync(join(dir, `${o.id}.html`), renderObservationPage(o, { jsonHref: `${o.id}.json`, verifyCommand: `npx tsx scripts/verify-receipt.ts ${o.id}.json` }));
+    writeFileSync(join(dir, `${o.id}.html`), renderObservationPage(o, { jsonHref: `${o.id}.json`, verifyCommand: `npx tsx scripts/verify-receipt.ts ${o.id}.json --signer ${o.observer.address}` }));
     const chain = o.payment.network;
     counts[chain] ??= {};
     counts[chain]![o.verdict.code] = (counts[chain]![o.verdict.code] ?? 0) + 1;

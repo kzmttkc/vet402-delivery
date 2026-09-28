@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { checkAnchorOnChain, checkPayment } from "../src/receipt/chain.js";
 import type { Observation } from "../src/receipt/types.js";
+import { VET402_OBSERVER_KEYS } from "../src/receipt/observers.js";
 import { verifyOffline } from "../src/receipt/verify.js";
 
 function arg(name: string): string | undefined {
@@ -44,6 +45,18 @@ if (did) {
 }
 
 const lines: [boolean | null, string, string][] = [];
+// Without --signer or --did, the record must be signed by one of vet402's published keys (src/receipt/observers.ts).
+if (!expected) {
+  const known = VET402_OBSERVER_KEYS.find((k) => k.toLowerCase() === obs.observer.address.toLowerCase());
+  if (known) {
+    expected = known;
+    lines.push([true, "key", `${known} is a vet402 observation key (src/receipt/observers.ts)`]);
+  } else {
+    lines.push([false, "key", `${obs.observer.address} is not a vet402 observation key; pass --signer or --did to check another observer`]);
+  }
+} else {
+  lines.push([true, "key", `expected signer ${expected} (${did ? did : "--signer"})`]);
+}
 const off = await verifyOffline(obs, expected ? { expectedSigner: expected } : {});
 lines.push([off.schema.ok, "schema", off.schema.ok ? "matches x402-observation/v0" : off.schema.errors.join("; ")]);
 lines.push([off.signature.ok, "signature", off.signature.detail]);

@@ -222,6 +222,7 @@ ul.plain{margin:4px 0 0;padding-left:1.2em;font-size:14px}
 <section class="card" aria-labelledby="verdict-h">
   <h1 class="verdict" id="verdict-h"><span aria-hidden="true">${w.shape}</span><span>${esc(w.text)}</span></h1>
   <p class="sentence">${esc(summarySentence(o))}</p>
+  ${o.verdict.code === "DELIVERED" && o.verdict.checks.bodyNonEmpty === null ? `<p class="limit"><strong>Limit:</strong> only the HTTP status was recorded for this purchase. The body length was not, so an empty 200 cannot be ruled out.</p>` : ""}
   <p class="date">${when ? `<time datetime="${esc(when)}" data-local>${esc(formatUtc(when))}</time> (${esc(whenLabel)})` : "Time not recorded"}</p>
   ${o.verdict.recheck ? `<p><strong>Next check:</strong> ${esc(o.verdict.recheck)}</p>` : ""}
   <div class="scope">
@@ -246,7 +247,7 @@ ${negative ? seller : ""}
 
 <section class="card" aria-labelledby="verify-h">
   <h2 id="verify-h">Verify it yourself</h2>
-  <p>No account and no payment needed. The script checks vet402's signature, looks up the payment on chain, and checks the record against its daily Merkle root.</p>
+  <p>No account and no payment needed. The script checks that vet402's published key (<code>--signer</code>) signed this record, looks up the payment on chain, and checks the record against its daily Merkle root.</p>
   <p><a href="${esc(opts.jsonHref)}" download>Download JSON</a></p>
   <pre>${esc(opts.verifyCommand)}</pre>
   <button type="button" class="hash" data-copy="${esc(opts.verifyCommand)}">Copy command</button>

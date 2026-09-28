@@ -371,3 +371,33 @@ test("amounts format from atomic units without floating point", () => {
   assert.equal(formatAmount("5", 6), "0.000005");
   assert.equal(formatAmount("2000000", 6), "2");
 });
+
+test("verify-receipt with no --signer rejects a record signed by any key other than vet402's published key", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "receipt-"));
+  const [forged] = rooted([await signed()]); // signed by a random key, not a vet402 key
+  const file = join(dir, "forged.json");
+  writeFileSync(file, JSON.stringify(forged));
+  let code = 0;
+  let out = "";
+  try {
+    out = execFileSync(process.execPath, ["--import", "tsx", "scripts/verify-receipt.ts", file, "--offline"], { encoding: "utf8" });
+  } catch (e) {
+    const err = e as { status: number; stdout: string };
+    code = err.status;
+    out = err.stdout;
+  }
+  assert.equal(code, 1);
+  assert.match(out, /FAIL key .* is not a vet402 observation key/);
+  assert.match(out, /RESULT: FAIL/);
+});
+
+test("a DELIVERED page says when only the HTTP status was recorded", async () => {
+  const o = await signed({ bodyNonEmpty: null } as Partial<Facts>);
+  assert.equal(o.verdict.code, "DELIVERED");
+  const html = renderObservationPage(o, { jsonHref: "x.json", verifyCommand: "npx tsx scripts/verify-receipt.ts x.json" });
+  assert.match(html, /only the HTTP status was recorded/);
+});
