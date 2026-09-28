@@ -64,7 +64,8 @@ for (const c of candidates) {
   const p = await probeBase402(c.chosen.entry, fetch);
   const a = pickBaseAccept(p.accepts, c.chosen.entry.lock.payTo);
   (c as { live402?: unknown }).live402 = { status: p.status, payTo: a?.payTo ?? null, amount: a?.amount ?? null, error: p.error };
-  if (a) c.chosen.entry.lock = { payTo: a.payTo, amount: a.amount };
+  // Keep the Bazaar price as the ceiling: a live 402 may lower it, never raise it.
+  if (a && BigInt(a.amount) <= BigInt(c.chosen.entry.lock.amount)) c.chosen.entry.lock = { payTo: a.payTo, amount: a.amount };
 }
 
 const usdcBalance = () => reader.readContract({ address: BASE_USDC, abi: erc20Abi, functionName: "balanceOf", args: [payer] });
