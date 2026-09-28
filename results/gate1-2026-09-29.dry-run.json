@@ -1,0 +1,902 @@
+{
+  "kind": "gate1-dry-run",
+  "createdAt": "2026-09-28T06:48:28.483Z",
+  "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+  "payerBalances": {
+    "lamports": "100000000",
+    "usdc": "50.000000"
+  },
+  "definition": "PayAI-only = listing host appears nowhere in the CDP Bazaar; GET; Solana mainnet USDC exact; price <= 0.10; one listing per host and per payTo",
+  "catalogue": {
+    "payaiTotal": 6991,
+    "cdpTotal": 17819,
+    "payaiItems": 6991,
+    "cdpItems": 17820,
+    "payaiSolana": 1818,
+    "payaiOnlyByUrl": 1389,
+    "payaiOnlyByUrlHosts": 151,
+    "payaiOnlyByHost": 995,
+    "payaiOnlyByHostHosts": 128,
+    "eligible": 598,
+    "eligibleHosts": 44,
+    "dropped": {
+      "path_params": 29,
+      "not_get": 190,
+      "no_usdc_accept_at_or_under_0.10": 153,
+      "not_https": 25
+    }
+  },
+  "probeFunnel": {
+    "hostsProbed": 44,
+    "byOutcome": {
+      "payto_off_curve": 2,
+      "unparseable_or_error": 2,
+      "ok": 30,
+      "not_402": 9,
+      "payto_mismatch": 1
+    },
+    "payableHosts": 30,
+    "payableSellers": 26
+  },
+  "plannedTotalUsdc": "0.109000",
+  "candidates": [
+    {
+      "host": "gdzlcxskuhupymyxywzm.supabase.co",
+      "requestUrl": "https://gdzlcxskuhupymyxywzm.supabase.co/functions/v1/frcompany/v1/company?siren=403052111",
+      "exampleInput": {
+        "siren": "403052111"
+      },
+      "lock": {
+        "payTo": "GEDHYTsufU5HEGmQZzXsR9wygTpnpY1RKFuLiJkPJw3h",
+        "amount": "20000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.020000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "gdzlcxskuhupymyxywzm.supabase.co",
+        "requestUrl": "https://gdzlcxskuhupymyxywzm.supabase.co/functions/v1/frcompany/v1/company?siren=403052111",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "GEDHYTsufU5HEGmQZzXsR9wygTpnpY1RKFuLiJkPJw3h",
+          "amount": "20000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.020000",
+        "memo": "c2586219a96261cb5645f483df2dda4d"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "aws-bedrock.grok.me",
+      "requestUrl": "https://aws-bedrock.grok.me/api/v1/search?q=x402+protocol",
+      "exampleInput": {
+        "q": "x402 protocol"
+      },
+      "lock": {
+        "payTo": "8s2VtNV5E1C9XJbfk4WGpMTiSJVPLeB8wcuJYQS5MFQa",
+        "amount": "5000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.005000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "aws-bedrock.grok.me",
+        "requestUrl": "https://aws-bedrock.grok.me/api/v1/search?q=x402+protocol",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "8s2VtNV5E1C9XJbfk4WGpMTiSJVPLeB8wcuJYQS5MFQa",
+          "amount": "5000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.005000",
+        "memo": "1e19ee49d62fb7474021562dbb8c4401"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "madeonsol.com",
+      "requestUrl": "https://madeonsol.com/api/x402/kol/feed?limit=50&action=buy",
+      "exampleInput": {
+        "limit": "50",
+        "action": "buy"
+      },
+      "lock": {
+        "payTo": "GLu63pRCYrp4BJu5P5ciYKxgeZFW9c8TJ8jWzK3TB9AR",
+        "amount": "5000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+      },
+      "priceUsdc": "0.005000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "madeonsol.com",
+        "requestUrl": "https://madeonsol.com/api/x402/kol/feed?limit=50&action=buy",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "GLu63pRCYrp4BJu5P5ciYKxgeZFW9c8TJ8jWzK3TB9AR",
+          "amount": "5000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.005000",
+        "memo": "ae3ef5c4b8cd82f36117889fff25b3a1"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "changelog-state-api.replit.app",
+      "requestUrl": "https://changelog-state-api.replit.app/api/monitors/chainlink/changes?type=new_release&limit=50&since=2026-01-15T09%3A30%3A00.000Z",
+      "exampleInput": {
+        "type": "new_release",
+        "limit": "50",
+        "since": "2026-01-15T09:30:00.000Z"
+      },
+      "lock": {
+        "payTo": "6UNbfD8mgSqgFDxxwE29LfgKrBqrZBt4R4L4Resh4yct",
+        "amount": "10000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.010000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "changelog-state-api.replit.app",
+        "requestUrl": "https://changelog-state-api.replit.app/api/monitors/chainlink/changes?type=new_release&limit=50&since=2026-01-15T09%3A30%3A00.000Z",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "6UNbfD8mgSqgFDxxwE29LfgKrBqrZBt4R4L4Resh4yct",
+          "amount": "10000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.010000",
+        "memo": "be23639d941d97a775fe2b0c2517ba84"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "werner.ddns.net",
+      "requestUrl": "https://werner.ddns.net/price?pair=BTC-USDC",
+      "exampleInput": {
+        "pair": "BTC-USDC"
+      },
+      "lock": {
+        "payTo": "vz9No3Xm1EfPcuF56bWc7zV4r1k9TRs9UuDckGCocvv",
+        "amount": "1000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.001000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "werner.ddns.net",
+        "requestUrl": "https://werner.ddns.net/price?pair=BTC-USDC",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "vz9No3Xm1EfPcuF56bWc7zV4r1k9TRs9UuDckGCocvv",
+          "amount": "1000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.001000",
+        "memo": "48ae2bd5c07f1724ed1e05e2f9837e79"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "kael-ecosystem-pulse.onrender.com",
+      "requestUrl": "https://kael-ecosystem-pulse.onrender.com/v1/pulse/headlines?window=24h&ecosystem=solana",
+      "exampleInput": {
+        "window": "24h",
+        "ecosystem": "solana"
+      },
+      "lock": {
+        "payTo": "7Ny8us7f1wBkNJZ2tYKWPBQhQsLxJ18xot8jxCNd9YGG",
+        "amount": "20000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.020000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "kael-ecosystem-pulse.onrender.com",
+        "requestUrl": "https://kael-ecosystem-pulse.onrender.com/v1/pulse/headlines?window=24h&ecosystem=solana",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "7Ny8us7f1wBkNJZ2tYKWPBQhQsLxJ18xot8jxCNd9YGG",
+          "amount": "20000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.020000",
+        "memo": "80ee1abc698015bd749df32437bc57a2"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "api.bentcrypto.com",
+      "requestUrl": "https://api.bentcrypto.com/v1/token/risk?chain=solana&address=So11111111111111111111111111111111111111112",
+      "exampleInput": {
+        "chain": "solana",
+        "address": "So11111111111111111111111111111111111111112"
+      },
+      "lock": {
+        "payTo": "5bZdrGYAbHdbVCqw7RVUpxma22kJehaQCHhp4nHuHCyy",
+        "amount": "10000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.010000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "api.bentcrypto.com",
+        "requestUrl": "https://api.bentcrypto.com/v1/token/risk?chain=solana&address=So11111111111111111111111111111111111111112",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "5bZdrGYAbHdbVCqw7RVUpxma22kJehaQCHhp4nHuHCyy",
+          "amount": "10000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.010000",
+        "memo": "2a4bdb7240755821605944e41d902ba5"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "citable.run",
+      "requestUrl": "https://citable.run/v1/serp?keyword=seo+api",
+      "exampleInput": {
+        "keyword": "seo api"
+      },
+      "lock": {
+        "payTo": "6nWrWRTqrqpqbu5MsMW8mPDpZjKLwPb9Wf8BdMwNMWzK",
+        "amount": "8000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+      },
+      "priceUsdc": "0.008000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "citable.run",
+        "requestUrl": "https://citable.run/v1/serp?keyword=seo+api",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "6nWrWRTqrqpqbu5MsMW8mPDpZjKLwPb9Wf8BdMwNMWzK",
+          "amount": "8000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.008000",
+        "memo": "6d905998f3525218a5295261a021f169"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "htrlhl3y49.execute-api.us-east-2.amazonaws.com",
+      "requestUrl": "https://htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/graduations/recent?limit=50&window_s=21600",
+      "exampleInput": {
+        "limit": "50",
+        "window_s": "21600"
+      },
+      "lock": {
+        "payTo": "9HkwyUhDMyjbpSpnyu5xuZ9vRaFQeajnJsavhie7XcsT",
+        "amount": "20000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "GVJJ7rdGiXr5xaYbRwRbjfaJL7fmwRygFi1H6aGqDveb"
+      },
+      "priceUsdc": "0.020000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "htrlhl3y49.execute-api.us-east-2.amazonaws.com",
+        "requestUrl": "https://htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/graduations/recent?limit=50&window_s=21600",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "9HkwyUhDMyjbpSpnyu5xuZ9vRaFQeajnJsavhie7XcsT",
+          "amount": "20000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "GVJJ7rdGiXr5xaYbRwRbjfaJL7fmwRygFi1H6aGqDveb"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.020000",
+        "memo": "77ab45e61b773d34bb005b8bcf6fed81"
+      },
+      "x402Version": 2
+    },
+    {
+      "host": "contextaiagent.xyz",
+      "requestUrl": "https://contextaiagent.xyz/api/percolator/funding/signals?type=streak&market=SOL-PERP",
+      "exampleInput": {
+        "type": "streak",
+        "market": "SOL-PERP"
+      },
+      "lock": {
+        "payTo": "3zzUAYvpjqPBmdwqQKUh952LZSqijHHVCFymCtanFP3N",
+        "amount": "10000",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+      },
+      "priceUsdc": "0.010000",
+      "exampleScore": 2,
+      "dryRun": {
+        "host": "contextaiagent.xyz",
+        "requestUrl": "https://contextaiagent.xyz/api/percolator/funding/signals?type=streak&market=SOL-PERP",
+        "probe": {
+          "status": 402,
+          "x402Version": 2,
+          "payTo": "3zzUAYvpjqPBmdwqQKUh952LZSqijHHVCFymCtanFP3N",
+          "amount": "10000",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+        },
+        "outcome": "would_pay",
+        "priceUsdc": "0.010000",
+        "memo": "78c4381db7350621412ebffd134dc0d8"
+      },
+      "x402Version": 2
+    }
+  ],
+  "probes": [
+    {
+      "host": "api.syntalic.com",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://api.syntalic.com/v1/analyst/price-bands?node=health-beauty%2Fpersonal-care%2Fcosmetics%2Fskin-care%2Ffacial-cleansers",
+          "status": 402,
+          "reason": "payto_off_curve"
+        },
+        {
+          "url": "https://api.syntalic.com/v1/shopper/best-price?q=Shuug+Zhoug",
+          "status": 402,
+          "reason": "payto_off_curve"
+        }
+      ]
+    },
+    {
+      "host": "payai.agentstools.dev",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://payai.agentstools.dev/attention/pageviews?window=90&keyword=Bitcoin",
+          "status": null,
+          "reason": "unparseable_or_error"
+        },
+        {
+          "url": "https://payai.agentstools.dev/attention/index?window=90&keyword=Nvidia",
+          "status": null,
+          "reason": "unparseable_or_error"
+        }
+      ]
+    },
+    {
+      "host": "gdzlcxskuhupymyxywzm.supabase.co",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://gdzlcxskuhupymyxywzm.supabase.co/functions/v1/frcompany/v1/company?siren=403052111",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "aws-bedrock.grok.me",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://aws-bedrock.grok.me/api/v1/search?q=x402+protocol",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "madeonsol.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://madeonsol.com/api/x402/kol/feed?limit=50&action=buy",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "changelog-state-api.replit.app",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://changelog-state-api.replit.app/api/monitors/chainlink/changes?type=new_release&limit=50&since=2026-01-15T09%3A30%3A00.000Z",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "werner.ddns.net",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://werner.ddns.net/price?pair=BTC-USDC",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "kael-ecosystem-pulse.onrender.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://kael-ecosystem-pulse.onrender.com/v1/pulse/headlines?window=24h&ecosystem=solana",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "api.bentcrypto.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://api.bentcrypto.com/v1/token/risk?chain=solana&address=So11111111111111111111111111111111111111112",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "bentcrypto-x402-production.up.railway.app",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://bentcrypto-x402-production.up.railway.app/v1/token/risk?chain=solana&address=So11111111111111111111111111111111111111112",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "citable.run",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://citable.run/v1/serp?keyword=seo+api",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "htrlhl3y49.execute-api.us-east-2.amazonaws.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/graduations/recent?limit=50&window_s=21600",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "temporary-turbo-olive-01ige7u.vercel.app",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://temporary-turbo-olive-01ige7u.vercel.app/api/portfolio?q=HyYNVYmnFmi87NsQqWzLJhUTPBKQUfgfhdbBa554nMFF",
+          "status": 404,
+          "reason": "not_402"
+        },
+        {
+          "url": "https://temporary-turbo-olive-01ige7u.vercel.app/api/market?q=9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+          "status": 404,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "mind-maker-inference-dealer.max270756.chatgpt.site",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://mind-maker-inference-dealer.max270756.chatgpt.site/v1/clawpump/inference?model=auto&prompt=Explain+this+transaction.&quality=balanced&max_tokens=512&request_id=agent-generated-unique-id&max_budget_usd=0.02&max_latency_ms=8000",
+          "status": 422,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "api.crushrewards.dev",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://api.crushrewards.dev/v1/analyst/inflation?to=2026-06-01&from=2026-05-01&country=us&category=electronics&retailer=amazon&department=Electronics&granularity=weekly&time_window=last_60_days",
+          "status": 402,
+          "reason": "payto_off_curve"
+        },
+        {
+          "url": "https://api.crushrewards.dev/v1/marketing/share-of-shelf?country=us&category=electronics&retailer=amazon",
+          "status": 402,
+          "reason": "payto_off_curve"
+        }
+      ]
+    },
+    {
+      "host": "contextaiagent.xyz",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://contextaiagent.xyz/api/percolator/funding/signals?type=streak&market=SOL-PERP",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "stable-finance-jvzp8sbhf-merit-systems.vercel.app",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://stable-finance-jvzp8sbhf-merit-systems.vercel.app/api/prices/snapshot?ticker=AAPL",
+          "status": 401,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "relaynetwork.ai",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://relaynetwork.ai/api/v1/agents/search?q=search+query+%28matches+handle+%2F+display_name+%2F+bio%29&limit=max+results%2C+1-50+%28default+10%29&verified_only=%22true%22+to+restrict+to+verified+agents",
+          "status": 402,
+          "reason": "unparseable_or_error"
+        },
+        {
+          "url": "https://relaynetwork.ai/api/v1/agents/relay_foundation/reputation",
+          "status": 402,
+          "reason": "unparseable_or_error"
+        }
+      ]
+    },
+    {
+      "host": "api.crinkl.xyz",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://api.crinkl.xyz/x402/category-pulse?geo=US&days=14&category=beverage",
+          "status": 402,
+          "reason": "payto_mismatch"
+        }
+      ]
+    },
+    {
+      "host": "api.shippingrates.org",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://api.shippingrates.org/api/regulatory?country=IN",
+          "status": 200,
+          "reason": "not_402"
+        },
+        {
+          "url": "https://api.shippingrates.org/api/vessel-schedule?port=INNSA",
+          "status": 200,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "mpp.hyreagent.fun",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://mpp.hyreagent.fun/trenches/new-tokens",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "www.fomoscan.dev",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://www.fomoscan.dev/v2/thesis",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "sol.blockrun.ai",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://sol.blockrun.ai/api/v1/pm/kalshi/markets",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "rewards-144-91-97-140.sslip.io",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://rewards-144-91-97-140.sslip.io/api/wallet-rewards",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "underground.substratesymposium.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://underground.substratesymposium.com/buy/echeveria",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "earlythunder.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://earlythunder.com/api/x402/v1/scores",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "lazareus.xyz",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://lazareus.xyz/get_network_health/base",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "nuza.io",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://nuza.io/api/x402/quote",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "loki.freedomlab.space",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://loki.freedomlab.space/x402/rail",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "api.botpay.network",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://api.botpay.network/go",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "microscrape-production.up.railway.app",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://microscrape-production.up.railway.app/mcp",
+          "status": 404,
+          "reason": "not_402"
+        },
+        {
+          "url": "https://microscrape-production.up.railway.app/mcp",
+          "status": 404,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "terminal.themonexus.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://terminal.themonexus.com/api/v1/article/2026-07-11-zverev-ends-fery-wimbledon-run-final",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "rentcheck.themonexus.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://rentcheck.themonexus.com/api/v1/rentcheck/rental/check",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "regradar.themonexus.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://regradar.themonexus.com/api/v1/regradar/events",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "basketprice.themonexus.com",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://basketprice.themonexus.com/api/v1/basketlatest",
+          "status": 404,
+          "reason": "not_402"
+        },
+        {
+          "url": "https://basketprice.themonexus.com/api/v1/basketverify-weight",
+          "status": 404,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "agentvet.themonexus.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://agentvet.themonexus.com/api/v1/agentvet/watch",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "api.syraa.fun",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://api.syraa.fun/indicator",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "losbeto-production-dd7c.up.railway.app",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://losbeto-production-dd7c.up.railway.app/pyth-price",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "clawhunter.fun",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://clawhunter.fun/api/v1/creators/H6zpaY14WgkEmB3MJTvC7Wb5PQJkBVLd4KwLD2ktVgop/full",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "blocksearch.dev",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://blocksearch.dev/api/insights/trending",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "pay.x402monopoly.com",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://pay.x402monopoly.com/api/x402/solana/agent/BUi3pwqoiNX7V66Feq92aJoHpYQFCTaKepnrHmAhKF1Z",
+          "status": 403,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "agnicbillo-proxy.asad-safari.workers.dev",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://agnicbillo-proxy.asad-safari.workers.dev/v1/custom/toronto-weather-solana-main/",
+          "status": 404,
+          "reason": "not_402"
+        },
+        {
+          "url": "https://agnicbillo-proxy.asad-safari.workers.dev/v1/custom/toronto-weather-solana-main/*",
+          "status": 404,
+          "reason": "not_402"
+        }
+      ]
+    },
+    {
+      "host": "curvecall.onrender.com",
+      "ok": true,
+      "tried": [
+        {
+          "url": "https://curvecall.onrender.com/v1/quote/buy?fee_bps=100",
+          "status": 402,
+          "reason": "ok"
+        }
+      ]
+    },
+    {
+      "host": "srv1333421.hstgr.cloud",
+      "ok": false,
+      "tried": [
+        {
+          "url": "https://srv1333421.hstgr.cloud/token",
+          "status": 400,
+          "reason": "not_402"
+        }
+      ]
+    }
+  ]
+}
