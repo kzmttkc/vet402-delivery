@@ -18,6 +18,18 @@ export const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 export const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
+/**
+ * Census limits (atomic USDC). Separate from gate 1's: the census keeps its own ledger
+ * (results/census-ledger.json) and buys once per seller host.
+ */
+export const CENSUS_MAX_PER_PURCHASE_ATOMIC = MAX_PER_PURCHASE_ATOMIC; // 0.10 USDC
+export const CENSUS_MAX_TOTAL_ATOMIC = 35_000_000n; // 35.00 USDC
+/** Hard ceiling on purchases in one census ledger (one per host; also bounds a runaway loop). */
+export const CENSUS_MAX_PURCHASES = 700;
+
+/** Pay.sh (solana-foundation/pay) public catalog: an index, then one detail file per provider. */
+export const PAYSH_INDEX = "https://catalog.pay.sh/v1/skills.json";
+
 /** Hosts that are vet402's own: never bought from. */
 export const OWN_HOSTS = ["vet402.com", "vet402-algorand.vercel.app"];
 

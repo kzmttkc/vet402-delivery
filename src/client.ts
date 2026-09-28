@@ -16,7 +16,12 @@ import type { CreatedPayment } from "./pay.js";
 export async function loadPayer(keyFile: string): Promise<KeyPairSigner> {
   const mode = statSync(keyFile).mode & 0o777;
   if (mode & 0o077) throw new Error(`key file must be mode 600 (is ${mode.toString(8)})`);
-  const arr = JSON.parse(readFileSync(keyFile, "utf8")) as number[];
+  let arr: number[];
+  try {
+    arr = JSON.parse(readFileSync(keyFile, "utf8")) as number[];
+  } catch {
+    throw new Error("key file is not valid JSON"); // never echo the file: a parse error quotes its contents
+  }
   if (!Array.isArray(arr) || arr.length !== 64) throw new Error("key file is not a 64-byte solana-keygen array");
   const signer = await createKeyPairSignerFromBytes(Uint8Array.from(arr));
   if (signer.address !== PAYER_ADDRESS) throw new Error(`key file address ${signer.address} != expected payer ${PAYER_ADDRESS}`);
