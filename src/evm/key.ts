@@ -4,10 +4,12 @@
  * The key bytes are never logged or returned.
  */
 import { readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { getAddress, isAddressEqual, type Address } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
-export const KEY_DIR = process.env.EVM_KEY_DIR ?? "~/vet402-solana/.keys";
+export const KEY_DIR = process.env.EVM_KEY_DIR ?? join(homedir(), "vet402-solana", ".keys");
 export const EXPECTED_ADDRESS: Address = getAddress("0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51");
 
 export function readPublicAddress(dir = KEY_DIR): Address {
