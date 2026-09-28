@@ -7,7 +7,9 @@
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "gate1": "tsx scripts/gate1.ts"
+    "gate1": "tsx scripts/gate1.ts",
+    "check": "tsx scripts/vet402-check.ts",
+    "erc8004:simulate": "tsx scripts/erc8004-simulate.ts --out results/erc8004-simulate.json"
   },
   "engines": {
     "node": ">=22"
@@ -19,7 +21,8 @@
     "@solana/kit": "5.5.1",
     "@x402/core": "2.27.0",
     "@x402/fetch": "2.27.0",
-    "@x402/svm": "2.27.0"
+    "@x402/svm": "2.27.0",
+    "viem": "2.56.9"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
