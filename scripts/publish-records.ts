@@ -3,7 +3,11 @@
  * Reads the local build (results/receipts/, git-ignored) and the ranking inputs in data/. Signs
  * nothing, sends nothing, reads no key.
  *
- *   npx tsx scripts/publish-records.ts --from results/receipts [--data data] [--out data/records]
+ *   npx tsx scripts/publish-records.ts --from results/receipts [--data data] [--out data/records] [--day YYYY-MM-DD]
+ *
+ * Without --day every day folder in --from is published afresh. With --day only that day is (re)published:
+ * the other days already in <out> stay byte for byte as they are, after the same checks the site build
+ * runs on them (loadPublishedRecords).
  *
  * A record is copied only when:
  *  - the policy allows it (src/receipt/publish.ts): DELIVERED, or the seller (host, or host#service as in
@@ -20,10 +24,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeBase, normalizeSolanaCensus, normalizeSolanaGate1, normalizeTempoLedger, parseTempoRunLog, tempoPlanUrls } from "../src/rank/normalize.js";
 import { sellerKeys } from "../src/rank/score.js";
+import { normalizeRemeasure } from "../src/remeasure/normalize.js";
 import type { Attempt } from "../src/rank/types.js";
 import {
   hostOfUrl,
   isPublishable,
+  loadPublishedRecords,
   notifiedSellers,
   PUBLISH_POLICY,
   publicRecordProblems,
@@ -81,6 +87,12 @@ const attempts: Attempt[] = [];
   const fb = read("base/feedback-ledger");
   const bp = read("base/purchases");
   attempts.push(...normalizeBase(bp.text, JSON.parse(fb.text), bp.e.label));
+  // The daily remeasure purchases, as the ranking reads them (scripts/rank.ts): every remeasure/<chain>-<day> label.
+  for (const label of manifest.files.map((f) => f.label).filter((l) => /^remeasure\/(solana|tempo)-\d{4}-\d{2}-\d{2}$/.test(l)).sort()) {
+    const r = read(label);
+    if (r.e.label !== label) throw new Error(`data/manifest.json: ${label} matched ${r.e.label}`);
+    attempts.push(...normalizeRemeasure(JSON.parse(r.text), label));
+  }
 }
 // Algorand attempts carry no service, so leaving them out does not change any seller key.
 const keys = sellerKeys(attempts);
@@ -103,8 +115,14 @@ const told = notifiedSellers(notified);
 }
 
 // ---------- select ----------
-const days = readdirSync(from).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
-if (days.length === 0) throw new Error(`${from}: no day folders`);
+const onlyDay = argValue("--day");
+if (onlyDay !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(onlyDay)) throw new Error("--day needs YYYY-MM-DD");
+const days = readdirSync(from)
+  .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && (onlyDay === undefined || d === onlyDay))
+  .sort();
+if (days.length === 0) throw new Error(`${from}: no day folders${onlyDay ? ` for ${onlyDay}` : ""}`);
+// --day: the other days already published stay as they are, once they pass the site build's checks.
+const kept = onlyDay !== undefined && existsSync(join(outDir, "index.json")) ? (await loadPublishedRecords(outDir)).index : null;
 const entries: RecordEntry[] = [];
 const dayEntries: DayEntry[] = [];
 const refused: string[] = [];
@@ -184,21 +202,31 @@ if (refused.length) {
 
 // ---------- write ----------
 mkdirSync(outDir, { recursive: true });
-for (const d of readdirSync(outDir)) if (/^\d{4}-\d{2}-\d{2}$/.test(d)) rmSync(join(outDir, d), { recursive: true, force: true });
+for (const d of readdirSync(outDir))
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d) && (onlyDay === undefined || d === onlyDay)) rmSync(join(outDir, d), { recursive: true, force: true });
 for (const [file, text] of copies) {
   mkdirSync(join(outDir, dirname(file)), { recursive: true });
   writeFileSync(join(outDir, file), text);
 }
+const allDays = [...(kept?.days.filter((d) => d.day !== onlyDay) ?? []), ...dayEntries].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+const allRecords = [...(kept?.records.filter((r) => r.day !== onlyDay) ?? []), ...entries].sort((a, b) => (a.day === b.day ? a.sequence - b.sequence : a.day < b.day ? -1 : 1));
 const index: RecordIndex = {
   kind: "vet402-observation-records",
   version: 0,
   policy: PUBLISH_POLICY,
   notifiedSellers: told.size,
-  days: dayEntries,
-  records: entries,
+  days: allDays,
+  records: allRecords,
 };
 writeFileSync(join(outDir, "index.json"), `${JSON.stringify(index, null, 2)}\n`);
 writeFileSync(notifiedPath, `${JSON.stringify(notified, null, 2)}\n`);
+// The same check the site build runs, on what was just written.
+try {
+  await loadPublishedRecords(outDir);
+} catch (e) {
+  console.error(`${outDir} was written but does not pass the site build's check; restore it (git checkout) before building the site:\n${e instanceof Error ? e.message : String(e)}`);
+  process.exit(1);
+}
 
 const byNet: Record<string, number> = {};
 for (const e of entries) byNet[e.network] = (byNet[e.network] ?? 0) + 1;

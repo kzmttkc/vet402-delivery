@@ -140,6 +140,8 @@ export interface Facts {
   declaredFormatMatched: boolean | null;
   formatMismatchDetail?: string | null;
   notRecorded: string[];
+  /** Why the response was not hashed; HASH_NOT_RECORDED when absent. */
+  responseHashNote?: string;
 }
 
 export interface ObserverIdentity {
@@ -161,7 +163,8 @@ export function assemble(f: Facts, seq: number, observer: ObserverIdentity, salt
   const params = bodyKnown ? paramsHash(salt, canonicalParams(f.requestUrl, f.requestBody ?? null)) : null;
   const notRecorded = [...f.notRecorded];
   if (!bodyKnown) notRecorded.push("request.params_hash: request body not recorded");
-  notRecorded.push(`response.responseHash: ${HASH_NOT_RECORDED}`);
+  const hashNote = f.responseHashNote ?? HASH_NOT_RECORDED;
+  notRecorded.push(`response.responseHash: ${hashNote}`);
   const day = f.observedAt.slice(0, 10);
   return {
     type: OBSERVATION_TYPE,
@@ -178,7 +181,7 @@ export function assemble(f: Facts, seq: number, observer: ObserverIdentity, salt
       responseHash: null,
       responseHashAlg: null,
       responseHashEncoding: null,
-      responseHashNote: HASH_NOT_RECORDED,
+      responseHashNote: hashNote,
       contentType: f.contentType,
       bytes: f.bytes,
       receivedAt: f.receivedAt,
@@ -400,6 +403,176 @@ export function factsFromBasePurchases(rows: BasePurchase[], dataset: string): {
       receivedAt: null,
       declaredFormatMatched: null,
       notRecorded: ["response.receivedAt", "response.latencyMs", "payment.settledAt", "declared output format (not checked in this run)"],
+    });
+  });
+  return { facts, skips };
+}
+
+// ---------- sequence across days ----------
+
+export interface BuiltDay {
+  day: string;
+  /** observer.address and observer.sequence of every record already in that day's folder. */
+  records: { address: string; sequence: number }[];
+}
+
+/**
+ * The first sequence number for a new day: one past the observer's last record. Refuses when the day
+ * was already built, when a later day was (sequences follow time), or when the observer's numbers
+ * so far are not exactly 1..n.
+ */
+export function nextSequence(built: readonly BuiltDay[], day: string, observerAddress: string): number {
+  const seqs: number[] = [];
+  for (const b of built) {
+    if (b.day === day) throw new Error(`${day} is already built`);
+    if (b.day > day) throw new Error(`${b.day} is already built; ${day} would come after it in the sequence but is earlier`);
+    for (const r of b.records) if (r.address.toLowerCase() === observerAddress.toLowerCase()) seqs.push(r.sequence);
+  }
+  seqs.sort((a, b) => a - b);
+  seqs.forEach((s, i) => {
+    if (s !== i + 1) throw new Error(`observer ${observerAddress}: sequence numbers so far are not 1..${seqs.length} (position ${i + 1} holds ${s})`);
+  });
+  return seqs.length + 1;
+}
+
+// ---------- remeasure (scripts/remeasure.ts, one file per chain and UTC day) ----------
+
+/** The fields of a remeasure result row a record is built from (src/remeasure/results.ts). */
+export interface RemeasureRowIn {
+  at: string;
+  chain: string;
+  url: string;
+  requestUrl: string;
+  payTo: string | null;
+  expectedPayTo: string;
+  outcome: string;
+  reason: string;
+  settled: boolean | null;
+  delivered: boolean | null;
+  httpStatus: number | null;
+  bodyBytes: number | null;
+  tx: string | null;
+  priceUsdc: string | null;
+  key: string;
+  /** Present in the file; never read here (it can hold what the seller sent back). */
+  detail?: unknown;
+}
+export interface RemeasureFile {
+  kind: string;
+  version: number;
+  chain: string;
+  date: string;
+  payer: string;
+  rows: RemeasureRowIn[];
+}
+
+/**
+ * What the spend ledger holds for one purchase key, written before the payment was signed:
+ *  Solana: results/remeasure/budget-solana-YYYY-MM.json purchases[] { key, amount, at }
+ *  Tempo:  results/remeasure/tempo-ledger-YYYY-MM-DD.json entries[] { key, amount, recipient, reservedAt as at, status, txHash, settled }
+ */
+export interface RemeasureSpend {
+  key: string;
+  amount: string;
+  at: string;
+  recipient?: string;
+  status?: string;
+  txHash?: string | null;
+  settled?: boolean | null;
+}
+
+export const HASH_NOT_RECORDED_REMEASURE = "hash not recorded (the daily remeasure run does not hash the response)";
+
+/** The Tempo payOne reads at most 5 MiB of a paid answer; a length near that is only a lower bound. */
+export const TEMPO_BODY_READ_CAP = 5 * 1024 * 1024;
+
+function usdc6(atomic: string): string {
+  const v = BigInt(atomic);
+  return `${v / 1_000_000n}.${(v % 1_000_000n).toString().padStart(6, "0")}`;
+}
+
+/**
+ * Records from one remeasure result file. A row becomes a record only when the run sent the payment,
+ * read the transfer back on chain (settled = true) and recorded the tx, and the spend ledger written
+ * before signing agrees on the key and amount (Tempo: also the recipient, the tx and settled). Any
+ * disagreement throws.
+ *
+ * Verdict inputs follow the ranking's remeasure rules (src/remeasure/normalize.ts), so a record and the
+ * ranking never disagree:
+ *  Solana: payOne judged the body (delivered = 2xx and a body that is not blank); 2xx and not delivered
+ *          is an empty body.
+ *  Tempo:  the length of the answer was recorded; 0 is an empty body, null is not recorded.
+ * The row's `detail` (the start of what the seller sent back) is never read.
+ */
+export function factsFromRemeasure(d: RemeasureFile, dataset: string, spends: readonly RemeasureSpend[]): { facts: Facts[]; skips: Skip[] } {
+  if (d.kind !== "vet402-remeasure" || d.version !== 1 || !Array.isArray(d.rows)) throw new Error(`${dataset}: not a vet402-remeasure result file`);
+  if (d.chain !== "solana" && d.chain !== "tempo") throw new Error(`${dataset}: unknown chain ${String(d.chain)}`);
+  const tempo = d.chain === "tempo";
+  const byKey = new Map<string, RemeasureSpend>();
+  for (const s of spends) {
+    if (byKey.has(s.key)) throw new Error(`${dataset}: spend ledger has key ${s.key} twice`);
+    byKey.set(s.key, s);
+  }
+  const facts: Facts[] = [];
+  const skips: Skip[] = [];
+  d.rows.forEach((r, i) => {
+    const rowId = `rows[${i}]`;
+    const where = `${dataset} ${rowId}`;
+    if (r.chain !== d.chain) throw new Error(`${where}: chain ${r.chain} in a ${d.chain} file`);
+    if (typeof r.at !== "string" || r.at.slice(0, 10) !== d.date) throw new Error(`${where}: at ${r.at} is not on ${d.date}`);
+    if (r.outcome !== "sent") return skips.push({ dataset, row: rowId, reason: `not paid (${r.outcome}: ${r.reason})` });
+    if (r.settled !== true) return skips.push({ dataset, row: rowId, reason: `payment not confirmed on chain (settled ${String(r.settled)})` });
+    if (!r.tx) return skips.push({ dataset, row: rowId, reason: "no payment transaction recorded" });
+    const s = byKey.get(r.key);
+    if (!s) throw new Error(`${where}: no spend ledger entry for ${r.key}`);
+    if (!/^\d+$/.test(s.amount) || /^0+$/.test(s.amount)) throw new Error(`${where}: ledger amount ${s.amount}`);
+    if (r.priceUsdc !== usdc6(s.amount)) throw new Error(`${where}: price ${r.priceUsdc} differs from the ledger amount ${s.amount}`);
+    const norm = (a: string) => (tempo ? a.toLowerCase() : a);
+    if (!r.payTo || norm(r.payTo) !== norm(r.expectedPayTo)) throw new Error(`${where}: paid ${r.payTo}, locked ${r.expectedPayTo}`);
+    if (typeof s.at !== "string" || Number.isNaN(Date.parse(s.at))) throw new Error(`${where}: ledger time ${String(s.at)}`);
+    if (tempo) {
+      if (s.status !== "sent" || s.settled !== true || !s.txHash || s.txHash.toLowerCase() !== r.tx.toLowerCase())
+        throw new Error(`${where}: the day ledger does not show this tx settled (${String(s.status)}, ${String(s.settled)}, ${String(s.txHash)})`);
+      if (!s.recipient || s.recipient.toLowerCase() !== r.payTo.toLowerCase()) throw new Error(`${where}: ledger recipient ${String(s.recipient)} is not ${r.payTo}`);
+    }
+    const is2xx = r.httpStatus !== null && r.httpStatus >= 200 && r.httpStatus <= 299;
+    let bodyNonEmpty: boolean | null;
+    let bytes: number | null = null;
+    if (tempo) {
+      bytes = r.bodyBytes !== null && r.bodyBytes < TEMPO_BODY_READ_CAP - 65_536 ? r.bodyBytes : null;
+      bodyNonEmpty = r.bodyBytes === null ? null : r.bodyBytes > 0;
+    } else {
+      bodyNonEmpty = r.delivered === true ? true : is2xx ? false : null;
+    }
+    const notRecorded = [
+      ...(tempo ? ["request.method"] : []),
+      "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+      "response.contentType",
+      ...(bytes === null ? [tempo ? "response.bytes (so an empty body cannot be ruled out)" : "response.bytes"] : []),
+      "response.receivedAt",
+      "response.latencyMs",
+      "payment.settledAt",
+      "declared output format (not checked in this run)",
+    ];
+    facts.push({
+      dataset,
+      row: rowId,
+      observedAt: r.at,
+      requestUrl: r.requestUrl,
+      method: tempo ? null : "GET",
+      requestTs: s.at,
+      payment: tempo
+        ? { network: TEMPO_MAINNET, scheme: "mpp-charge", transaction: r.tx, payer: d.payer, payTo: s.recipient!, asset: TEMPO_USDC_E, amount: s.amount, decimals: 6, assetSymbol: "USDC.e" }
+        : { network: SOLANA_MAINNET, scheme: "x402-exact", transaction: r.tx, payer: d.payer, payTo: r.payTo, asset: SOLANA_USDC, amount: s.amount, decimals: 6, assetSymbol: "USDC" },
+      paymentSettled: true,
+      httpStatus: r.httpStatus,
+      contentType: null,
+      bytes,
+      bodyNonEmpty,
+      receivedAt: null,
+      declaredFormatMatched: null,
+      notRecorded,
+      responseHashNote: HASH_NOT_RECORDED_REMEASURE,
     });
   });
   return { facts, skips };

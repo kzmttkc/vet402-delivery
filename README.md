@@ -96,6 +96,17 @@ npm run records:publish -- --from results/receipts   # copy the publishable reco
 npm run receipts:anchor -- --day 2026-09-28           # simulate the day's memo on mainnet; signs and sends nothing
 ```
 
+Daily records: from 2026-09-29 on, each day's remeasure purchases (Solana and Tempo) become that day's records and root.
+
+```bash
+npm run receipts:build -- --key .keys/attest.json --out ~/vet402-solana-receipt/results/receipts --day 2026-09-29 --simulate-anchor
+npm run records:publish -- --from ~/vet402-solana-receipt/results/receipts --day 2026-09-29
+```
+
+- A purchase becomes a record only when its transfer was read back on chain and the spend ledger, written before signing, agrees on the amount (on Tempo also on the recipient and the tx). What the seller sent back is never read into a record.
+- Sequence numbers continue from the last record. A day already built is never signed again, a day earlier than a built one is refused, and so is the current UTC day unless `--allow-open-day` is given.
+- `records:publish --day` adds that day only; the days already in `data/records/` stay byte for byte.
+
 Writing the root on chain needs `--send` and the Solana payer key. The records are read from `~/vet402-solana-receipt/results/receipts`; `--send` and `--resume` refuse any other folder unless `--other-receipts-dir` is added. The network fee is the only thing that leaves the wallet. One root per day, checked twice before signing:
 - `results/receipts/<day>/anchor-sent.json` does not exist (it is written before the transaction leaves, with the signed bytes);
 - the anchor wallet's history on chain, read back to the start of that day, holds no memo for that day.
