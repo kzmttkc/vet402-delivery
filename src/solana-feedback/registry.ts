@@ -4,8 +4,9 @@
  * compiled transaction holds nothing but one give_feedback. Pure: no RPC, no key.
  *
  * Source: github.com/QuantuLabs/8004-solana @ 6b344c9 (programs/agent-registry-8004, idl/agent_registry_8004.json).
- * The layout was checked against give_feedback transactions on mainnet (2026-09-28): same discriminator,
- * same nine accounts in the same order, same argument encoding.
+ * The discriminator, the first five accounts and the argument encoding match give_feedback transactions on
+ * mainnet (2026-09-28). Those transactions pass the four ATOM accounts; vet402 passes none of them, a form
+ * with no mainnet example, checked by simulateTransaction (fee only, feedback recorded without ATOM).
  */
 import {
   AccountRole,

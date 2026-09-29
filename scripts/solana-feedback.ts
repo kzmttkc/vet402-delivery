@@ -6,13 +6,13 @@
  *   npx tsx scripts/solana-feedback.ts --simulate          # also simulateTransaction on mainnet, unsigned
  *   VET402_SOLANA_FEEDBACK_WRITE=yes npx tsx scripts/solana-feedback.ts --send   # sign and send (max 2)
  *
- * Options: --pin <host>=<asset>   choose the agent when the payTo owns several (an operator decision)
+ * Options: --pin <host>=<asset>   choose the agent when the payTo owns several; only one the seller named
  *          --receipts <dir>       local receipts build, to name records not published yet
  *                                 (default ~/vet402-solana-receipt/results/receipts)
  *
  * Targets: a seller whose 8004-solana agent is owned (Core asset owner) by the payTo vet402 paid.
- * Values: value 0 / score 0 / tags x402-delivery, paid-not-delivered when every settled purchase on at
- * least two days came back undelivered (value 1 / score 100 / delivered for the opposite); mixed results
+ * Values: value 0 / no score / tags x402-delivery, paid-not-delivered when every settled purchase on at
+ * least two days came back undelivered (value 1 / no score / delivered for the opposite); mixed results
  * are not written. feedback_uri is the published vet402 record of the purchase, feedback_file_hash its sha256.
  * --send refuses unless every gate passes: the purchase is a finalized USDC transfer from this wallet to
  * the payTo, the record is public with the same sha256, the Core asset owner is the payTo, this wallet has

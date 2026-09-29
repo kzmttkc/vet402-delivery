@@ -102,11 +102,11 @@ export function outcomeOf(ps: Purchase[]): OutcomeSummary {
   return { ...base, outcome: delivered === 0 ? "paid-not-delivered" : "delivered", detail: `${settled.length} settled purchase(s) on ${days.length} days, ${delivered} delivered` };
 }
 
-/** The values say what happened and nothing more: 0 when paid and not delivered, 100 when delivered. */
+/** The values say what happened and nothing more: value 1 or 0 for delivered or not, and no score (a score reads as a rating). */
 export function feedbackValues(o: Outcome): Pick<GiveFeedbackArgs, "value" | "valueDecimals" | "score" | "tag1" | "tag2"> {
   return o === "delivered"
-    ? { value: 1n, valueDecimals: 0, score: 100, tag1: TAG1, tag2: "delivered" }
-    : { value: 0n, valueDecimals: 0, score: 0, tag1: TAG1, tag2: "paid-not-delivered" };
+    ? { value: 1n, valueDecimals: 0, score: null, tag1: TAG1, tag2: "delivered" }
+    : { value: 0n, valueDecimals: 0, score: null, tag1: TAG1, tag2: "paid-not-delivered" };
 }
 
 /** The record verdict that backs each outcome. */

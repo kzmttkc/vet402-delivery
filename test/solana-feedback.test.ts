@@ -87,7 +87,7 @@ test("an outcome is written only when every settled purchase agrees, on two days
   assert.equal(outcomeOf([day("2026-09-28", false, "a"), day("2026-09-29", true, "b")]).outcome, null);
   assert.equal(outcomeOf([day("2026-09-29", false, "a"), day("2026-09-29", false, "b")]).outcome, null);
   assert.equal(outcomeOf([{ ...day("2026-09-28", false, "a"), settled: false }, day("2026-09-29", false, "b")]).outcome, null);
-  assert.deepEqual(feedbackValues("paid-not-delivered"), { value: 0n, valueDecimals: 0, score: 0, tag1: "x402-delivery", tag2: "paid-not-delivered" });
+  assert.deepEqual(feedbackValues("paid-not-delivered"), { value: 0n, valueDecimals: 0, score: null, tag1: "x402-delivery", tag2: "paid-not-delivered" });
   // the same payment in two inputs counts once
   assert.equal(groupByPayTo([day("2026-09-28", false, "a"), day("2026-09-28", false, "a")]).get("P")!.length, 1);
 });
