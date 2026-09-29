@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-09-28_000060",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 60
+  },
+  "issuedAt": 1790596527,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, body size not recorded.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": null,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://alphavantage.mpp.paywithlocus.com/alphavantage/time-series-intraday",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0xdb4fbc76ef920653217974915625b4d0a3d2d3c33bad6449af126d9d6ffaa776",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x060b0fB0Be9d90557577B3AEE480711067149Ff0",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "8000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xb419f18d27961fd0e849de1e2c94935bd10c0aae38c9afeb7f59b99eeaf9a64c",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-09-28T07:55:54.160Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (this purchase predates receipts)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the request",
+    "response.contentType",
+    "response.bytes (so an empty body cannot be ruled out)",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (this purchase predates receipts)"
+  ],
+  "source": {
+    "dataset": "tempo-ledger-2026-09-28",
+    "row": "entries[0] alphavantage"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "pending",
+    "day": "2026-09-28",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": null,
+    "root": "0xc537015303c55d6f07a1b8262914fa972b6f1cea2d472c05f8cfd1bbb92856a6",
+    "leafIndex": 59,
+    "proof": [
+      "0x54eb4057ed6ed023c304dac30c91c4130f28b3c40c43ca1f527a06f9ac8a1119",
+      "0x47a8b8103f4dc46d33abbbb5652ae57497f4d543cf50806d555f46b71916fe2f",
+      "0x84dac3a0ee612f458601df7311df3b5d6afc7a7fb0f427689b3ef26efaea4d22",
+      "0x14373cc76c3047e2891f9b94aa1810b5ec8ee1100edf678cf41aa62933dbc76d",
+      "0xf4904872c3e9ce364612643bf8aef5a485e73211def3b4e70aa5a12467219538",
+      "0xb5e8104c46b522213a2df6835a35d3707e319e8295a5efe7026f7ee77c14651e",
+      "0x72051c57021a660468dccb97c79bc336a047bcb48cb29049d6ddf77ad6c0d6bf",
+      "0xccc61fb963ddcdf224c536f6fb1a2f326002a746d2a935085d933bd5dab96b18"
+    ],
+    "count": 165,
+    "sequenceRange": [
+      1,
+      165
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": null
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x134c1d870878d944e1708b8561d8e79bdc4da344111940aef930b94e6776d9bf1ccae786f56d5b6373a1ae3baef5250a46dacd23c25811473d95ffe262bb0a601c"
+  }
+}

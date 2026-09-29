@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-09-28_000077",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 77
+  },
+  "issuedAt": 1790596527,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, body size not recorded.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": null,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://builtwith.mpp.paywithlocus.com/builtwith/free",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0x1caaf0f1eeeaa1b8fc38c5e90887ba0d22e52befa0f9f5ed8dc6e7d3953bd2c8",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x060b0fB0Be9d90557577B3AEE480711067149Ff0",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "15000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xea1f1a11443b638098736cf77fdf9c8d2796d9e60e40b6f81261394cf4c2c60e",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-09-28T08:03:20.853Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (this purchase predates receipts)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the request",
+    "response.contentType",
+    "response.bytes (so an empty body cannot be ruled out)",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (this purchase predates receipts)"
+  ],
+  "source": {
+    "dataset": "tempo-ledger-2026-09-28",
+    "row": "entries[5] builtwith"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "pending",
+    "day": "2026-09-28",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": null,
+    "root": "0xc537015303c55d6f07a1b8262914fa972b6f1cea2d472c05f8cfd1bbb92856a6",
+    "leafIndex": 76,
+    "proof": [
+      "0x50ff60a9b8b02e53377ec29773d070c5dabac8581987d7a34e4486f4f945043a",
+      "0x9bb44081b491a984732d8c85232b42a689e01e564f6a4211f992a2a314fafb1f",
+      "0xcf3256c04a184d247df9ad6ef7dd56932b9af8a17875b7835a6fccc9b7007c15",
+      "0xb765824088ee7f723daa5658017a4b17a4edcd1320efa5e49b964b11360df6c7",
+      "0x8fa22dcc903c151b2ea51455e29b3a3e93ccb08d3dcef5fff1fab96f50740ad8",
+      "0x42f834e5b5780e0bceae22df5a1a5bb5cb57e0fb1646823fa91f6d3f675fe067",
+      "0x0ee5f31861a3d250d6d3038facb5bf95fadd677fb7ed2e23b8b5859e5845ef95",
+      "0xccc61fb963ddcdf224c536f6fb1a2f326002a746d2a935085d933bd5dab96b18"
+    ],
+    "count": 165,
+    "sequenceRange": [
+      1,
+      165
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": null
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x9f149b268717f076291b8bb35c3a65e4f1b33b5ea8901ceeb3c312c533b90ec41267c61123b70d8fa2aff8e8027843481ca9cb087c79537deed8d999c36bcbd81b"
+  }
+}

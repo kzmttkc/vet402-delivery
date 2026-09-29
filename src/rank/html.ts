@@ -7,6 +7,7 @@
  * explorer origin, so a seller-supplied value can never become a link target. Seller page file names
  * are reduced to [a-z0-9._-]; the correction link is a fixed GitHub URL with an encoded query.
  */
+import { chainName } from "../receipt/html.js";
 import { FAULT_LABEL, ruleById } from "./classify.js";
 import type { Comparison, CompareRow } from "./compare.js";
 import { APPEAL_ISSUES_URL, type RankReport } from "./report.js";
@@ -471,7 +472,7 @@ code,.cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85e
 pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
 `;
 
-function publicPage(title: string, description: string, body: string): string {
+export function publicPage(title: string, description: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -595,7 +596,23 @@ function publicFaultBlock(s: RankedSeller, fault: Fault, n: number, blurb: strin
 ${rules.length ? `<div class="meta">${escapeHtml(countsText(Object.fromEntries(rules), ruleLabel))}</div>` : ""}</div>`;
 }
 
-function renderPublicSeller(r: RankReport, s: RankedSeller): string {
+/** A seller's signed delivery records on the public site (records/<id>.html), oldest first. */
+export interface SellerRecordLink {
+  id: string;
+  day: string;
+  network: string;
+}
+
+function recordsSection(links: readonly SellerRecordLink[] | undefined): string {
+  if (!links || links.length === 0) return "";
+  return `<h2 id="records">Signed delivery records</h2>
+<p class="meta">One page per purchase that arrived, signed by vet402 and included in a daily Merkle root. Each page shows how to check it without trusting vet402.</p>
+<ol class="plain">${links.map((l) => `<li><a href="../records/${escapeHtml(l.id)}.html">${escapeHtml(l.day)} · ${escapeHtml(chainName(l.network))} · ${escapeHtml(l.id)}</a></li>`).join("\n")}</ol>
+
+`;
+}
+
+function renderPublicSeller(r: RankReport, s: RankedSeller, records?: readonly SellerRecordLink[]): string {
   const lo = s.wilsonLower;
   const hi = s.wilsonUpper;
   const perChain = (Object.entries(s.chains) as [Chain, { tried: number; counted: number; delivered: number }][])
@@ -663,7 +680,7 @@ ${failures}
 <p class="meta">Each tx links to a public explorer.</p>
 ${recent}
 
-<h2 id="appeal">Is a row wrong?</h2>
+${recordsSection(records)}<h2 id="appeal">Is a row wrong?</h2>
 <p>${escapeHtml(r.method.correction)}</p>
 <p><a href="${escapeHtml(appealUrl(s.key, r.date))}" rel="noopener noreferrer nofollow">Open a GitHub issue for this seller</a></p>
 
@@ -775,11 +792,11 @@ ${r.comparisons.map(comparisonSection).join("\n")}
  * Every HTML page of the public site, keyed by path relative to the site root.
  * rank.json (the report itself) is written next to them by scripts/build-site.ts.
  */
-export function renderPublicSite(r: RankReport): Map<string, string> {
+export function renderPublicSite(r: RankReport, opts: { records?: ReadonlyMap<string, readonly SellerRecordLink[]> } = {}): Map<string, string> {
   const slugs = sellerSlugs(r.ranking.map((s) => s.key));
   const out = new Map<string, string>();
   out.set("index.html", renderPublicIndex(r, slugs));
   out.set("method.html", renderPublicMethod(r));
-  for (const s of r.ranking) out.set(`seller/${slugs.get(s.key)!}.html`, renderPublicSeller(r, s));
+  for (const s of r.ranking) out.set(`seller/${slugs.get(s.key)!}.html`, renderPublicSeller(r, s, opts.records?.get(s.key)));
   return out;
 }

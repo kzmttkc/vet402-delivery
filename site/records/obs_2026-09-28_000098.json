@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-09-28_000098",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 98
+  },
+  "issuedAt": 1790596527,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, body size not recorded.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": null,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mathpix.mpp.paywithlocus.com/mathpix/process-image",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0x8236773368abe4faa2908bca6efad750493e36c91ec1599b0ec3799d5e627855",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x060b0fB0Be9d90557577B3AEE480711067149Ff0",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "5000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xf7b6a89c78b3b698b7b8bed5f21e4d0b1bfa8486adb8fddcc64c0cbb7ed97c6b",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-09-28T08:05:09.289Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (this purchase predates receipts)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the request",
+    "response.contentType",
+    "response.bytes (so an empty body cannot be ruled out)",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (this purchase predates receipts)"
+  ],
+  "source": {
+    "dataset": "tempo-ledger-2026-09-28",
+    "row": "entries[26] mathpix"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "pending",
+    "day": "2026-09-28",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": null,
+    "root": "0xc537015303c55d6f07a1b8262914fa972b6f1cea2d472c05f8cfd1bbb92856a6",
+    "leafIndex": 97,
+    "proof": [
+      "0xfa7e8d60aabb4661aafc9a784cd4ebbd7876b108902770366f4e0892dcd6922e",
+      "0x15d6f6eddeac44a13c2b308393a5b0f3663bba6d3aab01379066b47ac3267f0a",
+      "0xf944c5d05aa5474fa579a6f1368802cc7668575247a7a2d4a03c23ba434c5f2c",
+      "0x42910bef593c9a134d6eef3bdaaa305c0e6b8ecc7d81bf4b02e3a26263b1a52a",
+      "0x6d0b8e4f6c61b6abc209541c5819a6cea0b99299a0a704eea7aeea88b494f9be",
+      "0xfa5eb2801703c1ae9f8940d0843c66fbb1935c09b6d09ff087d06b2f640ee1a0",
+      "0x0ee5f31861a3d250d6d3038facb5bf95fadd677fb7ed2e23b8b5859e5845ef95",
+      "0xccc61fb963ddcdf224c536f6fb1a2f326002a746d2a935085d933bd5dab96b18"
+    ],
+    "count": 165,
+    "sequenceRange": [
+      1,
+      165
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": null
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x0979f55aea0176a1af35c9de3eebcfb4e67cbab8f94f14b77cf78a0735abcd515c20649ac1daa3084113efaa7593eb6a4ca5322b5d210186b3df3b5721b866651c"
+  }
+}

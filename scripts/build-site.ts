@@ -1,17 +1,23 @@
 /**
  * Build the public site (site/ by default) from a rank report JSON:
  *   index.html, method.html, seller/<slug>.html and rank.json (the report itself, byte for byte).
- * Static: no scripts, no external requests, styles inline. Reads one file, writes one folder.
+ * and, from data/records/ (or --records <dir>), the signed delivery records:
+ *   records/index.html, records/<id>.html and records/<id>.json (the record itself, byte for byte).
+ * The build stops if data/records/ holds a record the policy does not allow, a record that does not
+ * verify, or a file its index.json does not list (src/receipt/publish.ts).
+ * Static: no scripts, no external requests, styles inline. Reads files, writes one folder.
  *
  *   npm run rank -- --data data --offline --out /tmp/rank
  *   npx tsx scripts/build-site.ts --report /tmp/rank/rank-2026-09-28.json --out site
  *
  * Without --report it reads results/rank-<date>.json, where <date> comes from data/manifest.json.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderPublicSite } from "../src/rank/html.js";
+import { publicPage, renderPublicSite, sellerSlugs } from "../src/rank/html.js";
+import { loadPublishedRecords } from "../src/receipt/publish.js";
+import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
 import type { RankReport } from "../src/rank/report.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,12 +43,20 @@ const text = readFileSync(reportPath, "utf8");
 const report = JSON.parse(text) as RankReport;
 if (report.kind !== "vet402-seller-rank") throw new Error(`${reportPath}: not a vet402 rank report`);
 
-const pages = renderPublicSite(report);
+const recordsDir = resolve(argValue("--records") ?? join(ROOT, "data", "records"));
+const records = existsSync(join(recordsDir, "index.json")) ? await loadPublishedRecords(recordsDir) : null;
+const slugs = sellerSlugs(report.ranking.map((s) => s.key));
+const pages = renderPublicSite(report, { records: records ? recordsBySeller(records) : undefined });
+const jsonFiles = new Map<string, string>();
+if (records) {
+  for (const [rel, html] of renderRecordsSite(records, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);
+  for (const r of records.records) jsonFiles.set(`records/${r.entry.id}.json`, r.text);
+}
 rmSync(outDir, { recursive: true, force: true });
-for (const [rel, html] of pages) {
+for (const [rel, body] of [...pages, ...jsonFiles]) {
   const p = join(outDir, rel);
   mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, html);
+  writeFileSync(p, body);
 }
 writeFileSync(join(outDir, "rank.json"), text);
-console.log(`read ${reportPath}\nwrote ${pages.size} pages and rank.json in ${outDir}`);
+console.log(`read ${reportPath}${records ? ` and ${records.records.length} records in ${recordsDir}` : ""}\nwrote ${pages.size} pages, ${jsonFiles.size} record JSON files and rank.json in ${outDir}`);

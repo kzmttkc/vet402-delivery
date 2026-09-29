@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-09-28_000089",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 89
+  },
+  "issuedAt": 1790596527,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, body size not recorded.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": null,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://edgar-search.mpp.paywithlocus.com/edgar-search/search",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0xc41cd00537ef50fed35d45a6d2476137771c3a8c653814963e0a0a0c81df4a0b",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x060b0fB0Be9d90557577B3AEE480711067149Ff0",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "8000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0x50b911002d69970244ccd7d69091588200650123f0f78014c1d9f73cd871db83",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-09-28T08:04:31.993Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (this purchase predates receipts)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the request",
+    "response.contentType",
+    "response.bytes (so an empty body cannot be ruled out)",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (this purchase predates receipts)"
+  ],
+  "source": {
+    "dataset": "tempo-ledger-2026-09-28",
+    "row": "entries[16] edgar-search"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "pending",
+    "day": "2026-09-28",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": null,
+    "root": "0xc537015303c55d6f07a1b8262914fa972b6f1cea2d472c05f8cfd1bbb92856a6",
+    "leafIndex": 88,
+    "proof": [
+      "0x81cb64102d79f93fc421369c94ebe0ac6899071104074ee03a83a86e0d3c75e0",
+      "0x03906e6b63cc58e172df77b7a396020284f6f79ece5e400ef5c4c5b80230dd5f",
+      "0x372cd0b6682015009903100f037489a82df51ad73af9ab4916829ee2f272e338",
+      "0xeeade700a9201972c74230ecbe8a4c573e3d15f08d3bc851f29c8f78b19a577a",
+      "0x3517a9bbeb8c4ed8e65a26818d74c618ea142f255e20b808e01dba59e9317842",
+      "0x42f834e5b5780e0bceae22df5a1a5bb5cb57e0fb1646823fa91f6d3f675fe067",
+      "0x0ee5f31861a3d250d6d3038facb5bf95fadd677fb7ed2e23b8b5859e5845ef95",
+      "0xccc61fb963ddcdf224c536f6fb1a2f326002a746d2a935085d933bd5dab96b18"
+    ],
+    "count": 165,
+    "sequenceRange": [
+      1,
+      165
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": null
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x5dba49c3265b1401c61eafdd9fd02324c9c6b09f6a18372c63486721fb8363aa003135a8d6a320010e95fad51b49a5eef6724797987c130cd74eef381eb338a51c"
+  }
+}

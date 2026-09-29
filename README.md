@@ -15,6 +15,7 @@ This repository is the multi-chain part of vet402: it buys sellers on **Solana, 
 | Delivery ranking | Ranks sellers by independent purchases; failures caused by vet402 or the facilitator are not counted against the seller | `src/rank/` (method: `src/rank/README.md`) |
 | Public ranking site | Static pages (list, one page per seller, method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |
 | First-buyer mode | Buys once, for life, from each Solana seller (payTo) that no one has paid yet, and publishes whether it settled and delivered, or why it cannot be paid | `scripts/first-buyer.ts`, `src/first-buyer/` |
+| Delivery records | One signed record per purchase (x402-observation/v0): what vet402 paid, on which chain, and what came back, with a Merkle proof into a daily root that is written into a Solana memo | `src/receipt/`, `scripts/build-receipts.ts`, `scripts/publish-records.ts`, `scripts/anchor-receipts.ts`, `data/records/`, `site/records/` |
 
 ## Money safety
 
@@ -50,6 +51,30 @@ Files (under `results/`, not committed; keep them where `--pay` runs, and back t
 npm run first-buyer -- --dry-run --since 2026-09-21   # catalogs, unpaid 402s, chain reads, transaction build; pays nothing
 npm run first-buyer -- --init-ledger                  # once, before the very first --pay
 ```
+
+## Delivery records
+
+Each purchase can become a record signed by vet402's observation key (listed in `src/receipt/observers.ts`; it is not a payment key and holds no funds). A record holds the payment tx, the HTTP status that came back and salted hashes of the request. It never holds the response body. All records of one UTC day form one Merkle root, and that root is written once into a Solana memo.
+
+What is published (`data/records/`, served at https://kzmttkc.github.io/vet402-delivery/records/):
+- DELIVERED records are published.
+- NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure. They are published only after vet402 has told that seller, and only for the hosts listed in `data/records/notified.json`. That list is empty for now, so none of them are published. The daily root still covers them, so no record can be added or dropped later without changing the root.
+- `scripts/build-site.ts` stops if `data/records/` holds a record this policy does not allow, a record that does not verify, or a file that `data/records/index.json` does not list.
+
+Check a published record, with no account and no payment:
+
+```bash
+npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json
+```
+
+It checks the signer against vet402's key, the signature, that the verdict follows from the recorded checks, the Merkle proof and the payment on chain. Change any signed field, even by one character, and it fails.
+
+```bash
+npm run records:publish -- --from results/receipts   # copy the publishable records into data/records/
+npm run receipts:anchor -- --day 2026-09-28           # simulate the day's memo on mainnet; signs and sends nothing
+```
+
+Writing the root on chain needs `--send` and the Solana payer key. It sends at most once per day, and the network fee is the only thing that leaves the wallet.
 
 ## Scope and prior work
 

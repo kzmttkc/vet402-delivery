@@ -1,0 +1,115 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-09-28_000153",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 153
+  },
+  "issuedAt": 1790596527,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://vealth.net/.well-known/vealth/cdp/work-tco2e",
+  "payment": {
+    "network": "eip155:8453",
+    "scheme": "x402-exact",
+    "transaction": "0xc0684bf2225f1da18459c8049553d113a9a3052155d4b586b3b1cd8823d4b38a",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x538aa4800ae2bd8e90556899514376ab96113a8e",
+    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "amount": "5000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "POST",
+    "url_hash": "0x3d906de2a383822d67ff938ad3b3289ff2cedcf1cbea132d433a09f90e0f4e0e",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-09-28T08:17:16.729Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (this purchase predates receipts)",
+    "contentType": "application/json",
+    "bytes": 740,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (this purchase predates receipts)"
+  ],
+  "source": {
+    "dataset": "base-purchases-2026-09-28",
+    "row": "line 6"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "pending",
+    "day": "2026-09-28",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": null,
+    "root": "0xc537015303c55d6f07a1b8262914fa972b6f1cea2d472c05f8cfd1bbb92856a6",
+    "leafIndex": 152,
+    "proof": [
+      "0x6ce5bcf62f99922cd08e375713a2717ef182e955491a723300476b5b72bfccba",
+      "0x39a1641f943565d3142d1ea9d3ad23a741616e5ea7f6c7fd11388bcc71012043",
+      "0x0783498268341bb109f89659b290c58dccb04b509c9d40e0d284a7e4acceec4f",
+      "0xeafc09ffaf7d530e84ffe8e97f46805e6a2946cf5853cba5d01baeb24a782e5d",
+      "0xcf43f3cc3cccf15423ffbc450cd3a404efea22096dbbb0d2eed3835f15e324a9",
+      "0xbd3b51d3aa9ea1787dfbc0334b40b9ffd18f2c5dae20d7c474102a899ac33875",
+      "0x123e4d54764f4fbd231a0d1647476a745f36055d7af7e4d0cb9991dd90033434"
+    ],
+    "count": 165,
+    "sequenceRange": [
+      1,
+      165
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": null
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x1f56750d8d23f8c55b98624fbaa0f158bc064aa930ea2e35d416b7faf158b1b31a82f8729a08ad69151c2287095d72b5a4e73716d93c8baa2f686314e1aabcab1c"
+  }
+}

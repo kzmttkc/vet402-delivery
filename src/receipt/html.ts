@@ -120,9 +120,18 @@ export interface RenderOptions {
   jsonHref: string;
   /** Command shown under "Verify it yourself". */
   verifyCommand: string;
+  /**
+   * For the public site: a Content-Security-Policy that forbids scripts (as on the ranking pages), no
+   * script and no copy buttons, a navigation line, and where vet402's key is published.
+   */
+  site?: { nav: string; keyHref: string };
 }
 
+const SITE_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">`;
+
 export function renderObservationPage(o: Observation, opts: RenderOptions): string {
+  const site = opts.site;
+  const hashOf = (full: string): string => (site ? `<code class="hash" title="${esc(full)}">${esc(shortHash(full))}</code>` : copyable(full));
   const w = WORD[o.verdict.code];
   const when = o.response.receivedAt ?? o.request.ts;
   const whenLabel = o.response.receivedAt ? "response recorded" : "request sent";
@@ -131,7 +140,7 @@ export function renderObservationPage(o: Observation, opts: RenderOptions): stri
   const statusText = o.response.status === null ? "no response" : `HTTP ${o.response.status}`;
   const respDetail = [statusText, bytesText(o.response.bytes), o.response.contentType?.split(";")[0]].filter(Boolean).join(" · ");
   const hashLine = o.response.responseHash
-    ? `responseHash ${copyable(o.response.responseHash)} (${esc(o.response.responseHashAlg)}, ${esc(o.response.responseHashEncoding)})`
+    ? `responseHash ${hashOf(o.response.responseHash)} (${esc(o.response.responseHashAlg)}, ${esc(o.response.responseHashEncoding)})`
     : `responseHash: ${esc(o.response.responseHashNote ?? "not recorded")}`;
   const anchor = o.anchor;
   const recordRow = !anchor
@@ -140,7 +149,7 @@ export function renderObservationPage(o: Observation, opts: RenderOptions): stri
       ? `<span class="mark">✓</span><span class="k">Record</span><span class="v">In the ${esc(anchor.day)} root, written on ${esc(chainName(anchor.network))} · ${
           explorerUrl(anchor.network, anchor.tx) ? `<a href="${esc(explorerUrl(anchor.network, anchor.tx))}" rel="noopener noreferrer">${esc(shortHash(anchor.tx))} ↗</a>` : esc(anchor.tx)
         }</span>`
-      : `<span class="mark">◷</span><span class="k">Record</span><span class="v">In the ${esc(anchor.day)} root ${copyable(anchor.root)} (leaf ${esc(anchor.leafIndex)} of ${esc(
+      : `<span class="mark">◷</span><span class="k">Record</span><span class="v">In the ${esc(anchor.day)} root ${hashOf(anchor.root)} (leaf ${esc(anchor.leafIndex)} of ${esc(
           anchor.count,
         )}). Not yet written on chain.</span>`;
 
@@ -173,6 +182,7 @@ export function renderObservationPage(o: Observation, opts: RenderOptions): stri
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+${site ? SITE_CSP : ""}
 <title>Delivery record ${esc(o.id)}</title>
 <style>
 :root{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#5f5e58;--line:#dedcd4;--card:#ffffff;--accent:#2f5d8a;
@@ -217,7 +227,7 @@ ul.plain{margin:4px 0 0;padding-left:1.2em;font-size:14px}
 </head>
 <body>
 <main class="${w.cls}">
-<header class="top">vet402 · Delivery record</header>
+<header class="top">${site ? site.nav : "vet402 · Delivery record"}</header>
 
 <section class="card" aria-labelledby="verdict-h">
   <h1 class="verdict" id="verdict-h"><span aria-hidden="true">${w.shape}</span><span>${esc(w.text)}</span></h1>
@@ -238,7 +248,7 @@ ${negative ? seller : ""}
     <li><span class="mark">✓</span><span class="k">Payment</span><span class="v">${esc(formatAmount(o.payment.amount, o.payment.decimals))} ${esc(o.payment.assetSymbol)} on ${esc(
       chainName(o.payment.network),
     )} · ${txUrl ? `<a href="${esc(txUrl)}" rel="noopener noreferrer">${esc(shortHash(o.payment.transaction))} ↗</a>` : esc(o.payment.transaction)}</span>
-      <span class="sub">from ${copyable(o.payment.payer)} to ${copyable(o.payment.payTo)}</span></li>
+      <span class="sub">from ${hashOf(o.payment.payer)} to ${hashOf(o.payment.payTo)}</span></li>
     <li><span class="mark">${w.shape}</span><span class="k">Response</span><span class="v">${esc(respDetail)}</span>
       <span class="sub">${esc(o.verdict.reason)}<br>${hashLine}</span></li>
     <li>${recordRow}</li>
@@ -247,10 +257,12 @@ ${negative ? seller : ""}
 
 <section class="card" aria-labelledby="verify-h">
   <h2 id="verify-h">Verify it yourself</h2>
-  <p>No account and no payment needed. The script checks that vet402's published key (<code>--signer</code>) signed this record, looks up the payment on chain, and checks the record against its daily Merkle root.</p>
+  <p>No account and no payment needed. The script checks that ${
+    site ? `vet402's published key (<a href="${esc(site.keyHref)}" rel="noopener noreferrer">src/receipt/observers.ts</a>)` : "vet402's published key (<code>--signer</code>)"
+  } signed this record, looks up the payment on chain, and checks the record against its daily Merkle root.</p>
   <p><a href="${esc(opts.jsonHref)}" download>Download JSON</a></p>
   <pre>${esc(opts.verifyCommand)}</pre>
-  <button type="button" class="hash" data-copy="${esc(opts.verifyCommand)}">Copy command</button>
+  ${site ? "" : `<button type="button" class="hash" data-copy="${esc(opts.verifyCommand)}">Copy command</button>`}
 </section>
 
 <section class="card">
@@ -272,11 +284,13 @@ ${negative ? seller : ""}
 ${negative ? "" : seller}
 <footer>
   Record #${esc(o.observer.sequence)} · <code>${esc(o.id)}</code><br>
-  Signed by vet402 key ${copyable(o.observer.address)} (${esc(o.observer.id)}; key publication pending)<br>
+  Signed by vet402 key ${hashOf(o.observer.address)} (${esc(o.observer.id)}; ${
+    site ? `listed in <a href="${esc(site.keyHref)}" rel="noopener noreferrer">src/receipt/observers.ts</a>` : "key publication pending"
+  })<br>
   Contact: <a href="${esc(o.contact)}" rel="noopener noreferrer">${esc(o.contact)}</a>
 </footer>
 </main>
-<script>
+${site ? "" : `<script>
 (function(){
   document.querySelectorAll("time[data-local]").forEach(function(t){
     try{var d=new Date(t.getAttribute("datetime"));if(isNaN(d))return;
@@ -288,7 +302,7 @@ ${negative ? "" : seller}
     try{navigator.clipboard.writeText(b.getAttribute("data-copy"));var o=b.textContent;b.textContent="Copied";setTimeout(function(){b.textContent=o},1200);}catch(err){}
   });
 })();
-</script>
+</script>`}
 </body>
 </html>
 `;

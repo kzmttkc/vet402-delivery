@@ -8,7 +8,8 @@
  *     --out results/receipts [--simulate-anchor]
  *
  * Output (results/ is local; negative records name sellers and are not published before the seller
- * is told, so this directory is git-ignored):
+ * is told, so this directory is git-ignored; scripts/publish-records.ts copies the publishable ones to
+ * data/records/, and scripts/anchor-receipts.ts writes a day's root on Solana):
  *   <out>/<day>/<id>.json, <id>.html, index.json, anchor-plan.json
  *   <out>/private/salts.json (mode 600): the params_hash salts, disclosed only to parties in a dispute
  *   <out>/did.json: the did:web document to publish at https://vet402.com/.well-known/did.json

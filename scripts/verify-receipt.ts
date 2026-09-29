@@ -1,7 +1,10 @@
 /**
  * Re-check an x402-observation record without trusting vet402. No account, no payment.
  *
- *   npx tsx scripts/verify-receipt.ts <record.json> [--signer 0x...] [--did <did.json path or https URL>] [--offline]
+ *   npx tsx scripts/verify-receipt.ts <record.json | https URL> [--signer 0x...] [--did <did.json path or https URL>] [--offline]
+ *
+ * A published record can be checked straight from the site:
+ *   npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/<id>.json
  *
  * Checks: shape (JSON Schema), vet402's EIP-712 signature, that the verdict follows from the recorded
  * checks, Merkle inclusion in the day's root, and (unless --offline) the payment on chain and, once the
@@ -20,10 +23,31 @@ function arg(name: string): string | undefined {
 }
 const file = process.argv[2];
 if (!file || file.startsWith("--")) {
-  console.error("usage: verify-receipt.ts <record.json> [--signer 0x...] [--did <path|url>] [--offline]");
+  console.error("usage: verify-receipt.ts <record.json | https URL> [--signer 0x...] [--did <path|url>] [--offline]");
   process.exit(2);
 }
-const obs = JSON.parse(readFileSync(file, "utf8")) as Observation;
+/** A record is a few KB; anything far larger is not a record. */
+const MAX_RECORD_BYTES = 1_000_000;
+
+async function readRecord(src: string): Promise<string> {
+  const loopback = /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//i.test(src); // a local copy of the site
+  if (/^http:\/\//i.test(src) && !loopback) throw new Error("use https");
+  if (!/^https:\/\//i.test(src) && !loopback) return readFileSync(src, "utf8");
+  const res = await fetch(src, { signal: AbortSignal.timeout(15_000), redirect: "follow", headers: { accept: "application/json" } });
+  if (!res.ok) throw new Error(`${src} -> HTTP ${res.status}`);
+  const text = await res.text();
+  if (text.length > MAX_RECORD_BYTES) throw new Error(`${src}: ${text.length} bytes is not a record`);
+  return text;
+}
+
+let obs: Observation;
+try {
+  obs = JSON.parse(await readRecord(file)) as Observation;
+} catch (e) {
+  console.log(`FAIL read       ${e instanceof Error ? e.message : String(e)}`);
+  console.log("RESULT: FAIL");
+  process.exit(1);
+}
 
 async function signerFromDid(src: string, keyId: string): Promise<string | null> {
   const text = /^https:\/\//.test(src) ? await (await fetch(src, { signal: AbortSignal.timeout(15_000) })).text() : readFileSync(src, "utf8");

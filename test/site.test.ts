@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyFailure } from "../src/rank/classify.js";
+import { loadPublishedRecords } from "../src/receipt/publish.js";
+import { recordsBySeller } from "../src/receipt/site.js";
 import { PUBLIC_LEAD, renderPublicSite } from "../src/rank/html.js";
 import { normalizeAlgorand } from "../src/rank/normalize.js";
 import { buildReport, type RankReport } from "../src/rank/report.js";
@@ -125,12 +127,12 @@ test("site: rank numbers only for sellers with enough counted purchases on enoug
   }
 });
 
-test("data/: every file matches the manifest sha256, and rank --data reproduces site/rank.json", () => {
+test("data/: every file matches the manifest sha256, and rank --data reproduces site/rank.json", async () => {
   const manifest = JSON.parse(readFileSync(join(ROOT, "data", "manifest.json"), "utf8")) as { date: string; files: { path: string; sha256: string }[] };
   const listed = new Set(manifest.files.map((f) => f.path));
   for (const p of walk(join(ROOT, "data"))) {
     const rel = p.slice(join(ROOT, "data").length + 1);
-    if (rel === "manifest.json") continue;
+    if (rel === "manifest.json" || rel.startsWith("records/")) continue; // records/ lists its own sha256s (test/receipt-records.test.ts)
     assert.ok(listed.has(rel), `${rel} is in the manifest`);
   }
   for (const f of manifest.files) {
@@ -145,7 +147,7 @@ test("data/: every file matches the manifest sha256, and rank --data reproduces 
     const strip = (r: RankReport) => ({ ...r, generatedAt: "" });
     assert.deepEqual(strip(fresh), strip(pub));
     for (const i of fresh.inputs) assert.ok(i.location.startsWith("data/"), `${i.label} read from data/`);
-    const pages = renderPublicSite(fresh);
+    const pages = renderPublicSite(fresh, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))) });
     for (const [rel, html] of pages) assert.equal(html, readFileSync(join(ROOT, "site", rel), "utf8"), `site/${rel} is up to date`);
   } finally {
     rmSync(out, { recursive: true, force: true });
