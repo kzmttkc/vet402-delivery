@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Method, counted and not counted purchases, grades, limits and how to reproduce the vet402 delivery ranking.">
+<meta name="description" content="Method, counted and not counted purchases, grades per page, limits and how to reproduce the vet402 delivery pages.">
 <title>How vet402 measures</title>
 <style>
 :root{--bg:#fbfbf9;--fg:#1d1d1b;--dim:#62625d;--line:#e2e1dc;--card:#fff;--warn:#9a3b00;--link:#0b5cad;
@@ -53,6 +53,8 @@ footer{margin-top:32px;padding-top:12px;border-top:1px solid var(--line);font-si
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.9rem}
 th,td{border-bottom:1px solid var(--line);padding:6px 3px;text-align:right}th{font-size:.8rem;font-weight:600;vertical-align:bottom}th:first-child,td:first-child{text-align:left}
 
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 14px;font-size:.95rem}
+nav.tabs a[aria-current="page"]{color:var(--fg);font-weight:700;text-decoration:none;border-bottom:2px solid var(--fg)}
 table.board{table-layout:fixed;width:100%;margin:8px 0;font-size:.95rem}
 table.board caption{text-align:left;font-size:.85rem;color:var(--dim);padding:0 0 6px}
 table.board th,table.board td{padding:7px 3px;vertical-align:baseline;border-bottom:1px solid var(--line)}
@@ -64,7 +66,10 @@ table.board .num{width:5.3em;text-align:right;white-space:nowrap;font-variant-nu
 table.board .date{width:3.6em;text-align:right;white-space:nowrap;color:var(--dim);font-size:.85rem;padding-left:6px}
 table.board td.name a{font-weight:600}
 table.board .sub{display:block;font-size:.78rem;color:var(--dim);font-weight:400}
+table.chain .num{width:3.9em}
+table.chain th.num{white-space:normal}
 .notcounted{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:10px 0;font-size:.9rem}
+.nw{white-space:nowrap}
 .legend{display:block}
 code,.cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
 pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
@@ -72,12 +77,12 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 </head>
 <body><main>
 
-<nav><a href="index.html">All sellers</a></nav>
+<nav class="tabs" aria-label="Pages"><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="method.html">How vet402 measures</a></nav>
 <h1>How vet402 measures</h1>
-<p class="dim">Method v2 (2026-09-28) · report 2026-09-29 · purchases 2026-09-27 to 2026-09-29 (UTC) · <a href="#changes">change log</a></p>
+<p class="dim">Method v3 (2026-09-29) · report 2026-09-29 · purchases <span class="nw">2026-09-27</span> to <span class="nw">2026-09-29</span> (UTC) · <a href="#changes">change log</a></p>
 
-<h2>1. Who pays</h2>
-<p>vet402 buys with its own funds and takes no money from sellers: no listing fee, no paid placement, no referral cut. Call counts, payer counts and anything a seller reports about itself are not inputs, so a seller cannot buy a better place by paying itself (wash trading).</p>
+<h2>1. How vet402 pays for this</h2>
+<p>Grades come only from vet402&#39;s own purchases. vet402 also sells paid checks (on Algorand); a paid check is a separate report and never moves a grade. No listing fee, no paid placement, no referral cut. The ranking reads only the purchase files listed in data/manifest.json, and on Algorand those purchases were paid from a different wallet than the paid checks. Call counts, payer counts and anything a seller reports about itself are not inputs, so a seller cannot buy a better place by paying itself (wash trading).</p>
 
 <h2 id="faults">2. What is counted, and what is not</h2>
 <p>Counted = delivered purchases plus failures on the seller&#39;s side (payment settled and nothing usable came back, or the seller&#39;s server answered 5xx). Paid on chain, answered 402, delivered nothing is counted on the seller&#39;s side, also when a facilitator error such as &quot;already in ledger&quot; came with it: the buyer paid and received nothing, and the seller chose the facilitator.</p>
@@ -95,38 +100,39 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <li><b>10. can&#39;t tell</b> · <span class="mono">answer_without_settlement</span> · this report: 13<br>The seller answered 2xx but no settlement of vet402&#39;s payment could be found.</li>
 <li><b>11. can&#39;t tell</b> · <span class="mono">unclassified</span> · this report: 0<br>None of the above. Counted here so a new failure mode is visible and never lowers a grade.</li></ol>
 
-<h2>3. What "arrived" means</h2>
-<p>Delivered = vet402&#39;s payment settled, then the seller answered 2xx with a non-empty body. The same test on every chain.</p>
+<h2>3. What "came back with an answer" means</h2>
+<p>Came back with an answer = vet402&#39;s payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column. The same test on every chain, except Tempo, where the runner kept no body: there it means settled, then 2xx.</p>
 <p class="meta">Separate column, never part of the grade: whether the answer&#39;s keys or shape matched what the seller declared. Checked only where the runner compared them (Algorand census, Solana census) and the seller declared something.</p>
 
 <h2>4. Grades and rank numbers</h2>
 <p>95% Wilson score interval of delivered / counted (z = 1.96).</p>
 <ul>
-<li><span class="g gA" title="arrives 90%+">A</span> lower bound ≥ 0.9</li>
+<li><span class="g gA" title="90%+ came back">A</span> lower bound ≥ 0.9</li>
 <li><span class="g gB" title="75%+">B</span> lower bound ≥ 0.75</li>
 <li><span class="g gC" title="50%+">C</span> lower bound ≥ 0.5</li>
 <li><span class="g gD" title="under 50%">D</span> upper bound &lt; 0.5: bad only when the evidence says so</li>
 <li><span class="g gundecided" title="undecided">?</span> none of the above</li>
 <li><span class="g gmeasuring" title="measuring">…</span> fewer than 10 counted purchases, or fewer than 2 days</li>
 </ul>
-<p>A rank number needs at least 10 counted purchases on at least 2 different UTC days. Below that the seller is listed as &quot;measuring&quot;, with no grade and no number.</p>
+<p>Each page is graded from its own chains&#39; purchases only: the first page from Solana, Tempo and Base, the Algorand page from Algorand. A rank number needs at least 10 counted purchases on at least 2 different UTC days on that page&#39;s chains. Below that the seller is listed as &quot;measuring&quot;, with no grade and no number.</p>
 <p class="meta">A: lower bound ≥ 0.9. B: lower bound ≥ 0.75. C: lower bound ≥ 0.5. D: upper bound &lt; 0.5. Otherwise undecided. Even 10 deliveries out of 10 have a lower bound of 0.72 (grade C); an A needs about 35 out of 35.</p>
 <p class="meta">Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.</p>
-<p class="meta">This report: <span class="g gA" title="arrives 90%+">A</span> 6 · <span class="g gB" title="75%+">B</span> 14 · <span class="g gC" title="50%+">C</span> 2 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 2 · <span class="g gmeasuring" title="measuring">…</span> 270</p>
+<p class="meta">This report:<br>Solana, Tempo and Base: <span class="g gA" title="90%+ came back">A</span> 0 · <span class="g gB" title="75%+">B</span> 0 · <span class="g gC" title="50%+">C</span> 0 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 0 · <span class="g gmeasuring" title="measuring">…</span> 220<br>Algorand: <span class="g gA" title="90%+ came back">A</span> 6 · <span class="g gB" title="75%+">B</span> 14 · <span class="g gC" title="50%+">C</span> 2 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 2 · <span class="g gmeasuring" title="measuring">…</span> 55</p>
 
 <h2>5. How vet402 buys</h2>
-<p>From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour.</p>
+<p>From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. From 2026-09-29, vet402 also buys again about once a day from the Solana and Tempo sellers whose earlier payment settled (one purchase per recipient per day, payTo and price locked to the earlier payment), so each seller&#39;s record grows day by day. Base sellers have been bought once.</p>
 <p class="meta">Seller = hostname. When one host fronts several catalog services that each pay their own recipient (a proxy), each service is its own seller: host#service. payTo changed = the same chain and URL asked for a different recipient in a later run, or vet402 refused to pay because the recipient differed from the one it had recorded. One recipient per chain is not a change. Shown as a flag; it does not change the grade.</p>
 
 <h2 id="instrument">6. vet402's own record in this report</h2>
-<p>Out of 2706 paid tries, <b>980</b> failed on vet402's or the facilitator's side and <b>228</b> had no clear cause. None of them lowered a grade. 1498 purchases were counted: 1388 arrived.</p>
-<table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>arrived</th><th>as de&shy;clared</th><th>body test</th></tr></thead>
+<p>Out of 2706 tries where vet402 sent a payment (1447 settled), <b>980</b> failed on vet402's or the facilitator's side and <b>228</b> had no clear cause. None of them lowered a grade. 1498 purchases were counted: 1388 came back with an answer.</p>
+<table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>came back</th><th>as de&shy;clared</th><th>body test</th></tr></thead>
 <tbody>
 <tr><td>Algorand</td><td>2356</td><td>1148</td><td>1138</td><td>577/672</td><td>yes</td></tr>
 <tr><td>Solana</td><td>234</td><td>188</td><td>178</td><td>70/75</td><td>yes</td></tr>
 <tr><td>Tempo</td><td>108</td><td>104</td><td>65</td><td>–</td><td>no</td></tr>
 <tr><td>Base</td><td>8</td><td>7</td><td>7</td><td>–</td><td>yes</td></tr>
 </tbody></table>
+<p class="meta">Algorand rows come from <a href="https://github.com/kzmttkc/vet402-algorand" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project; they are graded on their own page.</p>
 
 <h2 id="appeal">7. Mistakes and corrections</h2>
 <p>A seller who thinks a row is wrong opens a GitHub issue with the URL or tx. vet402 checks it against the chain and the raw result; a wrong row is fixed and the fix is noted in the change log.</p>
@@ -145,89 +151,107 @@ npx tsx scripts/build-site.ts --report /tmp/rank/rank-2026-09-29.json --out /tmp
 <ul class="plain"><li class="meta"><b>algorand/census-2026-09-27</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/algorand/census-2026-09-27.json" rel="noopener noreferrer nofollow">data/algorand/census-2026-09-27.json</a><br>sha256 <span class="mono">efeb722fae6f898f3d821bcf43d6533b6c2e83f511146409cc70fc4d42d58a6d</span> · fetched 2026-09-28T12:16:15.782Z<br>Copy of kzmttkc/vet402-algorand board/census-2026-09-27.json at main 20857e6, which includes the 6-row correction of 127addc (see Corrections in the vet402-algorand README). origin https://raw.githubusercontent.com/kzmttkc/vet402-algorand/20857e661a1bda9b6189fab7dfb388b967911d89/board/census-2026-09-27.json</li><li class="meta"><b>algorand/census-2026-09-28</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/algorand/census-2026-09-28.json" rel="noopener noreferrer nofollow">data/algorand/census-2026-09-28.json</a><br>sha256 <span class="mono">52391ba4d67f55918b3e7524e206edd95042e1f3c3c70c4e8030c4b87ac236e3</span> · fetched 2026-09-28T12:16:15.782Z<br>Copy of kzmttkc/vet402-algorand board/census-2026-09-28.json at main 20857e6, which includes the 6-row correction of 127addc (see Corrections in the vet402-algorand README). origin https://raw.githubusercontent.com/kzmttkc/vet402-algorand/20857e661a1bda9b6189fab7dfb388b967911d89/board/census-2026-09-28.json</li><li class="meta"><b>solana/census-2026-09-28</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/solana/census-2026-09-28.json" rel="noopener noreferrer nofollow">data/solana/census-2026-09-28.json</a><br>sha256 <span class="mono">33101ede9378fe1e5dce8a31f7018915b53542f4abeb58f9f8cb766e5c02cca3</span><br>copied from ~/vet402-solana-census/results/census-2026-09-28.json</li><li class="meta"><b>solana/gate1-2026-09-29</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/solana/gate1-2026-09-29.json" rel="noopener noreferrer nofollow">data/solana/gate1-2026-09-29.json</a><br>sha256 <span class="mono">92fc3e9a1c284217d8f62b8167f42103cc45e6b7cab5219d447da5bbeaef898f</span><br>copied from ~/vet402-solana/results/gate1-2026-09-29.json</li><li class="meta"><b>tempo/census-plan-2026-09-28</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/tempo/census-plan-2026-09-28.json" rel="noopener noreferrer nofollow">data/tempo/census-plan-2026-09-28.json</a><br>sha256 <span class="mono">1c20ec2b4e4e6376351054a57a96935714d6e635d2955c6cc9864948c43f1cdf</span><br>copied from ~/vet402-solana-tempo/results/tempo-census-2026-09-28.dry-run.json</li><li class="meta"><b>tempo/ledger</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/tempo/ledger.json" rel="noopener noreferrer nofollow">data/tempo/ledger.json</a><br>sha256 <span class="mono">9fea33ff2fa5657842a298d2729a16e01b271e48c63f3a36da1a87d4da192213</span><br>copied from ~/vet402-solana-tempo/results/tempo-ledger.json</li><li class="meta"><b>tempo/run-log</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/tempo/run-log.txt" rel="noopener noreferrer nofollow">data/tempo/run-log.txt</a><br>sha256 <span class="mono">22db988ecb349cbeee88ca9e591f7cdf87b40b17bd09996e1d5837b86ada70c5</span><br>The log lines carry no time; its refusals take the time the runner last wrote the log (loggedAt). copied from ~/vet402-solana-tempo/results/tempo-run.log</li><li class="meta"><b>base/feedback-ledger</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/base/feedback-ledger.json" rel="noopener noreferrer nofollow">data/base/feedback-ledger.json</a><br>sha256 <span class="mono">22dc74d3c7f0166b9b9bacddf7b6edb82b00932f0455d17adbcb38460a3b6a01</span><br>copied from ~/vet402-solana-base/results/base-feedback-ledger.json</li><li class="meta"><b>base/purchases</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/base/purchases.jsonl" rel="noopener noreferrer nofollow">data/base/purchases.jsonl</a><br>sha256 <span class="mono">eafe828314c85b71e197e061c4a2dfecf4d3dfe5ee932ef0e30ffe06a2a679ea</span><br>copied from ~/vet402-solana-base/results/base-purchases.jsonl</li><li class="meta"><b>remeasure/solana-2026-09-29</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/remeasure/solana-2026-09-29.json" rel="noopener noreferrer nofollow">data/remeasure/solana-2026-09-29.json</a><br>sha256 <span class="mono">0f5ce6f6cc9b1cc077db358d1ed0d9c2e5f8f46e13f18ca61c6334c85a5f6e03</span><br>copied from ~/vet402-solana/results/remeasure/solana-2026-09-29.json</li><li class="meta"><b>remeasure/tempo-2026-09-29</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/remeasure/tempo-2026-09-29.json" rel="noopener noreferrer nofollow">data/remeasure/tempo-2026-09-29.json</a><br>sha256 <span class="mono">1db877d039e6c1668ffd0d1cc5b7fbbda342cad15d0a24e65f5a52083f181473</span><br>copied from ~/vet402-solana/results/remeasure/tempo-2026-09-29.json</li><li class="meta"><b>cdp/discovery-2026-09-29</b> <a class="mono" href="https://github.com/kzmttkc/vet402-delivery/blob/main/data/cdp/discovery-2026-09-28.json" rel="noopener noreferrer nofollow">data/cdp/discovery-2026-09-28.json</a><br>sha256 <span class="mono">c13a46a04574a70b5233fe412170d390a7eca4e851d98ff9f775deda837671b4</span><br>Projection of 18 raw pages (sha256 of each inside the file): resource and three quality fields per item. Used for the 2026-09-29 report as well: the catalog comparison still uses the 2026-09-28 fetch. copied from https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources</li></ul>
 
 <h2>10. Compared with catalog order</h2>
-<h3>CDP Bazaar order vs vet402</h3>
-<p class="meta">Among ranked sellers the catalog lists (81), &quot;high&quot; = top 41 by l30DaysTotalCalls (sum per host). &quot;High but never delivered&quot; = high and 0 delivered out of every counted vet402 purchase. &quot;Low but always delivered&quot; = not high and every counted vet402 purchase delivered. Counted = delivered or failed on the seller&#39;s side.</p>
+<p class="meta">Per page, like the grades.</p>
+<h3>Solana, Tempo and Base</h3>
+<h4>CDP Bazaar order vs vet402</h4>
+<p class="meta">Among ranked sellers the catalog lists (78), &quot;high&quot; = top 39 by l30DaysTotalCalls (sum per host). &quot;High but never delivered&quot; = high and 0 delivered out of every counted vet402 purchase. &quot;Low but always delivered&quot; = not high and every counted vet402 purchase delivered. Counted = delivered or failed on the seller&#39;s side.</p>
 <div class="stats">
-  <div><span class="big">81</span><br>sellers in both</div>
-  <div><span class="big">0</span><br>high in catalog, never arrived (0 after a settled payment)</div>
-  <div><span class="big">35</span><br>low in catalog, always arrived</div>
-  <div><span class="big">0.20</span><br>rank correlation</div>
+  <div><span class="big">78</span><br>sellers in both</div>
+  <div><span class="big">0</span><br>high in catalog, never came back (0 after a settled payment)</div>
+  <div><span class="big">35</span><br>low in catalog, always came back</div>
+  <div><span class="big">0.30</span><br>rank correlation</div>
 </div>
-<details><summary>High in the catalog, never arrived</summary><p class="dim">none</p></details>
-<details><summary>Low in the catalog, arrived every time</summary><ol class="plain"><li><b class="mono">api.agentwork.run</b><br>
-  catalog #66 (6 calls/30d) · vet402 measuring: <b>6/6</b> arrived <a class="mono" href="https://allo.info/tx/LKUE5V4DFDERQ5KPZMTKPP2DR3EWGXWXIY7HDOI2DZC7JZ37JRDQ" rel="noopener noreferrer nofollow">LKUE5V4D…37JRDQ</a>
-  </li>
-<li><b class="mono">midax402.com</b><br>
-  catalog #78 (1 calls/30d) · vet402 measuring: <b>4/4</b> arrived <a class="mono" href="https://solscan.io/tx/4hb7xTLtkd8dZHYG7SxLLBTA6JEbQ91WHMfW6i7U6n9A5cF2abUMacAEytpqhDgGqekFdSNmkXqAMCiLSRirRCCA" rel="noopener noreferrer nofollow">4hb7xTLt…irRCCA</a>
-  </li>
-<li><b class="mono">x402.911fund.io</b><br>
-  catalog #81 (1 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/1FXgNiCA5dP4TLJK9arARd67S2yjQ5xyJxPo9kHXX5r1dzRui9McDj3MhpifA3VkPhzi3w2aDK2TXrQT4BMcU7k" rel="noopener noreferrer nofollow">1FXgNiCA…BMcU7k</a>
+<details><summary>High in the catalog, never came back with an answer</summary><p class="dim">none</p></details>
+<details><summary>Low in the catalog, came back every time</summary><ol class="plain"><li><b class="mono">x402.911fund.io</b><br>
+  catalog #78 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/1FXgNiCA5dP4TLJK9arARd67S2yjQ5xyJxPo9kHXX5r1dzRui9McDj3MhpifA3VkPhzi3w2aDK2TXrQT4BMcU7k" rel="noopener noreferrer nofollow">1FXgNiCA…BMcU7k</a>
   </li>
 <li><b class="mono">tick.twzrd.xyz</b><br>
-  catalog #79 (1 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/XhmpVwipJwcEaKCtfmob58XL5dp7PzjYrJSFP4oD9GrSTUuov1BUyUY2kV49Tv6DKqnPJoVt1G48joXfjc8Kv5L" rel="noopener noreferrer nofollow">XhmpVwip…c8Kv5L</a>
+  catalog #76 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/XhmpVwipJwcEaKCtfmob58XL5dp7PzjYrJSFP4oD9GrSTUuov1BUyUY2kV49Tv6DKqnPJoVt1G48joXfjc8Kv5L" rel="noopener noreferrer nofollow">XhmpVwip…c8Kv5L</a>
+  </li>
+<li><b class="mono">midax402.com</b><br>
+  catalog #75 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/4hb7xTLtkd8dZHYG7SxLLBTA6JEbQ91WHMfW6i7U6n9A5cF2abUMacAEytpqhDgGqekFdSNmkXqAMCiLSRirRCCA" rel="noopener noreferrer nofollow">4hb7xTLt…irRCCA</a>
   </li>
 <li><b class="mono">api.groundtruths.xyz</b><br>
-  catalog #76 (1 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/5hM56JnyQ8NPuGgaFMfsqNnFqbKtF2iE1wLzVMhcf9W9whsTxk24LKXLCvXth5qWfZi4DdTrkXXDrJbBGcGwio6C" rel="noopener noreferrer nofollow">5hM56Jny…Gwio6C</a>
+  catalog #73 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/5hM56JnyQ8NPuGgaFMfsqNnFqbKtF2iE1wLzVMhcf9W9whsTxk24LKXLCvXth5qWfZi4DdTrkXXDrJbBGcGwio6C" rel="noopener noreferrer nofollow">5hM56Jny…Gwio6C</a>
   </li>
 <li><b class="mono">aijobsboom-x402.sonofgus.workers.dev</b><br>
-  catalog #75 (1 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/s3F3sjtKw6nxfN7t9u1P3mVyQ3BJ7xhwAoqe8CdbnQCfK29FzvSa7MUZwCBv555CvJMsKt4kpX8osYQjcFcuR95" rel="noopener noreferrer nofollow">s3F3sjtK…FcuR95</a>
+  catalog #72 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/s3F3sjtKw6nxfN7t9u1P3mVyQ3BJ7xhwAoqe8CdbnQCfK29FzvSa7MUZwCBv555CvJMsKt4kpX8osYQjcFcuR95" rel="noopener noreferrer nofollow">s3F3sjtK…FcuR95</a>
   </li>
 <li><b class="mono">x402-crypto-data.vercel.app</b><br>
-  catalog #73 (4 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/323qmV1ZWsmgc5fgWzmdHFyFRZKDwMoEiY5HcryPz7A14boLMNpXnQjdgbyqWZZncEJMNwUfV4BBhzArKLZX8B53" rel="noopener noreferrer nofollow">323qmV1Z…ZX8B53</a>
+  catalog #70 (4 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/323qmV1ZWsmgc5fgWzmdHFyFRZKDwMoEiY5HcryPz7A14boLMNpXnQjdgbyqWZZncEJMNwUfV4BBhzArKLZX8B53" rel="noopener noreferrer nofollow">323qmV1Z…ZX8B53</a>
   </li>
 <li><b class="mono">kaisha-api.hp-vladic.workers.dev</b><br>
-  catalog #72 (4 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/41jxBcdjaWbP9y1EvHW1ipNbQiTt9VgpisVYeJHDrAyMf7G6Neb8zkb27yhrBtU31uTdvXddEvevoaR3WCoCP7Y9" rel="noopener noreferrer nofollow">41jxBcdj…oCP7Y9</a>
+  catalog #69 (4 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/41jxBcdjaWbP9y1EvHW1ipNbQiTt9VgpisVYeJHDrAyMf7G6Neb8zkb27yhrBtU31uTdvXddEvevoaR3WCoCP7Y9" rel="noopener noreferrer nofollow">41jxBcdj…oCP7Y9</a>
   </li>
 <li><b class="mono">ip402.xyz</b><br>
-  catalog #71 (4 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/4ZzsuVxqCkQmfDV7Mpx7UJ4S7H9CamVi6GYemcdTnhhwombwPZBmB366iKKHSa8r8yjzwejZKRpBs8pvScrSAyrw" rel="noopener noreferrer nofollow">4ZzsuVxq…rSAyrw</a>
+  catalog #68 (4 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/4ZzsuVxqCkQmfDV7Mpx7UJ4S7H9CamVi6GYemcdTnhhwombwPZBmB366iKKHSa8r8yjzwejZKRpBs8pvScrSAyrw" rel="noopener noreferrer nofollow">4ZzsuVxq…rSAyrw</a>
   </li>
 <li><b class="mono">agentic-reservations.vercel.app</b><br>
-  catalog #70 (5 calls/30d) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://solscan.io/tx/5kAsUvfHp5k51tupwe2zgSDuNghCLb8ry8xNAinCMA84x4wcPJTF7rRXNL1ZjPjz2RqT1A5B7EWwBJLptgCQaznR" rel="noopener noreferrer nofollow">5kAsUvfH…CQaznR</a>
+  catalog #67 (5 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/5kAsUvfHp5k51tupwe2zgSDuNghCLb8ry8xNAinCMA84x4wcPJTF7rRXNL1ZjPjz2RqT1A5B7EWwBJLptgCQaznR" rel="noopener noreferrer nofollow">5kAsUvfH…CQaznR</a>
+  </li>
+<li><b class="mono">read.lonestaroracle.xyz</b><br>
+  catalog #66 (6 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://solscan.io/tx/3xgdxLtyNjLPM3pvHeHpGSxhBNei2ck852C4CYtfEd64oZLiQipdBWffDpaY9vKcF2eWbo8sinxeeL9wRPFg9wC1" rel="noopener noreferrer nofollow">3xgdxLty…Fg9wC1</a>
   </li></ol><p class="dim">…and 25 more in the JSON.</p></details>
-<h3>Mercator order vs vet402</h3>
+<h4>Mercator order vs vet402</h4>
 <p class="meta">Among ranked sellers the catalog lists (19), &quot;high&quot; = top 10 by best search rank (1 = first). &quot;High but never delivered&quot; = high and 0 delivered out of every counted vet402 purchase. &quot;Low but always delivered&quot; = not high and every counted vet402 purchase delivered. Counted = delivered or failed on the seller&#39;s side.</p>
 <div class="stats">
   <div><span class="big">19</span><br>sellers in both</div>
-  <div><span class="big">1</span><br>high in catalog, never arrived (0 after a settled payment)</div>
-  <div><span class="big">9</span><br>low in catalog, always arrived</div>
+  <div><span class="big">1</span><br>high in catalog, never came back (0 after a settled payment)</div>
+  <div><span class="big">9</span><br>low in catalog, always came back</div>
   <div><span class="big">0.32</span><br>rank correlation</div>
 </div>
-<details><summary>High in the catalog, never arrived</summary><ol class="plain"><li><b class="mono">modal.mpp.tempo.xyz</b><br>
-  catalog #2 (best rank 1) · vet402 measuring: <b>0/1</b> arrived 
+<details><summary>High in the catalog, never came back with an answer</summary><ol class="plain"><li><b class="mono">modal.mpp.tempo.xyz</b><br>
+  catalog #2 (best rank 1) · vet402 measuring: <b>0/1</b> came back 
   <div class="meta">tempo · server error 5xx · <span class="mono">http 500</span></div>
   <div class="meta mono">https://modal.mpp.tempo.xyz/sandbox/exec</div></li></ol></details>
-<details><summary>Low in the catalog, arrived every time</summary><ol class="plain"><li><b class="mono">mpp.orthogonal.com#orth-andi</b><br>
-  catalog #14 (best rank 7) · vet402 measuring: <b>2/2</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0x5782a8834ac4e0b53d4463a0ac6aa252f3c31108458147b2b742a5caa0e4d554" rel="noopener noreferrer nofollow">0x5782a8…e4d554</a>
+<details><summary>Low in the catalog, came back every time</summary><ol class="plain"><li><b class="mono">mpp.orthogonal.com#orth-andi</b><br>
+  catalog #14 (best rank 7) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0x5782a8834ac4e0b53d4463a0ac6aa252f3c31108458147b2b742a5caa0e4d554" rel="noopener noreferrer nofollow">0x5782a8…e4d554</a>
   </li>
 <li><b class="mono">coingecko.mpp.paywithlocus.com</b><br>
-  catalog #19 (best rank 13) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0x5cb10f7084c00a241aa2a8a2d90c2ed1334e48e5a3aed5de9a9fb5949af9d677" rel="noopener noreferrer nofollow">0x5cb10f…f9d677</a>
+  catalog #19 (best rank 13) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0x5cb10f7084c00a241aa2a8a2d90c2ed1334e48e5a3aed5de9a9fb5949af9d677" rel="noopener noreferrer nofollow">0x5cb10f…f9d677</a>
   </li>
 <li><b class="mono">groq.mpp.paywithlocus.com</b><br>
-  catalog #18 (best rank 10) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0x2f3cdd39383cb9cee42dbe1b2bb2ccf2ad4904231f38ab26675b811799da3beb" rel="noopener noreferrer nofollow">0x2f3cdd…da3beb</a>
+  catalog #18 (best rank 10) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0x2f3cdd39383cb9cee42dbe1b2bb2ccf2ad4904231f38ab26675b811799da3beb" rel="noopener noreferrer nofollow">0x2f3cdd…da3beb</a>
   </li>
 <li><b class="mono">alphavantage.mpp.paywithlocus.com</b><br>
-  catalog #17 (best rank 9) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0xdb4fbc76ef920653217974915625b4d0a3d2d3c33bad6449af126d9d6ffaa776" rel="noopener noreferrer nofollow">0xdb4fbc…faa776</a>
+  catalog #17 (best rank 9) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0xdb4fbc76ef920653217974915625b4d0a3d2d3c33bad6449af126d9d6ffaa776" rel="noopener noreferrer nofollow">0xdb4fbc…faa776</a>
   </li>
 <li><b class="mono">mistral.mpp.paywithlocus.com</b><br>
-  catalog #16 (best rank 8) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0x235fbbc14a6d0574897af20b80aa325a329ce2ef52e3e81a71e03aa62fd5f77f" rel="noopener noreferrer nofollow">0x235fbb…d5f77f</a>
+  catalog #16 (best rank 8) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0x235fbbc14a6d0574897af20b80aa325a329ce2ef52e3e81a71e03aa62fd5f77f" rel="noopener noreferrer nofollow">0x235fbb…d5f77f</a>
   </li>
 <li><b class="mono">deepgram.mpp.paywithlocus.com</b><br>
-  catalog #15 (best rank 8) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0x9a2866697bf600b5716826a58fea526a2ae0aaaaed3341fcc205f4a05852b85a" rel="noopener noreferrer nofollow">0x9a2866…52b85a</a>
+  catalog #15 (best rank 8) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0x9a2866697bf600b5716826a58fea526a2ae0aaaaed3341fcc205f4a05852b85a" rel="noopener noreferrer nofollow">0x9a2866…52b85a</a>
   </li>
 <li><b class="mono">edgar-search.mpp.paywithlocus.com</b><br>
-  catalog #13 (best rank 7) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0xc41cd00537ef50fed35d45a6d2476137771c3a8c653814963e0a0a0c81df4a0b" rel="noopener noreferrer nofollow">0xc41cd0…df4a0b</a>
+  catalog #13 (best rank 7) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0xc41cd00537ef50fed35d45a6d2476137771c3a8c653814963e0a0a0c81df4a0b" rel="noopener noreferrer nofollow">0xc41cd0…df4a0b</a>
   </li>
 <li><b class="mono">perplexity.mpp.paywithlocus.com</b><br>
-  catalog #12 (best rank 6) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0xadece56df6b6aad3e427800fb95ef6d264bfd491338120612d8461ba7377750a" rel="noopener noreferrer nofollow">0xadece5…77750a</a>
+  catalog #12 (best rank 6) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0xadece56df6b6aad3e427800fb95ef6d264bfd491338120612d8461ba7377750a" rel="noopener noreferrer nofollow">0xadece5…77750a</a>
   </li>
 <li><b class="mono">openweather.mpp.paywithlocus.com</b><br>
-  catalog #11 (best rank 5) · vet402 measuring: <b>1/1</b> arrived <a class="mono" href="https://explore.tempo.xyz/tx/0xd2c0ed6e1a90d55576132471abc4fe670b3f3ccd747be2bcf225c09f5ee0300d" rel="noopener noreferrer nofollow">0xd2c0ed…e0300d</a>
+  catalog #11 (best rank 5) · vet402 measuring: <b>1/1</b> came back <a class="mono" href="https://explore.tempo.xyz/tx/0xd2c0ed6e1a90d55576132471abc4fe670b3f3ccd747be2bcf225c09f5ee0300d" rel="noopener noreferrer nofollow">0xd2c0ed…e0300d</a>
+  </li></ol></details>
+<h3>Algorand</h3>
+<h4>CDP Bazaar order vs vet402</h4>
+<p class="meta">Among ranked sellers the catalog lists (7), &quot;high&quot; = top 4 by l30DaysTotalCalls (sum per host). &quot;High but never delivered&quot; = high and 0 delivered out of every counted vet402 purchase. &quot;Low but always delivered&quot; = not high and every counted vet402 purchase delivered. Counted = delivered or failed on the seller&#39;s side.</p>
+<div class="stats">
+  <div><span class="big">7</span><br>sellers in both</div>
+  <div><span class="big">0</span><br>high in catalog, never came back (0 after a settled payment)</div>
+  <div><span class="big">2</span><br>low in catalog, always came back</div>
+  <div><span class="big">0.41</span><br>rank correlation</div>
+</div>
+<details><summary>High in the catalog, never came back with an answer</summary><p class="dim">none</p></details>
+<details><summary>Low in the catalog, came back every time</summary><ol class="plain"><li><b class="mono">api.agentwork.run</b><br>
+  catalog #6 (6 calls/30d) · vet402 measuring: <b>6/6</b> came back <a class="mono" href="https://allo.info/tx/LKUE5V4DFDERQ5KPZMTKPP2DR3EWGXWXIY7HDOI2DZC7JZ37JRDQ" rel="noopener noreferrer nofollow">LKUE5V4D…37JRDQ</a>
+  </li>
+<li><b class="mono">midax402.com</b><br>
+  catalog #7 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://allo.info/tx/2GGS6HT4CUWP5WK27ESANOJTMU3EF4FU5AHUJA75LZO266PVP2HA" rel="noopener noreferrer nofollow">2GGS6HT4…PVP2HA</a>
   </li></ol></details>
 <ul><li><b>PayAI discovery</b>: Items carry no catalog-level call, payer or quality field (checked on 1,000 of 7,040 items on 2026-09-28; such words appear only inside sellers&#39; own output examples), so there is no catalog order to compare.</li><li><b>mpp.dev/api/services</b>: A directory of 142 services with no usage, quality or rank field (checked 2026-09-28). Mercator&#39;s rank covers the same Tempo services.</li></ul>
 
 <h2 id="changes">Change log</h2>
-<ul><li><b>v2</b> (2026-09-28)<ul><li>Failures are split by who was at fault: seller side, vet402 or facilitator side, can&#39;t tell. Only seller-side failures count toward the grade; the other two are shown as counts.</li><li>HTTP 429 and subcent_quota_exceeded from vet402 buying hundreds of one seller&#39;s items within minutes are vet402&#39;s side.</li><li>One delivery test on every chain: settled, then 2xx with a non-empty body. Whether the answer matched what the seller declared is a separate column.</li><li>Rank numbers only with 10+ counted purchases on 2+ different days; everyone else is &quot;measuring&quot;.</li><li>Grades A–D. Good marks by the interval&#39;s lower bound; D only when the upper bound is below 0.5.</li><li>Measuring from now on: at most 5 purchases per seller per run, 60 s apart.</li><li>2026-09-28: the 6 corrected rows of the Algorand census are in (see Corrections in the vet402-algorand README): paid on chain, answered 402, delivered nothing; counted on the seller side.</li></ul></li><li><b>v1</b> (2026-09-28)<ul><li>Score = Wilson lower bound of delivered / every tried purchase. Each chain runner&#39;s own delivery check. Every seller with one try got a rank number.</li></ul></li></ul>
+<ul><li><b>v3</b> (2026-09-29)<ul><li>Grades are computed per page. The first page (Solana, Tempo and Base) is graded from Solana, Tempo and Base purchases only; the Algorand page from Algorand purchases only. In v2 one grade per seller mixed the purchases of every chain.</li><li>Effect on the 2026-09-29 report: no grade and no rank number changed. Five sellers were bought on both sides (agent402.tools, coil.trade, whaletape.xyz, api.syraa.fun, midax402.com). The three with grade A in v2 keep A and their rank on the Algorand page, now counted from Algorand purchases only (agent402.tools 43/43 instead of 46/46, coil.trade 40/40 instead of 42/42, whaletape.xyz 50/50 instead of 52/52), and are measuring on the first page.</li><li>The first page shows every Solana, Tempo and Base purchase per chain and per seller, even before any seller there has a grade. The Algorand page lists all its sellers without folding any.</li><li>Comparisons with catalog order are made per page.</li><li>Inputs: the daily re-purchases (remeasure) from Solana and Tempo sellers vet402 already paid are read as purchases on their day. They have been read since 2026-09-29; this entry is the first to say so.</li><li>Wording only, no change to the test: &quot;delivered&quot; is shown as &quot;came back with an answer&quot;, with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402&#39;s own purchases, and a paid check is a separate report that never moves a grade.</li></ul></li><li><b>v2</b> (2026-09-28)<ul><li>Failures are split by who was at fault: seller side, vet402 or facilitator side, can&#39;t tell. Only seller-side failures count toward the grade; the other two are shown as counts.</li><li>HTTP 429 and subcent_quota_exceeded from vet402 buying hundreds of one seller&#39;s items within minutes are vet402&#39;s side.</li><li>One delivery test on every chain: settled, then 2xx with a non-empty body. Whether the answer matched what the seller declared is a separate column.</li><li>Rank numbers only with 10+ counted purchases on 2+ different days; everyone else is &quot;measuring&quot;.</li><li>Grades A–D. Good marks by the interval&#39;s lower bound; D only when the upper bound is below 0.5.</li><li>Measuring from now on: at most 5 purchases per seller per run, 60 s apart.</li><li>2026-09-28: the 6 corrected rows of the Algorand census are in (see Corrections in the vet402-algorand README): paid on chain, answered 402, delivered nothing; counted on the seller side.</li></ul></li><li><b>v1</b> (2026-09-28)<ul><li>Score = Wilson lower bound of delivered / every tried purchase. Each chain runner&#39;s own delivery check. Every seller with one try got a rank number.</li></ul></li></ul>
 
-<footer><a href="index.html">All sellers</a><a href="rank.json">Data (rank.json)</a><a href="https://github.com/kzmttkc/vet402-delivery" rel="noopener noreferrer nofollow">Code and inputs</a></footer>
+<footer><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="rank.json">Data (rank.json)</a><a href="https://github.com/kzmttkc/vet402-delivery" rel="noopener noreferrer nofollow">Code and inputs</a></footer>
 
 </main></body></html>

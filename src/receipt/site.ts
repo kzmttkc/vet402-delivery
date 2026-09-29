@@ -13,6 +13,8 @@ export const PUBLIC_SITE_URL = "https://kzmttkc.github.io/vet402-delivery";
 const PUBLIC_REPO_URL = "https://github.com/kzmttkc/vet402-delivery";
 export const OBSERVER_KEYS_URL = `${PUBLIC_REPO_URL}/blob/main/src/receipt/observers.ts`;
 
+const EXAMPLE_PLACEHOLDER = "obs_YYYY-MM-DD_NNNNNN";
+
 export function verifyCommandFor(id: string): string {
   return `git clone ${PUBLIC_REPO_URL}\ncd vet402-delivery && npm ci\nnpx tsx scripts/verify-receipt.ts ${PUBLIC_SITE_URL}/records/${id}.json`;
 }
@@ -105,16 +107,21 @@ ${rows}
   const counts = Object.entries(byVerdict)
     .map(([v, n]) => `${n} ${v}`)
     .join(", ");
+  const bySequence = [...loaded.records].sort((a, b) => a.entry.sequence - b.entry.sequence);
+  // A real record id, so the command runs as pasted; the placeholder only when nothing is published.
+  const exampleId = bySequence[0]?.entry.id ?? EXAMPLE_PLACEHOLDER;
+  const firstDay = [...loaded.records.map((r) => r.entry.day)].sort()[0] ?? null;
   const body = `
 <nav><a href="../index.html">Ranking</a> · <a href="../method.html">How vet402 measures</a></nav>
 <header>
 <h1>vet402 delivery records</h1>
 <p class="lead">One signed record per purchase vet402 made with its own money: what it paid, on which chain, and what came back.</p>
-<p class="dim">${loaded.records.length} records published (${esc(counts || "none")}) for ${sellers.length} sellers.</p>
+<p class="dim">${loaded.records.length} records published (${esc(counts || "none")}) for ${sellers.length} sellers${firstDay ? `, from ${esc(firstDay)}` : ""}. A later day's purchases appear here only after that day's records are built.</p>
 </header>
 
 <h2>What is published</h2>
 <p>${esc(loaded.index.policy)} Sellers told so far: ${loaded.index.notifiedSellers}.</p>
+<p class="meta">The ranking pages already list each seller's failed purchases with their payments. What waits until the seller has been told is the signed record of a failure, not the fact that it failed.</p>
 <p class="meta">A record proves that vet402 paid and what HTTP status came back at that time. It does not prove that the content was correct, or that the seller works now.</p>
 
 <h2>Daily roots</h2>
@@ -123,7 +130,7 @@ ${rows}
 
 <h2>Check a record</h2>
 <p class="meta">No account and no payment needed. The script checks the signature against vet402's published key, the verdict, the Merkle proof, and the payment on chain.</p>
-<pre class="cmd">${esc(verifyCommandFor("obs_YYYY-MM-DD_NNNNNN"))}</pre>
+<pre class="cmd">${esc(verifyCommandFor(exampleId))}</pre>${exampleId === EXAMPLE_PLACEHOLDER ? "" : `<p class="meta">The last line checks the first published record, <a href="${esc(exampleId)}.html">${esc(exampleId)}</a>; put any other record id in its place.</p>`}
 
 <h2>By seller</h2>
 ${list}

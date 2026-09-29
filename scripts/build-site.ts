@@ -1,6 +1,7 @@
 /**
  * Build the public site (site/ by default) from a rank report JSON:
- *   index.html, method.html, seller/<slug>.html and rank.json (the report itself, byte for byte).
+ *   index.html (Solana, Tempo, Base), algorand.html, method.html, seller/<slug>.html and rank.json
+ *   (the report itself, byte for byte). Each page is graded from its own chains only (method v3).
  * and, from data/records/ (or --records <dir>), the signed delivery records:
  *   records/index.html, records/<id>.html and records/<id>.json (the record itself, byte for byte).
  * The build stops if data/records/ holds a record the policy does not allow, a record that does not
@@ -15,7 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { publicPage, renderPublicSite, sellerSlugs } from "../src/rank/html.js";
+import { publicPage, renderPublicSite, siteSlugs } from "../src/rank/html.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
 import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
 import type { RankReport } from "../src/rank/report.js";
@@ -45,7 +46,7 @@ if (report.kind !== "vet402-seller-rank") throw new Error(`${reportPath}: not a 
 
 const recordsDir = resolve(argValue("--records") ?? join(ROOT, "data", "records"));
 const records = existsSync(join(recordsDir, "index.json")) ? await loadPublishedRecords(recordsDir) : null;
-const slugs = sellerSlugs(report.ranking.map((s) => s.key));
+const slugs = siteSlugs(report);
 const pages = renderPublicSite(report, { records: records ? recordsBySeller(records) : undefined });
 const jsonFiles = new Map<string, string>();
 if (records) {

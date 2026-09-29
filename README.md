@@ -1,8 +1,26 @@
 # vet402-delivery
 
-vet402 pays an x402 (or MPP) API with its own money before an AI agent does, and records whether what came back matches what the listing promised, with the payment tx.
+Before an AI agent pays for an API, vet402 has already bought it with its own money and shows what came back, with the payment on chain.
 
-This repository is the multi-chain part of vet402: it buys sellers on **Solana, Tempo and Base** once each, keeps every result with its tx, and ranks sellers by what was actually delivered, not by how popular a listing is.
+On Solana, Tempo and Base, from 2026-09-28 to 2026-09-29 (UTC): 350 purchases from 220 sellers. 299 payments settled; 250 came back with an answer. In 49 cases the payment settled and nothing usable came back.
+
+- **See the results:** https://kzmttkc.github.io/vet402-delivery/ (Solana, Tempo and Base first; Algorand on its own page)
+- **Check one record yourself, no account and no payment:** from a clone of this repository, `npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json`
+- **Use it in an agent, between "search" and "pay":** `skills/vet402-check/`
+
+Who it is for:
+- People who build agents that pay: look a seller up before your agent pays it.
+- Sellers: see whether a real outside payment to your API settled and what your API answered. It costs you nothing, and there is nothing to sign up for.
+
+"Came back with an answer" means the payment settled and the seller answered 2xx with a non-empty body (on Tempo, where the runner kept no body: 2xx). vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.
+
+How vet402 pays for this: Grades come only from vet402's own purchases. vet402 also sells paid checks (on Algorand); a paid check is a separate report and never moves a grade.
+
+Where Solana comes in: vet402 pays Solana sellers in USDC on Solana, and writes the Merkle root of each day's signed delivery records into one Solana memo, so a record of that day cannot be added or dropped later without the root changing.
+
+The numbers above are from the report of 2026-09-29 (`site/rank.json`). The site is rebuilt from `data/` on every push and always shows the latest numbers.
+
+This repository is the multi-chain part of vet402. It buys every seller it can on **Solana, Tempo and Base**, buys again about once a day from the Solana and Tempo sellers whose earlier payment settled (Base sellers have been bought once), keeps every result with its payment, and grades sellers by what was actually delivered, not by how popular a listing is.
 
 ## What is here
 
@@ -12,8 +30,8 @@ This repository is the multi-chain part of vet402: it buys sellers on **Solana, 
 | Tempo census | Buys the MPP services listed in Tempo's Mercator directory on Tempo mainnet (USDC.e) and records the result | `scripts/tempo-census.ts`, `src/tempo/` |
 | Base | Buys ERC-8004-registered sellers and writes the delivered result to the ERC-8004 ReputationRegistry with `proofOfPayment`, from the same address that paid | `scripts/base-buy.ts`, `scripts/base-feedback.ts`, `src/evm/` |
 | Check skill | A check to run between "search" and "pay" in an agent's x402 flow | `skills/vet402-check/` |
-| Delivery ranking | Ranks sellers by independent purchases; failures caused by vet402 or the facilitator are not counted against the seller | `src/rank/` (method: `src/rank/README.md`) |
-| Public ranking site | Static pages (list, one page per seller, method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |
+| Delivery ranking | Grades sellers by independent purchases, per page: Solana, Tempo and Base together, Algorand on its own (method v3); failures caused by vet402 or the facilitator are not counted against the seller | `src/rank/` (method: `src/rank/README.md`) |
+| Public site | Static pages (Solana, Tempo and Base results first, an Algorand page, one page per seller, the method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |
 | First-buyer mode | Buys once, for life, from each Solana seller (payTo) that no one has paid yet, and publishes whether it settled and delivered, or why it cannot be paid | `scripts/first-buyer.ts`, `src/first-buyer/` |
 | Delivery records | One signed record per purchase (x402-observation/v0): what vet402 paid, on which chain, and what came back, with a Merkle proof into a daily root that is written into a Solana memo | `src/receipt/`, `scripts/build-receipts.ts`, `scripts/publish-records.ts`, `scripts/anchor-receipts.ts`, `data/records/`, `site/records/` |
 | Remeasure | Buys again, once a day, from Solana and Tempo sellers vet402 already paid (payment settled), so the ranking gets purchases on more than one day | `scripts/remeasure.ts`, `src/remeasure/` |

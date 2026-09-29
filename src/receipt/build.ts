@@ -90,9 +90,9 @@ export function decideVerdict(v: VerdictInput): Verdict {
     return mk(
       "UNCLEAR",
       `Payment settled; the seller answered HTTP ${s}. vet402 built this request from the seller's listing, so a fault on vet402's side is not ruled out.`,
-      "On the seller's request, or in vet402's next paid check of this resource.",
+      "On the seller's request, or in vet402's next purchase of this resource.",
     );
-  return mk("UNCLEAR", `Payment settled; unexpected HTTP ${s}.`, "In vet402's next paid check of this resource.");
+  return mk("UNCLEAR", `Payment settled; unexpected HTTP ${s}.`, "In vet402's next purchase of this resource.");
 }
 
 // ---------- request hashes ----------

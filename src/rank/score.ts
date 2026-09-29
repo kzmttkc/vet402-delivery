@@ -118,13 +118,23 @@ export interface PayToChange {
   how: "refused_at_payment" | "differs_between_runs";
 }
 
+/** One seller's purchases on one chain: tried, settled on chain, counted in the grade, delivered. */
+export interface ChainFigures {
+  tried: number;
+  settled: number;
+  counted: number;
+  delivered: number;
+  /** Most recent tried purchase on this chain. */
+  lastAt: string;
+}
+
 export interface SellerStats {
   key: string;
   host: string;
   service: string | null;
   /** Every catalog service id seen for this seller (Tempo / Mercator ids). */
   services: string[];
-  chains: Partial<Record<Chain, { tried: number; counted: number; delivered: number }>>;
+  chains: Partial<Record<Chain, ChainFigures>>;
   /** Every purchase vet402 committed to pay, whoever was at fault. */
   tried: number;
   /** delivered + seller-side failures: the grade's denominator. */
@@ -234,8 +244,10 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
     const declared = { checked: 0, matched: 0 };
     for (const r of rows) {
       if (r.tried) {
-        const c = (chains[r.chain] ??= { tried: 0, counted: 0, delivered: 0 });
+        const c = (chains[r.chain] ??= { tried: 0, settled: 0, counted: 0, delivered: 0, lastAt: r.at });
         c.tried++;
+        if (r.settled === true) c.settled++;
+        c.lastAt = r.at; // rows are sorted by time
         if (isCounted(r)) c.counted++;
         if (r.delivered) c.delivered++;
         if (r.declaredMatch !== null) {

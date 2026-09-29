@@ -157,7 +157,7 @@ export function renderObservationPage(o: Observation, opts: RenderOptions): stri
   <section class="card seller${negative ? " up" : ""}" aria-labelledby="seller-h">
     <h2 id="seller-h">Are you the seller?</h2>
     <p>You can attach your own signed x402 Receipt for this transaction, add a note, or ask vet402 to pay and check again. Nothing here is deleted; additions are listed below the record with their date.</p>
-    <p>Send the record id <code>${esc(o.id)}</code> to <a href="${esc(o.contact)}" rel="noopener noreferrer">${esc(o.contact)}</a>.</p>
+    <p>Open an issue at <a href="https://github.com/kzmttkc/vet402-delivery/issues" rel="noopener noreferrer">github.com/kzmttkc/vet402-delivery/issues</a> with the record id <code>${esc(o.id)}</code> (the same place as corrections to the ranking), or send the id to <a href="${esc(o.contact)}" rel="noopener noreferrer">${esc(o.contact)}</a>.</p>
   </section>`;
 
   const fields = flatten({ ...o, signature: o.signature ? { ...o.signature } : null })

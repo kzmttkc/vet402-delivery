@@ -1,6 +1,7 @@
 /**
- * Static HTML for the rank report: index.html (the list), method.html, and one page per seller under s/.
- * Readable at phone width, no scripts, no external requests.
+ * Static HTML for the rank report: index.html (Solana, Tempo, Base), algorand.html, method.html, and one
+ * page per seller under seller/. Readable at phone width, no scripts, no external requests.
+ * scripts/build-site.ts writes them to site/ (GitHub Pages); scripts/rank.ts writes the same pages next to the report.
  *
  * Every string that a seller can influence (host, URL, payTo, reason text, tx id) goes through
  * escapeHtml. Links are built only from tx ids that match the chain's id format, onto a fixed
@@ -10,8 +11,8 @@
 import { chainName } from "../receipt/html.js";
 import { FAULT_LABEL, ruleById } from "./classify.js";
 import type { Comparison, CompareRow } from "./compare.js";
-import { APPEAL_ISSUES_URL, type RankReport } from "./report.js";
-import type { Grade, RankedSeller } from "./score.js";
+import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, type GroupId, type GroupReport, type RankReport } from "./report.js";
+import type { ChainFigures, Grade, RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
 
 export function escapeHtml(v: unknown): string {
@@ -47,7 +48,7 @@ export function txHtml(chain: Chain, tx: string | null): string {
 }
 
 const CATEGORY_LABEL: Record<ReasonCategory, string> = {
-  delivered: "delivered",
+  delivered: "came back with an answer",
   not_settled: "payment not settled",
   settled_error_status: "paid, error status",
   settled_empty_body: "paid, empty answer",
@@ -58,10 +59,10 @@ const CATEGORY_LABEL: Record<ReasonCategory, string> = {
 };
 
 const GRADE_TEXT: Record<Grade, { mark: string; label: string }> = {
-  A: { mark: "A", label: "arrives 90%+ of the time" },
-  B: { mark: "B", label: "arrives 75%+ of the time" },
-  C: { mark: "C", label: "arrives 50%+ of the time" },
-  D: { mark: "D", label: "arrives less than half the time" },
+  A: { mark: "A", label: "comes back with an answer 90%+ of the time" },
+  B: { mark: "B", label: "comes back with an answer 75%+ of the time" },
+  C: { mark: "C", label: "comes back with an answer 50%+ of the time" },
+  D: { mark: "D", label: "comes back with an answer less than half the time" },
   undecided: { mark: "?", label: "unclear so far" },
   measuring: { mark: "…", label: "still measuring" },
 };
@@ -163,161 +164,9 @@ table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font
 th,td{border-bottom:1px solid var(--line);padding:6px 3px;text-align:right}th{font-size:.8rem;font-weight:600;vertical-align:bottom}th:first-child,td:first-child{text-align:left}
 `;
 
-function page(title: string, body: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">
-<meta name="referrer" content="no-referrer">
-<title>${escapeHtml(title)}</title>
-<style>${CSS}</style>
-</head>
-<body><main>
-${body}
-</main></body></html>
-`;
-}
-
-function gradeBadge(g: Grade): string {
-  return `<span class="g g${g}" title="${escapeHtml(GRADE_TEXT[g].label)}">${GRADE_TEXT[g].mark}</span>`;
-}
-
-function legend(): string {
-  const items = (["A", "B", "C", "D", "undecided", "measuring"] as Grade[])
-    .map((g) => `<span class="item">${gradeBadge(g)} ${escapeHtml(GRADE_TEXT[g].label)}</span>`)
-    .join("");
-  return `<p class="legend">${items}</p>`;
-}
-
-function excludedLine(s: RankedSeller): string {
-  const n = s.excluded.vet402_or_facilitator + s.excluded.unknown;
-  if (n === 0) return "";
-  const parts = [];
-  if (s.excluded.vet402_or_facilitator) parts.push(`${s.excluded.vet402_or_facilitator} vet402/facilitator side`);
-  if (s.excluded.unknown) parts.push(`${s.excluded.unknown} can't tell`);
-  return `<span class="sub">+${n} failed purchases not counted (${escapeHtml(parts.join(", "))})</span>`;
-}
-
-function boardRow(s: RankedSeller, slug: string): string {
-  return `<li><span class="rk">${s.rank ?? ""}</span>${gradeBadge(s.grade)}<a class="name" href="s/${escapeHtml(slug)}.html">${escapeHtml(s.key)}</a><span class="num">${s.delivered}/${s.counted}</span><span class="date">${escapeHtml(day(s.lastMeasuredAt))}</span>${excludedLine(s)}</li>`;
-}
-
-const BOARD_HEAD = `<li class="head" aria-hidden="true"><span class="rk">#</span><span></span><span>seller</span><span class="num">arrived</span><span class="date">last bought</span></li>`;
-
-function renderIndex(r: RankReport, slugs: Map<string, string>): string {
-  const ranked = r.ranking.filter((s) => s.rank !== null);
-  const measuring = r.ranking.filter((s) => s.rank === null);
-  const t = r.totals;
-  const body = `
-<header>
-<h1>vet402 delivery record</h1>
-<p class="lead">We buy from each seller with our own money and rank them by whether what we paid for arrived.</p>
-<p class="dim">We take no money from sellers. Purchases ${escapeHtml(day(t.firstPurchaseAt))} to ${escapeHtml(day(t.lastPurchaseAt))} (UTC) · method ${escapeHtml(r.method.version)} · <a href="method.html">How we measure</a></p>
-</header>
-${legend()}
-<p class="meta">"arrived" = paid purchases that came back as a 2xx answer with a body, out of those counted. Failures on vet402's or the facilitator's side, or with no clear cause, are not counted and are shown as a number.</p>
-
-<h2>Ranked (${ranked.length})</h2>
-${ranked.length ? `<ol class="board">${BOARD_HEAD}\n${ranked.map((s) => boardRow(s, slugs.get(s.key)!)).join("\n")}</ol>` : `<p class="dim">No seller has ${r.method.minCounted} counted purchases on ${r.method.minDays} different days yet.</p>`}
-
-<details>
-<summary>Measuring (${measuring.length}): fewer than ${r.method.minCounted} counted purchases, or only one day</summary>
-<p class="meta">No grade and no rank number yet. This is not a bad mark.</p>
-<ol class="board">${BOARD_HEAD}\n${measuring.map((s) => boardRow(s, slugs.get(s.key)!)).join("\n")}</ol>
-</details>
-
-<p class="meta">Not counted in this report: ${t.excluded.vet402_or_facilitator} failed purchases on vet402's or the facilitator's side, ${t.excluded.unknown} with no clear cause. <a href="method.html#instrument">Details</a></p>
-
-<footer><a href="method.html">How we measure</a><a href="method.html#appeal">Report a mistake</a><a href="../rank-${escapeHtml(r.date)}.json">Data (JSON)</a></footer>
-`;
-  return page("vet402 delivery record", body);
-}
-
-function faultBlock(s: RankedSeller, fault: Fault, n: number, blurb: string): string {
-  const rules = Object.entries(s.failuresByRule).filter(([id]) => ruleById(id)?.fault === fault);
-  return `<div class="fault"><b class="big">${n}</b><b>${escapeHtml(FAULT_LABEL[fault])}</b> <span class="meta">${escapeHtml(blurb)}</span>
-${rules.length ? `<div class="meta">${escapeHtml(countsText(Object.fromEntries(rules), ruleLabel))}</div>` : ""}</div>`;
-}
-
 function outcomeText(a: RankedSeller["recent"][number]): string {
-  if (a.delivered) return "arrived";
+  if (a.delivered) return "came back with an answer";
   return `${FAULT_LABEL[a.fault!]}: ${ruleLabel(a.rule!)}`;
-}
-
-function renderSeller(r: RankReport, s: RankedSeller): string {
-  const g = GRADE_TEXT[s.grade];
-  const lo = s.wilsonLower;
-  const hi = s.wilsonUpper;
-  const chains = Object.entries(s.chains)
-    .map(([c, v]) => `${c} ${v!.delivered}/${v!.counted}`)
-    .join(" · ");
-  const standing =
-    s.rank !== null
-      ? `Rank ${s.rank} of ${r.totals.sellersRanked}`
-      : `Measuring: needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; has ${s.counted} on ${s.days.length}.`;
-  const sellerFailN = s.counted - s.delivered;
-  const failures = s.sellerFailures.length
-    ? `<ol class="plain">${s.sellerFailures
-        .map(
-          (f) => `<li>${escapeHtml(when(f.at))} · ${escapeHtml(f.chain)} · ${escapeHtml(ruleLabel(f.rule))}${f.httpStatus !== null ? ` · HTTP ${f.httpStatus}` : ""} ${txHtml(f.chain, f.tx)}
-<div class="meta mono">${escapeHtml(f.url)}</div>
-<div class="meta">runner said: <span class="mono">${escapeHtml(f.rawReason)}</span>${f.detail ? ` · <span class="mono">${escapeHtml(f.detail)}</span>` : ""}</div></li>`,
-        )
-        .join("\n")}</ol>${sellerFailN > s.sellerFailures.length ? `<p class="dim">Showing the latest ${s.sellerFailures.length} of ${sellerFailN}.</p>` : ""}`
-    : `<p class="dim">None.</p>`;
-  const recent = s.recent.length
-    ? `<ol class="plain">${s.recent
-        .map(
-          (a) => `<li>${escapeHtml(when(a.at))} · ${escapeHtml(a.chain)} · ${escapeHtml(outcomeText(a))}${a.declaredMatch === false ? " · answer not as declared" : ""} ${txHtml(a.chain, a.tx)}
-<div class="meta mono">${escapeHtml(a.url)}</div></li>`,
-        )
-        .join("\n")}</ol>`
-    : `<p class="dim">None.</p>`;
-  const payTo = s.payToChanged
-    ? `<p class="warn">payTo changed: ${s.payToChanges
-        .slice(0, 3)
-        .map((c) => `<span class="mono">${escapeHtml(c.from)}</span> → <span class="mono">${escapeHtml(c.to)}</span> (${escapeHtml(c.how === "refused_at_payment" ? "vet402 refused to pay" : "later run")})`)
-        .join("; ")}</p>`
-    : "";
-  const notTried = countsText(s.notTried, (k) => CATEGORY_LABEL[k as ReasonCategory] ?? k);
-  const body = `
-<nav><a href="../index.html">← All sellers</a> · <a href="../method.html">How we measure</a></nav>
-<h1>${escapeHtml(s.key)}</h1>
-<p>${gradeBadge(s.grade)} ${escapeHtml(g.label)} · ${escapeHtml(standing)}</p>
-
-<div class="stats">
-  <div><span class="big">${s.delivered} / ${s.counted}</span><br>arrived${s.counted ? ` (${pct(s.deliveredRate)})` : ""}</div>
-  <div><span class="big">${lo.toFixed(2)}–${hi.toFixed(2)}</span><br>95% interval</div>
-  <div><span class="big">${escapeHtml(day(s.lastMeasuredAt))}</span><br>last bought · ${s.days.length} day${s.days.length === 1 ? "" : "s"} counted</div>
-</div>
-<div class="bar" aria-label="95% interval ${lo.toFixed(2)} to ${hi.toFixed(2)}"><span style="left:${(lo * 100).toFixed(1)}%;width:${((hi - lo) * 100).toFixed(1)}%"></span>${s.counted ? `<i style="left:${(s.deliveredRate * 100).toFixed(1)}%"></i>` : ""}</div>
-<div class="scale"><span>0</span><span>0.5</span><span>1</span></div>
-<p class="meta">Arrived = vet402's payment settled, then a 2xx answer with a body. Chains: ${escapeHtml(chains || "–")}.</p>
-<p class="meta">Separate column, not in the grade. Answer matched what the seller declared: ${s.declared.checked ? `${s.declared.matched} of ${s.declared.checked} checked` : "not checked"}.</p>
-${payTo}
-
-<h2>Failed purchases, by who was at fault</h2>
-${faultBlock(s, "seller", sellerFailN, "counted in the grade")}
-${faultBlock(s, "vet402_or_facilitator", s.excluded.vet402_or_facilitator, "not counted")}
-${faultBlock(s, "unknown", s.excluded.unknown, "not counted")}
-${notTried ? `<p class="meta">Not bought at all: ${escapeHtml(notTried)}.</p>` : ""}
-<p class="meta"><a href="../method.html#faults">How each failure is assigned</a></p>
-
-<h2>Failures counted against this seller</h2>
-${failures}
-
-<h2>Recent purchases</h2>
-${recent}
-
-<h2 id="appeal">Is something here wrong?</h2>
-<p>Open an issue with the URL or tx you think is wrong. vet402 checks it against the chain and the raw result, fixes a wrong row and notes the fix in the change log.</p>
-<p><a href="${escapeHtml(appealUrl(s.key, r.date))}" rel="noopener noreferrer nofollow">Report a mistake on GitHub</a></p>
-
-<footer><a href="../index.html">All sellers</a><a href="../method.html">How we measure</a><a href="../../rank-${escapeHtml(r.date)}.json">Data (JSON)</a></footer>
-`;
-  return page(`${s.key} · vet402 delivery record`, body);
 }
 
 function compareRow(r: CompareRow, metricIsRank: boolean): string {
@@ -328,7 +177,7 @@ function compareRow(r: CompareRow, metricIsRank: boolean): string {
   <div class="meta mono">${escapeHtml(f.url)}</div>`
     : "";
   return `<li><b class="mono">${escapeHtml(r.key)}</b><br>
-  catalog #${r.catalogPos} (${escapeHtml(value)}) · vet402 ${r.vet402Rank === null ? "measuring" : `#${r.vet402Rank}`}: <b>${r.delivered}/${r.tried}</b> arrived ${r.tx ? txHtml(r.tx.chain, r.tx.tx) : ""}
+  catalog #${r.catalogPos} (${escapeHtml(value)}) · vet402 ${r.vet402Rank === null ? "measuring" : `#${r.vet402Rank}`}: <b>${r.delivered}/${r.tried}</b> came back ${r.tx ? txHtml(r.tx.chain, r.tx.tx) : ""}
   ${why}</li>`;
 }
 
@@ -336,117 +185,40 @@ function comparisonSection(c: Comparison): string {
   const isRank = c.direction === "asc";
   const list = (rows: CompareRow[]) =>
     rows.length ? `<ol class="plain">${rows.slice(0, 10).map((r) => compareRow(r, isRank)).join("\n")}</ol>${rows.length > 10 ? `<p class="dim">…and ${rows.length - 10} more in the JSON.</p>` : ""}` : `<p class="dim">none</p>`;
-  return `<h3>${escapeHtml(c.catalog)} order vs vet402</h3>
+  return `<h4>${escapeHtml(c.catalog)} order vs vet402</h4>
 <p class="meta">${escapeHtml(c.rule)}</p>
 <div class="stats">
   <div><span class="big">${c.overlap}</span><br>sellers in both</div>
-  <div><span class="big">${c.highButNeverDelivered.length}</span><br>high in catalog, never arrived (${c.highButNeverDeliveredDespitePaidTx} after a settled payment)</div>
-  <div><span class="big">${c.lowButAlwaysDelivered.length}</span><br>low in catalog, always arrived</div>
+  <div><span class="big">${c.highButNeverDelivered.length}</span><br>high in catalog, never came back (${c.highButNeverDeliveredDespitePaidTx} after a settled payment)</div>
+  <div><span class="big">${c.lowButAlwaysDelivered.length}</span><br>low in catalog, always came back</div>
   <div><span class="big">${c.spearman === null ? "–" : c.spearman.toFixed(2)}</span><br>rank correlation</div>
 </div>
-<details><summary>High in the catalog, never arrived</summary>${list(c.highButNeverDelivered)}</details>
-<details><summary>Low in the catalog, arrived every time</summary>${list(c.lowButAlwaysDelivered)}</details>`;
-}
-
-function renderMethod(r: RankReport): string {
-  const m = r.method;
-  const t = r.totals;
-  const rules = m.faultRules
-    .map(
-      (x, i) => `<li><b>${i + 1}. ${escapeHtml(FAULT_LABEL[x.fault])}</b> · <span class="mono">${escapeHtml(x.id)}</span> · this run: ${t.failuresByRule[x.id] ?? 0}<br>${escapeHtml(x.when)}</li>`,
-    )
-    .join("\n");
-  const chainRows = r.chains
-    .map(
-      (c) =>
-        `<tr><td>${escapeHtml(c.chain)}</td><td>${c.tried}</td><td>${c.settled}</td><td>${c.delivered}</td><td>${c.declared.checked ? `${c.declared.matched}/${c.declared.checked}` : "–"}</td><td>${c.bodyChecked ? "yes" : "no"}</td></tr>`,
-    )
-    .join("\n");
-  const grades = (Object.entries(t.grades) as [Grade, number][]).map(([g, n]) => `${gradeBadge(g)} ${n}`).join(" · ");
-  const body = `
-<nav><a href="index.html">← All sellers</a></nav>
-<h1>How we measure</h1>
-<p class="dim">Method ${escapeHtml(m.version)} · report ${escapeHtml(r.date)} · <a href="#changes">change log</a></p>
-
-<h2>1. Who pays</h2>
-<p>${escapeHtml(m.money)}</p>
-
-<h2>2. What "arrived" means</h2>
-<p>${escapeHtml(m.delivered)}</p>
-<p class="meta">${escapeHtml(m.declared)}</p>
-
-<h2 id="faults">3. Who was at fault</h2>
-<p>${escapeHtml(m.counted)}</p>
-<p>${escapeHtml(m.notCounted)}</p>
-<p class="meta">A failed purchase gets the first rule that matches, top to bottom.</p>
-<ol class="plain">${rules}</ol>
-
-<h2>4. Grades and rank numbers</h2>
-<p>${escapeHtml(m.score)} ${escapeHtml(m.grades)}</p>
-<p>${escapeHtml(m.rankNumber)}</p>
-<p class="meta">${escapeHtml(m.order)}</p>
-<p class="meta">This report: ${grades}</p>
-
-<h2>5. How we buy</h2>
-<p>${escapeHtml(m.measurement)}</p>
-<p class="meta">${escapeHtml(m.sellerIdentity)} ${escapeHtml(m.payTo)}</p>
-
-<h2 id="instrument">6. Our own mistakes in this report</h2>
-<p>${t.excluded.vet402_or_facilitator} failed purchases were on vet402's or the facilitator's side and ${t.excluded.unknown} had no clear cause, out of ${t.tried} paid tries. None of them lowered a grade.</p>
-<table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>arrived</th><th>as de&shy;clared</th><th>body test</th></tr></thead>
-<tbody>
-${chainRows}
-</tbody></table>
-
-<h2 id="appeal">7. Mistakes and corrections</h2>
-<p>${escapeHtml(m.correction)}</p>
-<p><a href="${escapeHtml(APPEAL_ISSUES_URL)}" rel="noopener noreferrer nofollow">Open an issue on GitHub</a> · each seller page has a prefilled link.</p>
-
-<h2>8. Limits</h2>
-<ul>${m.limits.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>
-
-<h2>9. Reproduce</h2>
-<p class="mono">npm run rank -- --date ${escapeHtml(r.date)} --offline</p>
-<p class="meta">Same inputs give the same JSON and pages. Inputs and their sha256:</p>
-<ul class="plain">${r.inputs.map((i) => `<li class="meta"><b>${escapeHtml(i.label)}</b> <span class="mono">${escapeHtml(i.location)}</span> sha256 <span class="mono">${escapeHtml(i.sha256.slice(0, 16))}</span>${i.fetchedAt ? ` fetched ${escapeHtml(i.fetchedAt)}` : ""}</li>`).join("")}</ul>
-
-<h2>10. Compared with catalog order</h2>
-${r.comparisons.map(comparisonSection).join("\n")}
-<ul>${r.catalogsWithoutOrder.map((c) => `<li><b>${escapeHtml(c.catalog)}</b>: ${escapeHtml(c.why)}</li>`).join("")}</ul>
-
-<h2 id="changes">Change log</h2>
-<ul>${m.changeLog.map((c) => `<li><b>${escapeHtml(c.version)}</b> (${escapeHtml(c.date)})<ul>${c.changes.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></li>`).join("")}</ul>
-
-<footer><a href="index.html">All sellers</a><a href="../rank-${escapeHtml(r.date)}.json">Data (JSON)</a></footer>
-`;
-  return page("How we measure · vet402", body);
-}
-
-/** Every page of the report, keyed by path relative to the report folder. */
-export function renderSite(r: RankReport): Map<string, string> {
-  const slugs = sellerSlugs(r.ranking.map((s) => s.key));
-  const out = new Map<string, string>();
-  out.set("index.html", renderIndex(r, slugs));
-  out.set("method.html", renderMethod(r));
-  for (const s of r.ranking) out.set(`s/${slugs.get(s.key)!}.html`, renderSeller(r, s));
-  return out;
+<details><summary>High in the catalog, never came back with an answer</summary>${list(c.highButNeverDelivered)}</details>
+<details><summary>Low in the catalog, came back every time</summary>${list(c.lowButAlwaysDelivered)}</details>`;
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Public site (site/, GitHub Pages): index.html, method.html, seller/<slug>.html next to rank.json.
+// Public site (site/, GitHub Pages): index.html (Solana, Tempo, Base), algorand.html, method.html and
+// seller/<slug>.html next to rank.json. Each page is graded from its own chains only (method v3).
 // Same escaping and link rules as above. The wording speaks of vet402 in the third person.
 // ---------------------------------------------------------------------------------------------------
 
 /** The public repository that holds the code, the inputs (data/) and this site. */
 export const PUBLIC_REPO_URL = "https://github.com/kzmttkc/vet402-delivery";
 
+/** The separate Algorand entry whose census files are the Algorand page's inputs. */
+const ALGORAND_REPO_URL = "https://github.com/kzmttkc/vet402-algorand";
+
+/** What vet402 does, in plain words, then how it pays for it. Also the meta description of the first page. */
 export const PUBLIC_LEAD =
-  "vet402 buys with its own money and ranks sellers by whether it was delivered. vet402 takes no money from sellers.";
+  "Before an AI agent pays for an API, vet402 buys it with its own money and shows what came back. Grades come only from vet402's own purchases.";
 
 const CHAIN_LABEL: Record<Chain, string> = { algorand: "Algorand", solana: "Solana", tempo: "Tempo", base: "Base" };
 
+const TAB_LABEL: Record<GroupId, string> = { main: "Solana, Tempo, Base", algorand: "Algorand" };
+
 const PUBLIC_GRADE_TEXT: Record<Grade, string> = {
-  A: "arrives 90%+",
+  A: "90%+ came back",
   B: "75%+",
   C: "50%+",
   D: "under 50%",
@@ -455,6 +227,8 @@ const PUBLIC_GRADE_TEXT: Record<Grade, string> = {
 };
 
 const PUBLIC_CSS = `
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 14px;font-size:.95rem}
+nav.tabs a[aria-current="page"]{color:var(--fg);font-weight:700;text-decoration:none;border-bottom:2px solid var(--fg)}
 table.board{table-layout:fixed;width:100%;margin:8px 0;font-size:.95rem}
 table.board caption{text-align:left;font-size:.85rem;color:var(--dim);padding:0 0 6px}
 table.board th,table.board td{padding:7px 3px;vertical-align:baseline;border-bottom:1px solid var(--line)}
@@ -466,7 +240,10 @@ table.board .num{width:5.3em;text-align:right;white-space:nowrap;font-variant-nu
 table.board .date{width:3.6em;text-align:right;white-space:nowrap;color:var(--dim);font-size:.85rem;padding-left:6px}
 table.board td.name a{font-weight:600}
 table.board .sub{display:block;font-size:.78rem;color:var(--dim);font-weight:400}
+table.chain .num{width:3.9em}
+table.chain th.num{white-space:normal}
 .notcounted{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:10px 0;font-size:.9rem}
+.nw{white-space:nowrap}
 .legend{display:block}
 code,.cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
 pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
@@ -497,10 +274,20 @@ function publicBadge(g: Grade): string {
 
 const GRADE_ORDER: Grade[] = ["A", "B", "C", "D", "undecided", "measuring"];
 
-/** One line: A arrives 90%+ · B 75%+ · C 50%+ · D under 50% · ? undecided · … measuring. */
+/** One line: A 90%+ came back · B 75%+ · C 50%+ · D under 50% · ? undecided · … measuring. */
 function publicLegend(): string {
   const items = GRADE_ORDER.map((g) => `${publicBadge(g)} ${escapeHtml(PUBLIC_GRADE_TEXT[g])}`).join(" · ");
   return `<p class="legend meta">${items}</p>`;
+}
+
+/** The two pages as tabs (links: the site has no scripts), plus the method page. prefix is "../" from seller pages. */
+function tabs(current: GroupId | null, prefix = ""): string {
+  const links = GROUPS.map((g) =>
+    g.id === current
+      ? `<a href="${prefix}${g.page}" aria-current="page">${escapeHtml(TAB_LABEL[g.id])}</a>`
+      : `<a href="${prefix}${g.page}">${escapeHtml(TAB_LABEL[g.id])}</a>`,
+  );
+  return `<nav class="tabs" aria-label="Pages">${links.join("")}<a href="${prefix}method.html">How vet402 measures</a></nav>`;
 }
 
 function chainList(s: RankedSeller): string {
@@ -514,80 +301,179 @@ function monthDay(at: string | null): string {
   return at ? at.slice(5, 10) : "–";
 }
 
+function dateCell(at: string | null): string {
+  return at ? `<time datetime="${escapeHtml(at.slice(0, 10))}">${escapeHtml(monthDay(at))}</time>` : "–";
+}
+
 function notCountedFor(s: RankedSeller): number {
   return s.excluded.vet402_or_facilitator + s.excluded.unknown;
+}
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 function publicRow(s: RankedSeller, slug: string): string {
   const nc = notCountedFor(s);
   const sub = [chainList(s), nc ? `${nc} not counted` : ""].filter(Boolean).join(" · ");
-  const last = s.lastMeasuredAt;
-  return `<tr><td class="rk">${s.rank ?? ""}</td><td class="gr">${publicBadge(s.grade)}</td><td class="name"><a href="seller/${escapeHtml(slug)}.html">${escapeHtml(s.key)}</a><span class="sub">${escapeHtml(sub)}</span></td><td class="num">${s.delivered}/${s.counted}</td><td class="date">${last ? `<time datetime="${escapeHtml(last.slice(0, 10))}">${escapeHtml(monthDay(last))}</time>` : "–"}</td></tr>`;
+  return `<tr><td class="rk">${s.rank ?? ""}</td><td class="gr">${publicBadge(s.grade)}</td><td class="name"><a href="seller/${escapeHtml(slug)}.html">${escapeHtml(s.key)}</a><span class="sub">${escapeHtml(sub)}</span></td><td class="num">${s.delivered}/${s.counted}</td><td class="date">${dateCell(s.lastMeasuredAt)}</td></tr>`;
 }
 
 function publicTable(caption: string, rows: RankedSeller[], slugs: Map<string, string>): string {
   return `<table class="board">
 <caption>${escapeHtml(caption)}</caption>
-<thead><tr><th class="rk" scope="col">#</th><th class="gr" scope="col"><span title="grade">gr.</span></th><th class="name" scope="col">seller · chain</th><th class="num" scope="col">arrived</th><th class="date" scope="col">last</th></tr></thead>
+<thead><tr><th class="rk" scope="col">#</th><th class="gr" scope="col"><span title="grade">gr.</span></th><th class="name" scope="col">seller · chain</th><th class="num" scope="col">came back</th><th class="date" scope="col">last</th></tr></thead>
 <tbody>
 ${rows.map((s) => publicRow(s, slugs.get(s.key)!)).join("\n")}
 </tbody>
 </table>`;
 }
 
-function periodText(r: RankReport): string {
-  return `${day(r.totals.firstPurchaseAt)} to ${day(r.totals.lastPurchaseAt)} (UTC)`;
+/** One chain on the first page: every seller bought on it, by name, with that chain's figures only. */
+function chainTable(chain: Chain, rows: RankedSeller[], slugs: Map<string, string>): string {
+  const body = rows
+    .map((s) => {
+      const f = s.chains[chain]!;
+      const sub = [`last ${monthDay(f.lastAt)}`, s.grade === "measuring" ? "" : `grade ${GRADE_TEXT[s.grade].mark} on this page`].filter(Boolean).join(" · ");
+      return `<tr><td class="name"><a href="seller/${escapeHtml(slugs.get(s.key)!)}.html">${escapeHtml(s.key)}</a><span class="sub">${escapeHtml(sub)}</span></td><td class="num">${f.tried}</td><td class="num">${f.settled}</td><td class="num">${f.delivered}</td></tr>`;
+    })
+    .join("\n");
+  return `<table class="board chain">
+<caption>Sorted by name. tried = vet402 sent a payment; settled = the payment settled on chain; came back = settled, then an answer.</caption>
+<thead><tr><th class="name" scope="col">seller</th><th class="num" scope="col">tried</th><th class="num" scope="col">settled</th><th class="num" scope="col">came back</th></tr></thead>
+<tbody>
+${body}
+</tbody>
+</table>`;
+}
+
+/** "2026-09-28 to 2026-09-29 (UTC)" as HTML; a date never breaks at its hyphens on a phone. */
+function periodHtml(t: { firstPurchaseAt: string | null; lastPurchaseAt: string | null }): string {
+  return `<span class="nw">${escapeHtml(day(t.firstPurchaseAt))}</span> to <span class="nw">${escapeHtml(day(t.lastPurchaseAt))}</span> (UTC)`;
 }
 
 function methodDate(r: RankReport): string {
   return r.method.changeLog.find((c) => c.version === r.method.version)?.date ?? r.date;
 }
 
-function renderPublicIndex(r: RankReport, slugs: Map<string, string>): string {
-  const graded = r.ranking.filter((s) => s.rank !== null && s.grade !== "undecided");
-  const undecided = r.ranking.filter((s) => s.rank !== null && s.grade === "undecided");
-  const measuring = r.ranking.filter((s) => s.rank === null);
-  const t = r.totals;
-  const body = `
-<header>
-<h1>vet402 delivery ranking</h1>
-<p class="lead">${escapeHtml(PUBLIC_LEAD)}</p>
-<p class="dim">Purchases ${escapeHtml(periodText(r))} · method ${escapeHtml(r.method.version)} (${escapeHtml(methodDate(r))}) · <a href="method.html">How vet402 measures</a></p>
-</header>
-${publicLegend()}
+/** Tried, settled, came back, and settled with nothing usable back: the four numbers at the top of each page. */
+function purchaseStats(t: GroupReport["totals"]): string {
+  return `<div class="stats">
+  <div><span class="big">${t.tried}</span><br>purchases tried, from ${plural(t.sellersListed, "seller")}</div>
+  <div><span class="big">${t.settled}</span><br>payments settled on chain</div>
+  <div><span class="big">${t.delivered}</span><br>came back with an answer</div>
+  <div><span class="big">${t.settledNotDelivered}</span><br>settled, and nothing usable came back</div>
+</div>`;
+}
 
-${
-  graded.length
-    ? publicTable(
-        `Ranked: ${graded.length} sellers with ${r.method.minCounted}+ counted purchases on ${r.method.minDays}+ days. "arrived" = delivered / counted.`,
+function notCountedLine(t: GroupReport["totals"]): string {
+  return `<p class="notcounted">Not counted against any seller: <b>${t.excluded.vet402_or_facilitator}</b> failed purchases on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> with no clear cause, out of ${t.tried} tries where vet402 sent a payment (${t.settled} settled). They never lower a grade. <a href="method.html#instrument">By rule</a></p>`;
+}
+
+function payToLine(t: GroupReport["totals"]): string {
+  return t.payToChanged
+    ? `<p class="meta warn">payTo changed for ${plural(t.payToChanged, "seller")} between runs or at payment. Shown on their pages; no effect on the grade.</p>`
+    : "";
+}
+
+function moneySection(): string {
+  return `<h2 id="money">How vet402 pays for this</h2>
+<p>${escapeHtml(MONEY_LINE)} Every purchase file the grades read is in <a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">data/</a> with its sha256.</p>`;
+}
+
+function publicFooter(): string {
+  return `<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>`;
+}
+
+/** Graded sellers first, then undecided, both with rank numbers; nothing when the page has none. */
+function gradedTables(r: RankReport, g: GroupReport, slugs: Map<string, string>, headingLevel: "h2" | "h3"): string {
+  const graded = g.ranking.filter((s) => s.rank !== null && s.grade !== "undecided");
+  const undecided = g.ranking.filter((s) => s.rank !== null && s.grade === "undecided");
+  const out: string[] = [];
+  if (graded.length)
+    out.push(
+      publicTable(
+        `Ranked: ${graded.length} sellers with ${r.method.minCounted}+ counted purchases on ${r.method.minDays}+ days. "came back" = came back with an answer / counted.`,
         graded,
         slugs,
-      )
-    : `<p class="dim">No seller has ${r.method.minCounted} counted purchases on ${r.method.minDays} different days yet.</p>`
+      ),
+    );
+  if (undecided.length)
+    out.push(`<${headingLevel}>Undecided (${undecided.length}): enough purchases, but the interval is too wide for a grade</${headingLevel}>
+${publicTable("Rank number kept; no grade yet.", undecided, slugs)}`);
+  return out.join("\n\n");
 }
 
-<p class="notcounted">Not counted: <b>${t.excluded.vet402_or_facilitator}</b> failed purchases on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> with no clear cause, out of ${t.tried} paid tries. They never lower a grade. <a href="method.html#instrument">By rule</a></p>
+/** The first page: Solana, Tempo and Base. What vet402 bought and what came back, shown in full before any grade. */
+function renderMainIndex(r: RankReport, g: GroupReport, slugs: Map<string, string>): string {
+  const t = g.totals;
+  const chains = r.chains.filter((c) => g.chains.includes(c.chain));
+  const perChain = chains
+    .map((c) => `${CHAIN_LABEL[c.chain]}: ${c.tried} tried, ${c.settled} settled, ${c.delivered} came back${c.bodyChecked ? "" : ` (the ${CHAIN_LABEL[c.chain]} runner kept no body, so there "came back" means settled, then 2xx)`}.`)
+    .join(" ");
+  const ranked = g.ranking.filter((s) => s.rank !== null);
+  const maxCounted = Math.max(0, ...g.ranking.map((s) => s.counted));
+  const maxDays = Math.max(0, ...g.ranking.map((s) => s.days.length));
+  const gradeState = ranked.length
+    ? `${publicLegend()}\n${gradedTables(r, g, slugs, "h3")}`
+    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. vet402 buys again about once a day from the Solana and Tempo sellers whose earlier payment settled, so one or two purchases are a start, not a verdict.</p>`;
+  const byChain = g.chains
+    .map((c) => ({ c, rows: g.ranking.filter((s) => (s.chains[c]?.tried ?? 0) > 0).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) }))
+    .filter((x) => x.rows.length > 0);
+  const jump = byChain.map((x) => `<a href="#${x.c}">${CHAIN_LABEL[x.c]} (${x.rows.length})</a>`).join(" · ");
+  const body = `
+${tabs("main")}
+<header>
+<h1>Did the API deliver after it was paid?</h1>
+<p class="lead">${escapeHtml(PUBLIC_LEAD)}</p>
+<p class="dim">${escapeHtml(g.label)} · purchases ${periodHtml(t)} · method ${escapeHtml(r.method.version)} (<span class="nw">${escapeHtml(methodDate(r))}</span>)</p>
+</header>
+${purchaseStats(t)}
+<p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
+<p class="meta">${escapeHtml(perChain)}</p>
+${gradeState}
+<p class="meta">Jump to: ${jump}</p>
 
-${
-  undecided.length
-    ? `<details>
-<summary>Undecided (${undecided.length}): enough purchases, but the interval is too wide for a grade</summary>
-${publicTable("Rank number kept; no grade yet.", undecided, slugs)}
-</details>`
-    : ""
+${byChain.map((x) => `<h2 id="${x.c}">${CHAIN_LABEL[x.c]}: ${plural(x.rows.length, "seller")}</h2>\n${chainTable(x.c, x.rows, slugs)}`).join("\n\n")}
+
+${notCountedLine(t)}
+${payToLine(t)}
+${moneySection()}
+
+${publicFooter()}
+`;
+  return publicPage("vet402: did the API deliver?", PUBLIC_LEAD, body);
 }
 
-<details>
-<summary>Measuring (${measuring.length}): fewer than ${r.method.minCounted} counted purchases, or only one day</summary>
+/** The Algorand page: data from vet402-algorand, graded from Algorand purchases only, nothing folded. */
+function renderAlgorandIndex(r: RankReport, g: GroupReport, slugs: Map<string, string>): string {
+  const t = g.totals;
+  const measuring = g.ranking.filter((s) => s.rank === null);
+  const body = `
+${tabs("algorand")}
+<header>
+<h1>Algorand: delivery grades</h1>
+<p class="lead">vet402 bought the listed Algorand x402 APIs it could buy, with its own money, from ${periodHtml(t)}. ${t.sellersRanked} of ${plural(t.sellersListed, "seller")} have enough purchases for a rank number.</p>
+<p class="meta">These results come from <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project built for Algorand's Global x402 Challenge. They are graded from Algorand purchases only, apart from the Solana, Tempo and Base page. Those runs bought up to about 500 items of one seller in under an hour, before the pacing rule of method v2.</p>
+</header>
+${purchaseStats(t)}
+<p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
+${publicLegend()}
+
+${gradedTables(r, g, slugs, "h2") || `<p class="dim">No seller has ${r.method.minCounted} counted purchases on ${r.method.minDays} different days yet.</p>`}
+
+${notCountedLine(t)}
+
+<h2>Measuring (${measuring.length}): fewer than ${r.method.minCounted} counted purchases, or only one day</h2>
 <p class="meta">No grade and no rank number yet. This is not a bad mark.</p>
 ${publicTable("Sorted by name.", measuring, slugs)}
-</details>
 
-${t.payToChanged ? `<p class="meta warn">payTo changed for ${t.payToChanged} seller${t.payToChanged === 1 ? "" : "s"} between runs or at payment. Shown on their pages; no effect on the grade.</p>` : ""}
+${payToLine(t)}
+${moneySection()}
 
-<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>
+${publicFooter()}
 `;
-  return publicPage("vet402 delivery ranking", PUBLIC_LEAD, body);
+  return publicPage("vet402: Algorand delivery grades", `Algorand x402 sellers graded by what came back after vet402 paid them. ${MONEY_LINE}`, body);
 }
 
 function publicFaultBlock(s: RankedSeller, fault: Fault, n: number, blurb: string): string {
@@ -606,25 +492,26 @@ export interface SellerRecordLink {
 function recordsSection(links: readonly SellerRecordLink[] | undefined): string {
   if (!links || links.length === 0) return "";
   return `<h2 id="records">Signed delivery records</h2>
-<p class="meta">One page per purchase that arrived, signed by vet402 and included in a daily Merkle root. Each page shows how to check it without trusting vet402.</p>
+<p class="meta">One page per purchase that came back with an answer, signed by vet402 and included in a daily Merkle root. Each page shows how to check it without trusting vet402.</p>
 <ol class="plain">${links.map((l) => `<li><a href="../records/${escapeHtml(l.id)}.html">${escapeHtml(l.day)} · ${escapeHtml(chainName(l.network))} · ${escapeHtml(l.id)}</a></li>`).join("\n")}</ol>
 
 `;
 }
 
-function renderPublicSeller(r: RankReport, s: RankedSeller, records?: readonly SellerRecordLink[]): string {
+/** One page's part of a seller page: that page's figures, grade and purchases only. */
+function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): string {
   const lo = s.wilsonLower;
   const hi = s.wilsonUpper;
-  const perChain = (Object.entries(s.chains) as [Chain, { tried: number; counted: number; delivered: number }][])
-    .filter(([, v]) => v.tried > 0)
-    .map(([c, v]) => `${CHAIN_LABEL[c] ?? c} ${v.delivered}/${v.counted}`)
-    .join(" · ");
+  const chains = (Object.entries(s.chains) as [Chain, ChainFigures][]).filter(([, v]) => v.tried > 0);
+  const triedText = chains.map(([c, v]) => `${CHAIN_LABEL[c] ?? c} ${v.tried}`).join(", ");
+  const perChain = chains.map(([c, v]) => `${CHAIN_LABEL[c] ?? c} ${v.delivered}/${v.counted}`).join(" · ");
   const standing =
     s.rank !== null
       ? s.grade === "undecided"
-        ? `Rank ${s.rank} of ${r.totals.sellersRanked}, no grade yet: the interval is too wide.`
-        : `Rank ${s.rank} of ${r.totals.sellersRanked}.`
+        ? `Rank ${s.rank} of ${g.totals.sellersRanked} on this page, no grade yet: the interval is too wide.`
+        : `Rank ${s.rank} of ${g.totals.sellersRanked} on this page.`
       : `Measuring: a rank number needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; this seller has ${s.counted} on ${s.days.length}.`;
+  const rebuys = g.id === "main" && ((s.chains.solana?.settled ?? 0) > 0 || (s.chains.tempo?.settled ?? 0) > 0);
   const sellerFailN = s.counted - s.delivered;
   const failures = s.sellerFailures.length
     ? `<ol class="plain">${s.sellerFailures
@@ -650,43 +537,58 @@ function renderPublicSeller(r: RankReport, s: RankedSeller, records?: readonly S
         .join("; ")}. No effect on the grade.</p>`
     : "";
   const notTried = countsText(s.notTried, (k) => CATEGORY_LABEL[k as ReasonCategory] ?? k);
-  const body = `
-<nav><a href="../index.html">All sellers</a> · <a href="../method.html">How vet402 measures</a></nav>
-<h1>${escapeHtml(s.key)}</h1>
+  const where =
+    g.id === "algorand"
+      ? `From <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project; graded apart from Solana, Tempo and Base. Listed on <a href="../${g.page}">the Algorand page</a>.`
+      : `Graded from Solana, Tempo and Base purchases only. Listed on <a href="../${g.page}">the first page</a>.`;
+  return `<h2 id="${g.id}">${escapeHtml(g.label)}</h2>
+<p class="meta">${where}</p>
+<p class="lead">vet402 paid this seller ${plural(s.tried, "time")} with its own money (${escapeHtml(triedText)}), most recently on <span class="nw">${escapeHtml(day(s.lastMeasuredAt))}</span> (UTC). ${s.settled} settled; ${s.delivered} came back with an answer${s.paidButNotDelivered ? `; ${s.paidButNotDelivered} settled and nothing usable came back` : ""}.</p>
+<p class="meta">${rebuys ? "vet402 buys again about once a day from sellers whose earlier Solana or Tempo payment settled, at the same price and to the same payTo. " : ""}It costs the seller nothing, and there is nothing to sign up for.</p>
 <p>${publicBadge(s.grade)} ${escapeHtml(s.grade === "measuring" || s.grade === "undecided" ? PUBLIC_GRADE_TEXT[s.grade] : `grade ${s.grade}: ${GRADE_TEXT[s.grade].label}`)} · ${escapeHtml(standing)}</p>
 
 <div class="stats">
-  <div><span class="big">${s.delivered} / ${s.counted}</span><br>arrived${s.counted ? ` (${pct(s.deliveredRate)})` : ""}</div>
+  <div><span class="big">${s.delivered} / ${s.counted}</span><br>came back, of counted${s.counted ? ` (${pct(s.deliveredRate)})` : ""}</div>
   <div><span class="big">${lo.toFixed(2)} to ${hi.toFixed(2)}</span><br>95% interval</div>
-  <div><span class="big">${escapeHtml(day(s.lastMeasuredAt))}</span><br>last bought · ${s.days.length} day${s.days.length === 1 ? "" : "s"} counted</div>
+  <div><span class="big">${escapeHtml(day(s.lastMeasuredAt))}</span><br>last bought · ${plural(s.days.length, "day")} counted</div>
 </div>
 <div class="bar" role="img" aria-label="95% interval ${lo.toFixed(2)} to ${hi.toFixed(2)}"><span style="left:${(lo * 100).toFixed(1)}%;width:${((hi - lo) * 100).toFixed(1)}%"></span>${s.counted ? `<i style="left:${(s.deliveredRate * 100).toFixed(1)}%"></i>` : ""}</div>
 <div class="scale"><span>0</span><span>0.5</span><span>1</span></div>
-<p class="meta">Chains: ${escapeHtml(perChain || "–")}. Arrived = vet402's payment settled, then a 2xx answer with a non-empty body.</p>
+<p class="meta">Came back, of counted, per chain: ${escapeHtml(perChain || "–")}. ${escapeHtml(DELIVERED_LINE)}</p>
 <p class="meta">Separate column, not in the grade. Answer matched what the seller declared: ${s.declared.checked ? `${s.declared.matched} of ${s.declared.checked} checked` : "not checked"}.</p>
 ${payTo}
 
-<h2>Not counted</h2>
+<h3>Not counted</h3>
 ${publicFaultBlock(s, "vet402_or_facilitator", s.excluded.vet402_or_facilitator, "not counted")}
 ${publicFaultBlock(s, "unknown", s.excluded.unknown, "not counted")}
 ${notTried ? `<p class="meta">Not bought at all: ${escapeHtml(notTried)}.</p>` : ""}
 
-<h2>Counted against this seller</h2>
+<h3>Counted against this seller</h3>
 ${publicFaultBlock(s, "seller", sellerFailN, "counted in the grade")}
 ${failures}
 <p class="meta"><a href="../method.html#faults">How each failure is assigned</a></p>
 
-<h2>Recent purchases</h2>
+<h3>Recent purchases</h3>
 <p class="meta">Each tx links to a public explorer.</p>
 ${recent}
+`;
+}
 
+function renderPublicSeller(r: RankReport, key: string, parts: readonly { g: GroupReport; s: RankedSeller }[], records?: readonly SellerRecordLink[]): string {
+  const tried = parts.reduce((n, p) => n + p.s.tried, 0);
+  const delivered = parts.reduce((n, p) => n + p.s.delivered, 0);
+  const body = `
+${tabs(null, "../")}
+<h1>${escapeHtml(key)}</h1>
+${parts.length > 1 ? `<p class="meta">Bought on both pages; each part below is graded from its own purchases only: ${parts.map((p) => `<a href="#${p.g.id}">${escapeHtml(p.g.label)}</a>`).join(" · ")}.</p>` : ""}
+${parts.map((p) => sellerGroupSection(r, p.g, p.s)).join("\n")}
 ${recordsSection(records)}<h2 id="appeal">Is a row wrong?</h2>
 <p>${escapeHtml(r.method.correction)}</p>
-<p><a href="${escapeHtml(appealUrl(s.key, r.date))}" rel="noopener noreferrer nofollow">Open a GitHub issue for this seller</a></p>
+<p><a href="${escapeHtml(appealUrl(key, r.date))}" rel="noopener noreferrer nofollow">Tell vet402 a row is wrong (GitHub issue, prefilled)</a></p>
 
-<footer><a href="../index.html">All sellers</a><a href="../method.html">How vet402 measures</a><a href="../rank.json">Data (rank.json)</a></footer>
+<footer><a href="../index.html">Solana, Tempo, Base</a><a href="../algorand.html">Algorand</a><a href="../method.html">How vet402 measures</a><a href="../rank.json">Data (rank.json)</a></footer>
 `;
-  return publicPage(`${s.key} · vet402 delivery ranking`, `${s.key}: ${s.delivered} of ${s.counted} counted purchases arrived.`, body);
+  return publicPage(`${key} · vet402`, `${key}: ${delivered} of ${tried} purchases by vet402 came back with an answer.`, body);
 }
 
 function inputLink(location: string): string {
@@ -710,13 +612,18 @@ function renderPublicMethod(r: RankReport): string {
         `<tr><td>${escapeHtml(CHAIN_LABEL[c.chain] ?? c.chain)}</td><td>${c.tried}</td><td>${c.settled}</td><td>${c.delivered}</td><td>${c.declared.checked ? `${c.declared.matched}/${c.declared.checked}` : "–"}</td><td>${c.bodyChecked ? "yes" : "no"}</td></tr>`,
     )
     .join("\n");
-  const grades = GRADE_ORDER.map((g) => `${publicBadge(g)} ${t.grades[g] ?? 0}`).join(" · ");
+  const grades = r.groups
+    .map((g) => `${escapeHtml(g.label)}: ${GRADE_ORDER.map((x) => `${publicBadge(x)} ${g.totals.grades[x] ?? 0}`).join(" · ")}`)
+    .join("<br>");
+  const comparisons = r.groups
+    .map((g) => `<h3>${escapeHtml(g.label)}</h3>\n${g.comparisons.length ? g.comparisons.map(comparisonSection).join("\n") : `<p class="dim">No seller on this page is in a catalog with an order.</p>`}`)
+    .join("\n");
   const body = `
-<nav><a href="index.html">All sellers</a></nav>
+${tabs(null)}
 <h1>How vet402 measures</h1>
-<p class="dim">Method ${escapeHtml(m.version)} (${escapeHtml(methodDate(r))}) · report ${escapeHtml(r.date)} · purchases ${escapeHtml(periodText(r))} · <a href="#changes">change log</a></p>
+<p class="dim">Method ${escapeHtml(m.version)} (${escapeHtml(methodDate(r))}) · report ${escapeHtml(r.date)} · purchases ${periodHtml(t)} · <a href="#changes">change log</a></p>
 
-<h2>1. Who pays</h2>
+<h2>1. How vet402 pays for this</h2>
 <p>${escapeHtml(m.money)}</p>
 
 <h2 id="faults">2. What is counted, and what is not</h2>
@@ -725,7 +632,7 @@ function renderPublicMethod(r: RankReport): string {
 <p class="meta">A failed purchase gets the first rule that matches, top to bottom. Only seller-side rules lower a grade.</p>
 <ol class="plain">${rules}</ol>
 
-<h2>3. What "arrived" means</h2>
+<h2>3. What "came back with an answer" means</h2>
 <p>${escapeHtml(m.delivered)}</p>
 <p class="meta">${escapeHtml(m.declared)}</p>
 
@@ -742,18 +649,19 @@ function renderPublicMethod(r: RankReport): string {
 <p>${escapeHtml(m.rankNumber)}</p>
 <p class="meta">${escapeHtml(m.grades)}</p>
 <p class="meta">${escapeHtml(m.order)}</p>
-<p class="meta">This report: ${grades}</p>
+<p class="meta">This report:<br>${grades}</p>
 
 <h2>5. How vet402 buys</h2>
 <p>${escapeHtml(m.measurement)}</p>
 <p class="meta">${escapeHtml(m.sellerIdentity)} ${escapeHtml(m.payTo)}</p>
 
 <h2 id="instrument">6. vet402's own record in this report</h2>
-<p>Out of ${t.tried} paid tries, <b>${t.excluded.vet402_or_facilitator}</b> failed on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> had no clear cause. None of them lowered a grade. ${t.counted} purchases were counted: ${t.delivered} arrived.</p>
-<table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>arrived</th><th>as de&shy;clared</th><th>body test</th></tr></thead>
+<p>Out of ${t.tried} tries where vet402 sent a payment (${t.settled} settled), <b>${t.excluded.vet402_or_facilitator}</b> failed on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> had no clear cause. None of them lowered a grade. ${t.counted} purchases were counted: ${t.delivered} came back with an answer.</p>
+<table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>came back</th><th>as de&shy;clared</th><th>body test</th></tr></thead>
 <tbody>
 ${chainRows}
 </tbody></table>
+<p class="meta">Algorand rows come from <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project; they are graded on their own page.</p>
 
 <h2 id="appeal">7. Mistakes and corrections</h2>
 <p>${escapeHtml(m.correction)}</p>
@@ -777,15 +685,21 @@ npx tsx scripts/build-site.ts --report /tmp/rank/rank-${escapeHtml(r.date)}.json
     .join("")}</ul>
 
 <h2>10. Compared with catalog order</h2>
-${r.comparisons.map(comparisonSection).join("\n")}
+<p class="meta">Per page, like the grades.</p>
+${comparisons}
 <ul>${r.catalogsWithoutOrder.map((c) => `<li><b>${escapeHtml(c.catalog)}</b>: ${escapeHtml(c.why)}</li>`).join("")}</ul>
 
 <h2 id="changes">Change log</h2>
 <ul>${m.changeLog.map((c) => `<li><b>${escapeHtml(c.version)}</b> (${escapeHtml(c.date)})<ul>${c.changes.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></li>`).join("")}</ul>
 
-<footer><a href="index.html">All sellers</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}" rel="noopener noreferrer nofollow">Code and inputs</a></footer>
+<footer><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}" rel="noopener noreferrer nofollow">Code and inputs</a></footer>
 `;
-  return publicPage("How vet402 measures", "Method, counted and not counted purchases, grades, limits and how to reproduce the vet402 delivery ranking.", body);
+  return publicPage("How vet402 measures", "Method, counted and not counted purchases, grades per page, limits and how to reproduce the vet402 delivery pages.", body);
+}
+
+/** Seller page file names, one per seller key on any page. Sorted keys, so a name does not depend on grades. */
+export function siteSlugs(r: RankReport): Map<string, string> {
+  return sellerSlugs([...new Set(r.groups.flatMap((g) => g.ranking.map((s) => s.key)))].sort());
 }
 
 /**
@@ -793,10 +707,19 @@ ${r.comparisons.map(comparisonSection).join("\n")}
  * rank.json (the report itself) is written next to them by scripts/build-site.ts.
  */
 export function renderPublicSite(r: RankReport, opts: { records?: ReadonlyMap<string, readonly SellerRecordLink[]> } = {}): Map<string, string> {
-  const slugs = sellerSlugs(r.ranking.map((s) => s.key));
+  const slugs = siteSlugs(r);
   const out = new Map<string, string>();
-  out.set("index.html", renderPublicIndex(r, slugs));
+  out.set("index.html", renderMainIndex(r, groupById(r, "main"), slugs));
+  out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs));
   out.set("method.html", renderPublicMethod(r));
-  for (const s of r.ranking) out.set(`seller/${slugs.get(s.key)!}.html`, renderPublicSeller(r, s, opts.records?.get(s.key)));
+  for (const [key, slug] of slugs) {
+    const parts = r.groups.flatMap((g) => g.ranking.filter((s) => s.key === key).map((s) => ({ g, s })));
+    out.set(`seller/${slug}.html`, renderPublicSeller(r, key, parts, opts.records?.get(key)));
+  }
   return out;
+}
+
+/** The pages scripts/rank.ts writes next to the report (results/rank-<date>/): the public site, without records. */
+export function renderSite(r: RankReport): Map<string, string> {
+  return renderPublicSite(r);
 }

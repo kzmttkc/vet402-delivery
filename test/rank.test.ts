@@ -481,10 +481,11 @@ test("renderSite: seller-controlled strings cannot inject markup on any page", (
     inputs: [{ label: evil, location: evil, sha256: "0".repeat(64) }],
   });
   const pages = renderSite(report);
-  assert.ok(pages.has("index.html") && pages.has("method.html"));
-  assert.equal(pages.size, 2 + report.ranking.length, "one page per listed seller");
+  assert.ok(pages.has("index.html") && pages.has("algorand.html") && pages.has("method.html"));
+  const keys = new Set(report.groups.flatMap((g) => g.ranking.map((s) => s.key)));
+  assert.equal(pages.size, 3 + keys.size, "one page per listed seller");
   for (const [path, html] of pages) {
-    assert.match(path, /^(index|method)\.html$|^s\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
+    assert.match(path, /^(index|algorand|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
     assert.ok(!path.includes(".."), path);
     assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
     assert.ok(!html.includes("<img"), `${path}: no img tag survives`);
@@ -492,7 +493,7 @@ test("renderSite: seller-controlled strings cannot inject markup on any page", (
     assert.ok(html.includes("script-src 'none'"), `${path}: CSP forbids scripts as a second line`);
     assert.ok(html.includes('name="viewport"'), `${path}: phone-width viewport`);
   }
-  const sellerPage = [...pages].find(([p, h]) => p.startsWith("s/") && h.includes("evil.example&quot;&gt;&lt;img"))!;
+  const sellerPage = [...pages].find(([p, h]) => p.startsWith("seller/") && h.includes("evil.example&quot;&gt;&lt;img"))!;
   assert.ok(sellerPage, "seller page shows the escaped host");
   assert.ok(sellerPage[1].includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
   assert.ok(sellerPage[1].includes("https://github.com/kzmttkc/vet402-delivery/issues/new?title="), "correction link");
@@ -506,7 +507,7 @@ test("appeal link and slugs: encoded query on a fixed origin, file names reduced
   assert.deepEqual([...slugs.values()], ["a.example", "a.example-2", "p.example_____x", "_hidden", "p.example_s_1"]);
 });
 
-test("index: grade, arrived count and last date per row; measuring rows carry no number", () => {
+test("index: purchase numbers first; graded rows carry grade, count and date; measuring sellers carry no number", () => {
   const report = buildReport({
     date: "2026-09-28",
     generatedAt: "2026-09-28T00:00:00.000Z",
@@ -517,9 +518,15 @@ test("index: grade, arrived count and last date per row; measuring rows carry no
     inputs: [],
   });
   const html = renderSite(report).get("index.html")!;
-  assert.ok(html.includes("We buy from each seller with our own money"));
-  assert.ok(html.includes('<span class="rk">1</span><span class="g gA"'), html);
-  assert.ok(html.includes('href="s/good.example.html">good.example</a><span class="num">40/40</span><span class="date">2026-09-28</span>'));
-  assert.ok(html.includes('<span class="rk"></span><span class="g gmeasuring"'), "measuring row has no rank number");
-  assert.ok(html.includes('href="method.html"'), "one link to the method");
+  assert.ok(html.includes('<span class="big">41</span><br>purchases tried, from 2 sellers'), "tried and sellers at the top");
+  assert.ok(html.indexOf('<div class="stats">') < html.indexOf("<table"), "numbers before any table");
+  assert.ok(
+    html.includes('<td class="rk">1</td><td class="gr"><span class="g gA" title="90%+ came back">A</span></td><td class="name"><a href="seller/good.example.html">good.example</a>'),
+    "graded row",
+  );
+  assert.ok(html.includes('<td class="num">40/40</td><td class="date"><time datetime="2026-09-28">09-28</time></td>'));
+  assert.ok(!/<td class="rk">\d*<\/td><td class="gr"><span class="g gmeasuring"/.test(html), "a measuring seller is not in the graded table");
+  assert.ok(html.includes('<a href="seller/new.example.html">new.example</a>'), "and is listed in its chain's table");
+  assert.ok(!/\b(we|our)\b/i.test(html.replace(/<[^>]+>/g, " ")), "third person only");
+  assert.ok(html.includes('href="method.html"'), "a link to the method");
 });

@@ -200,17 +200,20 @@ async function main(): Promise<void> {
     writeFileSync(p, html);
   }
 
-  console.log(`attempts ${report.totals.attempts}, tried ${report.totals.tried}, delivered ${report.totals.delivered}`);
   const t = report.totals;
+  console.log(`attempts ${t.attempts}, tried ${t.tried}, settled ${t.settled}, delivered ${t.delivered}, settled but not delivered ${t.settledNotDelivered}`);
   console.log(`counted ${t.counted}, not counted: vet402/facilitator ${t.excluded.vet402_or_facilitator}, can't tell ${t.excluded.unknown}`);
-  console.log(`sellers seen ${t.sellersSeen}, listed ${t.sellersListed}, ranked ${t.sellersRanked}, payTo changed ${t.payToChanged}`);
-  console.log(`grades ${JSON.stringify(t.grades)}`);
   console.log(`failures by rule ${JSON.stringify(t.failuresByRule)}`);
   for (const c of report.chains) {
     console.log(`  ${c.chain.padEnd(9)} rows ${c.rows} tried ${c.tried} settled ${c.settled} delivered ${c.delivered} sellers ${c.sellersTried} notTried ${JSON.stringify(c.notTried)}`);
   }
-  for (const c of report.comparisons) {
-    console.log(`${c.catalog}: overlap ${c.overlap}, high-but-never-delivered ${c.highButNeverDelivered.length}, low-but-always-delivered ${c.lowButAlwaysDelivered.length}, misaligned ${c.misaligned}, spearman ${c.spearman?.toFixed(3) ?? "-"}`);
+  // Method v3: each page is graded from its own chains only.
+  for (const g of report.groups) {
+    const gt = g.totals;
+    console.log(`[${g.id}] ${g.chains.join(",")}: tried ${gt.tried} settled ${gt.settled} delivered ${gt.delivered}; sellers listed ${gt.sellersListed}, ranked ${gt.sellersRanked}, payTo changed ${gt.payToChanged}; grades ${JSON.stringify(gt.grades)}`);
+    for (const c of g.comparisons) {
+      console.log(`  ${c.catalog}: overlap ${c.overlap}, high-but-never-delivered ${c.highButNeverDelivered.length}, low-but-always-delivered ${c.lowButAlwaysDelivered.length}, misaligned ${c.misaligned}, spearman ${c.spearman?.toFixed(3) ?? "-"}`);
+    }
   }
   console.log(`wrote ${jsonPath}\nwrote ${pages.size} pages in ${siteDir}`);
 }

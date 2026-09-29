@@ -53,6 +53,8 @@ footer{margin-top:32px;padding-top:12px;border-top:1px solid var(--line);font-si
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.9rem}
 th,td{border-bottom:1px solid var(--line);padding:6px 3px;text-align:right}th{font-size:.8rem;font-weight:600;vertical-align:bottom}th:first-child,td:first-child{text-align:left}
 
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 14px;font-size:.95rem}
+nav.tabs a[aria-current="page"]{color:var(--fg);font-weight:700;text-decoration:none;border-bottom:2px solid var(--fg)}
 table.board{table-layout:fixed;width:100%;margin:8px 0;font-size:.95rem}
 table.board caption{text-align:left;font-size:.85rem;color:var(--dim);padding:0 0 6px}
 table.board th,table.board td{padding:7px 3px;vertical-align:baseline;border-bottom:1px solid var(--line)}
@@ -64,7 +66,10 @@ table.board .num{width:5.3em;text-align:right;white-space:nowrap;font-variant-nu
 table.board .date{width:3.6em;text-align:right;white-space:nowrap;color:var(--dim);font-size:.85rem;padding-left:6px}
 table.board td.name a{font-weight:600}
 table.board .sub{display:block;font-size:.78rem;color:var(--dim);font-weight:400}
+table.chain .num{width:3.9em}
+table.chain th.num{white-space:normal}
 .notcounted{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:10px 0;font-size:.9rem}
+.nw{white-space:nowrap}
 .legend{display:block}
 code,.cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
 pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
@@ -76,11 +81,12 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <header>
 <h1>vet402 delivery records</h1>
 <p class="lead">One signed record per purchase vet402 made with its own money: what it paid, on which chain, and what came back.</p>
-<p class="dim">131 records published (131 DELIVERED) for 129 sellers.</p>
+<p class="dim">131 records published (131 DELIVERED) for 129 sellers, from 2026-09-28. A later day's purchases appear here only after that day's records are built.</p>
 </header>
 
 <h2>What is published</h2>
 <p>DELIVERED records are published. NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure, so they are published only after vet402 has told that seller, for the sellers listed in data/records/notified.json (host, or host#service for one service behind a shared host). Sellers told so far: 0.</p>
+<p class="meta">The ranking pages already list each seller's failed purchases with their payments. What waits until the seller has been told is the signed record of a failure, not the fact that it failed.</p>
 <p class="meta">A record proves that vet402 paid and what HTTP status came back at that time. It does not prove that the content was correct, or that the seller works now.</p>
 
 <h2>Daily roots</h2>
@@ -91,7 +97,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <p class="meta">No account and no payment needed. The script checks the signature against vet402's published key, the verdict, the Merkle proof, and the payment on chain.</p>
 <pre class="cmd">git clone https://github.com/kzmttkc/vet402-delivery
 cd vet402-delivery &amp;&amp; npm ci
-npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_YYYY-MM-DD_NNNNNN.json</pre>
+npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json</pre><p class="meta">The last line checks the first published record, <a href="obs_2026-09-28_000001.html">obs_2026-09-28_000001</a>; put any other record id in its place.</p>
 
 <h2>By seller</h2>
 <section id="s-2s-3cpr6qm6j-alleyford.vercel.app">

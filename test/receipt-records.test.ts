@@ -28,7 +28,7 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
   type Blockhash,
 } from "@solana/kit";
-import { publicPage, sellerSlugs } from "../src/rank/html.js";
+import { publicPage, siteSlugs } from "../src/rank/html.js";
 import type { RankReport } from "../src/rank/report.js";
 import { assertMemoOnly, compileMemoTx } from "../src/receipt/anchor.js";
 import { MEMO_PROGRAM, PAYER_ADDRESS } from "../src/constants.js";
@@ -181,7 +181,7 @@ test("published records: no credential shape, local path, query string or respon
 test("site/records is what build-site makes from data/records (JSON byte for byte)", async () => {
   const loaded = await loadPublishedRecords(RECORDS);
   const report = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
-  const slugs = sellerSlugs(report.ranking.map((s) => s.key));
+  const slugs = siteSlugs(report);
   const pages = renderRecordsSite(loaded, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage });
   const onDisk = readdirSync(join(ROOT, "site", "records"));
   assert.equal(onDisk.length, pages.size + loaded.records.length);

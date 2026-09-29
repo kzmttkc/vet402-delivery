@@ -17,9 +17,9 @@ import { fileURLToPath } from "node:url";
 import { classifyFailure } from "../src/rank/classify.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
 import { recordsBySeller } from "../src/receipt/site.js";
-import { PUBLIC_LEAD, renderPublicSite } from "../src/rank/html.js";
+import { escapeHtml, PUBLIC_LEAD, renderPublicSite, siteSlugs } from "../src/rank/html.js";
 import { normalizeAlgorand } from "../src/rank/normalize.js";
-import { buildReport, type RankReport } from "../src/rank/report.js";
+import { buildReport, DELIVERED_LINE, MONEY_LINE, type RankReport } from "../src/rank/report.js";
 import { MIN_COUNTED, MIN_DAYS } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 
@@ -88,9 +88,9 @@ test("site: a seller name with <script> is shown as text on every page", () => {
     att({ host: `m.example${evil}`, at: DAY1 }),
   ]);
   const pages = renderPublicSite(r);
-  assert.equal(pages.size, 2 + r.ranking.length);
+  assert.equal(pages.size, 3 + siteSlugs(r).size);
   for (const [path, html] of pages) {
-    assert.match(path, /^(index|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, path);
+    assert.match(path, /^(index|algorand|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, path);
     assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
     assert.ok(!html.includes('example"><'), `${path}: no attribute breakout`);
     assert.ok(html.includes("script-src 'none'"), `${path}: CSP forbids scripts`);
@@ -108,23 +108,83 @@ test("site: rank numbers only for sellers with enough counted purchases on enoug
     ...series("few.example", MIN_COUNTED - 1), // two days, too few
   ]);
   const index = renderPublicSite(r).get("index.html")!;
-  const row = (host: string) => index.split("<tr>").find((x) => x.includes(`>${host}</a>`))!;
-  assert.match(row("good.example"), /^<td class="rk">1<\/td>/);
-  assert.match(row("oneday.example"), /^<td class="rk"><\/td>/, "one day: no number");
-  assert.match(row("few.example"), /^<td class="rk"><\/td>/, "too few: no number");
-  assert.ok(index.indexOf(">oneday.example<") > index.indexOf("<summary>Measuring"), "measuring sellers are folded");
-  assert.ok(index.includes(PUBLIC_LEAD));
-  assert.ok(index.includes("Not counted: <b>"), "not-counted failures are always shown");
+  const graded = index.slice(0, index.indexOf('<h2 id="solana">'));
+  const row = (html: string, host: string) => html.split("<tr>").find((x) => x.includes(`>${host}</a>`));
+  assert.match(row(graded, "good.example")!, /^<td class="rk">1<\/td>/);
+  assert.equal(row(graded, "oneday.example"), undefined, "one day: not in the graded table");
+  assert.equal(row(graded, "few.example"), undefined, "too few: not in the graded table");
+  const solana = index.slice(index.indexOf('<h2 id="solana">'));
+  for (const h of ["good.example", "oneday.example", "few.example"]) assert.ok(row(solana, h), `${h} is listed, unfolded, in the Solana table`);
+  assert.ok(!index.includes("<details>"), "nothing on the first page is folded");
+  assert.ok(index.includes(escapeHtml(PUBLIC_LEAD)));
+  assert.ok(index.includes("Not counted against any seller: <b>"), "not-counted failures are always shown");
 
-  // The same rule on the published report.
+  // The same rule on the published report, page by page.
   const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
-  const html = readFileSync(join(ROOT, "site", "index.html"), "utf8");
-  for (const s of pub.ranking) {
-    if (s.rank !== null) assert.ok(s.counted >= MIN_COUNTED && s.days.length >= MIN_DAYS, s.key);
-    const tr = html.split("<tr>").find((x) => x.includes(`>${s.key.replace(/&/g, "&amp;")}</a>`));
-    assert.ok(tr, `row for ${s.key}`);
-    assert.ok(tr.startsWith(`<td class="rk">${s.rank ?? ""}</td>`), `${s.key}: rank cell ${s.rank}`);
+  const algo = readFileSync(join(ROOT, "site", "algorand.html"), "utf8");
+  const main = readFileSync(join(ROOT, "site", "index.html"), "utf8");
+  for (const g of pub.groups) {
+    for (const s of g.ranking) {
+      if (s.rank !== null) assert.ok(s.counted >= MIN_COUNTED && s.days.length >= MIN_DAYS, s.key);
+      const name = `>${s.key.replace(/&/g, "&amp;")}</a>`;
+      if (g.id === "algorand") {
+        const tr = algo.split("<tr>").find((x) => x.includes(name));
+        assert.ok(tr, `Algorand row for ${s.key}`);
+        assert.ok(tr.startsWith(`<td class="rk">${s.rank ?? ""}</td>`), `${s.key}: rank cell ${s.rank}`);
+      } else {
+        // every seller in the table of every chain it was bought on, with that chain's own numbers
+        for (const [c, f] of Object.entries(s.chains)) {
+          const part = main.slice(main.indexOf(`<h2 id="${c}">`));
+          const tr = part.split("<tr>").find((x) => x.includes(name));
+          assert.ok(tr, `${c} row for ${s.key}`);
+          assert.match(tr, new RegExp(`<td class="num">${f!.tried}</td><td class="num">${f!.settled}</td><td class="num">${f!.delivered}</td>`), `${c} ${s.key}`);
+        }
+      }
+    }
   }
+});
+
+test("method v3: each page is graded from its own chains only, on synthetic data and on the published report", () => {
+  // One host bought on Algorand (enough for an A there) and once on Solana.
+  const r = report([...series("both.example", 40).map((a) => ({ ...a, chain: "algorand" as const })), att({ host: "both.example" })]);
+  const main = r.groups.find((g) => g.id === "main")!;
+  const algo = r.groups.find((g) => g.id === "algorand")!;
+  const m = main.ranking.find((s) => s.key === "both.example")!;
+  const a = algo.ranking.find((s) => s.key === "both.example")!;
+  assert.deepEqual([m.tried, m.grade, m.rank, Object.keys(m.chains)], [1, "measuring", null, ["solana"]]);
+  assert.deepEqual([a.tried, a.grade, a.rank, Object.keys(a.chains)], [40, "A", 1, ["algorand"]]);
+  const pages = renderPublicSite(r);
+  assert.ok(!pages.get("index.html")!.includes('class="g gA"'), "the Algorand grade does not appear on the first page");
+  assert.ok(pages.get("algorand.html")!.includes('<td class="rk">1</td><td class="gr"><span class="g gA"'), "it does on the Algorand page");
+  const seller = pages.get("seller/both.example.html")!;
+  assert.ok(seller.indexOf('<h2 id="main">') < seller.indexOf('<h2 id="algorand">'), "the seller page shows both parts, each on its own");
+
+  const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
+  assert.equal(pub.method.version, "v3");
+  assert.deepEqual(pub.groups.map((g) => [g.id, g.chains]), [["main", ["solana", "tempo", "base"]], ["algorand", ["algorand"]]]);
+  for (const g of pub.groups) {
+    for (const s of g.ranking) {
+      const seen = [...Object.keys(s.chains), ...s.recent.map((x) => x.chain), ...s.sellerFailures.map((x) => x.chain), ...(s.last ? [s.last.chain] : [])];
+      for (const c of seen) assert.ok((g.chains as string[]).includes(c), `${g.id}: ${s.key} carries a ${c} purchase`);
+    }
+    // the page's totals are the sum of its chains, counted independently in report.chains
+    const chains = pub.chains.filter((c) => (g.chains as string[]).includes(c.chain));
+    const sum = (f: (c: (typeof chains)[number]) => number) => chains.reduce((n, c) => n + f(c), 0);
+    assert.deepEqual([g.totals.tried, g.totals.settled, g.totals.delivered], [sum((c) => c.tried), sum((c) => c.settled), sum((c) => c.delivered)], g.id);
+  }
+});
+
+test("site/ and README: the money and delivered wording (method v3), and no old sentence left", () => {
+  const pages = walk(join(ROOT, "site")).filter((p) => p.endsWith(".html") || p.endsWith(".json"));
+  const texts = [...pages, join(ROOT, "README.md"), join(ROOT, "src", "rank", "README.md")].map((p) => [p, readFileSync(p, "utf8")] as const);
+  const old = [/takes no money/i, /no money from sellers/i, /once each/i, /listing promised, with/i, /paid tries/i, /\barrives? 90%/i];
+  for (const [p, t] of texts) for (const re of old) assert.ok(!re.test(t), `${p.slice(ROOT.length + 1)}: ${re.source}`);
+  for (const f of ["index.html", "algorand.html", "method.html"]) {
+    const html = readFileSync(join(ROOT, "site", f), "utf8");
+    assert.ok(html.includes(escapeHtml(MONEY_LINE)), `${f}: money line`);
+  }
+  for (const f of ["index.html", "algorand.html"]) assert.ok(readFileSync(join(ROOT, "site", f), "utf8").includes(escapeHtml(DELIVERED_LINE)), `${f}: delivered line`);
+  for (const f of ["README.md", join("src", "rank", "README.md")]) assert.ok(readFileSync(join(ROOT, f), "utf8").includes(MONEY_LINE), `${f}: money line`);
 });
 
 test("data/: every file matches the manifest sha256, and rank --data reproduces site/rank.json", async () => {
