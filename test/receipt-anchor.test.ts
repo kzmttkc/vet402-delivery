@@ -242,6 +242,18 @@ test("#7 findDayAnchors: says incomplete when the history is longer than it may 
   assert.equal(look.complete, false);
 });
 
+test("#6 findDayAnchors: a memo naming the day that the RPC cannot return yet makes the lookup incomplete", async () => {
+  const f = await dayFolder();
+  try {
+    const vet = await generateKeyPairSigner();
+    const chain = fakeChain({ wallet: vet.address, history: [{ signature: "lagging", memo: f.memo, blockTime: AFTER_DAY }], txs: {} });
+    const look = await findDayAnchors(chain.rpc, DAY, vet.address);
+    assert.equal(look.complete, false);
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
 // ---------- #6: never twice ----------
 
 test("#6 simulate path: nothing is signed and nothing is sent", async () => {

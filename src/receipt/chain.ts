@@ -158,6 +158,8 @@ export async function findDayAnchors(rpc: Rpc, day: string, signer: string = VET
     for (const s of sigs) {
       if (s.err !== null || !s.memo || !s.memo.includes(`day=${day} `)) continue;
       const t = await readAnchorTx(rpc, s.signature, [signer]);
+      // A memo naming this day that cannot be read yet (RPC lag, no status): not sure, so not complete.
+      if (!t.ok && (t.detail === "anchor transaction not found" || t.detail === "anchor transaction has no status")) return { found, complete: false, pagesRead: page };
       if (t.ok && t.memo && t.memo.day === day) found.push({ signature: s.signature, memo: t.memo, blockTime: t.blockTime });
     }
     const last = sigs[sigs.length - 1];
