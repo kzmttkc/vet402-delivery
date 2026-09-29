@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { tmpdir } from "node:os";
@@ -635,4 +635,16 @@ test("rank input: only <chain>-YYYY-MM-DD.json up to the report date, oldest fir
   }
   assert.deepEqual(resultFilesUpTo(dir, "2026-10-01").map((f) => f.name), ["solana-2026-09-30.json", "tempo-2026-09-30.json", "solana-2026-10-01.json"]);
   assert.deepEqual(resultFilesUpTo(join(dir, "missing"), "2026-10-01"), []);
+});
+
+test("tempo W1: a missing index next to existing day ledgers is refused before the index is rewritten", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rm-idx-"));
+  try {
+    const set = { ...TEMPO_KEY_LEDGERS, remeasureDir: dir };
+    writeFileSync(join(dir, "tempo-ledger-2026-10-01.json"), JSON.stringify({ version: 1, payer: "0x0", capAtomic: "1000000", entries: [] }));
+    assert.throws(() => registerDayLedger(set, "2026-10-02", "0x0", 1_000_000n), /is missing but day ledgers exist/);
+    assert.equal(existsSync(join(dir, "tempo-ledger-index.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

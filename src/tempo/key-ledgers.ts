@@ -82,6 +82,9 @@ function readIndex(set: KeyLedgerSet): IndexFile | null {
  */
 export function registerDayLedger(set: KeyLedgerSet, date: string, payer: string, capAtomic: bigint): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new KeyLedgerError(`bad date ${date}`);
+  // A missing index next to existing day ledgers is refused before the index is rewritten (review W1).
+  if (!readIndex(set) && existsSync(set.remeasureDir) && readdirSync(set.remeasureDir).some((n) => REMEASURE_DAY_LEDGER.test(n)))
+    throw new KeyLedgerError(`${indexPath(set)} is missing but day ledgers exist; refusing to pay`);
   mkdirSync(set.remeasureDir, { recursive: true });
   const idx = readIndex(set) ?? { kind: "vet402-tempo-day-ledgers" as const, dates: [] };
   const file = join(set.remeasureDir, `tempo-ledger-${date}.json`);
