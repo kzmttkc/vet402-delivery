@@ -277,7 +277,9 @@ test("anchor: the memo transaction holds one Memo instruction and nothing else; 
 
 test("anchor marking keeps the signature and the proof, and refuses a second anchor", async () => {
   const loaded = await loadPublishedRecords(RECORDS);
-  const o = loaded.records[0]!.obs;
+  const published = loaded.records[0]!.obs;
+  // The published records may already carry the real anchor; start from the pending state.
+  const o = { ...published, anchor: { ...published.anchor!, status: "pending" as const, tx: null, anchoredAt: null } };
   const marked = withAnchorTx(o, "5".repeat(88), "2026-09-30T00:00:00.000Z");
   assert.equal(marked.anchor!.status, "anchored");
   const v = await verifyOffline(marked, { expectedSigner: VET402_OBSERVER_KEYS[0]! });
