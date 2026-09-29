@@ -2,7 +2,7 @@
 
 Before an AI agent pays for an API, vet402 has already bought it with its own money and shows what came back, with the payment on chain.
 
-On Solana, Tempo and Base, from 2026-09-28 to 2026-09-29 (UTC): 350 purchases from 220 sellers. 299 payments settled; 250 came back with an answer. In 49 cases the payment settled and nothing usable came back.
+On Solana, Tempo and Base, from 2026-09-28 to 2026-09-29 (UTC): 443 purchases from 220 sellers. 388 payments settled; 334 came back with an answer. In 54 cases the payment settled and nothing usable came back.
 
 - **See the results:** https://kzmttkc.github.io/vet402-delivery/ (Solana, Tempo and Base first; Algorand on its own page)
 - **Check one record yourself, no account and no payment:** from a clone of this repository, `npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json`
