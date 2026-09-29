@@ -19,7 +19,7 @@ This repository is the multi-chain part of vet402: it buys sellers on **Solana, 
 
 ## Money safety
 
-Every paying script signs exactly one transfer per purchase, to the payTo locked from the seller's own 402, within a per-purchase cap and a persistent total cap, and refuses anything else before signing. Keys live in `.keys/` (git-ignored) and never appear in logs or results. Each money path was reviewed independently before it ran.
+Every paying script signs exactly one transfer per purchase, to the payTo locked from the seller's own 402, within a per-purchase cap and a persistent total cap, and refuses anything else before signing. Keys live in `.keys/` (git-ignored) and never appear in logs or results. The Tempo, Base, delivery-record and first-buyer paths were reviewed independently (the fixes are in the commit log). The first Solana runs (gate 1 and the census) ran before an independent review; they stayed within the caps above.
 
 ## First-buyer mode (Solana)
 
@@ -79,7 +79,7 @@ Writing the root on chain needs `--send` and the Solana payer key. It sends at m
 ## Scope and prior work
 
 I (Sen) started vet402 on 2026-07-13. Before this repository, vet402 already had:
-- the main product at https://vet402.com (purchase lanes on Base, Solana, Tempo and Arc);
+- the main product at https://vet402.com (purchase lanes on Base, Solana, Tempo, Arc and XRPL);
 - an Algorand version for Algorand's Global x402 Challenge: https://github.com/kzmttkc/vet402-algorand (its census data is read here as input to the ranking);
 - entries at ETHGlobal ETHOnline 2026 and ETHGlobal Tokyo 2026 (their submitted code is not part of this repository).
 
