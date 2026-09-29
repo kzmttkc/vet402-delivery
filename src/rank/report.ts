@@ -159,7 +159,7 @@ export const METHOD_VERSION = "v3";
 
 /** How vet402 pays for the ranking; the same sentence on every page, in README.md and in src/rank/README.md. */
 export const MONEY_LINE =
-  "Grades come only from vet402's own purchases. vet402 also sells paid checks (on Algorand); a paid check is a separate report and never moves a grade.";
+  "Grades come only from vet402's own purchases. vet402 also sells paid checks (paid in USDC on Algorand or Base); a paid check is a separate report and never moves a grade.";
 
 /** What "came back with an answer" (delivered) covers, and what it does not. */
 export const DELIVERED_LINE =

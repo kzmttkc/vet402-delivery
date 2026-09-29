@@ -177,7 +177,7 @@ Algorand page and the method table say "with a settlement receipt" instead of "s
 - payTo changed = the same chain and URL asked for a different recipient in a later run, or vet402
   refused to pay because the recipient differed from the one recorded. A seller that accepts several
   chains has one recipient per chain; that is not a change. Shown as a flag, no effect on the grade.
-- **Money:** Grades come only from vet402's own purchases. vet402 also sells paid checks (on Algorand); a paid check is a separate report and never moves a grade.
+- **Money:** Grades come only from vet402's own purchases. vet402 also sells paid checks (paid in USDC on Algorand or Base); a paid check is a separate report and never moves a grade.
   No listing fee, no paid placement, no referral cut. The paid checks are `/v1/check` and `/v1/audit` in
   vet402-algorand. The ranking reads only the purchase files listed in `data/manifest.json`; on Algorand
   those census purchases were paid from the board wallet (`HVRJUK…`), not from the payer wallet that the

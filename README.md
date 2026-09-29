@@ -14,7 +14,7 @@ Who it is for:
 
 "Came back with an answer" means the payment settled and the seller answered 2xx with a non-empty body (for the Tempo census purchases, whose runner kept no body: 2xx; the Tempo re-purchases are tested for an empty body). On Solana, Tempo and Base the runner checked each payment on chain before calling it settled. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.
 
-How vet402 pays for this: Grades come only from vet402's own purchases. vet402 also sells paid checks (on Algorand); a paid check is a separate report and never moves a grade.
+How vet402 pays for this: Grades come only from vet402's own purchases. vet402 also sells paid checks (paid in USDC on Algorand or Base); a paid check is a separate report and never moves a grade.
 
 Where Solana comes in: vet402 pays Solana sellers in USDC on Solana, and writes the Merkle root of each day's signed delivery records into one Solana memo, so a record of that day cannot be added or dropped later without the root changing.
 
