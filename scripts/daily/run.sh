@@ -6,6 +6,10 @@
 #   scripts/daily/run.sh records  09:05 JST  the UTC day that just closed: build-receipts --day, verify-receipt on
 #                                            every record, publish-records --day, anchor-receipts --day --send,
 #                                            publish. Does nothing until the daily-records code is on main.
+#   scripts/daily/run.sh board    19:05 JST  watches kzmttkc/vet402-algorand's board workflow from outside: when
+#                                            today's board/<UTC day>.json on main has no completedAt and no board
+#                                            run is queued or running, it starts board.yml (mode=daily) once.
+#                                            The workflow itself buys once per UTC day, so a later run only checks.
 #   add --dry-run (or VET402_DAILY_DRY=1): remeasure --dry-run only, the anchor only simulated, records built in a
 #   scratch copy, the data commit made in the publish worktree and checked by the pre-push hook, never pushed.
 #
@@ -21,7 +25,8 @@
 # HALT-<lane> in the state folder, and later runs of that lane stop until a person has looked and removed it.
 # A refused plan (over a cap) still publishes what the chains before it bought; a failed or stopped --pay run
 # publishes nothing.
-# Only one run at a time (lockf on the state folder's lock). Nothing runs on or after VET402_DAILY_END (JST).
+# Only one run at a time (lockf on the state folder's lock). Nothing runs on or after VET402_DAILY_END (JST);
+# for board, VET402_BOARD_END.
 #
 # Settings (environment, or KEY=value lines in ~/.config/vet402-daily/env, which stays outside the repository):
 #   VET402_REPO          checkout on main that pays and anchors (keys in .keys/)  default ~/vet402-solana
@@ -30,7 +35,8 @@
 #   VET402_ALERTS_FILE   file that gets one line per stop                         default <logs>/ALERTS.md
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
-#   VET402_DAILY_END     first JST day with no runs                               default 2026-10-09
+#   VET402_DAILY_END     first JST day with no am/pm/records runs                 default 2026-10-09
+#   VET402_BOARD_END     first JST day with no board runs                         default 2026-10-31
 #   VET402_DAILY_NOTIFY  0 turns the macOS notification off
 #   VET402_DAILY_NOW     epoch seconds to use as now (tests)
 
@@ -53,13 +59,14 @@ main() {
   for a in "$@"; do
     case "$a" in
       --dry-run) DRY=1 ;;
-      *) echo "usage: run.sh am|pm|records [--dry-run]" >&2; return 2 ;;
+      *) echo "usage: run.sh am|pm|records|board [--dry-run]" >&2; return 2 ;;
     esac
   done
   case "$MODE" in
     am | pm) LANE=pay ;;
     records) LANE=records ;;
-    *) echo "usage: run.sh am|pm|records [--dry-run]" >&2; return 2 ;;
+    board) LANE=board ;;
+    *) echo "usage: run.sh am|pm|records|board [--dry-run]" >&2; return 2 ;;
   esac
 
   local envfile="$HOME/.config/vet402-daily/env"
@@ -80,11 +87,13 @@ main() {
   STATE="${VET402_DAILY_STATE:-$HOME/.local/state/vet402-daily}"
   ALERTS="${VET402_ALERTS_FILE:-$LOGDIR/ALERTS.md}"
   END_DAY="${VET402_DAILY_END:-2026-10-09}"
+  [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-2026-10-31}"
   NOW="${VET402_DAILY_NOW:-$(/bin/date +%s)}"
   GIT=/usr/bin/git
   NODE=/opt/homebrew/bin/node
   NPM=/opt/homebrew/bin/npm
-  GH=/opt/homebrew/bin/gh
+  GH="${VET402_GH:-/opt/homebrew/bin/gh}"
+  BOARD_REPO="kzmttkc/vet402-algorand"
   TSX="${VET402_TSX:-$REPO/node_modules/.bin/tsx}"  # never npx: it could fetch a package
   GH_REPO="kzmttkc/vet402-delivery"
   mkdir -p "$LOGDIR" "$STATE"
@@ -126,6 +135,7 @@ main() {
     am) pay_lane 1 "solana tempo" || rc=$? ;;
     pm) pay_lane 2 "solana" || rc=$? ;;
     records) records_lane || rc=$? ;;
+    board) board_lane || rc=$? ;;
   esac
   # Fail loud: a stop that did not say why still says that it stopped.
   if [ $rc -ne 0 ] && [ "$ALERTED" = 0 ]; then
@@ -154,6 +164,16 @@ alert() {
   if [ "${2:-}" = halt ]; then
     printf '%s\n' "$line" >"$STATE/HALT-$LANE"
   fi
+}
+
+# notice <message>: something was done that a person should know about (not a stop): alert line + notification.
+notice() {
+  local when
+  when="$(TZ=Asia/Tokyo /bin/date '+%Y-%m-%d %H:%M')"
+  log "NOTICE: $1"
+  mkdir -p "$(dirname "$ALERTS")"
+  printf '\n%s\n' "## ⚠️ [$when] [vet402_daily] $MODE: $1 (log: $LOG)" >>"$ALERTS"
+  notify "$MODE: $1"
 }
 
 # run <what> <command...>: log the command's output; nonzero exit is returned.
@@ -460,6 +480,68 @@ records_lane() {
     return 1
   }
   publish "records: $day delivery records and the day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
+}
+
+# ---------- board (kzmttkc/vet402-algorand) ----------
+
+# 1: board/<day>.json on main has a valid completedAt; 0: it has none; 2: unreadable.
+board_completed() {
+  printf '%s' "$1" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}
+    const c=j&&j.completedAt;process.exit(typeof c==="string"&&Number.isFinite(Date.parse(c))?1:0)})'
+}
+
+board_lane() {
+  local day="$UTC_DAY" body rc running err="$STATE/board-gh.err"
+  local stamp="$STATE/board-dispatched-$day"
+  if [ -f "$stamp" ]; then
+    log "board: already started once for $day ($(cat "$stamp")): nothing more"
+    return 0
+  fi
+  body="$("$GH" api -H "Accept: application/vnd.github.raw" "repos/$BOARD_REPO/contents/board/$day.json?ref=main" 2>"$err")"
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    if grep -q "HTTP 404" "$err"; then
+      body=""
+      log "board: board/$day.json is not on main yet"
+    else
+      alert "could not read board/$day.json on $BOARD_REPO main ($(head -c 200 "$err" | tr '\n' ' ')); nothing started"
+      return 1
+    fi
+  fi
+  if [ -n "$body" ]; then
+    board_completed "$body"
+    rc=$?
+    if [ $rc -eq 1 ]; then
+      log "board: $day has completedAt on main: nothing to do"
+      return 0
+    elif [ $rc -ne 0 ]; then
+      alert "board/$day.json on main is not JSON; nothing started"
+      return 1
+    fi
+    log "board: board/$day.json on main has no completedAt (a run stopped early, or it is still running)"
+  fi
+  running="$("$GH" run list -R "$BOARD_REPO" --workflow board.yml --limit 20 --json status --jq '[.[] | select(.status != "completed")] | length' 2>"$err")" || {
+    alert "could not list board runs ($(head -c 200 "$err" | tr '\n' ' ')); nothing started"
+    return 1
+  }
+  if ! [ "$running" -ge 0 ] 2>/dev/null; then
+    alert "unexpected run count '$running'; nothing started"
+    return 1
+  fi
+  if [ "$running" -gt 0 ]; then
+    log "board: $running board run(s) queued or running: nothing to do"
+    return 0
+  fi
+  if [ "$DRY" = 1 ]; then
+    log "dry run: would run gh workflow run board.yml -R $BOARD_REPO --ref main -f mode=daily"
+    return 0
+  fi
+  run "gh workflow run board.yml (mode=daily)" "$GH" workflow run board.yml -R "$BOARD_REPO" --ref main -f mode=daily || {
+    alert "gh workflow run board.yml failed; not retried"
+    return 1
+  }
+  /bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$stamp"
+  notice "$day had no completedAt on main and no board run in progress; started board.yml (mode=daily) once"
 }
 
 main "$@"; exit $?

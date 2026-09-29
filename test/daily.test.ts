@@ -565,3 +565,94 @@ test("run.sh --dry-run: copies through the gate, commits data/ and site/ only, p
   assert.match(logs(sb), /dry run: would pay now \(remeasure --chain solana --pay --per-payto 1\)/);
   rmSync(sb.dir, { recursive: true });
 });
+
+// ---------- run.sh board: the vet402-algorand board workflow, watched from outside ----------
+
+/** A stand-in for gh: FAKE_BOARD is the board file on main (unset = 404), FAKE_RUNNING the unfinished runs. */
+function fakeGh(dir: string): string {
+  const p = join(dir, "gh");
+  writeFileSync(
+    p,
+    `#!/bin/bash
+echo "gh $*" >> "$FAKE_CALLS"
+case "$1" in
+  api)
+    if [ -n "\${FAKE_API_ERROR:-}" ]; then echo "gh: Server Error (HTTP 502)" >&2; exit 1; fi
+    if [ -n "\${FAKE_BOARD:-}" ]; then printf '%s' "$FAKE_BOARD"; else printf '{"message":"Not Found","status":"404"}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
+  run) echo "\${FAKE_RUNNING:-0}" ;;
+  workflow) exit 0 ;;
+esac
+`,
+  );
+  chmodSync(p, 0o755);
+  return p;
+}
+
+function boardBox() {
+  const dir = tmp();
+  const env = {
+    PATH: "/usr/bin:/bin",
+    HOME: join(dir, "home"),
+    VET402_GH: fakeGh(dir),
+    VET402_DAILY_STATE: join(dir, "state"),
+    VET402_DAILY_LOGS: join(dir, "logs"),
+    VET402_ALERTS_FILE: join(dir, "ALERTS.md"),
+    VET402_DAILY_NOTIFY: "0",
+    VET402_DAILY_NOW: at("2026-10-01T10:05:00Z"),
+    FAKE_CALLS: join(dir, "calls.log"),
+  };
+  mkdirSync(env.HOME, { recursive: true });
+  const run = (extra: NodeJS.ProcessEnv = {}, args: string[] = []) => spawnSync("/bin/bash", [RUN, "board", ...args], { env: { ...env, ...extra }, encoding: "utf8", timeout: 60_000 });
+  const ghCalls = () => (existsSync(env.FAKE_CALLS) ? read(env.FAKE_CALLS) : "");
+  const dispatches = () => ghCalls().split("\n").filter((l) => l.startsWith("gh workflow run")).length;
+  const alertText = () => (existsSync(env.VET402_ALERTS_FILE) ? read(env.VET402_ALERTS_FILE) : "");
+  const logText = () => (existsSync(env.VET402_DAILY_LOGS) ? readdirSync(env.VET402_DAILY_LOGS).map((f) => read(join(env.VET402_DAILY_LOGS, f))).join("\n") : "");
+  return { dir, run, ghCalls, dispatches, alertText, logText };
+}
+
+test("board: completedAt on main: nothing is started", () => {
+  const b = boardBox();
+  const r = b.run({ FAKE_BOARD: JSON.stringify({ date: "2026-10-01", completedAt: "2026-10-01T06:40:00.000Z" }) });
+  assert.equal(r.status, 0, b.logText());
+  assert.equal(b.dispatches(), 0);
+  assert.match(b.ghCalls(), /gh api -H Accept: application\/vnd\.github\.raw repos\/kzmttkc\/vet402-algorand\/contents\/board\/2026-10-01\.json\?ref=main/);
+  assert.equal(b.alertText(), "");
+  rmSync(b.dir, { recursive: true });
+});
+
+test("board: no completedAt but a board run queued or running: nothing is started", () => {
+  const b = boardBox();
+  assert.equal(b.run({ FAKE_RUNNING: "1" }).status, 0, b.logText());
+  assert.equal(b.run({ FAKE_RUNNING: "1", FAKE_BOARD: JSON.stringify({ date: "2026-10-01" }) }).status, 0, b.logText());
+  assert.equal(b.dispatches(), 0);
+  assert.match(b.logText(), /1 board run\(s\) queued or running: nothing to do/);
+  rmSync(b.dir, { recursive: true });
+});
+
+test("board: no completedAt and nothing running: board.yml mode=daily is started once, with a notice", () => {
+  const b = boardBox();
+  assert.equal(b.run({ FAKE_BOARD: JSON.stringify({ date: "2026-10-01", finishedAt: "2026-10-01T06:30:00Z" }) }).status, 0, b.logText());
+  assert.equal(b.dispatches(), 1);
+  assert.match(b.ghCalls(), /^gh workflow run board\.yml -R kzmttkc\/vet402-algorand --ref main -f mode=daily$/m);
+  assert.match(b.alertText(), /\[vet402_daily\] board: 2026-10-01 had no completedAt on main and no board run in progress; started board\.yml \(mode=daily\) once/);
+  // Later the same UTC day (launchd fired again, the file still lacks completedAt): not a second time.
+  assert.equal(b.run().status, 0);
+  assert.equal(b.dispatches(), 1);
+  // A new UTC day is a new chance.
+  assert.equal(b.run({ VET402_DAILY_NOW: at("2026-10-02T10:05:00Z") }).status, 0);
+  assert.equal(b.dispatches(), 2);
+  rmSync(b.dir, { recursive: true });
+});
+
+test("board: dry run, an unreadable file, or on/after 2026-10-31 JST: nothing is started", () => {
+  const b = boardBox();
+  assert.equal(b.run({}, ["--dry-run"]).status, 0);
+  assert.match(b.logText(), /dry run: would run gh workflow run board\.yml -R kzmttkc\/vet402-algorand --ref main -f mode=daily/);
+  assert.equal(b.run({ FAKE_API_ERROR: "1" }).status, 1);
+  assert.match(b.alertText(), /board stopped: could not read board\/2026-10-01\.json/);
+  assert.equal(b.run({ FAKE_BOARD: "not json" }).status, 1);
+  assert.equal(b.run({ VET402_DAILY_NOW: at("2026-10-30T15:00:00Z") }).status, 0);
+  assert.match(b.logText(), /JST 2026-10-31 is on or after 2026-10-31: nothing runs/);
+  assert.equal(b.dispatches(), 0);
+  rmSync(b.dir, { recursive: true });
+});
