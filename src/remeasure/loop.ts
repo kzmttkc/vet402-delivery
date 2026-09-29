@@ -25,7 +25,7 @@ export interface LoopDeps {
   pacer: SellerPacer;
   sleep: (ms: number) => Promise<void>;
   /** null = this purchase fits every cap; otherwise the reason it does not. */
-  fits: (s: Slot) => string | null;
+  fits: (s: Slot) => string | null | Promise<string | null>;
   attempt: (s: Slot) => Promise<AttemptResult>;
   onRow?: (row: RemeasureRow) => void;
   /** Dry run: keep going after a cap is reached, so every slot is listed. */
@@ -45,7 +45,7 @@ export async function runSlots(slots: readonly Slot[], deps: LoopDeps): Promise<
   const skipped: LoopResult["skipped"] = [];
   for (const s of slots) {
     const t = s.target;
-    const cap = deps.fits(s);
+    const cap = await deps.fits(s);
     if (cap) {
       const i = cap.indexOf(":");
       skipped.push({ url: t.url, payTo: t.payTo, slot: s.slot, reason: i < 0 ? cap : cap.slice(0, i), ...(i < 0 ? {} : { detail: cap.slice(i + 1).trim() }) });

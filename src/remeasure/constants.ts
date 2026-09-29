@@ -6,6 +6,7 @@
  */
 import { MAX_PER_PURCHASE_ATOMIC, MEASURE_MAX_PER_SELLER } from "../constants.js";
 import { MAX_PER_CALL_ATOMIC } from "../tempo/constants.js";
+import { TEMPO_KEY_LEDGERS } from "../tempo/key-ledgers.js";
 
 export type RemeasureChain = "solana" | "tempo";
 export const REMEASURE_CHAINS: readonly RemeasureChain[] = ["solana", "tempo"];
@@ -31,6 +32,13 @@ export const RM_MAX_PURCHASES_PER_MONTH = 5_000;
 /** Purchases per payTo in one run: 1 unless --per-payto says more, never above MEASURE_MAX_PER_SELLER. */
 export const RM_DEFAULT_PER_PAYTO = 1;
 export const RM_MAX_PER_PAYTO = MEASURE_MAX_PER_SELLER;
+
+/**
+ * The only place --pay keeps ledgers, locks and results: ~/vet402-solana/results/remeasure, whichever
+ * checkout the script runs from. A second copy of the ledgers elsewhere would reopen the caps.
+ * The Tempo key's ledger set (src/tempo/key-ledgers.ts) points at the same folder.
+ */
+export const RM_PROD_DIR = TEMPO_KEY_LEDGERS.remeasureDir;
 
 /** Printed on every result file. */
 export const RM_NOTE = "Repeat test purchase by vet402 from a seller it paid before. Not organic demand.";

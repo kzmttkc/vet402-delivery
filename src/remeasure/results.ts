@@ -4,12 +4,16 @@
  * Dry runs write <chain>-YYYY-MM-DD.dry-run.json, which the rank never reads.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { RemeasureChain } from "./constants.js";
-import { RM_NOTE, REMEASURE_CHAINS } from "./constants.js";
+import { RM_NOTE, RM_PROD_DIR, REMEASURE_CHAINS } from "./constants.js";
 
-/** "would_pay" only appears in dry-run files; the rank refuses it. */
-export type RowOutcome = "sent" | "refused" | "not_sent" | "unknown" | "would_pay";
+/**
+ * "would_pay" only appears in dry-run files; the rank refuses it.
+ * "unknown_after_sign": the ledger holds a reservation that may have been signed and sent, and the run
+ * ended before writing its result; added by the next --pay run (./reconcile.ts). It is never paid again.
+ */
+export type RowOutcome = "sent" | "refused" | "not_sent" | "unknown" | "unknown_after_sign" | "would_pay";
 
 export interface RemeasureRow {
   at: string;
@@ -34,6 +38,8 @@ export interface RemeasureRow {
   tx: string | null;
   priceUsdc: string | null;
   slot: number;
+  /** Ledger key of this purchase, `<date>|<payTo>|<slot>` on both chains (one per payTo and slot per UTC day). */
+  key: string;
 }
 
 export interface RunInfo {
@@ -55,6 +61,15 @@ export interface ResultFile {
 }
 
 export const RESULT_NAME = /^(solana|tempo)-(\d{4}-\d{2}-\d{2})\.json$/;
+
+/**
+ * Where a run keeps things. Ledgers, locks and results are always RM_PROD_DIR; --out only moves a dry
+ * run's plan, and --pay refuses it (a second set of ledgers would reopen the caps).
+ */
+export function runDirs(o: { pay: boolean; out: string | undefined; root: string; prod?: string }): { ledgers: string; dryRunOut: string } {
+  if (o.pay && o.out !== undefined) throw new Error(`--out is not accepted with --pay: ledgers, locks and results live only in ${o.prod ?? RM_PROD_DIR}`);
+  return { ledgers: o.prod ?? RM_PROD_DIR, dryRunOut: resolve(o.out ?? join(o.root, "results", "remeasure")) };
+}
 
 export function resultPath(dir: string, chain: RemeasureChain, date: string): string {
   return join(dir, `${chain}-${date}.json`);

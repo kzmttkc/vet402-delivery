@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPairSigner } from "@solana/kit";
@@ -11,18 +13,22 @@ import { MEASURE_SPACING_MS, PAYER_ADDRESS, SOLANA_MAINNET, USDC_MINT } from "..
 import { SellerPacer } from "../src/measure.js";
 import type { PayDeps } from "../src/pay.js";
 import { TEMPO_MAINNET_CHAIN_ID, USDC_E, FEE_RESERVE_ATOMIC } from "../src/tempo/constants.js";
-import { Ledger } from "../src/tempo/ledger.js";
-import type { PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
+import { mppChallengesFromHeader, tempoChargeRequest } from "../src/tempo/challenge.js";
+import { Ledger, type LedgerEntry } from "../src/tempo/ledger.js";
+import { payOne as tempoPayOne, type PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
+import { entryOutflow, unaccountedChainSpent, TEMPO_KEY_LEDGERS, type KeyLedgerSet } from "../src/tempo/key-ledgers.js";
 import type { Signer } from "../src/tempo/chain.js";
 import { aggregate, rank } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 import { RemeasureBudget, budgetKey } from "../src/remeasure/budget.js";
-import { RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_SOLANA_MAX_PER_RUN_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
+import { RM_PROD_DIR, RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_SOLANA_MAX_PER_RUN_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
 import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
 import { dryRunSolana, paySolana } from "../src/remeasure/solana.js";
-import { dayLedgerPath, dryRunTempo, ensureStartBlock, monthCommittedElsewhere, payTempo } from "../src/remeasure/tempo.js";
+import { dayLedgerPath, dryRunTempo, firstBlockAtOrAfter, monthCommittedElsewhere, payTempo, type TempoChainView } from "../src/remeasure/tempo.js";
+import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
+import type { Slot } from "../src/remeasure/loop.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
-import { resultFilesUpTo, type RemeasureRow, type ResultFile } from "../src/remeasure/results.js";
+import { resultFilesUpTo, runDirs, type RemeasureRow, type ResultFile } from "../src/remeasure/results.js";
 
 const FACILITATOR = (await generateKeyPairSigner()).address;
 const P1 = (await generateKeyPairSigner()).address;
@@ -270,87 +276,212 @@ function tempoTarget(service: string, amount = "6000", recipient = SELLER): Targ
   };
 }
 
-function tempoWorld(live: { recipient: string; amount: string }) {
+/** A seller, a signer and a chain: every paid request moves amount + a 30 fee out of the key. */
+function tempoEnv(o: { censusSlack?: boolean; liveFor?: (url: string) => { recipient: string; amount: string } } = {}) {
+  const root = tmp();
+  const set: KeyLedgerSet = { census: join(root, "census", "tempo-ledger.json"), remeasureDir: join(root, "rm") };
+  const chain = { total: 0n, month: 0n };
+  if (o.censusSlack !== false) {
+    // The census ledger reserves more than left the key (fee reserve 2,000 vs 30 paid; a transfer never found).
+    const c = new Ledger(set.census, throwaway.address, 2_500_000n);
+    c.reserve({ key: "old1", url: "u1", recipient: SELLER, amount: 10_000n, sponsored: false });
+    c.update("old1", { status: "sent", settled: true, feePaid: "30" });
+    c.reserve({ key: "old2", url: "u2", recipient: SELLER, amount: 5_000n, sponsored: false });
+    c.update("old2", { status: "sent", settled: false, note: "receipt not found" });
+    chain.total += 10_030n;
+  }
+  const liveFor = o.liveFor ?? (() => ({ recipient: SELLER, amount: "6000" }));
   let signs = 0;
-  const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
-    if (new Headers(init?.headers).get("authorization")) return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+  const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+    const live = liveFor(url);
+    if (new Headers(init?.headers).get("authorization")) {
+      const out = BigInt(live.amount) + 30n;
+      chain.total += out;
+      chain.month += out;
+      return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+    }
     return new Response("{}", { status: 402, headers: { "www-authenticate": challenge(live.recipient, live.amount) } });
   };
   const signer: Signer = {
     address: throwaway.address,
-    async credentialFor(_res, _id, recipient) {
+    async credentialFor(res, _id, recipient) {
       signs++;
-      return { credential: "Payment eyJ4IjoxfQ", serializedTx: await signedTransfer(recipient, BigInt(live.amount)) };
+      const amount = BigInt(tempoChargeRequest(mppChallengesFromHeader(res.headers.get("www-authenticate"))[0]!)!.amount);
+      return { credential: "Payment eyJ4IjoxfQ", serializedTx: await signedTransfer(recipient, amount) };
     },
   };
-  const pay: Omit<TempoPayDeps, "ledger"> = {
+  const pay: Omit<TempoPayDeps, "ledger" | "chainSpent"> = {
     fetchImpl,
     signer,
     payer: throwaway.address,
     balance: async () => 10_000_000n,
-    chainSpent: async () => 0n,
     verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
   };
-  return { pay, fetchImpl, signs: () => signs };
+  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.month };
+  const ft = fakeTime();
+  const dayLedger = (date: string) => new Ledger(dayLedgerPath(set.remeasureDir, date), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  const run = (slots: Slot[], date: string, ledger = dayLedger(date), monthElsewhere = 0n) =>
+    payTempo(slots, pay, { date, ledger, keyLedgers: set, chain: view, monthElsewhere, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  return { set, chain, pay, view, fetchImpl, run, dayLedger, signs: () => signs };
 }
 
 test("tempo: pays through payOne, one per payTo, and records the paid amount", async () => {
-  const ft = fakeTime();
-  const w = tempoWorld({ recipient: SELLER, amount: "6000" });
-  const ledger = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
-  const res = await payTempo(selectSlots([tempoTarget("a"), tempoTarget("b")], 1).slots, w.pay, { ledger, monthElsewhere: 0n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
-  assert.equal(w.signs(), 1);
+  const e = tempoEnv();
+  const res = await e.run(selectSlots([tempoTarget("a"), tempoTarget("b")], 1).slots, DATE);
+  assert.equal(e.signs(), 1);
   assert.equal(res.rows.length, 1);
   const r = res.rows[0]!;
-  assert.deepEqual([r.outcome, r.settled, r.delivered, r.priceUsdc, r.service, r.bodyBytes], ["sent", true, true, "0.006000", "a", 11]);
+  assert.deepEqual([r.outcome, r.settled, r.delivered, r.priceUsdc, r.service, r.bodyBytes, r.key], ["sent", true, true, "0.006000", "a", 11, `${DATE}|${SELLER.toLowerCase()}|0`]);
   assert.equal(normalizeRemeasure(fileOf("tempo", [r]), "x")[0]!.category, "delivered");
 });
 
 test("tempo: a changed recipient is refused before signing and recorded as pay_to_changed", async () => {
-  const ft = fakeTime();
-  const w = tempoWorld({ recipient: OTHER, amount: "6000" });
-  const ledger = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
-  const res = await payTempo(selectSlots([tempoTarget("a")], 1).slots, w.pay, { ledger, monthElsewhere: 0n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
-  assert.equal(w.signs(), 0);
+  const e = tempoEnv({ liveFor: () => ({ recipient: OTHER, amount: "6000" }) });
+  const ledger = e.dayLedger(DATE);
+  const res = await e.run(selectSlots([tempoTarget("a")], 1).slots, DATE, ledger);
+  assert.equal(e.signs(), 0);
   assert.equal(ledger.committed(), 0n);
   const r = res.rows[0]!;
   assert.deepEqual([r.outcome, r.reason, r.payTo, r.expectedPayTo], ["refused", "pay_to_changed", OTHER.toLowerCase(), SELLER.toLowerCase()]);
-  const d = await dryRunTempo(selectSlots([tempoTarget("a")], 1).slots, w.fetchImpl, { monthElsewhere: 0n, monthCommittedToday: 0n });
+  const d = await dryRunTempo(selectSlots([tempoTarget("a")], 1).slots, e.fetchImpl, { date: DATE, monthElsewhere: 0n, monthCommittedToday: 0n });
   assert.deepEqual([d.rows[0]!.reason, d.rows[0]!.payTo], ["pay_to_changed", OTHER.toLowerCase()]);
 });
 
-test("tempo: run (day ledger) cap and month cap stop before signing, at the boundary", async () => {
+test("tempo: run (day ledger) cap and month cap stop before signing, at the boundary; the month is bound by the chain too", async () => {
   // run cap: 1 USDC.e incl. 0.002 fee reserve each. 98,000 + 2,000 = 100,000 per purchase -> 10 fit, the 11th does not.
-  const ft = fakeTime();
   const targets = Array.from({ length: 11 }, (_, i) => tempoTarget(`s${i}`, "98000", `0x${(i + 1).toString(16).padStart(40, "a")}`));
-  let signs = 0;
-  const pay = (recipientOf: (url: string) => string): Omit<TempoPayDeps, "ledger"> => ({
-    fetchImpl: async (url, init) =>
-      new Headers(init?.headers).get("authorization")
-        ? new Response("{}", { status: 200 })
-        : new Response("{}", { status: 402, headers: { "www-authenticate": challenge(recipientOf(url), "98000") } }),
-    signer: { address: throwaway.address, credentialFor: async (_r, _i, to) => (signs++, { credential: "Payment eyJ4IjoxfQ", serializedTx: await signedTransfer(to, 98_000n) }) },
-    payer: throwaway.address,
-    balance: async () => 10_000_000n,
-    chainSpent: async () => 0n,
-    verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
-  });
-  const recipientOf = (url: string) => targets.find((t) => t.requestUrl === url)!.payTo;
-  const ledger = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
-  const res = await payTempo(selectSlots(targets, 1).slots, pay(recipientOf), { ledger, monthElsewhere: 0n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
-  assert.equal(signs, 10);
+  const liveFor = (url: string) => ({ recipient: targets.find((t) => t.requestUrl === url)!.payTo, amount: "98000" });
+  const e = tempoEnv({ liveFor });
+  const ledger = e.dayLedger(DATE);
+  const res = await e.run(selectSlots(targets, 1).slots, DATE, ledger);
+  assert.equal(e.signs(), 10);
   assert.equal(ledger.committed(), RM_TEMPO_MAX_PER_RUN_ATOMIC);
   assert.match(res.stopped!, /^total_cap_reached: run\/day 1000000 \+ 100000 > 1000000/);
 
-  // month cap: other day ledgers of the month hold 29.9 USDC.e committed -> exactly one 0.1 fits
-  signs = 0;
-  const l2 = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
-  const r2 = await payTempo(selectSlots(targets.slice(0, 2), 1).slots, pay(recipientOf), { ledger: l2, monthElsewhere: 29_900_000n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
-  assert.equal(signs, 1);
-  assert.match(r2.stopped!, /^month_cap_reached: 30000000 \+ 100000 > 30000000/);
+  // month cap from the ledgers: the month's other day ledgers hold 29.9 USDC.e -> exactly one 0.1 fits
+  const e2 = tempoEnv({ liveFor });
+  const r2 = await e2.run(selectSlots(targets.slice(0, 2), 1).slots, DATE, e2.dayLedger(DATE), 29_900_000n);
+  assert.equal(e2.signs(), 1);
+  assert.match(r2.stopped!, /^month_cap_reached: 30000000 /);
+
+  // month cap from the chain: no ledger shows it (files lost), but 29.900001 USDC.e left the key this month
+  const e3 = tempoEnv({ liveFor });
+  e3.chain.month = 29_900_001n;
+  const r3 = await e3.run(selectSlots(targets.slice(0, 2), 1).slots, DATE);
+  assert.equal(e3.signs(), 0);
+  assert.match(r3.stopped!, /^month_cap_reached: 29900001 \(ledgers 0, chain 29900001\) \+ 100000 > 30000000/);
 });
 
-test("tempo: month total is summed over the month's day ledgers; the start block is written once", async () => {
+test("tempo B1: deleting the day ledger does not reopen the budget; no second signature", async () => {
+  const e = tempoEnv();
+  const slots = selectSlots([tempoTarget("a")], 1).slots;
+  await e.run(slots, DATE);
+  assert.equal(e.signs(), 1);
+  // the day ledger is deleted (there is no start file any more: the chain check starts at the census)
+  rmSync(dayLedgerPath(e.set.remeasureDir, DATE));
+  const again = await e.run(slots, DATE);
+  assert.equal(e.signs(), 1);
+  assert.equal(again.rows[0]!.reason, "chain_spend_exceeds_ledger");
+  assert.equal(again.stopped, "chain_spend_exceeds_ledger");
+  // the census slack (19,000 reserved, 10,030 left) is not room: reservations of other ledgers do not hide the loss
+  assert.equal(new Ledger(e.set.census, throwaway.address, 2_500_000n).committed(), 19_000n);
+});
+
+test("tempo B1: deleting a past day ledger stops the next day's run before signing", async () => {
+  const e = tempoEnv();
+  const slots = selectSlots([tempoTarget("a")], 1).slots;
+  await e.run(slots, "2026-10-01");
+  await e.run(slots, "2026-10-02");
+  assert.equal(e.signs(), 2);
+  rmSync(dayLedgerPath(e.set.remeasureDir, "2026-10-01"));
+  const r = await e.run(slots, "2026-10-03");
+  assert.equal(e.signs(), 2);
+  assert.equal(r.stopped, "chain_spend_exceeds_ledger");
+});
+
+test("tempo B1: the census check still passes after remeasure pays from the same key", async () => {
+  const e = tempoEnv({ liveFor: () => ({ recipient: SELLER, amount: "50000" }) });
+  await e.run(selectSlots([tempoTarget("a", "50000")], 1).slots, DATE);
+  assert.equal(e.signs(), 1);
+  // on chain now: 10,030 (census) + 50,030 (remeasure) = 60,060 > the census ledger's 19,000
+  assert.equal(e.chain.total, 60_060n);
+  const census = new Ledger(e.set.census, throwaway.address, 2_500_000n);
+  const entry = { ...tempoTarget("next", "50000").tempo!.plan, serviceId: "next" };
+  const shared = unaccountedChainSpent(e.set.census, e.view.outflowSinceCensusStart, throwaway.address, e.set);
+  assert.equal(await shared(), 10_030n);
+  const o = await tempoPayOne(entry, { ...e.pay, ledger: census, chainSpent: shared });
+  assert.equal(o.result, "sent");
+  assert.equal(e.signs(), 2);
+  // the old census wiring (all outflow since the census start against the census ledger alone) stops here
+  const old = await tempoPayOne({ ...entry, serviceId: "next2" }, { ...e.pay, ledger: census, chainSpent: e.view.outflowSinceCensusStart });
+  assert.equal(old.refusal?.refused, "chain_spend_exceeds_ledger");
+});
+
+test("tempo B1: other ledgers count what left the key; on the census ledger this equals the chain (read 2026-09-29)", () => {
+  const l = read("tempo/ledger.json") as { entries: LedgerEntry[] };
+  assert.equal(l.entries.reduce((s, x) => s + entryOutflow(x), 0n), 1_570_786n);
+});
+
+test("tempo W2: the same-day key is the payTo, not the service", async () => {
+  const e = tempoEnv();
+  await e.run([{ target: tempoTarget("a"), slot: 0 }], DATE);
+  const r = await e.run([{ target: tempoTarget("b"), slot: 0 }], DATE);
+  assert.equal(e.signs(), 1);
+  assert.equal(r.rows[0]!.reason, "already_bought");
+  // another day: allowed
+  await e.run([{ target: tempoTarget("b"), slot: 0 }], "2026-10-02");
+  assert.equal(e.signs(), 2);
+});
+
+test("tempo W3: a purchase in the ledger without a result row becomes unknown_after_sign, and is not paid again", async () => {
+  const e = tempoEnv();
+  const t = tempoTarget("a");
+  const key = budgetKey(DATE, t.payTo, 0);
+  // a run was killed after the credential left: ledger says sent, the chain moved, no result file
+  const l = e.dayLedger(DATE);
+  l.reserve({ key, url: t.requestUrl, recipient: t.payTo, amount: 6_000n, sponsored: false });
+  l.update(key, { status: "sent" });
+  e.chain.total += 6_030n;
+  const added = reconcileTempo(e.set.remeasureDir, [t], throwaway.address);
+  assert.deepEqual(added.map((r) => [r.outcome, r.key, r.service]), [["unknown_after_sign", key, "a"]]);
+  const f = JSON.parse(readFileSync(join(e.set.remeasureDir, `tempo-${DATE}.json`), "utf8")) as ResultFile;
+  assert.equal(f.rows.length, 1);
+  const again = await e.run([{ target: t, slot: 0 }], DATE);
+  assert.equal(e.signs(), 0);
+  assert.equal(again.rows[0]!.reason, "already_bought");
+  assert.equal(reconcileTempo(e.set.remeasureDir, [t], throwaway.address).length, 0);
+  const a = normalizeRemeasure(f, "remeasure/tempo")[0]!;
+  assert.deepEqual([a.category, a.tried, a.rawReason], ["unconfirmed_server_error", true, "unknown_after_sign"]);
+});
+
+test("solana W3: a reservation without a result row becomes unknown_after_sign, and is not paid again", async () => {
+  const dir = tmp();
+  const file = join(dir, "budget-solana-2026-10.json");
+  const key = budgetKey(DATE, P1, 0);
+  writeFileSync(file, JSON.stringify({ baselineAtomic: null, spentAtomic: "10000", purchases: [{ key, amount: "10000", at: "2026-10-01T01:00:00.000Z" }] }));
+  const t = solTarget("a.example", P1);
+  const added = reconcileSolana(file, dir, [t], PAYER_ADDRESS);
+  assert.deepEqual(added.map((r) => [r.outcome, r.key, r.host, r.priceUsdc]), [["unknown_after_sign", key, "a.example", "0.010000"]]);
+  assert.equal(reconcileSolana(file, dir, [t], PAYER_ADDRESS).length, 0);
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" } }, ft.clock);
+  const r = await paySolana([{ target: t, slot: 0 }], w.pay, { date: DATE, budget: new RemeasureBudget(file), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs.length, 0);
+  assert.equal(r.rows[0]!.reason, "already_bought");
+});
+
+test("W1: --pay keeps ledgers only in the production folder and refuses --out", () => {
+  assert.throws(() => runDirs({ pay: true, out: "/tmp/x", root: "/r" }), /--out is not accepted with --pay/);
+  assert.equal(runDirs({ pay: true, out: undefined, root: "/r" }).ledgers, RM_PROD_DIR);
+  assert.deepEqual(runDirs({ pay: false, out: "/tmp/x", root: "/r" }), { ledgers: RM_PROD_DIR, dryRunOut: "/tmp/x" });
+  assert.equal(RM_PROD_DIR, join(homedir(), "vet402-solana", "results", "remeasure"));
+  assert.equal(TEMPO_KEY_LEDGERS.remeasureDir, RM_PROD_DIR);
+  const r = spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "..", "scripts", "remeasure.ts"), "--chain", "tempo", "--pay", "--out", tmp()], { encoding: "utf8" });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--out is not accepted with --pay/);
+});
+
+test("tempo: month ledgers are summed; the month's first block is found by block time", async () => {
   const dir = tmp();
   for (const [d, amt] of [["2026-10-01", 50_000n], ["2026-10-02", 70_000n], ["2026-09-30", 999_000n]] as const) {
     const l = new Ledger(dayLedgerPath(dir, d), "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51", RM_TEMPO_MAX_PER_RUN_ATOMIC);
@@ -358,10 +489,10 @@ test("tempo: month total is summed over the month's day ledgers; the start block
   }
   assert.equal(monthCommittedElsewhere(dir, "2026-10", "2026-10-02"), 50_000n);
   assert.equal(monthCommittedElsewhere(dir, "2026-10", "2026-10-03"), 120_000n);
-  const f = join(dir, "tempo-start-2026-10-03.json");
-  assert.equal(await ensureStartBlock(f, async () => 123n), 123n);
-  assert.equal(await ensureStartBlock(f, async () => 999n), 123n);
-  assert.ok(existsSync(f));
+  const ts = async (b: bigint) => b * 10n; // block n at time 10n
+  assert.equal(await firstBlockAtOrAfter(1_000n, 5n, 500n, ts), 100n);
+  assert.equal(await firstBlockAtOrAfter(1_001n, 5n, 500n, ts), 101n);
+  assert.equal(await firstBlockAtOrAfter(10n, 5n, 500n, ts), 5n);
 });
 
 // ---------- rank reads remeasure files as more days ----------
@@ -382,7 +513,7 @@ function remeasureRow(host: string, over: Partial<RemeasureRow> = {}): Remeasure
   return {
     at: "2026-09-30T10:00:00.000Z", chain: "solana", host, service: null, url: `https://${host}/x`, requestUrl: `https://${host}/x`,
     payTo: P1, expectedPayTo: P1, outcome: "sent", reason: "sent", detail: "{}", settled: true, delivered: true, httpStatus: 200,
-    bodyBytes: null, tx: SIG, priceUsdc: "0.010000", slot: 0, ...over,
+    bodyBytes: null, tx: SIG, priceUsdc: "0.010000", slot: 0, key: `2026-09-30|${P1}|0`, ...over,
   };
 }
 

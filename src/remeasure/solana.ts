@@ -21,7 +21,7 @@ export function reasonOf(refused: string): string {
   return refused === "payto_mismatch" ? "pay_to_changed" : refused;
 }
 
-export function solanaRow(s: Slot, rec: Pick<PurchaseRecord, "outcome" | "probe" | "refusal" | "priceUsdc" | "signature" | "settled" | "delivered" | "response">, at: string): RemeasureRow {
+export function solanaRow(s: Slot, rec: Pick<PurchaseRecord, "outcome" | "probe" | "refusal" | "priceUsdc" | "signature" | "settled" | "delivered" | "response">, at: string, key: string): RemeasureRow {
   const t = s.target;
   const sent = rec.outcome === "sent";
   return {
@@ -43,6 +43,7 @@ export function solanaRow(s: Slot, rec: Pick<PurchaseRecord, "outcome" | "probe"
     tx: rec.signature ?? null,
     priceUsdc: rec.priceUsdc ?? (rec.probe.amount && /^\d+$/.test(rec.probe.amount) ? atomicToUsdc(rec.probe.amount) : atomicToUsdc(t.amountAtomic)),
     slot: s.slot,
+    key,
   };
 }
 
@@ -81,7 +82,7 @@ export async function paySolana(slots: readonly Slot[], pay: Omit<PayDeps, "budg
     attempt: async (s): Promise<AttemptResult> => {
       const at = now().toISOString();
       const rec = await payOne(planEntry(s, deps.date), { ...pay, budget: deps.budget, ownAddresses: [PAYER_ADDRESS] });
-      const row = solanaRow(s, rec, at);
+      const row = solanaRow(s, rec, at, budgetKey(deps.date, s.target.payTo, s.slot));
       if (rec.solDecreased) return { row, stop: `payer SOL decreased after ${s.target.host}` };
       const r = rec.refusal?.refused;
       return { row, stop: r && STOP_ON.has(r) ? r : null };
@@ -122,14 +123,14 @@ export async function dryRunSolana(slots: readonly Slot[], fetchImpl: typeof fet
       const at = now().toISOString();
       if (p.status !== 402 || !p.paymentRequired) {
         const refusal = { refused: "no_solana_accept" as const, detail: `unpaid request returned ${p.status ?? "no response"}${p.error ? `: ${p.error}` : ""}` };
-        return { row: solanaRow(s, { outcome: "refused", probe, refusal }, at), stop: null };
+        return { row: solanaRow(s, { outcome: "refused", probe, refusal }, at, budgetKey(deps.date, s.target.payTo, s.slot)), stop: null };
       }
       const r = checkAccept(a, { payer: PAYER_ADDRESS, lockedPayTo: lock.payTo, lockedAmount: lock.amount, ownAddresses: [PAYER_ADDRESS] });
-      if (r) return { row: solanaRow(s, { outcome: "refused", probe, refusal: r }, at), stop: null };
+      if (r) return { row: solanaRow(s, { outcome: "refused", probe, refusal: r }, at, budgetKey(deps.date, s.target.payTo, s.slot)), stop: null };
       const res = deps.budget.reserve(BigInt(a!.amount), budgetKey(deps.date, s.target.payTo, s.slot), null);
-      if ("refused" in res) return { row: solanaRow(s, { outcome: "refused", probe, refusal: res }, at), stop: null };
+      if ("refused" in res) return { row: solanaRow(s, { outcome: "refused", probe, refusal: res }, at, budgetKey(deps.date, s.target.payTo, s.slot)), stop: null };
       deps.budget.commit(res.id);
-      return { row: solanaRow(s, { outcome: "would_pay", probe, priceUsdc: atomicToUsdc(a!.amount) }, at), stop: null };
+      return { row: solanaRow(s, { outcome: "would_pay", probe, priceUsdc: atomicToUsdc(a!.amount) }, at, budgetKey(deps.date, s.target.payTo, s.slot)), stop: null };
     },
   });
 }

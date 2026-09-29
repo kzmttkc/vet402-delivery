@@ -75,9 +75,11 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
       }
     } else if (settled === false) category = "not_settled";
     else category = "unconfirmed_server_error";
-  } else if (r.outcome === "unknown") {
-    // A credential left the process and the outcome was not recorded (Tempo).
-    rawReason = "unknown";
+  } else if (r.outcome === "unknown" || r.outcome === "unknown_after_sign") {
+    // A payment may have left and the outcome was not recorded: "unknown" (Tempo, after send) or
+    // "unknown_after_sign" (the run ended between the ledger and the result row). The fault rules find
+    // no status here, so these land on the "can't tell" side and never lower a grade.
+    rawReason = r.outcome;
     category = "unconfirmed_server_error";
   } else if (r.outcome === "refused" || r.outcome === "not_sent") {
     rawReason = r.reason;

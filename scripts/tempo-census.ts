@@ -86,10 +86,12 @@ async function pay(): Promise<void> {
   const chain = await import("../src/tempo/chain.js");
   const { Ledger } = await import("../src/tempo/ledger.js");
   const { runPlan } = await import("../src/tempo/pay.js");
+  const { unaccountedChainSpent } = await import("../src/tempo/key-ledgers.js");
   await chain.assertMainnet();
   const keyFile = arg("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json");
   const signer = chain.loadSigner(keyFile);
-  const ledger = new Ledger(arg("--ledger") ?? join(ROOT, "results", "tempo-ledger.json"), PAYER_ADDRESS, cap, { lock: true });
+  const ledgerPath = arg("--ledger") ?? join(ROOT, "results", "tempo-ledger.json");
+  const ledger = new Ledger(ledgerPath, PAYER_ADDRESS, cap, { lock: true });
   console.error(`[pay] payer ${signer.address} cap ${atomicToUnits(cap)} USDC.e, ledger committed ${atomicToUnits(ledger.committed())}`);
 
   const plan: PlanEntry[] = rep.plan.slice(0, max);
@@ -102,7 +104,8 @@ async function pay(): Promise<void> {
         ledger,
         payer: PAYER_ADDRESS,
         balance: () => chain.usdcBalance(PAYER_ADDRESS),
-        chainSpent: () => chain.usdcOutflowSinceStart(PAYER_ADDRESS),
+        // The key also pays remeasure's day ledgers: outflow they account for is not this ledger's (src/tempo/key-ledgers.ts).
+        chainSpent: unaccountedChainSpent(ledgerPath, () => chain.usdcOutflowSinceStart(PAYER_ADDRESS), PAYER_ADDRESS),
         verify: (h, e) => chain.verifySettlement(h, e),
       },
       (entry, o) => {

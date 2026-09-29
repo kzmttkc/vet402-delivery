@@ -100,9 +100,12 @@ The ranking gives a rank number only after 10 counted purchases on 2 or more UTC
 
 - Who: the settled purchases in `data/` (Solana census and gate1 results, the Tempo ledger). The payTo and price are locked to that earlier payment. A live 402 that names another payTo is not paid and is recorded as `pay_to_changed`; a higher price is not paid either.
 - How many: one purchase per payTo per run (`--per-payto` up to 5), at least 60 s apart for the same payTo. A payTo with several resources gets them in a fixed order, cheapest first, so the same resource adds up.
-- Caps: 0.10 per purchase; 3 USDC (Solana) or 1 USDC.e (Tempo) per run; 30 per month on each chain. The same payTo is bought at most once per slot per UTC day, however many runs that day.
+- Caps: 0.10 per purchase; 3 USDC (Solana) or 1 USDC.e (Tempo) per run; 30 per month on each chain. The same payTo is bought at most once per slot per UTC day, however many runs that day (ledger key `<date>|<payTo>|<slot>` on both chains).
 - Money moves only through the existing payment functions (`src/pay.ts`, `src/tempo/pay.ts`), which write the ledger before anything is signed.
-- Results: `results/remeasure/<chain>-YYYY-MM-DD.json`, read by `npm run rank` as purchases on that day. Ledgers: `budget-solana-YYYY-MM.json`, `tempo-ledger-YYYY-MM-DD.json` and `tempo-start-YYYY-MM-DD.json` in the same folder; keep them where `--pay` runs.
+- Tempo shares one key with the Tempo census. Every Tempo `--pay` run (census and remeasure) checks the same thing before signing: USDC.e out of the key since the census start block must not exceed its own ledger plus what the key's other ledgers record as paid (`src/tempo/key-ledgers.ts`). A deleted or lost ledger leaves its payments unaccounted, so nothing more is signed until someone looks. The Tempo month cap also counts what left the key on chain since the month's first block, census purchases included.
+- A purchase that is in a ledger but has no result row (the run was killed in between) is added by the next `--pay` run as `unknown_after_sign`. It is never bought again that day, and the rank does not count it against the seller.
+- **Production runs in one place only: `~/vet402-solana/results/remeasure`.** Ledgers, locks and results always go there, whichever checkout runs the script, and `--pay` refuses `--out`. `npm run rank` reads the same folder.
+- Results: `<chain>-YYYY-MM-DD.json`, read by `npm run rank` as purchases on that day. Ledgers: `budget-solana-YYYY-MM.json` and `tempo-ledger-YYYY-MM-DD.json`. Back them up; never delete them.
 
 ```bash
 npm run remeasure -- --chain solana               # dry run (the default): targets and estimate; pays nothing

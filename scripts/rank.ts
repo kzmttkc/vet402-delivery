@@ -32,6 +32,7 @@ import { buildReport, type InputRecord } from "../src/rank/report.js";
 import type { Attempt } from "../src/rank/types.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
 import { resultFilesUpTo } from "../src/remeasure/results.js";
+import { RM_PROD_DIR } from "../src/remeasure/constants.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const HOME = process.env.HOME ?? "";
@@ -50,8 +51,8 @@ const INPUTS = {
   basePurchases: join(HOME, "vet402-solana-base/results/base-purchases.jsonl"),
   baseFeedback: join(HOME, "vet402-solana-base/results/base-feedback-ledger.json"),
   cdp: "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
-  /** scripts/remeasure.ts output: <chain>-YYYY-MM-DD.json, one per chain and UTC day. */
-  remeasureDir: join(ROOT, "results", "remeasure"),
+  /** scripts/remeasure.ts output: <chain>-YYYY-MM-DD.json, one per chain and UTC day, in its one production folder. */
+  remeasureDir: RM_PROD_DIR,
 };
 
 const args = process.argv.slice(2);

@@ -5,8 +5,12 @@
  *   npm run remeasure -- --chain solana               # dry run (the default): targets and estimate, pays nothing
  *   npm run remeasure -- --chain tempo --dry-run
  *   npm run remeasure -- --chain solana --pay         # pays (explicit flag only)
- *   options: --per-payto N (1..5, default 1)  --data <dir> (default data/)  --out <dir> (default results/remeasure/)
+ *   options: --per-payto N (1..5, default 1)  --data <dir> (default data/)
+ *            --out <dir> (dry run only: where the plan is written; default results/remeasure/ of this checkout)
  *            --key <file> (--pay only; default .keys/payer.json on Solana, .keys/evm.json on Tempo)
+ *
+ * Production runs in one place only: ledgers, locks and results are always ~/vet402-solana/results/remeasure
+ * (RM_PROD_DIR), whichever checkout runs the script; --pay refuses --out.
  *
  * Who: the settled purchases in the published inputs (data/manifest.json, sha256 checked): Solana census
  * and gate1 results, the Tempo ledger (with the census plan for method and body). One purchase per payTo
@@ -37,7 +41,8 @@ import {
   type RemeasureChain,
 } from "../src/remeasure/constants.js";
 import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
-import { readResultFile, resultPath, writeJsonAtomic, type RemeasureRow, type RunInfo } from "../src/remeasure/results.js";
+import { readResultFile, resultPath, runDirs, writeJsonAtomic, type RemeasureRow, type RunInfo } from "../src/remeasure/results.js";
+import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
 import type { LoopResult } from "../src/remeasure/loop.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -63,7 +68,16 @@ const PAY = flag("--pay");
 const perPayTo = Number(opt("--per-payto") ?? RM_DEFAULT_PER_PAYTO);
 if (!Number.isInteger(perPayTo) || perPayTo < 1 || perPayTo > RM_MAX_PER_PAYTO) usage(`--per-payto must be 1..${RM_MAX_PER_PAYTO}`);
 const DATA = resolve(opt("--data") ?? join(ROOT, "data"));
-const OUT = resolve(opt("--out") ?? join(ROOT, "results", "remeasure"));
+let dirs: ReturnType<typeof runDirs>;
+try {
+  dirs = runDirs({ pay: PAY, out: opt("--out"), root: ROOT });
+} catch (e) {
+  usage((e as Error).message);
+}
+/** Ledgers, locks and result files: always RM_PROD_DIR (read by dry runs, written by --pay). */
+const OUT = dirs.ledgers;
+/** Where a dry run writes its plan. */
+const DRY_OUT = dirs.dryRunOut;
 const NOW = new Date();
 const DATE = NOW.toISOString().slice(0, 10);
 const MONTH = DATE.slice(0, 7);
@@ -123,7 +137,7 @@ function summaryLines(res: LoopResult, fmt: (a: string) => string) {
 
 // ---------- Solana ----------
 
-async function solana(slotsAll: ReturnType<typeof selectSlots>) {
+async function solana(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]) {
   const { jsonRpc, readBalances, waitForSettlement } = await import("../src/chain.js");
   const { RemeasureBudget } = await import("../src/remeasure/budget.js");
   const { dryRunSolana, paySolana } = await import("../src/remeasure/solana.js");
@@ -138,7 +152,7 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>) {
     const res = await dryRunSolana(slotsAll.slots, fetch, { date: DATE, budget: sim, now: () => new Date() });
     const after = await readBalances(rpc, PAYER_ADDRESS);
     const sum = summaryLines(res, atomicToUsdc);
-    const out = join(OUT, `solana-${DATE}.dry-run.json`);
+    const out = join(DRY_OUT, `solana-${DATE}.dry-run.json`);
     writeJsonAtomic(out, {
       kind: "vet402-remeasure-dry-run",
       chain: "solana",
@@ -166,6 +180,11 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>) {
   const { realSleep } = await import("../src/remeasure/loop.js");
   const release = lockOrExit(join(OUT, "solana.lock"));
   try {
+    // Purchases a killed run reserved but never recorded: one unknown_after_sign row each, never paid again.
+    const { readdirSync } = await import("node:fs");
+    for (const n of existsSync(OUT) ? readdirSync(OUT).filter((x) => /^budget-solana-\d{4}-\d{2}\.json$/.test(x)).sort() : []) {
+      for (const r of reconcileSolana(join(OUT, n), OUT, targets, PAYER_ADDRESS)) console.log(`recorded unknown_after_sign ${r.key} ${r.host}`);
+    }
     const budget = new RemeasureBudget(monthFile);
     const signer = await loadPayer(opt("--key") ?? join(ROOT, ".keys", "payer.json"));
     const payerAta = await usdcAta(PAYER_ADDRESS);
@@ -203,21 +222,26 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>) {
 
 // ---------- Tempo ----------
 
-async function tempo(slotsAll: ReturnType<typeof selectSlots>) {
+async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]) {
   const tchain = await import("../src/tempo/chain.js");
   const { Ledger } = await import("../src/tempo/ledger.js");
-  const { dayLedgerPath, dryRunTempo, ensureStartBlock, monthCommittedElsewhere, payTempo, startBlockPath, usdcOutflowSince } = await import("../src/remeasure/tempo.js");
+  const { dayLedgerPath, dryRunTempo, liveChainView, monthCommittedElsewhere, payTempo } = await import("../src/remeasure/tempo.js");
+  const { TEMPO_KEY_LEDGERS } = await import("../src/tempo/key-ledgers.js");
+  const chainView = liveChainView(TEMPO_PAYER);
   const dayFile = dayLedgerPath(OUT, DATE);
   const monthElsewhere = monthCommittedElsewhere(OUT, MONTH, DATE);
 
   if (!PAY) {
     const before = await tchain.usdcBalance(TEMPO_PAYER);
     const today = existsSync(dayFile) ? new Ledger(dayFile, TEMPO_PAYER, RM_TEMPO_MAX_PER_RUN_ATOMIC).committed() : 0n;
-    const res = await dryRunTempo(slotsAll.slots, fetch, { monthElsewhere, monthCommittedToday: today, now: () => new Date() });
+    const monthChainOutflow = await chainView.outflowSinceMonthStart(MONTH);
+    const res = await dryRunTempo(slotsAll.slots, fetch, { date: DATE, monthElsewhere, monthCommittedToday: today, monthChainOutflow, now: () => new Date() });
     const after = await tchain.usdcBalance(TEMPO_PAYER);
     const sum = summaryLines(res, atomicToUnits);
-    const out = join(OUT, `tempo-${DATE}.dry-run.json`);
-    const monthLeft = RM_TEMPO_MAX_PER_MONTH_ATOMIC - monthElsewhere - today;
+    const out = join(DRY_OUT, `tempo-${DATE}.dry-run.json`);
+    const monthBooks = monthElsewhere + today;
+    const monthSpent = monthChainOutflow > monthBooks ? monthChainOutflow : monthBooks;
+    const monthLeft = RM_TEMPO_MAX_PER_MONTH_ATOMIC > monthSpent ? RM_TEMPO_MAX_PER_MONTH_ATOMIC - monthSpent : 0n;
     writeJsonAtomic(out, {
       kind: "vet402-remeasure-dry-run",
       chain: "tempo",
@@ -246,11 +270,9 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>) {
   try {
     await tchain.assertMainnet();
     const signer = tchain.loadSigner(opt("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json"));
-    const hadLedger = existsSync(dayFile);
+    // Purchases a killed run reserved but never recorded: one unknown_after_sign row each, never paid again.
+    for (const r of reconcileTempo(OUT, targets, TEMPO_PAYER)) console.log(`recorded unknown_after_sign ${r.key} ${r.host}#${r.service}`);
     ledger = new Ledger(dayFile, TEMPO_PAYER, RM_TEMPO_MAX_PER_RUN_ATOMIC, { lock: true });
-    const startFile = startBlockPath(OUT, DATE);
-    if (hadLedger && ledger.entries().length > 0 && !existsSync(startFile)) throw new Error(`${dayFile} has entries but ${startFile} is missing; refusing to pay`);
-    const startBlock = await ensureStartBlock(startFile, () => tchain.publicClient().getBlockNumber(), NOW);
     const file = resultPath(OUT, "tempo", DATE);
     const result = readResultFile(file, "tempo", DATE, TEMPO_PAYER);
     const run: RunInfo = { startedAt: NOW.toISOString(), endedAt: null, perPayTo, stopped: null };
@@ -264,10 +286,10 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>) {
         signer,
         payer: TEMPO_PAYER,
         balance: () => tchain.usdcBalance(TEMPO_PAYER),
-        chainSpent: () => usdcOutflowSince(TEMPO_PAYER, startBlock),
         verify: (h, e) => tchain.verifySettlement(h, e),
       },
-      { ledger, monthElsewhere, sleep: realSleep, onRow: (r) => (result.rows.push(r), save(), logRow(r)) },
+      // payOne's chain check: outflow since the census start <= this day ledger + every other ledger of the key.
+      { date: DATE, ledger, keyLedgers: TEMPO_KEY_LEDGERS, chain: chainView, monthElsewhere, sleep: realSleep, onRow: (r) => (result.rows.push(r), save(), logRow(r)) },
     );
     run.endedAt = new Date().toISOString();
     run.stopped = res.stopped;
@@ -294,5 +316,6 @@ function logRow(r: RemeasureRow) {
   console.log(`${r.outcome.padEnd(8)} ${r.reason.padEnd(16)} ${r.host.padEnd(44)} ${r.priceUsdc ?? "-"} settled=${r.settled ?? "-"} delivered=${r.delivered ?? "-"} tx=${r.tx ?? "-"}`);
 }
 
-const slots = selectSlots(targetsFor(chain), perPayTo);
-process.exitCode = chain === "solana" ? await solana(slots) : await tempo(slots);
+const allTargets = targetsFor(chain);
+const slots = selectSlots(allTargets, perPayTo);
+process.exitCode = chain === "solana" ? await solana(slots, allTargets) : await tempo(slots, allTargets);
