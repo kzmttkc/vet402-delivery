@@ -36,9 +36,19 @@ export const FAULT_RULES: readonly FaultRule[] = [
     match: (a, t) => a.settled === true && status(a, t) === 402,
   },
   {
+    // The same line as the signed delivery records (src/receipt/build.ts: UNCLEAR, not NOT_DELIVERED).
+    id: "paid_then_4xx",
+    fault: "unknown",
+    when: "vet402's payment settled, then the seller answered 4xx other than 402 (400, 401, 404, 422, 429 …). vet402 built the request from the seller's listing, so a fault on vet402's side is not ruled out. Shown as a count, as in the signed records (UNCLEAR).",
+    match: (a, t) => {
+      const s = status(a, t);
+      return a.settled === true && s !== null && s >= 400 && s <= 499 && s !== 402;
+    },
+  },
+  {
     id: "paid_not_delivered",
     fault: "seller",
-    when: "vet402's payment settled, then the seller answered non-2xx or an empty body.",
+    when: "vet402's payment settled, then the seller answered 5xx, nothing, another non-2xx that is not a 4xx, or 2xx with an empty body.",
     match: (a) => a.settled === true,
   },
   {

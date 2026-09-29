@@ -12,15 +12,15 @@ Who it is for:
 - People who build agents that pay: look a seller up before your agent pays it.
 - Sellers: see whether a real outside payment to your API settled and what your API answered. It costs you nothing, and there is nothing to sign up for.
 
-"Came back with an answer" means the payment settled and the seller answered 2xx with a non-empty body (on Tempo, where the runner kept no body: 2xx). vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.
+"Came back with an answer" means the payment settled and the seller answered 2xx with a non-empty body (for the Tempo census purchases, whose runner kept no body: 2xx; the Tempo re-purchases are tested for an empty body). On Solana, Tempo and Base the runner checked each payment on chain before calling it settled. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.
 
 How vet402 pays for this: Grades come only from vet402's own purchases. vet402 also sells paid checks (on Algorand); a paid check is a separate report and never moves a grade.
 
 Where Solana comes in: vet402 pays Solana sellers in USDC on Solana, and writes the Merkle root of each day's signed delivery records into one Solana memo, so a record of that day cannot be added or dropped later without the root changing.
 
-The numbers above are from the report of 2026-09-29 (`site/rank.json`). The site is rebuilt from `data/` on every push and always shows the latest numbers.
+The numbers above are from the report of 2026-09-29 (`site/rank.json`). The site is rebuilt from `data/` on every push to main, so it shows the purchases whose results have been committed to `data/`, not ones still waiting to be copied there.
 
-This repository is the multi-chain part of vet402. It buys every seller it can on **Solana, Tempo and Base**, buys again about once a day from the Solana and Tempo sellers whose earlier payment settled (Base sellers have been bought once), keeps every result with its payment, and grades sellers by what was actually delivered, not by how popular a listing is.
+This repository is the multi-chain part of vet402. It buys the sellers it can on **Solana** (from the PayAI, CDP Bazaar and Pay.sh catalogs) and **Tempo** (from Tempo's Mercator directory), and on **Base** the sellers registered in ERC-8004 (8 purchases from 8 sellers on 2026-09-28, each bought once). It buys again about once a day from the Solana and Tempo sellers whose earlier payment settled, keeps every result with its payment, and grades sellers by what was actually delivered, not by how popular a listing is.
 
 ## What is here
 

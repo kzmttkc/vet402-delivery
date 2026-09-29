@@ -15,6 +15,7 @@ import {
   parseTempoRunLog,
 } from "../src/rank/normalize.js";
 import { buildReport } from "../src/rank/report.js";
+import { decideVerdict } from "../src/receipt/build.js";
 import { aggregate, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 
@@ -232,8 +233,18 @@ test("classify: each reason goes to the fault the method page promises", () => {
   assert.throws(() => classifyFailure(att({})), /only tried, not delivered/);
 });
 
-test("classify: a 429 after settlement is still the seller's (money moved, nothing came back)", () => {
-  assert.equal(classifyFailure(fail({ httpStatus: 429 })).fault, "seller");
+test("classify: after settlement, 4xx other than 402 is can't tell (as UNCLEAR in the signed records); 5xx, 402 again, empty 2xx and no answer stay the seller's", () => {
+  for (const s of [400, 401, 404, 422, 429]) assert.deepEqual(classifyFailure(fail({ httpStatus: s })), { fault: "unknown", rule: "paid_then_4xx" }, `${s}`);
+  assert.deepEqual(classifyFailure(fail({ httpStatus: null, rawReason: "http_error", detail: "status 404 after payment" })), { fault: "unknown", rule: "paid_then_4xx" }, "status read from the text");
+  assert.deepEqual(classifyFailure(fail({ httpStatus: 500 })), { fault: "seller", rule: "paid_not_delivered" });
+  assert.deepEqual(classifyFailure(fail({ httpStatus: 402 })), { fault: "seller", rule: "settled_not_delivered" });
+  assert.deepEqual(classifyFailure(fail({ httpStatus: null, rawReason: "http_error" })), { fault: "seller", rule: "paid_not_delivered" }, "no answer");
+  assert.deepEqual(classifyFailure(att({ delivered: false, category: "settled_empty_body", settled: true, httpStatus: 200 })), { fault: "seller", rule: "paid_not_delivered" });
+  // The same line as the signed records: a settled 4xx (not 402) is UNCLEAR there, 5xx / 402 / empty 2xx NOT_DELIVERED.
+  const verdict = (s: number, body: boolean | null = true) => decideVerdict({ paymentSettled: true, httpStatus: s, bodyNonEmpty: body, declaredFormatMatched: null }).code;
+  for (const s of [400, 401, 404, 422, 429]) assert.equal(verdict(s), "UNCLEAR", `${s}`);
+  for (const s of [500, 402]) assert.equal(verdict(s), "NOT_DELIVERED", `${s}`);
+  assert.equal(verdict(200, false), "NOT_DELIVERED");
 });
 
 test("classify: README lists every rule with its fault, in order", () => {

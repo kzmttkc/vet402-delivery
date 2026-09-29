@@ -217,6 +217,12 @@ const CHAIN_LABEL: Record<Chain, string> = { algorand: "Algorand", solana: "Sola
 
 const TAB_LABEL: Record<GroupId, string> = { main: "Solana, Tempo, Base", algorand: "Algorand" };
 
+/** "settled" per page: read back on chain (Solana, Tempo, Base) or a facilitator's settlement receipt (Algorand). */
+const SETTLED_TEXT: Record<GroupId, { stat: string; short: string; nothing: string }> = {
+  main: { stat: "payments settled on chain", short: "settled on chain", nothing: "settled on chain, and nothing usable came back" },
+  algorand: { stat: "with a settlement receipt (tx id)", short: "with a settlement receipt", nothing: "with a settlement receipt, and nothing usable came back" },
+};
+
 const PUBLIC_GRADE_TEXT: Record<Grade, string> = {
   A: "90%+ came back",
   B: "75%+",
@@ -357,17 +363,17 @@ function methodDate(r: RankReport): string {
 }
 
 /** Tried, settled, came back, and settled with nothing usable back: the four numbers at the top of each page. */
-function purchaseStats(t: GroupReport["totals"]): string {
+function purchaseStats(t: GroupReport["totals"], gid: GroupId): string {
   return `<div class="stats">
   <div><span class="big">${t.tried}</span><br>purchases tried, from ${plural(t.sellersListed, "seller")}</div>
-  <div><span class="big">${t.settled}</span><br>payments settled on chain</div>
+  <div><span class="big">${t.settled}</span><br>${SETTLED_TEXT[gid].stat}</div>
   <div><span class="big">${t.delivered}</span><br>came back with an answer</div>
-  <div><span class="big">${t.settledNotDelivered}</span><br>settled, and nothing usable came back</div>
+  <div><span class="big">${t.settledNotDelivered}</span><br>${SETTLED_TEXT[gid].nothing}</div>
 </div>`;
 }
 
-function notCountedLine(t: GroupReport["totals"]): string {
-  return `<p class="notcounted">Not counted against any seller: <b>${t.excluded.vet402_or_facilitator}</b> failed purchases on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> with no clear cause, out of ${t.tried} tries where vet402 sent a payment (${t.settled} settled). They never lower a grade. <a href="method.html#instrument">By rule</a></p>`;
+function notCountedLine(t: GroupReport["totals"], gid: GroupId): string {
+  return `<p class="notcounted">Not counted against any seller: <b>${t.excluded.vet402_or_facilitator}</b> failed purchases on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> with no clear cause, out of ${t.tried} tries where vet402 sent a payment (${t.settled} ${SETTLED_TEXT[gid].short}). They never lower a grade. <a href="method.html#instrument">By rule</a></p>`;
 }
 
 function payToLine(t: GroupReport["totals"]): string {
@@ -409,7 +415,7 @@ function renderMainIndex(r: RankReport, g: GroupReport, slugs: Map<string, strin
   const t = g.totals;
   const chains = r.chains.filter((c) => g.chains.includes(c.chain));
   const perChain = chains
-    .map((c) => `${CHAIN_LABEL[c.chain]}: ${c.tried} tried, ${c.settled} settled, ${c.delivered} came back${c.bodyChecked ? "" : ` (the ${CHAIN_LABEL[c.chain]} runner kept no body, so there "came back" means settled, then 2xx)`}.`)
+    .map((c) => `${CHAIN_LABEL[c.chain]}: ${c.tried} tried, ${c.settled} settled, ${c.delivered} came back${c.bodyUnchecked ? ` (for ${c.bodyUnchecked} of these ${c.tried} the runner kept no body, so for them "came back" means settled, then 2xx; the other ${c.tried - c.bodyUnchecked} were tested for an empty body)` : ""}.`)
     .join(" ");
   const ranked = g.ranking.filter((s) => s.rank !== null);
   const maxCounted = Math.max(0, ...g.ranking.map((s) => s.counted));
@@ -428,7 +434,7 @@ ${tabs("main")}
 <p class="lead">${escapeHtml(PUBLIC_LEAD)}</p>
 <p class="dim">${escapeHtml(g.label)} · purchases ${periodHtml(t)} · method ${escapeHtml(r.method.version)} (<span class="nw">${escapeHtml(methodDate(r))}</span>)</p>
 </header>
-${purchaseStats(t)}
+${purchaseStats(t, g.id)}
 <p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
 <p class="meta">${escapeHtml(perChain)}</p>
 ${gradeState}
@@ -436,7 +442,7 @@ ${gradeState}
 
 ${byChain.map((x) => `<h2 id="${x.c}">${CHAIN_LABEL[x.c]}: ${plural(x.rows.length, "seller")}</h2>\n${chainTable(x.c, x.rows, slugs)}`).join("\n\n")}
 
-${notCountedLine(t)}
+${notCountedLine(t, g.id)}
 ${payToLine(t)}
 ${moneySection()}
 
@@ -456,13 +462,13 @@ ${tabs("algorand")}
 <p class="lead">vet402 bought the listed Algorand x402 APIs it could buy, with its own money, from ${periodHtml(t)}. ${t.sellersRanked} of ${plural(t.sellersListed, "seller")} have enough purchases for a rank number.</p>
 <p class="meta">These results come from <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project built for Algorand's Global x402 Challenge. They are graded from Algorand purchases only, apart from the Solana, Tempo and Base page. Those runs bought up to about 500 items of one seller in under an hour, before the pacing rule of method v2.</p>
 </header>
-${purchaseStats(t)}
-<p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
+${purchaseStats(t, g.id)}
+<p class="meta">${escapeHtml(DELIVERED_LINE)} On Algorand, "settled" is the facilitator's settlement receipt with a tx id, as vet402-algorand recorded it; vet402 has not read these payments back on chain.</p>
 ${publicLegend()}
 
 ${gradedTables(r, g, slugs, "h2") || `<p class="dim">No seller has ${r.method.minCounted} counted purchases on ${r.method.minDays} different days yet.</p>`}
 
-${notCountedLine(t)}
+${notCountedLine(t, g.id)}
 
 <h2>Measuring (${measuring.length}): fewer than ${r.method.minCounted} counted purchases, or only one day</h2>
 <p class="meta">No grade and no rank number yet. This is not a bad mark.</p>
@@ -543,7 +549,7 @@ function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): str
       : `Graded from Solana, Tempo and Base purchases only. Listed on <a href="../${g.page}">the first page</a>.`;
   return `<h2 id="${g.id}">${escapeHtml(g.label)}</h2>
 <p class="meta">${where}</p>
-<p class="lead">vet402 paid this seller ${plural(s.tried, "time")} with its own money (${escapeHtml(triedText)}), most recently on <span class="nw">${escapeHtml(day(s.lastMeasuredAt))}</span> (UTC). ${s.settled} settled; ${s.delivered} came back with an answer${s.paidButNotDelivered ? `; ${s.paidButNotDelivered} settled and nothing usable came back` : ""}.</p>
+<p class="lead">vet402 paid this seller ${plural(s.tried, "time")} with its own money (${escapeHtml(triedText)}), most recently on <span class="nw">${escapeHtml(day(s.lastMeasuredAt))}</span> (UTC). ${s.settled} ${SETTLED_TEXT[g.id].short}; ${s.delivered} came back with an answer${s.paidButNotDelivered ? `; ${s.paidButNotDelivered} ${SETTLED_TEXT[g.id].nothing}` : ""}.</p>
 <p class="meta">${rebuys ? "vet402 buys again about once a day from sellers whose earlier Solana or Tempo payment settled, at the same price and to the same payTo. " : ""}It costs the seller nothing, and there is nothing to sign up for.</p>
 <p>${publicBadge(s.grade)} ${escapeHtml(s.grade === "measuring" || s.grade === "undecided" ? PUBLIC_GRADE_TEXT[s.grade] : `grade ${s.grade}: ${GRADE_TEXT[s.grade].label}`)} · ${escapeHtml(standing)}</p>
 
@@ -609,9 +615,12 @@ function renderPublicMethod(r: RankReport): string {
   const chainRows = r.chains
     .map(
       (c) =>
-        `<tr><td>${escapeHtml(CHAIN_LABEL[c.chain] ?? c.chain)}</td><td>${c.tried}</td><td>${c.settled}</td><td>${c.delivered}</td><td>${c.declared.checked ? `${c.declared.matched}/${c.declared.checked}` : "–"}</td><td>${c.bodyChecked ? "yes" : "no"}</td></tr>`,
+        `<tr><td>${escapeHtml(CHAIN_LABEL[c.chain] ?? c.chain)}</td><td>${c.tried}</td><td>${c.settled}</td><td>${c.delivered}</td><td>${c.declared.checked ? `${c.declared.matched}/${c.declared.checked}` : "–"}</td><td>${c.bodyUnchecked ? `${c.tried - c.bodyUnchecked} of ${c.tried}` : "yes"}</td></tr>`,
     )
     .join("\n");
+  const onChain = r.chains.filter((c) => c.settledOnChain).reduce((n, c) => n + c.settled, 0);
+  const byReceipt = r.chains.filter((c) => !c.settledOnChain).reduce((n, c) => n + c.settled, 0);
+  const settledSplit = `${onChain} settled on chain, ${byReceipt} with a settlement receipt on Algorand`;
   const grades = r.groups
     .map((g) => `${escapeHtml(g.label)}: ${GRADE_ORDER.map((x) => `${publicBadge(x)} ${g.totals.grades[x] ?? 0}`).join(" · ")}`)
     .join("<br>");
@@ -632,7 +641,8 @@ ${tabs(null)}
 <p class="meta">A failed purchase gets the first rule that matches, top to bottom. Only seller-side rules lower a grade.</p>
 <ol class="plain">${rules}</ol>
 
-<h2>3. What "came back with an answer" means</h2>
+<h2>3. What "settled" and "came back with an answer" mean</h2>
+<p>${escapeHtml(m.settled)}</p>
 <p>${escapeHtml(m.delivered)}</p>
 <p class="meta">${escapeHtml(m.declared)}</p>
 
@@ -656,11 +666,12 @@ ${tabs(null)}
 <p class="meta">${escapeHtml(m.sellerIdentity)} ${escapeHtml(m.payTo)}</p>
 
 <h2 id="instrument">6. vet402's own record in this report</h2>
-<p>Out of ${t.tried} tries where vet402 sent a payment (${t.settled} settled), <b>${t.excluded.vet402_or_facilitator}</b> failed on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> had no clear cause. None of them lowered a grade. ${t.counted} purchases were counted: ${t.delivered} came back with an answer.</p>
+<p>Out of ${t.tried} tries where vet402 sent a payment (${settledSplit}), <b>${t.excluded.vet402_or_facilitator}</b> failed on vet402's or the facilitator's side and <b>${t.excluded.unknown}</b> had no clear cause. None of them lowered a grade. ${t.counted} purchases were counted: ${t.delivered} came back with an answer.</p>
 <table><thead><tr><th>chain</th><th>tries</th><th>settled</th><th>came back</th><th>as de&shy;clared</th><th>body test</th></tr></thead>
 <tbody>
 ${chainRows}
 </tbody></table>
+<p class="meta">settled: read back on chain on Solana, Tempo and Base; a facilitator's settlement receipt with a tx id on Algorand. body test: purchases tested for an empty body.</p>
 <p class="meta">Algorand rows come from <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project; they are graded on their own page.</p>
 
 <h2 id="appeal">7. Mistakes and corrections</h2>

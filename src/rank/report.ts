@@ -19,8 +19,12 @@ export interface ChainSummary {
   sellersTried: number;
   /** Delivered answers that were also checked against what the seller declared, and how many matched. */
   declared: { checked: number; matched: number };
-  /** false when this chain's runner kept no body, so "delivered" there means settled + 2xx only. */
+  /** false when any row of this chain has no body test, so "delivered" there means settled + 2xx only. */
   bodyChecked: boolean;
+  /** Tried purchases whose runner kept no body (no empty-body test): the Tempo census ledger. */
+  bodyUnchecked: number;
+  /** true: the runner read the payment back on chain. false (Algorand): a facilitator settlement receipt with a tx id. */
+  settledOnChain: boolean;
 }
 
 export interface ChangeLogEntry {
@@ -108,6 +112,7 @@ export interface RankReport {
   generatedAt: string;
   method: {
     version: string;
+    settled: string;
     delivered: string;
     declared: string;
     counted: string;
@@ -160,6 +165,13 @@ export const MONEY_LINE =
 export const DELIVERED_LINE =
   "Came back with an answer = vet402's payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.";
 
+/** Chains whose runner read vet402's payment back on chain before recording it as settled. */
+export const SETTLED_ON_CHAIN: Record<Chain, boolean> = { solana: true, tempo: true, base: true, algorand: false };
+
+/** What "settled" means, per chain. */
+export const SETTLED_LINE =
+  "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.";
+
 export const CHANGE_LOG: ChangeLogEntry[] = [
   {
     version: "v3",
@@ -170,6 +182,8 @@ export const CHANGE_LOG: ChangeLogEntry[] = [
       "The first page shows every Solana, Tempo and Base purchase per chain and per seller, even before any seller there has a grade. The Algorand page lists all its sellers without folding any.",
       "Comparisons with catalog order are made per page.",
       "Inputs: the daily re-purchases (remeasure) from Solana and Tempo sellers vet402 already paid are read as purchases on their day. They have been read since 2026-09-29; this entry is the first to say so.",
+      "A settled payment followed by a 4xx other than 402 (400, 401, 404, 422, 429 …) is no longer counted against the seller: rule paid_then_4xx, can't tell, shown as a count. vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out; the signed records already call it UNCLEAR. 5xx, 402 again, no answer and an empty 2xx after settlement stay on the seller's side. Effect on the 2026-09-29 report: 40 purchases on Solana, Tempo and Base (Solana 4, Tempo 36) and 2 on Algorand move from the seller side to not counted; no grade and no rank number changes, because every seller concerned was still measuring.",
+      "Wording only, no change to the test: \"settled\" on Algorand is named for what it is, a settlement receipt with a tx id from the facilitator, which vet402 has not read back on chain; on Solana, Tempo and Base the runners checked the payment on chain. The Tempo note now says which purchases kept no body (the census ledger) and which were tested for an empty body (the re-purchases).",
       "Wording only, no change to the test: \"delivered\" is shown as \"came back with an answer\", with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402's own purchases, and a paid check is a separate report that never moves a grade.",
     ],
   },
@@ -197,11 +211,12 @@ export const CHANGE_LOG: ChangeLogEntry[] = [
 
 export const METHOD: RankReport["method"] = {
   version: METHOD_VERSION,
-  delivered: `${DELIVERED_LINE} The same test on every chain, except Tempo, where the runner kept no body: there it means settled, then 2xx.`,
+  settled: SETTLED_LINE,
+  delivered: `${DELIVERED_LINE} The same test on every chain, except the Tempo census purchases (tempo/ledger), whose runner kept no body: for them it means settled, then 2xx. The Tempo re-purchases (remeasure) record the body size and are tested for an empty body.`,
   declared:
     "Separate column, never part of the grade: whether the answer's keys or shape matched what the seller declared. Checked only where the runner compared them (Algorand census, Solana census) and the seller declared something.",
   counted:
-    "Counted = delivered purchases plus failures on the seller's side (payment settled and nothing usable came back, or the seller's server answered 5xx). Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
+    "Counted = delivered purchases plus failures on the seller's side (payment settled, then 5xx, 402 again, no answer or an empty 2xx; or the seller's server answered 5xx). A settled payment followed by another 4xx is not counted: vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out. Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
   notCounted:
     "Not counted, shown as numbers: failures on vet402's or the facilitator's side, failures where the cause can't be told, endpoints that were not buyable, vet402's own skips (price cap, input it will not make up, duplicates) and refusals because payTo changed.",
   faultRules: FAULT_RULES.map((r) => ({ id: r.id, fault: r.fault, when: r.when })),
@@ -227,7 +242,8 @@ export const METHOD: RankReport["method"] = {
   limits: [
     "A seller that recognises vet402's payer address could serve vet402 better than others. The payer addresses are public.",
     "Purchases from one seller in the same run are not independent (one outage fails many at once), so the interval is narrower than it should be for runs before v2 pacing.",
-    "The Tempo runner kept no response body, so on Tempo 'delivered' means settled + 2xx without the body test.",
+    "The Tempo census runner (tempo/ledger) kept no response body, so for those purchases 'delivered' means settled + 2xx without the body test. The Tempo re-purchases (remeasure) have the body test.",
+    "On Algorand, 'settled' is the facilitator's settlement receipt with a tx id, as recorded by vet402-algorand; vet402 has not read those payments back on chain.",
     "The vet402-or-facilitator rules for 429 and subcent_quota_exceeded rest on how vet402 bought, not on the seller's word. If paced purchases still get them, they move to the seller side.",
     "Every input is a copy in data/ of a vet402 runner's result file, listed with its sha256 in data/manifest.json. The runners' wallets and full logs are not published.",
   ],
@@ -254,6 +270,8 @@ export function summarizeChains(attempts: readonly Attempt[]): ChainSummary[] {
         matched: tried.filter((a) => a.declaredMatch === true).length,
       },
       bodyChecked: rows.every((r) => r.bodyChecked),
+      bodyUnchecked: tried.filter((a) => !a.bodyChecked).length,
+      settledOnChain: SETTLED_ON_CHAIN[chain],
     };
   });
 }

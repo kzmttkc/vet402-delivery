@@ -187,6 +187,30 @@ test("site/ and README: the money and delivered wording (method v3), and no old 
   for (const f of ["README.md", join("src", "rank", "README.md")]) assert.ok(readFileSync(join(ROOT, f), "utf8").includes(MONEY_LINE), `${f}: money line`);
 });
 
+test("site/: Algorand 'settled' is a settlement receipt, not 'on chain'; the Tempo body note matches the data", () => {
+  const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
+  const algoPage = readFileSync(join(ROOT, "site", "algorand.html"), "utf8");
+  assert.ok(!/settled on chain/i.test(algoPage), "algorand.html never says settled on chain");
+  assert.ok(algoPage.includes("with a settlement receipt (tx id)"));
+  for (const p of walk(join(ROOT, "site", "seller"))) {
+    const html = readFileSync(p, "utf8");
+    const algoPart = html.includes('<h2 id="algorand">') ? html.slice(html.indexOf('<h2 id="algorand">')) : "";
+    // The page's own words only: runner output quoted verbatim (class="mono") keeps what the runner wrote.
+    assert.ok(!/settled on chain/i.test(ownWording(algoPart.slice(0, algoPart.indexOf('<h2 id="appeal">')))), `${p}: Algorand part`);
+  }
+  const method = readFileSync(join(ROOT, "site", "method.html"), "utf8");
+  assert.ok(method.includes(escapeHtml(pub.method.settled)), "method defines settled per chain");
+  assert.deepEqual(
+    pub.chains.map((c) => [c.chain, c.settledOnChain]),
+    [["algorand", false], ["solana", true], ["tempo", true], ["base", true]],
+  );
+  const tempo = pub.chains.find((c) => c.chain === "tempo")!;
+  assert.ok(tempo.bodyUnchecked > 0 && tempo.bodyUnchecked < tempo.tried, "only part of Tempo has no body test");
+  const main = readFileSync(join(ROOT, "site", "index.html"), "utf8");
+  assert.ok(main.includes(`for ${tempo.bodyUnchecked} of these ${tempo.tried} the runner kept no body`), "first page says how many");
+  assert.ok(method.includes(`<td>${tempo.tried - tempo.bodyUnchecked} of ${tempo.tried}</td></tr>`), "method table: body test count");
+});
+
 test("data/: every file matches the manifest sha256, and rank --data reproduces site/rank.json", async () => {
   const manifest = JSON.parse(readFileSync(join(ROOT, "data", "manifest.json"), "utf8")) as { date: string; files: { path: string; sha256: string }[] };
   const listed = new Set(manifest.files.map((f) => f.path));

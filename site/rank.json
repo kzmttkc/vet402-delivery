@@ -1,12 +1,13 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-09-29",
-  "generatedAt": "2026-09-29T11:24:54.783Z",
+  "generatedAt": "2026-09-29T11:59:02.868Z",
   "method": {
     "version": "v3",
-    "delivered": "Came back with an answer = vet402's payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column. The same test on every chain, except Tempo, where the runner kept no body: there it means settled, then 2xx.",
+    "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
+    "delivered": "Came back with an answer = vet402's payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column. The same test on every chain, except the Tempo census purchases (tempo/ledger), whose runner kept no body: for them it means settled, then 2xx. The Tempo re-purchases (remeasure) record the body size and are tested for an empty body.",
     "declared": "Separate column, never part of the grade: whether the answer's keys or shape matched what the seller declared. Checked only where the runner compared them (Algorand census, Solana census) and the seller declared something.",
-    "counted": "Counted = delivered purchases plus failures on the seller's side (payment settled and nothing usable came back, or the seller's server answered 5xx). Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
+    "counted": "Counted = delivered purchases plus failures on the seller's side (payment settled, then 5xx, 402 again, no answer or an empty 2xx; or the seller's server answered 5xx). A settled payment followed by another 4xx is not counted: vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out. Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
     "notCounted": "Not counted, shown as numbers: failures on vet402's or the facilitator's side, failures where the cause can't be told, endpoints that were not buyable, vet402's own skips (price cap, input it will not make up, duplicates) and refusals because payTo changed.",
     "faultRules": [
       {
@@ -15,9 +16,14 @@
         "when": "Paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as \"already in ledger\" included), then the seller answered 402. The buyer paid and received nothing."
       },
       {
+        "id": "paid_then_4xx",
+        "fault": "unknown",
+        "when": "vet402's payment settled, then the seller answered 4xx other than 402 (400, 401, 404, 422, 429 …). vet402 built the request from the seller's listing, so a fault on vet402's side is not ruled out. Shown as a count, as in the signed records (UNCLEAR)."
+      },
+      {
         "id": "paid_not_delivered",
         "fault": "seller",
-        "when": "vet402's payment settled, then the seller answered non-2xx or an empty body."
+        "when": "vet402's payment settled, then the seller answered 5xx, nothing, another non-2xx that is not a 4xx, or 2xx with an empty body."
       },
       {
         "id": "rate_limited_429",
@@ -88,7 +94,8 @@
     "limits": [
       "A seller that recognises vet402's payer address could serve vet402 better than others. The payer addresses are public.",
       "Purchases from one seller in the same run are not independent (one outage fails many at once), so the interval is narrower than it should be for runs before v2 pacing.",
-      "The Tempo runner kept no response body, so on Tempo 'delivered' means settled + 2xx without the body test.",
+      "The Tempo census runner (tempo/ledger) kept no response body, so for those purchases 'delivered' means settled + 2xx without the body test. The Tempo re-purchases (remeasure) have the body test.",
+      "On Algorand, 'settled' is the facilitator's settlement receipt with a tx id, as recorded by vet402-algorand; vet402 has not read those payments back on chain.",
       "The vet402-or-facilitator rules for 429 and subcent_quota_exceeded rest on how vet402 bought, not on the seller's word. If paced purchases still get them, they move to the seller side.",
       "Every input is a copy in data/ of a vet402 runner's result file, listed with its sha256 in data/manifest.json. The runners' wallets and full logs are not published."
     ],
@@ -102,6 +109,8 @@
           "The first page shows every Solana, Tempo and Base purchase per chain and per seller, even before any seller there has a grade. The Algorand page lists all its sellers without folding any.",
           "Comparisons with catalog order are made per page.",
           "Inputs: the daily re-purchases (remeasure) from Solana and Tempo sellers vet402 already paid are read as purchases on their day. They have been read since 2026-09-29; this entry is the first to say so.",
+          "A settled payment followed by a 4xx other than 402 (400, 401, 404, 422, 429 …) is no longer counted against the seller: rule paid_then_4xx, can't tell, shown as a count. vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out; the signed records already call it UNCLEAR. 5xx, 402 again, no answer and an empty 2xx after settlement stay on the seller's side. Effect on the 2026-09-29 report: 40 purchases on Solana, Tempo and Base (Solana 4, Tempo 36) and 2 on Algorand move from the seller side to not counted; no grade and no rank number changes, because every seller concerned was still measuring.",
+          "Wording only, no change to the test: \"settled\" on Algorand is named for what it is, a settlement receipt with a tx id from the facilitator, which vet402 has not read back on chain; on Solana, Tempo and Base the runners checked the payment on chain. The Tempo note now says which purchases kept no body (the census ledger) and which were tested for an empty body (the re-purchases).",
           "Wording only, no change to the test: \"delivered\" is shown as \"came back with an answer\", with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402's own purchases, and a paid check is a separate report that never moves a grade."
         ]
       },
@@ -223,7 +232,9 @@
         "checked": 672,
         "matched": 577
       },
-      "bodyChecked": true
+      "bodyChecked": true,
+      "bodyUnchecked": 0,
+      "settledOnChain": false
     },
     {
       "chain": "solana",
@@ -244,7 +255,9 @@
         "checked": 75,
         "matched": 70
       },
-      "bodyChecked": true
+      "bodyChecked": true,
+      "bodyUnchecked": 0,
+      "settledOnChain": true
     },
     {
       "chain": "tempo",
@@ -265,7 +278,9 @@
         "checked": 0,
         "matched": 0
       },
-      "bodyChecked": false
+      "bodyChecked": false,
+      "bodyUnchecked": 73,
+      "settledOnChain": true
     },
     {
       "chain": "base",
@@ -282,7 +297,9 @@
         "checked": 0,
         "matched": 0
       },
-      "bodyChecked": true
+      "bodyChecked": true,
+      "bodyUnchecked": 0,
+      "settledOnChain": true
     }
   ],
   "totals": {
@@ -290,11 +307,11 @@
     "tried": 2706,
     "settled": 1447,
     "settledNotDelivered": 59,
-    "counted": 1498,
+    "counted": 1456,
     "delivered": 1388,
     "excluded": {
       "vet402_or_facilitator": 980,
-      "unknown": 228
+      "unknown": 270
     },
     "failuresByRule": {
       "request_rejected_4xx": 153,
@@ -305,8 +322,9 @@
       "payment_tx_rejected": 12,
       "answer_without_settlement": 13,
       "payment_not_accepted_402": 43,
-      "paid_not_delivered": 50,
-      "settled_not_delivered": 9
+      "paid_not_delivered": 8,
+      "settled_not_delivered": 9,
+      "paid_then_4xx": 42
     },
     "firstPurchaseAt": "2026-09-27T04:32:04.398Z",
     "lastPurchaseAt": "2026-09-29T08:29:14.153Z"
@@ -336,18 +354,19 @@
         "tried": 350,
         "settled": 299,
         "settledNotDelivered": 49,
-        "counted": 305,
+        "counted": 265,
         "delivered": 250,
         "excluded": {
           "vet402_or_facilitator": 10,
-          "unknown": 35
+          "unknown": 75
         },
         "failuresByRule": {
           "request_rejected_4xx": 13,
           "payment_not_accepted_402": 21,
           "payment_tx_rejected": 10,
           "server_error_5xx": 6,
-          "paid_not_delivered": 46,
+          "paid_not_delivered": 6,
+          "paid_then_4xx": 40,
           "settled_not_delivered": 3,
           "answer_without_settlement": 1
         },
@@ -371,7 +390,7 @@
           "catalog": "CDP Bazaar",
           "metric": "l30DaysTotalCalls (sum per host)",
           "direction": "desc",
-          "overlap": 78,
+          "overlap": 77,
           "highCutoffPos": 39,
           "highButNeverDelivered": [],
           "highButNeverDeliveredDespitePaidTx": 0,
@@ -380,7 +399,7 @@
               "key": "x402.911fund.io",
               "host": "x402.911fund.io",
               "catalogValue": 1,
-              "catalogPos": 78,
+              "catalogPos": 77,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -402,7 +421,7 @@
               "key": "tick.twzrd.xyz",
               "host": "tick.twzrd.xyz",
               "catalogValue": 1,
-              "catalogPos": 76,
+              "catalogPos": 75,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -424,7 +443,7 @@
               "key": "midax402.com",
               "host": "midax402.com",
               "catalogValue": 1,
-              "catalogPos": 75,
+              "catalogPos": 74,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -446,7 +465,7 @@
               "key": "api.groundtruths.xyz",
               "host": "api.groundtruths.xyz",
               "catalogValue": 1,
-              "catalogPos": 73,
+              "catalogPos": 72,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -468,7 +487,7 @@
               "key": "aijobsboom-x402.sonofgus.workers.dev",
               "host": "aijobsboom-x402.sonofgus.workers.dev",
               "catalogValue": 1,
-              "catalogPos": 72,
+              "catalogPos": 71,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -490,7 +509,7 @@
               "key": "x402-crypto-data.vercel.app",
               "host": "x402-crypto-data.vercel.app",
               "catalogValue": 4,
-              "catalogPos": 70,
+              "catalogPos": 69,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -512,7 +531,7 @@
               "key": "kaisha-api.hp-vladic.workers.dev",
               "host": "kaisha-api.hp-vladic.workers.dev",
               "catalogValue": 4,
-              "catalogPos": 69,
+              "catalogPos": 68,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -534,7 +553,7 @@
               "key": "ip402.xyz",
               "host": "ip402.xyz",
               "catalogValue": 4,
-              "catalogPos": 68,
+              "catalogPos": 67,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -556,7 +575,7 @@
               "key": "agentic-reservations.vercel.app",
               "host": "agentic-reservations.vercel.app",
               "catalogValue": 5,
-              "catalogPos": 67,
+              "catalogPos": 66,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -578,7 +597,7 @@
               "key": "read.lonestaroracle.xyz",
               "host": "read.lonestaroracle.xyz",
               "catalogValue": 6,
-              "catalogPos": 66,
+              "catalogPos": 65,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -600,7 +619,7 @@
               "key": "api.tcgapi.dev",
               "host": "api.tcgapi.dev",
               "catalogValue": 7,
-              "catalogPos": 63,
+              "catalogPos": 62,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -622,7 +641,7 @@
               "key": "content.hugen.tokyo",
               "host": "content.hugen.tokyo",
               "catalogValue": 8,
-              "catalogPos": 62,
+              "catalogPos": 61,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -644,7 +663,7 @@
               "key": "api.cookin.fun",
               "host": "api.cookin.fun",
               "catalogValue": 8,
-              "catalogPos": 61,
+              "catalogPos": 60,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -666,7 +685,7 @@
               "key": "toolvend.dev",
               "host": "toolvend.dev",
               "catalogValue": 11,
-              "catalogPos": 60,
+              "catalogPos": 59,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -688,7 +707,7 @@
               "key": "payable.nsgoods.org",
               "host": "payable.nsgoods.org",
               "catalogValue": 11,
-              "catalogPos": 59,
+              "catalogPos": 58,
               "vet402Rank": null,
               "tried": 2,
               "delivered": 2,
@@ -1040,7 +1059,7 @@
               "key": "vealth.net",
               "host": "vealth.net",
               "catalogValue": 1,
-              "catalogPos": 77,
+              "catalogPos": 76,
               "vet402Rank": null,
               "tried": 1,
               "delivered": 1,
@@ -1062,7 +1081,7 @@
               "key": "api.rxatlas.dev",
               "host": "api.rxatlas.dev",
               "catalogValue": 1,
-              "catalogPos": 74,
+              "catalogPos": 73,
               "vet402Rank": null,
               "tried": 1,
               "delivered": 1,
@@ -1084,7 +1103,7 @@
               "key": "helprentdanang.com",
               "host": "helprentdanang.com",
               "catalogValue": 2,
-              "catalogPos": 71,
+              "catalogPos": 70,
               "vet402Rank": null,
               "tried": 1,
               "delivered": 1,
@@ -1106,7 +1125,7 @@
               "key": "predict.memoryapi.org",
               "host": "predict.memoryapi.org",
               "catalogValue": 6,
-              "catalogPos": 65,
+              "catalogPos": 64,
               "vet402Rank": null,
               "tried": 1,
               "delivered": 1,
@@ -1148,8 +1167,8 @@
             }
           ],
           "misaligned": 35,
-          "spearman": 0.3015252017648927,
-          "rule": "Among ranked sellers the catalog lists (78), \"high\" = top 39 by l30DaysTotalCalls (sum per host). \"High but never delivered\" = high and 0 delivered out of every counted vet402 purchase. \"Low but always delivered\" = not high and every counted vet402 purchase delivered. Counted = delivered or failed on the seller's side."
+          "spearman": 0.2869556371638982,
+          "rule": "Among ranked sellers the catalog lists (77), \"high\" = top 39 by l30DaysTotalCalls (sum per host). \"High but never delivered\" = high and 0 delivered out of every counted vet402 purchase. \"Low but always delivered\" = not high and every counted vet402 purchase delivered. Counted = delivered or failed on the seller's side."
         },
         {
           "catalog": "Mercator",
@@ -1861,31 +1880,28 @@
             "solana": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:17:57.631Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -1905,58 +1921,17 @@
             "tx": "31Fw66Fcz5pPP4E5WTg6WVoSG5GDevU3f85MMWAGwPKnHeuisiqK1sqaPNbxEyeTUutTMCfxC7czbSVSJMRPTCCB"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "solana",
-            "tx": "31Fw66Fcz5pPP4E5WTg6WVoSG5GDevU3f85MMWAGwPKnHeuisiqK1sqaPNbxEyeTUutTMCfxC7czbSVSJMRPTCCB",
-            "url": "https://agents.datamancer.io/api/v1/paid/vin",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:17:57.631Z",
-            "chain": "solana",
-            "url": "https://agents.datamancer.io/api/v1/paid/vin",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "sent/http 404",
-            "detail": "{\"error\":\"vin not found\",\"ok\":false,\"status\":404}\n",
-            "tx": "31Fw66Fcz5pPP4E5WTg6WVoSG5GDevU3f85MMWAGwPKnHeuisiqK1sqaPNbxEyeTUutTMCfxC7czbSVSJMRPTCCB"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:17:57.631Z",
-              "chain": "solana",
-              "url": "https://agents.datamancer.io/api/v1/paid/vin",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "sent/http 404",
-              "detail": "{\"error\":\"vin not found\",\"ok\":false,\"status\":404}\n",
-              "tx": "31Fw66Fcz5pPP4E5WTg6WVoSG5GDevU3f85MMWAGwPKnHeuisiqK1sqaPNbxEyeTUutTMCfxC7czbSVSJMRPTCCB"
-            },
-            {
-              "at": "2026-09-28T07:48:03.707Z",
-              "chain": "solana",
-              "url": "https://agents.datamancer.io/api/v1/paid/vin",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http_error/example_rejected",
-              "detail": "status 404",
-              "tx": "ASpnMrvWWjgchviww6TyLo6J7aovDqN9f1f6JMV5yBv1rwEKNKDqGioimbXMBacZdzbVHs7jhiuCmAtAvJDZ94M"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:17:57.631Z",
               "chain": "solana",
               "url": "https://agents.datamancer.io/api/v1/paid/vin",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "31Fw66Fcz5pPP4E5WTg6WVoSG5GDevU3f85MMWAGwPKnHeuisiqK1sqaPNbxEyeTUutTMCfxC7czbSVSJMRPTCCB"
@@ -1966,8 +1941,8 @@
               "chain": "solana",
               "url": "https://agents.datamancer.io/api/v1/paid/vin",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "ASpnMrvWWjgchviww6TyLo6J7aovDqN9f1f6JMV5yBv1rwEKNKDqGioimbXMBacZdzbVHs7jhiuCmAtAvJDZ94M"
@@ -9800,30 +9775,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:04:57.776Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -9843,46 +9816,17 @@
             "tx": "0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27",
-            "url": "https://judge0.mpp.paywithlocus.com/judge0/get-submission",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:04:57.776Z",
-            "chain": "tempo",
-            "url": "https://judge0.mpp.paywithlocus.com/judge0/get-submission",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "http 404",
-            "detail": "transfer found",
-            "tx": "0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:04:57.776Z",
-              "chain": "tempo",
-              "url": "https://judge0.mpp.paywithlocus.com/judge0/get-submission",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:04:57.776Z",
               "chain": "tempo",
               "url": "https://judge0.mpp.paywithlocus.com/judge0/get-submission",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27"
@@ -11425,31 +11369,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:24:15.941Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -11469,58 +11410,17 @@
             "tx": "0x52e5cba1ccbaad70876b9c01db13e16b8826411957c348b401f3b546b8a3f76a"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x52e5cba1ccbaad70876b9c01db13e16b8826411957c348b401f3b546b8a3f76a",
-            "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:24:15.941Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "sent/http 404",
-            "detail": null,
-            "tx": "0x52e5cba1ccbaad70876b9c01db13e16b8826411957c348b401f3b546b8a3f76a"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:24:15.941Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "sent/http 404",
-              "detail": null,
-              "tx": "0x52e5cba1ccbaad70876b9c01db13e16b8826411957c348b401f3b546b8a3f76a"
-            },
-            {
-              "at": "2026-09-28T08:05:24.126Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0x664d7f506c966bd3944eb895115a486f7023348e16e08a891a918d4c1c101513"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:24:15.941Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x52e5cba1ccbaad70876b9c01db13e16b8826411957c348b401f3b546b8a3f76a"
@@ -11530,8 +11430,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x664d7f506c966bd3944eb895115a486f7023348e16e08a891a918d4c1c101513"
@@ -11742,31 +11642,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:29:06.055Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -11786,58 +11683,17 @@
             "tx": "0xf0d3880ffad8a52bcc73b656737bf10c6b78990cb5ea710ae7d97e5920b59ec1"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xf0d3880ffad8a52bcc73b656737bf10c6b78990cb5ea710ae7d97e5920b59ec1",
-            "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:29:06.055Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "sent/http 404",
-            "detail": null,
-            "tx": "0xf0d3880ffad8a52bcc73b656737bf10c6b78990cb5ea710ae7d97e5920b59ec1"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:29:06.055Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "sent/http 404",
-              "detail": null,
-              "tx": "0xf0d3880ffad8a52bcc73b656737bf10c6b78990cb5ea710ae7d97e5920b59ec1"
-            },
-            {
-              "at": "2026-09-28T08:05:38.784Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0xa83b0bef34767e9d7f0609605cf4ba4ff7d59d7118e38cbbda46d5026cd12953"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:29:06.055Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xf0d3880ffad8a52bcc73b656737bf10c6b78990cb5ea710ae7d97e5920b59ec1"
@@ -11847,8 +11703,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xa83b0bef34767e9d7f0609605cf4ba4ff7d59d7118e38cbbda46d5026cd12953"
@@ -11967,30 +11823,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:05:48.421Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -12010,46 +11864,17 @@
             "tx": "0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2",
-            "url": "https://mpp.orthogonal.com/captaindata/companies/enrich?li_company_url=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:05:48.421Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/captaindata/companies/enrich?li_company_url=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "http 400",
-            "detail": "transfer found",
-            "tx": "0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:05:48.421Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/captaindata/companies/enrich?li_company_url=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:05:48.421Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/captaindata/companies/enrich?li_company_url=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2"
@@ -12076,31 +11901,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:27:20.922Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -12120,58 +11942,17 @@
             "tx": "0x3f8d4972b40f97563f93baee9438eb0ac1deb0e3e806b9e8a0c7aae0cabacf33"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x3f8d4972b40f97563f93baee9438eb0ac1deb0e3e806b9e8a0c7aae0cabacf33",
-            "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:27:20.922Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0x3f8d4972b40f97563f93baee9438eb0ac1deb0e3e806b9e8a0c7aae0cabacf33"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:27:20.922Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0x3f8d4972b40f97563f93baee9438eb0ac1deb0e3e806b9e8a0c7aae0cabacf33"
-            },
-            {
-              "at": "2026-09-28T08:05:52.913Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0xcd5959fb4b25d044c985ee684ea2d29e450b8146ab6aa5bac97db788a37aabb6"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:27:20.922Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x3f8d4972b40f97563f93baee9438eb0ac1deb0e3e806b9e8a0c7aae0cabacf33"
@@ -12181,8 +11962,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xcd5959fb4b25d044c985ee684ea2d29e450b8146ab6aa5bac97db788a37aabb6"
@@ -12209,30 +11990,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:05:56.909Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -12252,46 +12031,17 @@
             "tx": "0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667",
-            "url": "https://mpp.orthogonal.com/context-dev/web/scrape/html?url=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:05:56.909Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/context-dev/web/scrape/html?url=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "http 400",
-            "detail": "transfer found",
-            "tx": "0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:05:56.909Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/context-dev/web/scrape/html?url=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:05:56.909Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/context-dev/web/scrape/html?url=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667"
@@ -12318,31 +12068,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:24:54.689Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -12362,58 +12109,17 @@
             "tx": "0x1412555c51de8d207915b38dab69e1b401c84a9b93d66a624019e0c73ddda0e7"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x1412555c51de8d207915b38dab69e1b401c84a9b93d66a624019e0c73ddda0e7",
-            "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:24:54.689Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "sent/http 404",
-            "detail": null,
-            "tx": "0x1412555c51de8d207915b38dab69e1b401c84a9b93d66a624019e0c73ddda0e7"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:24:54.689Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "sent/http 404",
-              "detail": null,
-              "tx": "0x1412555c51de8d207915b38dab69e1b401c84a9b93d66a624019e0c73ddda0e7"
-            },
-            {
-              "at": "2026-09-28T08:06:00.113Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0x2417c821f38d9b9488620eff1a8d106b9ce0c098c319b132d9059fc940b4d18a"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:24:54.689Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x1412555c51de8d207915b38dab69e1b401c84a9b93d66a624019e0c73ddda0e7"
@@ -12423,8 +12129,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x2417c821f38d9b9488620eff1a8d106b9ce0c098c319b132d9059fc940b4d18a"
@@ -12451,31 +12157,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:26:43.815Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -12495,58 +12198,17 @@
             "tx": "0xf224ed90b0f49f2aaeb88bfc74ffb5f61c9851e6a0760a0ebff04e3b1a90d17e"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xf224ed90b0f49f2aaeb88bfc74ffb5f61c9851e6a0760a0ebff04e3b1a90d17e",
-            "url": "https://mpp.orthogonal.com/didit/v3/email/send",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:26:43.815Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/didit/v3/email/send",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0xf224ed90b0f49f2aaeb88bfc74ffb5f61c9851e6a0760a0ebff04e3b1a90d17e"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:26:43.815Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/didit/v3/email/send",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0xf224ed90b0f49f2aaeb88bfc74ffb5f61c9851e6a0760a0ebff04e3b1a90d17e"
-            },
-            {
-              "at": "2026-09-28T08:06:03.471Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/didit/v3/email/send",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0xc9b38668c09f5fe0673a4e252f52ca3b4c82f83bca74fd52027e6e2f4d4c0a54"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:26:43.815Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/didit/v3/email/send",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xf224ed90b0f49f2aaeb88bfc74ffb5f61c9851e6a0760a0ebff04e3b1a90d17e"
@@ -12556,8 +12218,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/didit/v3/email/send",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xc9b38668c09f5fe0673a4e252f52ca3b4c82f83bca74fd52027e6e2f4d4c0a54"
@@ -12584,31 +12246,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:26:50.503Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -12628,58 +12287,17 @@
             "tx": "0x024cef062070758b6dfb035e2dc0797008f365ff38e8cce3cd2f35e85e16c78d"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x024cef062070758b6dfb035e2dc0797008f365ff38e8cce3cd2f35e85e16c78d",
-            "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:26:50.503Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0x024cef062070758b6dfb035e2dc0797008f365ff38e8cce3cd2f35e85e16c78d"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:26:50.503Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0x024cef062070758b6dfb035e2dc0797008f365ff38e8cce3cd2f35e85e16c78d"
-            },
-            {
-              "at": "2026-09-28T08:06:07.322Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0x5bba805b6ad25f21bc9bcec3e0d44e148b5782fbd9b9e0ff63a500fc50c3f04f"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:26:50.503Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x024cef062070758b6dfb035e2dc0797008f365ff38e8cce3cd2f35e85e16c78d"
@@ -12689,8 +12307,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x5bba805b6ad25f21bc9bcec3e0d44e148b5782fbd9b9e0ff63a500fc50c3f04f"
@@ -12717,31 +12335,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:26:14.998Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -12761,58 +12376,17 @@
             "tx": "0x9c348f9c0793198a169a7512ec7d705a47ebd9ba7c3cf7a7ae32765595ff992c"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x9c348f9c0793198a169a7512ec7d705a47ebd9ba7c3cf7a7ae32765595ff992c",
-            "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:26:14.998Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0x9c348f9c0793198a169a7512ec7d705a47ebd9ba7c3cf7a7ae32765595ff992c"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:26:14.998Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0x9c348f9c0793198a169a7512ec7d705a47ebd9ba7c3cf7a7ae32765595ff992c"
-            },
-            {
-              "at": "2026-09-28T08:06:12.487Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0x7bbc80788d1b513034f04f6932b19579bf8a93a78edea98069a740b283edb884"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:26:14.998Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x9c348f9c0793198a169a7512ec7d705a47ebd9ba7c3cf7a7ae32765595ff992c"
@@ -12822,8 +12396,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x7bbc80788d1b513034f04f6932b19579bf8a93a78edea98069a740b283edb884"
@@ -13034,31 +12608,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:28:05.309Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -13078,58 +12649,17 @@
             "tx": "0xc0bb925844a1cfb56a32fb0dd75f2d797d5946ec1e111d979d5eee08accfcd4a"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xc0bb925844a1cfb56a32fb0dd75f2d797d5946ec1e111d979d5eee08accfcd4a",
-            "url": "https://mpp.orthogonal.com/fundable/investor/search",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:28:05.309Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/fundable/investor/search",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 401,
-            "rawReason": "sent/http 401",
-            "detail": null,
-            "tx": "0xc0bb925844a1cfb56a32fb0dd75f2d797d5946ec1e111d979d5eee08accfcd4a"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:28:05.309Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/fundable/investor/search",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 401,
-              "rawReason": "sent/http 401",
-              "detail": null,
-              "tx": "0xc0bb925844a1cfb56a32fb0dd75f2d797d5946ec1e111d979d5eee08accfcd4a"
-            },
-            {
-              "at": "2026-09-28T08:06:23.167Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/fundable/investor/search",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 401,
-              "rawReason": "http 401",
-              "detail": "transfer found",
-              "tx": "0x352f2788ade452a6b14b89f95693bfbd25d0cc46482ea2f4f27e64e152e3edc3"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:28:05.309Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fundable/investor/search",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 401,
               "declaredMatch": null,
               "tx": "0xc0bb925844a1cfb56a32fb0dd75f2d797d5946ec1e111d979d5eee08accfcd4a"
@@ -13139,8 +12669,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fundable/investor/search",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 401,
               "declaredMatch": null,
               "tx": "0x352f2788ade452a6b14b89f95693bfbd25d0cc46482ea2f4f27e64e152e3edc3"
@@ -13167,31 +12697,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:25:44.651Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -13211,58 +12738,17 @@
             "tx": "0x3f930a50121286ba7667d3d594d995f9ded52d8ed6b881537c7efd5dcf27b0b2"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x3f930a50121286ba7667d3d594d995f9ded52d8ed6b881537c7efd5dcf27b0b2",
-            "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:25:44.651Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0x3f930a50121286ba7667d3d594d995f9ded52d8ed6b881537c7efd5dcf27b0b2"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:25:44.651Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0x3f930a50121286ba7667d3d594d995f9ded52d8ed6b881537c7efd5dcf27b0b2"
-            },
-            {
-              "at": "2026-09-28T08:06:27.994Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0x565efb7ac3ff2b172afb4413c47353de75d504607587b31e7c9cc3cfbf8d755e"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:25:44.651Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x3f930a50121286ba7667d3d594d995f9ded52d8ed6b881537c7efd5dcf27b0b2"
@@ -13272,8 +12758,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x565efb7ac3ff2b172afb4413c47353de75d504607587b31e7c9cc3cfbf8d755e"
@@ -13300,31 +12786,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:27:13.753Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -13344,58 +12827,17 @@
             "tx": "0x1ea6768e1954625bbb0a542267fcef65b8a61094b12a7fb2e9e5922bac5903cf"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x1ea6768e1954625bbb0a542267fcef65b8a61094b12a7fb2e9e5922bac5903cf",
-            "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:27:13.753Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 422,
-            "rawReason": "sent/http 422",
-            "detail": null,
-            "tx": "0x1ea6768e1954625bbb0a542267fcef65b8a61094b12a7fb2e9e5922bac5903cf"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:27:13.753Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 422,
-              "rawReason": "sent/http 422",
-              "detail": null,
-              "tx": "0x1ea6768e1954625bbb0a542267fcef65b8a61094b12a7fb2e9e5922bac5903cf"
-            },
-            {
-              "at": "2026-09-28T08:06:32.578Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 422,
-              "rawReason": "http 422",
-              "detail": "transfer found",
-              "tx": "0x4ac2aecaffb0851ef2ff213258aa1d3a695345932e7d291ddb3061021dd4d749"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:27:13.753Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x1ea6768e1954625bbb0a542267fcef65b8a61094b12a7fb2e9e5922bac5903cf"
@@ -13405,8 +12847,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x4ac2aecaffb0851ef2ff213258aa1d3a695345932e7d291ddb3061021dd4d749"
@@ -13433,31 +12875,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:29:14.153Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -13477,58 +12916,17 @@
             "tx": "0x523afc4bcece13b5bb4a00d2dafd06572367eae45ba0e55b3774e7cc3b44a65d"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x523afc4bcece13b5bb4a00d2dafd06572367eae45ba0e55b3774e7cc3b44a65d",
-            "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:29:14.153Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0x523afc4bcece13b5bb4a00d2dafd06572367eae45ba0e55b3774e7cc3b44a65d"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:29:14.153Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0x523afc4bcece13b5bb4a00d2dafd06572367eae45ba0e55b3774e7cc3b44a65d"
-            },
-            {
-              "at": "2026-09-28T08:06:36.091Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0x683242ae1c68aa95bdd81dd78db7689de57eedd90371e984e7b4fd51a0d2b565"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:29:14.153Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x523afc4bcece13b5bb4a00d2dafd06572367eae45ba0e55b3774e7cc3b44a65d"
@@ -13538,8 +12936,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x683242ae1c68aa95bdd81dd78db7689de57eedd90371e984e7b4fd51a0d2b565"
@@ -13842,31 +13240,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:25:08.642Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -13886,58 +13281,17 @@
             "tx": "0xd96440f768859e8244cf7f7a47dad2b501cfdd035c0b32db4ee1bcce64d96be9"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xd96440f768859e8244cf7f7a47dad2b501cfdd035c0b32db4ee1bcce64d96be9",
-            "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:25:08.642Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": null,
-            "tx": "0xd96440f768859e8244cf7f7a47dad2b501cfdd035c0b32db4ee1bcce64d96be9"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:25:08.642Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": null,
-              "tx": "0xd96440f768859e8244cf7f7a47dad2b501cfdd035c0b32db4ee1bcce64d96be9"
-            },
-            {
-              "at": "2026-09-28T08:07:03.448Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0xc81d09f68dd2ae0a4f9009159b0470f4856874ce89c3af64606bd3657deb7b37"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:25:08.642Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xd96440f768859e8244cf7f7a47dad2b501cfdd035c0b32db4ee1bcce64d96be9"
@@ -13947,8 +13301,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xc81d09f68dd2ae0a4f9009159b0470f4856874ce89c3af64606bd3657deb7b37"
@@ -14067,31 +13421,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:26:58.256Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -14111,58 +13462,17 @@
             "tx": "0x4d95deeb75c97fee04bd9a81f63c4e8ab5bce707a485dc817b08a8cb49bde934"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x4d95deeb75c97fee04bd9a81f63c4e8ab5bce707a485dc817b08a8cb49bde934",
-            "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:26:58.256Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "sent/http 404",
-            "detail": null,
-            "tx": "0x4d95deeb75c97fee04bd9a81f63c4e8ab5bce707a485dc817b08a8cb49bde934"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:26:58.256Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "sent/http 404",
-              "detail": null,
-              "tx": "0x4d95deeb75c97fee04bd9a81f63c4e8ab5bce707a485dc817b08a8cb49bde934"
-            },
-            {
-              "at": "2026-09-28T08:07:12.314Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0x0688dee325a939d6eaec1df4f6d9d4e47b93dde261c763bf680e00e4770776db"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:26:58.256Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x4d95deeb75c97fee04bd9a81f63c4e8ab5bce707a485dc817b08a8cb49bde934"
@@ -14172,8 +13482,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x0688dee325a939d6eaec1df4f6d9d4e47b93dde261c763bf680e00e4770776db"
@@ -14476,30 +13786,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:07:32.115Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -14519,46 +13827,17 @@
             "tx": "0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155",
-            "url": "https://mpp.orthogonal.com/serper-scrape/",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:07:32.115Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/serper-scrape/",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "http 400",
-            "detail": "transfer found",
-            "tx": "0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:07:32.115Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/serper-scrape/",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:07:32.115Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/serper-scrape/",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155"
@@ -14861,31 +14140,28 @@
             "tempo": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:27:27.764Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -14905,58 +14181,17 @@
             "tx": "0x84550c84a2dfd9a67174d72f11118fb9a5c64d1f848bf32eed16ceeb8759256d"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x84550c84a2dfd9a67174d72f11118fb9a5c64d1f848bf32eed16ceeb8759256d",
-            "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:27:27.764Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 422,
-            "rawReason": "sent/http 422",
-            "detail": null,
-            "tx": "0x84550c84a2dfd9a67174d72f11118fb9a5c64d1f848bf32eed16ceeb8759256d"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:27:27.764Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 422,
-              "rawReason": "sent/http 422",
-              "detail": null,
-              "tx": "0x84550c84a2dfd9a67174d72f11118fb9a5c64d1f848bf32eed16ceeb8759256d"
-            },
-            {
-              "at": "2026-09-28T08:08:29.276Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 422,
-              "rawReason": "http 422",
-              "detail": "transfer found",
-              "tx": "0xbf88195e3e4b86781e9113c7305dc37cd629cc26dcbe350ce629e92444d89232"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:27:27.764Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x84550c84a2dfd9a67174d72f11118fb9a5c64d1f848bf32eed16ceeb8759256d"
@@ -14966,8 +14201,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0xbf88195e3e4b86781e9113c7305dc37cd629cc26dcbe350ce629e92444d89232"
@@ -17055,31 +16290,28 @@
             "solana": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-29T08:18:13.949Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-28",
-            "2026-09-29"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -17099,58 +16331,17 @@
             "tx": "3YZt3pdj1XwpmgjEp5waZfDNkmYt3ofHTgCvDBmH42rfyNM8jwdDQTK7EGutWuKKDhTitnDfzeDk6V3YFBWf8GDP"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "solana",
-            "tx": "3YZt3pdj1XwpmgjEp5waZfDNkmYt3ofHTgCvDBmH42rfyNM8jwdDQTK7EGutWuKKDhTitnDfzeDk6V3YFBWf8GDP",
-            "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-29T08:18:13.949Z",
-            "chain": "solana",
-            "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "sent/http 400",
-            "detail": "{\"status\":400,\"error\":\"resource/bad-request\",\"message\":\"The required query parameters 'address' or 'latitude'/'longitude' were not provided\"}",
-            "tx": "3YZt3pdj1XwpmgjEp5waZfDNkmYt3ofHTgCvDBmH42rfyNM8jwdDQTK7EGutWuKKDhTitnDfzeDk6V3YFBWf8GDP"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-29T08:18:13.949Z",
-              "chain": "solana",
-              "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "sent/http 400",
-              "detail": "{\"status\":400,\"error\":\"resource/bad-request\",\"message\":\"The required query parameters 'address' or 'latitude'/'longitude' were not provided\"}",
-              "tx": "3YZt3pdj1XwpmgjEp5waZfDNkmYt3ofHTgCvDBmH42rfyNM8jwdDQTK7EGutWuKKDhTitnDfzeDk6V3YFBWf8GDP"
-            },
-            {
-              "at": "2026-09-28T08:02:29.710Z",
-              "chain": "solana",
-              "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http_error/example_rejected",
-              "detail": "status 400",
-              "tx": "4Z8Hk2Kch8aDKqpJAurx27XBBkXzEP1k1Zemm9jaeGzieVjGgWSjTBMQDxqtrQGoMmYMhSTDXwkxkWVkRoHy3YBQ"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-29T08:18:13.949Z",
               "chain": "solana",
               "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "3YZt3pdj1XwpmgjEp5waZfDNkmYt3ofHTgCvDBmH42rfyNM8jwdDQTK7EGutWuKKDhTitnDfzeDk6V3YFBWf8GDP"
@@ -17160,8 +16351,8 @@
               "chain": "solana",
               "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "4Z8Hk2Kch8aDKqpJAurx27XBBkXzEP1k1Zemm9jaeGzieVjGgWSjTBMQDxqtrQGoMmYMhSTDXwkxkWVkRoHy3YBQ"
@@ -17188,30 +16379,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:08:54.669Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -17231,46 +16420,17 @@
             "tx": "0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc",
-            "url": "https://replicate.mpp.paywithlocus.com/replicate/get-prediction",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:08:54.669Z",
-            "chain": "tempo",
-            "url": "https://replicate.mpp.paywithlocus.com/replicate/get-prediction",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "http 404",
-            "detail": "transfer found",
-            "tx": "0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:08:54.669Z",
-              "chain": "tempo",
-              "url": "https://replicate.mpp.paywithlocus.com/replicate/get-prediction",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:08:54.669Z",
               "chain": "tempo",
               "url": "https://replicate.mpp.paywithlocus.com/replicate/get-prediction",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc"
@@ -17832,30 +16992,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:09:09.624Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -17875,46 +17033,17 @@
             "tx": "0xd19c7f115f421b31090db6d16f2e8802884923a9c9120cb8e021f8bffff8e12e"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xd19c7f115f421b31090db6d16f2e8802884923a9c9120cb8e021f8bffff8e12e",
-            "url": "https://serpapi.mpp.tempo.xyz/search",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:09:09.624Z",
-            "chain": "tempo",
-            "url": "https://serpapi.mpp.tempo.xyz/search",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "http 400",
-            "detail": "transfer found",
-            "tx": "0xd19c7f115f421b31090db6d16f2e8802884923a9c9120cb8e021f8bffff8e12e"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:09:09.624Z",
-              "chain": "tempo",
-              "url": "https://serpapi.mpp.tempo.xyz/search",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http 400",
-              "detail": "transfer found",
-              "tx": "0xd19c7f115f421b31090db6d16f2e8802884923a9c9120cb8e021f8bffff8e12e"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:09:09.624Z",
               "chain": "tempo",
               "url": "https://serpapi.mpp.tempo.xyz/search",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xd19c7f115f421b31090db6d16f2e8802884923a9c9120cb8e021f8bffff8e12e"
@@ -18031,30 +17160,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:09:14.611Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -18074,46 +17201,17 @@
             "tx": "0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a",
-            "url": "https://spyfu.mpp.tempo.xyz/apis/domain_stats_api/v2/*",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:09:14.611Z",
-            "chain": "tempo",
-            "url": "https://spyfu.mpp.tempo.xyz/apis/domain_stats_api/v2/*",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "http 404",
-            "detail": "transfer found",
-            "tx": "0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:09:14.611Z",
-              "chain": "tempo",
-              "url": "https://spyfu.mpp.tempo.xyz/apis/domain_stats_api/v2/*",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:09:14.611Z",
               "chain": "tempo",
               "url": "https://spyfu.mpp.tempo.xyz/apis/domain_stats_api/v2/*",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a"
@@ -18140,30 +17238,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:09:20.099Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "paid_not_delivered": 1
+            "paid_then_4xx": 1
           },
           "declared": {
             "checked": 0,
@@ -18183,46 +17279,17 @@
             "tx": "0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703",
-            "url": "https://stability-ai.mpp.paywithlocus.com/stability-ai/result",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:09:20.099Z",
-            "chain": "tempo",
-            "url": "https://stability-ai.mpp.paywithlocus.com/stability-ai/result",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 404,
-            "rawReason": "http 404",
-            "detail": "transfer found",
-            "tx": "0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:09:20.099Z",
-              "chain": "tempo",
-              "url": "https://stability-ai.mpp.paywithlocus.com/stability-ai/result",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 404,
-              "rawReason": "http 404",
-              "detail": "transfer found",
-              "tx": "0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:09:20.099Z",
               "chain": "tempo",
               "url": "https://stability-ai.mpp.paywithlocus.com/stability-ai/result",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703"
@@ -21438,11 +20505,11 @@
         "tried": 2356,
         "settled": 1148,
         "settledNotDelivered": 10,
-        "counted": 1193,
+        "counted": 1191,
         "delivered": 1138,
         "excluded": {
           "vet402_or_facilitator": 970,
-          "unknown": 193
+          "unknown": 195
         },
         "failuresByRule": {
           "request_rejected_4xx": 140,
@@ -21454,7 +20521,8 @@
           "answer_without_settlement": 12,
           "payment_not_accepted_402": 22,
           "settled_not_delivered": 6,
-          "paid_not_delivered": 4
+          "paid_then_4xx": 2,
+          "paid_not_delivered": 2
         },
         "firstPurchaseAt": "2026-09-27T04:32:04.398Z",
         "lastPurchaseAt": "2026-09-28T02:11:50.150Z",
@@ -28236,31 +27304,28 @@
             "algorand": {
               "tried": 2,
               "settled": 2,
-              "counted": 2,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T01:26:22.058Z"
             }
           },
           "tried": 2,
-          "counted": 2,
+          "counted": 0,
           "settled": 2,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.6576280471103807,
-          "days": [
-            "2026-09-27",
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 2
           },
           "failuresByRule": {
-            "paid_not_delivered": 2
+            "paid_then_4xx": 2
           },
           "declared": {
             "checked": 0,
@@ -28280,58 +27345,17 @@
             "tx": "XHJDTXXD2WZHONPJ6SYLZKTOKDW2GPOTVC7BQHLPWXJQ6TLNKXJA"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "algorand",
-            "tx": "XHJDTXXD2WZHONPJ6SYLZKTOKDW2GPOTVC7BQHLPWXJQ6TLNKXJA",
-            "url": "https://api.celloforigin.com/enter",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T01:26:22.058Z",
-            "chain": "algorand",
-            "url": "https://api.celloforigin.com/enter",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "paid_not_delivered",
-            "httpStatus": 400,
-            "rawReason": "http_error",
-            "detail": "400 application/json; charset=utf-8 status 400",
-            "tx": "XHJDTXXD2WZHONPJ6SYLZKTOKDW2GPOTVC7BQHLPWXJQ6TLNKXJA"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T01:26:22.058Z",
-              "chain": "algorand",
-              "url": "https://api.celloforigin.com/enter",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http_error",
-              "detail": "400 application/json; charset=utf-8 status 400",
-              "tx": "XHJDTXXD2WZHONPJ6SYLZKTOKDW2GPOTVC7BQHLPWXJQ6TLNKXJA"
-            },
-            {
-              "at": "2026-09-27T04:43:00.398Z",
-              "chain": "algorand",
-              "url": "https://api.celloforigin.com/enter",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "paid_not_delivered",
-              "httpStatus": 400,
-              "rawReason": "http_error",
-              "detail": "400 application/json; charset=utf-8 status 400",
-              "tx": "RZ7DEMBGWFXKZJFGJM263HANWPG2YDGHC5QYQLP3TFICE7SKWP3Q"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T01:26:22.058Z",
               "chain": "algorand",
               "url": "https://api.celloforigin.com/enter",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "XHJDTXXD2WZHONPJ6SYLZKTOKDW2GPOTVC7BQHLPWXJQ6TLNKXJA"
@@ -28341,8 +27365,8 @@
               "chain": "algorand",
               "url": "https://api.celloforigin.com/enter",
               "delivered": false,
-              "fault": "seller",
-              "rule": "paid_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "RZ7DEMBGWFXKZJFGJM263HANWPG2YDGHC5QYQLP3TFICE7SKWP3Q"

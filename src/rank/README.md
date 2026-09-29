@@ -103,7 +103,8 @@ shown as counts (per seller, per rule, and in the report totals) and never lower
 | rule | fault | when |
 |---|---|---|
 | `settled_not_delivered` | seller | paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as "already in ledger" included), then the seller answered 402. The buyer paid and received nothing, and the seller chose the facilitator |
-| `paid_not_delivered` | seller | vet402's payment settled, then non-2xx or an empty body |
+| `paid_then_4xx` | unknown | vet402's payment settled, then 4xx other than 402 (400, 401, 404, 422, 429 …). vet402 built the request from the seller's listing, so a fault on its side is not ruled out; the signed records call the same case UNCLEAR (`src/receipt/build.ts`). Shown as a count (v3) |
+| `paid_not_delivered` | seller | vet402's payment settled, then 5xx, no answer, another non-2xx that is not a 4xx, or 2xx with an empty body |
 | `rate_limited_429` | vet402_or_facilitator | HTTP 429 during vet402's burst buying (hundreds of one seller's items within minutes) |
 | `subcent_quota` | vet402_or_facilitator | `subcent_quota_exceeded`: vet402's many sub-cent purchases used up the per-payer quota |
 | `payment_tx_rejected` | vet402_or_facilitator | the payment tx vet402 built was rejected before settling: simulation failed, `BlockhashNotFound`, already in ledger, `txn dead` (validity window passed), facilitator unavailable, `invalid_exact_svm*` |
@@ -143,7 +144,14 @@ that the answer is what the listing promised; whether its keys matched what the 
 separate `declaredMatch` column. Algorand and Solana census rows that failed only the stricter declared-keys
 check are re-judged with this test; the Algorand runner's delivery line
 (`<status> <content-type> <summary>`) and the Solana census `httpStatus` / `first300` carry what is needed.
-The Tempo runner kept no body, so on Tempo delivered = settled + 2xx (`bodyChecked: false`).
+The Tempo census runner kept no body, so for the Tempo ledger purchases delivered = settled + 2xx
+(`bodyChecked: false`). The Tempo re-purchases (remeasure) record `bodyBytes` and are tested for an
+empty body like every other chain.
+
+Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as
+settled. On Algorand, settled is the facilitator's successful settlement receipt with a tx id (the
+`paid` field of the vet402-algorand census); vet402 has not read those payments back on chain. The
+Algorand page and the method table say "with a settlement receipt" instead of "settled on chain".
 
 ### 4. Grades and rank numbers (`src/rank/score.ts`)
 
@@ -192,7 +200,13 @@ row is fixed after checking the chain and the raw result, and the fix goes in th
   46/46, coil.trade 40/40 instead of 42/42, whaletape.xyz 50/50 instead of 52/52), and are measuring on
   the first page. Also in v3: the first page shows every Solana, Tempo and Base purchase per chain and per
   seller before any grade exists; the Algorand page folds nothing; comparisons with catalog order are
-  made per page. Inputs: the daily re-purchases (remeasure) from Solana and Tempo sellers vet402 already
+  made per page. Fault rule `paid_then_4xx` (can't tell): a settled payment followed by a 4xx other than
+  402 is no longer counted against the seller, the same line as the signed records (UNCLEAR); 5xx, 402
+  again, no answer and an empty 2xx after settlement stay on the seller's side. On the 2026-09-29 report
+  40 purchases on Solana, Tempo and Base (Solana 4, Tempo 36) and 2 on Algorand move to not counted, and
+  no grade or rank number changes (every seller concerned was still measuring). "Settled" on Algorand is
+  named for what it is (a facilitator's settlement receipt with a tx id, not read back on chain by
+  vet402), and the Tempo body note says which purchases kept no body. Inputs: the daily re-purchases (remeasure) from Solana and Tempo sellers vet402 already
   paid are read as purchases on their day; they have been read since 2026-09-29 and this entry is the
   first to say so. Wording only, no change to the test: "delivered" is shown as "came back with an
   answer", with the note that vet402 did not check the answer against the listing, and the money sentence
