@@ -27,7 +27,7 @@ import { payOne, stopReason, type PayDeps, type PayOutcome } from "../tempo/pay.
 import { probeUnpaid } from "../tempo/probe.js";
 import type { FetchLike } from "../tempo/mercator.js";
 import { CENSUS_START_BLOCK, publicClient, usdcOutflowSinceStart } from "../tempo/chain.js";
-import { unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
+import { assertDayLedgersPresent, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
 import type { PlanEntry } from "../tempo/census.js";
 import { RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
 import { budgetKey } from "./budget.js";
@@ -151,8 +151,10 @@ function entryFor(s: Slot, date: string): PlanEntry {
   return { ...p, serviceId: budgetKey(date, s.target.payTo, s.slot) };
 }
 
-function fits(ledger: Ledger, monthElsewhere: bigint, monthCap: bigint, monthChain: () => Promise<bigint>) {
+function fits(ledger: Ledger, monthElsewhere: bigint, monthCap: bigint, monthChain: () => Promise<bigint>, intact: () => string | null = () => null) {
   return async (s: Slot): Promise<string | null> => {
+    const lost = intact();
+    if (lost) return lost;
     // The fee reserve is always counted here, even when the plan says sponsored: the live 402 may not be.
     const need = BigInt(s.target.amountAtomic) + FEE_RESERVE_ATOMIC;
     const day = ledger.committed();
@@ -195,7 +197,15 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
   return runSlots(slots, {
     pacer: deps.pacer ?? new SellerPacer(),
     sleep: deps.sleep,
-    fits: fits(deps.ledger, deps.monthElsewhere, deps.monthCap ?? RM_TEMPO_MAX_PER_MONTH_ATOMIC, () => deps.chain.outflowSinceMonthStart(month)),
+    fits: fits(deps.ledger, deps.monthElsewhere, deps.monthCap ?? RM_TEMPO_MAX_PER_MONTH_ATOMIC, () => deps.chain.outflowSinceMonthStart(month), () => {
+      // A day ledger listed in the index has gone: its payments could hide in this ledger's fee-reserve room.
+      try {
+        assertDayLedgersPresent(deps.keyLedgers);
+        return null;
+      } catch (e) {
+        return `key_ledger_missing: ${(e as Error).message}`;
+      }
+    }),
     ...(deps.onRow ? { onRow: deps.onRow } : {}),
     attempt: async (s): Promise<AttemptResult> => {
       const at = now().toISOString();

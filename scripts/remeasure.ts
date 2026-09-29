@@ -272,6 +272,9 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
     const signer = tchain.loadSigner(opt("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json"));
     // Purchases a killed run reserved but never recorded: one unknown_after_sign row each, never paid again.
     for (const r of reconcileTempo(OUT, targets, TEMPO_PAYER)) console.log(`recorded unknown_after_sign ${r.key} ${r.host}#${r.service}`);
+    // List today's day ledger in the index (and create it empty) before anything is reserved; refuses when it was deleted.
+    const { registerDayLedger } = await import("../src/tempo/key-ledgers.js");
+    registerDayLedger(TEMPO_KEY_LEDGERS, DATE, TEMPO_PAYER, RM_TEMPO_MAX_PER_RUN_ATOMIC);
     ledger = new Ledger(dayFile, TEMPO_PAYER, RM_TEMPO_MAX_PER_RUN_ATOMIC, { lock: true });
     const file = resultPath(OUT, "tempo", DATE);
     const result = readResultFile(file, "tempo", DATE, TEMPO_PAYER);

@@ -73,6 +73,16 @@ async function dryRun(): Promise<void> {
 }
 
 async function pay(): Promise<void> {
+  // The key's one census ledger (src/tempo/key-ledgers.ts). Any other file would count the real census
+  // ledger as "another ledger" of the key and pass the chain check: refused before anything else.
+  const { TEMPO_KEY_LEDGERS, assertCensusLedger, unaccountedChainSpent } = await import("../src/tempo/key-ledgers.js");
+  const ledgerPath = arg("--ledger") ?? join(ROOT, "results", "tempo-ledger.json");
+  try {
+    assertCensusLedger(ledgerPath, TEMPO_KEY_LEDGERS);
+  } catch (e) {
+    console.error(`[pay] ${(e as Error).message}. Run --pay where that ledger lives, or pass --ledger ${TEMPO_KEY_LEDGERS.census}.`);
+    process.exit(2);
+  }
   const planFile = arg("--plan");
   if (!planFile) throw new Error("--pay needs --plan <dry-run json>");
   const rep = JSON.parse(readFileSync(planFile, "utf8")) as CensusReport;
@@ -86,11 +96,9 @@ async function pay(): Promise<void> {
   const chain = await import("../src/tempo/chain.js");
   const { Ledger } = await import("../src/tempo/ledger.js");
   const { runPlan } = await import("../src/tempo/pay.js");
-  const { unaccountedChainSpent } = await import("../src/tempo/key-ledgers.js");
   await chain.assertMainnet();
   const keyFile = arg("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json");
   const signer = chain.loadSigner(keyFile);
-  const ledgerPath = arg("--ledger") ?? join(ROOT, "results", "tempo-ledger.json");
   const ledger = new Ledger(ledgerPath, PAYER_ADDRESS, cap, { lock: true });
   console.error(`[pay] payer ${signer.address} cap ${atomicToUnits(cap)} USDC.e, ledger committed ${atomicToUnits(ledger.committed())}`);
 

@@ -16,7 +16,7 @@ import { TEMPO_MAINNET_CHAIN_ID, USDC_E, FEE_RESERVE_ATOMIC } from "../src/tempo
 import { mppChallengesFromHeader, tempoChargeRequest } from "../src/tempo/challenge.js";
 import { Ledger, type LedgerEntry } from "../src/tempo/ledger.js";
 import { payOne as tempoPayOne, type PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
-import { entryOutflow, unaccountedChainSpent, TEMPO_KEY_LEDGERS, type KeyLedgerSet } from "../src/tempo/key-ledgers.js";
+import { DAY_LEDGER_INDEX, accountedOutflow, assertCensusLedger, entryOutflow, registerDayLedger, unaccountedChainSpent, TEMPO_KEY_LEDGERS, type KeyLedgerSet } from "../src/tempo/key-ledgers.js";
 import type { Signer } from "../src/tempo/chain.js";
 import { aggregate, rank } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
@@ -319,9 +319,13 @@ function tempoEnv(o: { censusSlack?: boolean; liveFor?: (url: string) => { recip
   };
   const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.month };
   const ft = fakeTime();
-  const dayLedger = (date: string) => new Ledger(dayLedgerPath(set.remeasureDir, date), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
-  const run = (slots: Slot[], date: string, ledger = dayLedger(date), monthElsewhere = 0n) =>
-    payTempo(slots, pay, { date, ledger, keyLedgers: set, chain: view, monthElsewhere, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  // as the script does: list the day in the index (refused when it was deleted), then open the ledger
+  const dayLedger = (date: string) => {
+    registerDayLedger(set, date, throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+    return new Ledger(dayLedgerPath(set.remeasureDir, date), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  };
+  const run = async (slots: Slot[], date: string, ledger?: Ledger, monthElsewhere = 0n) =>
+    payTempo(slots, pay, { date, ledger: ledger ?? dayLedger(date), keyLedgers: set, chain: view, monthElsewhere, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
   return { set, chain, pay, view, fetchImpl, run, dayLedger, signs: () => signs };
 }
 
@@ -377,8 +381,12 @@ test("tempo B1: deleting the day ledger does not reopen the budget; no second si
   const slots = selectSlots([tempoTarget("a")], 1).slots;
   await e.run(slots, DATE);
   assert.equal(e.signs(), 1);
-  // the day ledger is deleted (there is no start file any more: the chain check starts at the census)
+  // the day ledger is deleted: the index still lists it, so the run refuses to open the day again
   rmSync(dayLedgerPath(e.set.remeasureDir, DATE));
+  await assert.rejects(e.run(slots, DATE), /listed in .* but missing/);
+  assert.equal(e.signs(), 1);
+  // the index is deleted too: the chain check alone stops it (6,030 left the key, no ledger accounts for it)
+  rmSync(join(e.set.remeasureDir, DAY_LEDGER_INDEX));
   const again = await e.run(slots, DATE);
   assert.equal(e.signs(), 1);
   assert.equal(again.rows[0]!.reason, "chain_spend_exceeds_ledger");
@@ -396,7 +404,70 @@ test("tempo B1: deleting a past day ledger stops the next day's run before signi
   rmSync(dayLedgerPath(e.set.remeasureDir, "2026-10-01"));
   const r = await e.run(slots, "2026-10-03");
   assert.equal(e.signs(), 2);
-  assert.equal(r.stopped, "chain_spend_exceeds_ledger");
+  assert.match(r.stopped!, /^key_ledger_missing: .*2026-10-01/);
+  // the census check sees it too: its chainSpent throws before payOne reserves or signs
+  const censusCheck = unaccountedChainSpent(e.set.census, e.view.outflowSinceCensusStart, throwaway.address, e.set);
+  await assert.rejects(censusCheck(), /missing: 2026-10-01/);
+});
+
+test("tempo Q3: a small past day hidden by this ledger's unused fee reserves is still caught by the index", async () => {
+  // day 1: one purchase of 0.0001 (130 left the key). Day 2: two purchases reserve 2 x 2,000 fee but pay 2 x 30,
+  // so the day-2 ledger has 3,940 of room: the chain check alone would not notice day 1 missing.
+  const e = tempoEnv({ liveFor: (url) => ({ recipient: url.endsWith("/tiny") ? OTHER : SELLER, amount: url.endsWith("/tiny") ? "100" : "6000" }) });
+  await e.run([{ target: tempoTarget("tiny", "100", OTHER), slot: 0 }], "2026-10-01");
+  const day2 = e.dayLedger("2026-10-02");
+  await e.run([{ target: tempoTarget("a"), slot: 0 }, { target: tempoTarget("b"), slot: 1 }], "2026-10-02", day2);
+  assert.equal(e.signs(), 3);
+  rmSync(dayLedgerPath(e.set.remeasureDir, "2026-10-01"));
+  const own = unaccountedChainSpent(dayLedgerPath(e.set.remeasureDir, "2026-10-02"), e.view.outflowSinceCensusStart, throwaway.address, {
+    ...e.set,
+    remeasureDir: e.set.remeasureDir,
+  });
+  await assert.rejects(own(), /missing: 2026-10-01/);
+  // what the chain check alone would have said: 12,190 unaccounted <= 16,000 committed (hidden)
+  assert.equal(e.chain.total - 10_030n, 130n + 6_030n * 2n);
+  assert.ok(e.chain.total - 10_030n <= day2.committed());
+  const r = await e.run([{ target: tempoTarget("a"), slot: 2 }], "2026-10-02", day2);
+  assert.equal(e.signs(), 3);
+  assert.match(r.stopped!, /^key_ledger_missing/);
+});
+
+test("tempo Q2: another ledger's reservation that was never signed counts as 0, so it cannot hide a lost ledger", async () => {
+  const e = tempoEnv();
+  const slots = selectSlots([tempoTarget("a")], 1).slots;
+  await e.run(slots, DATE);
+  assert.equal(e.signs(), 1);
+  // the census run crashed after reserving 6,000 + 2,000 and before signing: nothing left the key for it
+  const c = new Ledger(e.set.census, throwaway.address, 2_500_000n);
+  c.reserve({ key: "crashed", url: "u3", recipient: SELLER, amount: 6_000n, sponsored: false });
+  assert.equal(entryOutflow(c.entries().at(-1)!), 0n);
+  // remeasure's day ledger and its index are both lost: only the chain check is left, and it holds
+  rmSync(dayLedgerPath(e.set.remeasureDir, DATE));
+  rmSync(join(e.set.remeasureDir, DAY_LEDGER_INDEX));
+  const again = await e.run(slots, DATE);
+  assert.equal(e.signs(), 1);
+  assert.equal(again.stopped, "chain_spend_exceeds_ledger");
+});
+
+test("tempo Q1: a census --pay ledger other than the key's census ledger is refused", async () => {
+  // reproduce: an empty ledger elsewhere, with the real census ledger counted as "another ledger", passes
+  const e = tempoEnv({ liveFor: () => ({ recipient: SELLER, amount: "50000" }) });
+  await e.run(selectSlots([tempoTarget("a", "50000")], 1).slots, DATE);
+  const elsewhere = join(tmp(), "tempo-ledger.json");
+  const censusAccounted = accountedOutflow(e.set.census, throwaway.address);
+  const dayAccounted = accountedOutflow(dayLedgerPath(e.set.remeasureDir, DATE), throwaway.address);
+  assert.equal(e.chain.total - censusAccounted - dayAccounted, 0n); // what the old wiring gave the empty ledger: room for a second census
+  // the fix: such a ledger is not a ledger of this key
+  assert.throws(() => assertCensusLedger(elsewhere, e.set), /would count it as another ledger/);
+  assert.throws(() => unaccountedChainSpent(elsewhere, e.view.outflowSinceCensusStart, throwaway.address, e.set), /not a ledger of this key/);
+  assert.doesNotThrow(() => assertCensusLedger(e.set.census, e.set));
+  // the script: --pay with the default ledger of this checkout, or any other --ledger, exits 2 before reading the plan or the key
+  const script = join(import.meta.dirname, "..", "scripts", "tempo-census.ts");
+  for (const extra of [[], ["--ledger", elsewhere]]) {
+    const r = spawnSync(process.execPath, ["--import", "tsx", script, "--pay", "--plan", "/nonexistent", ...extra], { encoding: "utf8" });
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /would count it as another ledger/);
+  }
 });
 
 test("tempo B1: the census check still passes after remeasure pays from the same key", async () => {
