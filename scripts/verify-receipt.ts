@@ -8,11 +8,14 @@
  *
  * Checks: shape (JSON Schema), vet402's EIP-712 signature, that the verdict follows from the recorded
  * checks, Merkle inclusion in the day's root, and (unless --offline) the payment on chain and, once the
- * root is written, the anchor memo. Exit 0 only when every check that could run passed.
+ * root is written, the anchor memo (sent by vet402's anchor wallet; a memo from any other wallet is not an
+ * anchor). Exit 0 only when every check that could run passed. "RESULT: OK (not yet anchored)" says the
+ * day's root is not on chain yet, and the next line says what that leaves unproven.
  * RPCs: SOLANA_RPC_URL, BASE_RPC_URL, TEMPO_RPC_URL (public defaults).
  */
 import { readFileSync } from "node:fs";
-import { checkAnchorOnChain, checkPayment } from "../src/receipt/chain.js";
+import { jsonRpc } from "../src/chain.js";
+import { checkAnchorOnChain, checkPayment, DEFAULT_RPC, findDayAnchors, memoMatches } from "../src/receipt/chain.js";
 import type { Observation } from "../src/receipt/types.js";
 import { VET402_OBSERVER_KEYS } from "../src/receipt/observers.js";
 import { verifyOffline } from "../src/receipt/verify.js";
@@ -69,6 +72,7 @@ if (did) {
 }
 
 const lines: [boolean | null, string, string][] = [];
+let anchorOnChain = false;
 // Without --signer or --did, the record must be signed by one of vet402's published keys (src/receipt/observers.ts).
 if (!expected) {
   const known = VET402_OBSERVER_KEYS.find((k) => k.toLowerCase() === obs.observer.address.toLowerCase());
@@ -96,12 +100,32 @@ if (!process.argv.includes("--offline")) {
   }
   try {
     const a = await checkAnchorOnChain(obs);
-    lines.push(a ? [a.ok, "anchor", a.detail] : [null, "anchor", "root not yet written on chain (pending); inclusion checked against the root in the record"]);
+    if (a) {
+      lines.push([a.ok, "anchor", a.detail]);
+      anchorOnChain = a.ok;
+    } else if (obs.anchor && obs.anchor.network.startsWith("solana:")) {
+      // The record says pending. Look for vet402's own memo for that day anyway: the root may have been
+      // written after this copy of the record was made.
+      const anc = obs.anchor;
+      const look = await findDayAnchors(jsonRpc(DEFAULT_RPC[anc.network] ?? ""), anc.day);
+      const match = look.found.find((f) => memoMatches(f.memo, anc) === null);
+      if (match) {
+        lines.push([true, "anchor", `the record says pending, but vet402's memo for ${anc.day} (${match.signature}) holds this root`]);
+        anchorOnChain = true;
+      } else if (look.found.length) {
+        lines.push([false, "anchor", `vet402 wrote a different root for ${anc.day} (${look.found.map((f) => f.signature).join(", ")}): ${memoMatches(look.found[0]!.memo, anc)}`]);
+      } else {
+        lines.push([null, "anchor", look.complete ? `no vet402 memo for ${anc.day} on chain yet (root not yet written)` : `vet402's memo history was not read back to ${anc.day}; could not tell whether the root is written`]);
+      }
+    } else {
+      lines.push([null, "anchor", "the record is not in a daily root"]);
+    }
   } catch (e) {
     lines.push([false, "anchor", `could not read chain: ${e instanceof Error ? e.message : String(e)}`]);
   }
 } else {
   lines.push([null, "payment", "skipped (--offline)"]);
+  lines.push([null, "anchor", "skipped (--offline)"]);
 }
 
 lines.push([null, "response", obs.response.responseHash ? `responseHash ${obs.response.responseHash}: recompute it from the body you hold (${obs.response.responseHashEncoding})` : `responseHash: ${obs.response.responseHashNote ?? "not recorded"}`]);
@@ -109,5 +133,12 @@ lines.push([null, "response", obs.response.responseHash ? `responseHash ${obs.re
 console.log(`${obs.id}  ${obs.verdict.code}  ${obs.resourceUrl}`);
 for (const [ok, k, d] of lines) console.log(`${ok === true ? "OK  " : ok === false ? "FAIL" : "--  "} ${k.padEnd(10)} ${d}`);
 const failed = lines.some(([ok]) => ok === false);
-console.log(failed ? "RESULT: FAIL" : "RESULT: OK (every check that could run passed)");
+if (failed) console.log("RESULT: FAIL");
+else if (anchorOnChain) console.log("RESULT: OK (every check passed; the day's root is on chain from vet402's anchor wallet)");
+else {
+  console.log(`RESULT: OK (not yet anchored${process.argv.includes("--offline") ? "; offline: payment and anchor not checked" : ""})`);
+  console.log(
+    "Not shown until the day's root is on chain: that this record belongs to the day vet402 committed to, or that it existed at that time. The merkle line only shows that the proof and the root inside this record agree.",
+  );
+}
 process.exit(failed ? 1 : 0);

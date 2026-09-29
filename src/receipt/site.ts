@@ -114,7 +114,7 @@ ${rows}
 </header>
 
 <h2>What is published</h2>
-<p>${esc(loaded.index.policy)} Sellers told so far: ${loaded.index.notifiedHosts}.</p>
+<p>${esc(loaded.index.policy)} Sellers told so far: ${loaded.index.notifiedSellers}.</p>
 <p class="meta">A record proves that vet402 paid and what HTTP status came back at that time. It does not prove that the content was correct, or that the seller works now.</p>
 
 <h2>Daily roots</h2>

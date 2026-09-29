@@ -1,12 +1,13 @@
 /**
  * Published delivery records (data/records/ -> site/records/):
- *  - policy: no NOT_DELIVERED / MISMATCH / UNCLEAR record is public unless its host is in notified.json
+ *  - policy: no NOT_DELIVERED / MISMATCH / UNCLEAR record is public unless its seller (host, or host#service
+ *    as in the ranking) is in notified.json; a bare host never opens another service behind that host
  *  - every published record verifies against vet402's key, is listed with its sha256, and nothing else sits there
  *  - no credential, local path or query string in a published record
  *  - site/records/ is exactly what build-site makes from data/records/ (JSON byte for byte)
  *  - record pages: CSP forbids scripts, no script tag, hostile values escaped
  *  - verify-receipt reads a record from a URL, says OK, and says FAIL after a one-character change
- *  - the anchor transaction is memo-only, and nothing is signed without --send
+ *  - the anchor transaction is memo-only (the send / resume paths are in test/receipt-anchor.test.ts)
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -31,7 +32,7 @@ import { publicPage, sellerSlugs } from "../src/rank/html.js";
 import type { RankReport } from "../src/rank/report.js";
 import { assertMemoOnly, compileMemoTx } from "../src/receipt/anchor.js";
 import { MEMO_PROGRAM, PAYER_ADDRESS } from "../src/constants.js";
-import { isPublishable, loadPublishedRecords, publicRecordProblems, sha256Hex, withAnchorTx, type RecordIndex } from "../src/receipt/publish.js";
+import { isPublishable, loadPublishedRecords, notifiedSellers, publicRecordProblems, sha256Hex, withAnchorTx, type NotifiedFile, type RecordIndex } from "../src/receipt/publish.js";
 import { renderRecordsSite } from "../src/receipt/site.js";
 import type { Observation } from "../src/receipt/types.js";
 import { verifyOffline } from "../src/receipt/verify.js";
@@ -54,8 +55,8 @@ function firstFile(dir: string): { path: string; text: string; index: RecordInde
 
 test("records policy: with notified.json empty, every published record is DELIVERED", async () => {
   const loaded = await loadPublishedRecords(RECORDS);
-  assert.equal(loaded.notified.hosts.length, 0);
-  assert.equal(loaded.index.notifiedHosts, 0);
+  assert.equal(loaded.notified.sellers.length, 0);
+  assert.equal(loaded.index.notifiedSellers, 0);
   assert.ok(loaded.records.length > 0);
   assert.deepEqual([...new Set(loaded.records.map((r) => r.obs.verdict.code))], ["DELIVERED"]);
   // the same count straight from the files, not through the loader
@@ -67,13 +68,29 @@ test("records policy: with notified.json empty, every published record is DELIVE
   for (const f of site) assert.equal((JSON.parse(readFileSync(join(ROOT, "site", "records", f), "utf8")) as Observation).verdict.code, "DELIVERED", f);
 });
 
-test("records policy: a negative record is publishable only for a notified host", () => {
+test("records policy: a negative record is publishable only for its notified seller", () => {
   const neg = { verdict: { code: "NOT_DELIVERED" }, resourceUrl: "https://s.example/x" } as Observation;
   const pos = { verdict: { code: "DELIVERED" }, resourceUrl: "https://s.example/x" } as Observation;
-  assert.equal(isPublishable(pos, new Set()), true);
-  assert.equal(isPublishable(neg, new Set()), false);
-  assert.equal(isPublishable(neg, new Set(["other.example"])), false);
-  assert.equal(isPublishable(neg, new Set(["s.example"])), true);
+  assert.equal(isPublishable(pos, "s.example", new Set()), true);
+  assert.equal(isPublishable(neg, "s.example", new Set()), false);
+  assert.equal(isPublishable(neg, "s.example", new Set(["other.example"])), false);
+  assert.equal(isPublishable(neg, "s.example", new Set(["s.example"])), true);
+  assert.equal(isPublishable(pos, "other.example", new Set()), false, "a seller key of another host is refused");
+});
+
+test("#8 host#service: a bare host opens none of the services behind a shared host; each service is opened by its own key", () => {
+  const proxy = (svc: string) => ({ verdict: { code: "NOT_DELIVERED" }, resourceUrl: `https://mpp.orthogonal.com/${svc}/x` }) as Observation;
+  const a = proxy("voygr");
+  const b = proxy("linkup");
+  assert.equal(isPublishable(a, "mpp.orthogonal.com#orth-voygr", new Set(["mpp.orthogonal.com"])), false, "bare host does not open a service");
+  assert.equal(isPublishable(a, "mpp.orthogonal.com#orth-voygr", new Set(["mpp.orthogonal.com#orth-voygr"])), true);
+  assert.equal(isPublishable(b, "mpp.orthogonal.com#orth-linkup", new Set(["mpp.orthogonal.com#orth-voygr"])), false, "another service stays held");
+  // a host with a single service has the bare host as its ranking key, so a bare host entry opens it
+  assert.equal(isPublishable({ ...a, resourceUrl: "https://one.example/x" } as Observation, "one.example", new Set(["one.example"])), true);
+  // notified.json takes host#service keys, and refuses the old { host } shape
+  assert.deepEqual([...notifiedSellers({ note: "", sellers: [{ seller: "mpp.orthogonal.com#orth-voygr", notifiedAt: "2026-09-30" }] })], ["mpp.orthogonal.com#orth-voygr"]);
+  assert.throws(() => notifiedSellers({ note: "", hosts: [{ host: "a.example", notifiedAt: "2026-09-30" }] } as unknown as NotifiedFile), /replaced by "sellers"/);
+  assert.throws(() => notifiedSellers({ note: "", sellers: [{ seller: "https://a.example", notifiedAt: "2026-09-30" }] }), /bad entry/);
 });
 
 test("records loader refuses a negative record whose host was not told, and accepts it once the host is listed", async () => {
@@ -90,11 +107,39 @@ test("records loader refuses a negative record whose host was not told, and acce
     writeFileSync(path, negText);
     index.records[0]!.sha256 = sha256Hex(negText);
     writeFileSync(join(dir, "index.json"), JSON.stringify(index));
-    await assert.rejects(loadPublishedRecords(dir), new RegExp(`NOT_DELIVERED for ${index.records[0]!.host.replace(/\./g, "\\.")}, which is not in notified\\.json`));
-    writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", hosts: [{ host: index.records[0]!.host, notifiedAt: "2026-09-30" }] }));
+    await assert.rejects(loadPublishedRecords(dir), new RegExp(`NOT_DELIVERED for seller ${index.records[0]!.seller.replace(/\./g, "\\.")}, which is not in notified\\.json`));
+    writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", sellers: [{ seller: index.records[0]!.seller, notifiedAt: "2026-09-30" }] }));
     // Now the policy allows it, and what is left is that the altered record no longer verifies.
     await assert.rejects(loadPublishedRecords(dir), (e: Error) => !/not in notified\.json/.test(e.message) && /does not verify/.test(e.message));
     assert.equal(o.verdict.code, "DELIVERED");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#8 records loader: a bare host in notified.json does not open a service's negative record; its own key does", async () => {
+  const dir = copyRecords();
+  try {
+    const index = JSON.parse(readFileSync(join(dir, "index.json"), "utf8")) as RecordIndex;
+    const e = index.records.find((r) => r.seller.includes("#"))!;
+    assert.ok(e, "a host#service record is published");
+    const path = join(dir, e.file);
+    const neg = readFileSync(path, "utf8").replace('"code": "DELIVERED"', '"code": "NOT_DELIVERED"');
+    writeFileSync(path, neg);
+    e.sha256 = sha256Hex(neg);
+    e.verdict = "NOT_DELIVERED";
+    writeFileSync(join(dir, "index.json"), JSON.stringify(index));
+    const told = (seller: string) => writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", sellers: [{ seller, notifiedAt: "2026-09-30" }] }));
+    told(e.host);
+    await assert.rejects(loadPublishedRecords(dir), /which is not in notified\.json/);
+    told(`${e.host}#some-other-service`);
+    await assert.rejects(loadPublishedRecords(dir), /which is not in notified\.json/);
+    told(e.seller);
+    await assert.rejects(loadPublishedRecords(dir), (err: Error) => !/not in notified\.json/.test(err.message));
+    // the index cannot move a record to another host's seller key
+    e.seller = "other.example";
+    writeFileSync(join(dir, "index.json"), JSON.stringify(index));
+    await assert.rejects(loadPublishedRecords(dir), /is not the record's host/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -196,7 +241,8 @@ test("verify-receipt: a record read from a URL passes by default against vet402'
     assert.match(good.out, new RegExp(`OK   key .*${VET402_OBSERVER_KEYS[0]}`));
     assert.match(good.out, /OK   signature .*expected vet402 key/);
     assert.match(good.out, /OK   merkle/);
-    assert.match(good.out, /RESULT: OK/);
+    assert.match(good.out, /RESULT: OK \(not yet anchored/);
+    assert.match(good.out, /Not shown until the day's root is on chain/);
     const bad = await verify(`http://127.0.0.1:${port}/records/bad.json`);
     assert.equal(bad.code, 1, bad.out);
     assert.match(bad.out, /FAIL signature/);
@@ -227,17 +273,6 @@ test("anchor: the memo transaction holds one Memo instruction and nothing else; 
     ),
   );
   assert.throws(() => assertMemoOnly(two.messageBytes, PAYER_ADDRESS, memo), /anchor transaction refused/);
-});
-
-test("anchor script: nothing is signed or sent before the --send branch", () => {
-  const src = readFileSync(join(ROOT, "scripts", "anchor-receipts.ts"), "utf8");
-  const gate = src.indexOf("if (!send) {");
-  assert.ok(gate > 0);
-  for (const call of ["loadPayer(", "signTransaction(", '"sendTransaction"']) {
-    const at = src.indexOf(call, src.indexOf("// ---------- the day's root"));
-    assert.ok(at > gate, `${call} only after the --send gate`);
-  }
-  assert.match(src.slice(gate, src.indexOf("}", gate) + 1), /process\.exit/);
 });
 
 test("anchor marking keeps the signature and the proof, and refuses a second anchor", async () => {

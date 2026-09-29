@@ -58,7 +58,7 @@ Each purchase can become a record signed by vet402's observation key (listed in 
 
 What is published (`data/records/`, served at https://kzmttkc.github.io/vet402-delivery/records/):
 - DELIVERED records are published.
-- NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure. They are published only after vet402 has told that seller, and only for the hosts listed in `data/records/notified.json`. That list is empty for now, so none of them are published. The daily root still covers them, so no record can be added or dropped later without changing the root.
+- NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure. They are published only after vet402 has told that seller, and only for the sellers listed in `data/records/notified.json`. A seller is the ranking's seller: the host, or `host#service` when one host fronts several services that each pay their own recipient. An entry matches only that exact seller, so listing a bare host never publishes the failures of another service behind the same host. That list is empty for now, so none of them are published. The daily root still covers them, so no record can be added or dropped later without changing the root.
 - `scripts/build-site.ts` stops if `data/records/` holds a record this policy does not allow, a record that does not verify, or a file that `data/records/index.json` does not list.
 
 Check a published record, with no account and no payment:
@@ -69,12 +69,29 @@ npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/reco
 
 It checks the signer against vet402's key, the signature, that the verdict follows from the recorded checks, the Merkle proof and the payment on chain. Change any signed field, even by one character, and it fails.
 
+The anchor counts only when vet402's anchor wallet (`VET402_ANCHOR_SIGNERS` in `src/receipt/observers.ts`) paid for and signed the memo; a memo from any other wallet is ignored, whatever root it names. Until the day's root is on chain the result reads `RESULT: OK (not yet anchored)`, and the script says what that leaves unproven: the Merkle line then only shows that the proof and the root inside the record agree, not that the record belongs to the day vet402 committed to.
+
 ```bash
 npm run records:publish -- --from results/receipts   # copy the publishable records into data/records/
 npm run receipts:anchor -- --day 2026-09-28           # simulate the day's memo on mainnet; signs and sends nothing
 ```
 
-Writing the root on chain needs `--send` and the Solana payer key. It sends at most once per day, and the network fee is the only thing that leaves the wallet.
+Writing the root on chain needs `--send` and the Solana payer key. The records are read from `~/vet402-solana-receipt/results/receipts`; `--send` and `--resume` refuse any other folder unless `--other-receipts-dir` is added. The network fee is the only thing that leaves the wallet. One root per day, checked twice before signing:
+- `results/receipts/<day>/anchor-sent.json` does not exist (it is written before the transaction leaves, with the signed bytes);
+- the anchor wallet's history on chain, read back to the start of that day, holds no memo for that day.
+
+If a send was interrupted (`anchor-sent.json` says `"sending"`):
+
+```bash
+npm run receipts:anchor -- --day 2026-09-28 --resume          # reads the chain; changes nothing on chain
+npm run receipts:anchor -- --day 2026-09-28 --resume --send   # only if the line above says to
+```
+
+- Landed: the records are marked anchored, the file says `"sent"`, then run `records:publish` again.
+- Still inside its blockhash window: wait and run `--resume` again, or `--resume --send` to rebroadcast the same signed bytes (same signature, so it cannot land twice).
+- Failed on chain, or expired with no memo for the day on chain: the file is moved to `anchor-sent.failed-*` or `anchor-sent.expired-*`, and `--resume --send` (or `--send`) writes the root afresh.
+- A memo for the day with a different root is on chain: nothing is changed. Stop and look before anything else.
+- A matching memo is on chain but `anchor-sent.json` is missing: `--resume` records it.
 
 ## Scope and prior work
 

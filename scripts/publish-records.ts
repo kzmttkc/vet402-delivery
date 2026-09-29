@@ -6,7 +6,8 @@
  *   npx tsx scripts/publish-records.ts --from results/receipts [--data data] [--out data/records]
  *
  * A record is copied only when:
- *  - the policy allows it (src/receipt/publish.ts): DELIVERED, or the host is in notified.json
+ *  - the policy allows it (src/receipt/publish.ts): DELIVERED, or the seller (host, or host#service as in
+ *    the ranking) is in notified.json
  *  - it verifies offline against a vet402 observation key (schema, signature, verdict, Merkle proof)
  *  - it carries no credential or local-machine shape and no query string
  *  - its payment tx is a purchase in the ranking inputs (data/), and for DELIVERED the ranking also
@@ -23,7 +24,7 @@ import type { Attempt } from "../src/rank/types.js";
 import {
   hostOfUrl,
   isPublishable,
-  notifiedHosts,
+  notifiedSellers,
   PUBLISH_POLICY,
   publicRecordProblems,
   publishedObserverKey,
@@ -91,10 +92,15 @@ const notifiedPath = join(outDir, "notified.json");
 const notified: NotifiedFile = existsSync(notifiedPath)
   ? (JSON.parse(readFileSync(notifiedPath, "utf8")) as NotifiedFile)
   : {
-      note: "Hosts told about vet402's records of their purchases. Only for these hosts are NOT_DELIVERED, MISMATCH and UNCLEAR records published. Add { host, notifiedAt } after the seller has been told.",
-      hosts: [],
+      note: "Sellers told about vet402's records of their purchases. Only for these sellers are NOT_DELIVERED, MISMATCH and UNCLEAR records published. Add { seller, notifiedAt } after the seller has been told. seller is the ranking's seller key: the host, or host#service when one host fronts several services (a bare host then matches none of them).",
+      sellers: [],
     };
-const told = notifiedHosts(notified);
+const told = notifiedSellers(notified);
+{
+  const known = new Set(attempts.map((a) => keys.get(a)!));
+  const unknown = [...told].filter((s) => !known.has(s));
+  if (unknown.length) throw new Error(`notified.json names sellers the ranking does not have: ${unknown.join(", ")} (use the ranking's key: host, or host#service)`);
+}
 
 // ---------- select ----------
 const days = readdirSync(from).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
@@ -128,7 +134,11 @@ for (const day of days) {
     } else if (dayInfo.root !== o.anchor.root || dayInfo.anchor.tx !== o.anchor.tx) {
       throw new Error(`${o.id}: a different root or anchor tx than the other records of ${day}`);
     }
-    if (!isPublishable(o, told)) {
+    // The seller is the ranking's seller for this payment tx (host, or host#service).
+    const as = byTx.get(o.payment.transaction.toLowerCase()) ?? [];
+    const sellers = new Set(as.map((a) => keys.get(a)!));
+    const seller = sellers.size === 1 ? [...sellers][0]! : null;
+    if (o.verdict.code !== "DELIVERED" && (!seller || !isPublishable(o, seller, told))) {
       held[o.verdict.code] = (held[o.verdict.code] ?? 0) + 1;
       continue;
     }
@@ -137,11 +147,10 @@ for (const day of days) {
     if (!key) why.push("not a vet402 observation key");
     const v = await verifyOffline(o, key ? { expectedSigner: key } : {});
     if (!v.schema.ok || !v.signature.ok || !v.verdict.ok || v.merkle.ok !== true) why.push("does not verify offline");
-    const as = byTx.get(o.payment.transaction.toLowerCase()) ?? [];
     if (as.length === 0) why.push("payment tx is not a purchase in data/");
     else if (o.verdict.code === "DELIVERED" && !as.some((a) => a.delivered)) why.push(`the ranking does not count it as delivered (${as.map((a) => a.category).join(",")})`);
-    const sellers = new Set(as.map((a) => keys.get(a)!));
     if (sellers.size > 1) why.push(`tx maps to ${sellers.size} sellers`);
+    if (seller && !isPublishable(o, seller, told)) why.push(`seller ${seller} does not belong to the record's host`);
     if (why.length) {
       refused.push(`${o.id}: ${why.join("; ")}`);
       continue;
@@ -157,7 +166,7 @@ for (const day of days) {
       verdict: o.verdict.code,
       resourceUrl: o.resourceUrl,
       host: hostOfUrl(o.resourceUrl),
-      seller: [...sellers][0]!,
+      seller: seller!,
       sequence: o.observer.sequence,
     });
     published++;
@@ -184,7 +193,7 @@ const index: RecordIndex = {
   kind: "vet402-observation-records",
   version: 0,
   policy: PUBLISH_POLICY,
-  notifiedHosts: told.size,
+  notifiedSellers: told.size,
   days: dayEntries,
   records: entries,
 };
@@ -193,4 +202,4 @@ writeFileSync(notifiedPath, `${JSON.stringify(notified, null, 2)}\n`);
 
 const byNet: Record<string, number> = {};
 for (const e of entries) byNet[e.network] = (byNet[e.network] ?? 0) + 1;
-console.log(JSON.stringify({ out: outDir.replace(ROOT, "."), published: entries.length, byNetwork: byNet, heldUntilSellerIsTold: held, notifiedHosts: told.size, days: dayEntries.map((d) => `${d.day} ${d.published}/${d.inRoot}`) }, null, 2));
+console.log(JSON.stringify({ out: outDir.replace(ROOT, "."), published: entries.length, byNetwork: byNet, heldUntilSellerIsTold: held, notifiedSellers: told.size, days: dayEntries.map((d) => `${d.day} ${d.published}/${d.inRoot}`) }, null, 2));

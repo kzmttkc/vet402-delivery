@@ -4,11 +4,14 @@
  * Policy:
  *  - DELIVERED records are published.
  *  - NOT_DELIVERED, MISMATCH and UNCLEAR name a seller next to a failure, so they are published only
- *    for hosts listed in data/records/notified.json (the seller was told first). That list starts empty.
+ *    for sellers listed in data/records/notified.json (the seller was told first). That list starts empty.
+ *  - A seller is the ranking's seller: the host, or host#service when one host fronts several services
+ *    that each pay their own recipient. An entry matches only the exact seller key, so listing a bare
+ *    host never publishes the failures of another service behind the same host.
  *
  * data/records/ layout:
  *   index.json            the list of published records, each with its sha256, and one line per daily root
- *   notified.json         hosts told about their records, so their negative records may be published
+ *   notified.json         sellers told about their records, so their negative records may be published
  *   <day>/<id>.json       the signed record, byte for byte as vet402 wrote it
  */
 import { createHash } from "node:crypto";
@@ -19,17 +22,18 @@ import { verifyOffline } from "./verify.js";
 import { UNSIGNED_FIELDS, VERDICTS, type Observation, type VerdictCode } from "./types.js";
 
 export const PUBLISH_POLICY =
-  "DELIVERED records are published. NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure, so they are published only after vet402 has told that seller, for the hosts listed in data/records/notified.json.";
+  "DELIVERED records are published. NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure, so they are published only after vet402 has told that seller, for the sellers listed in data/records/notified.json (host, or host#service for one service behind a shared host).";
 
-export interface NotifiedHost {
-  host: string;
+export interface NotifiedSeller {
+  /** Ranking seller key: "host", or "host#service" for one service behind a shared host. */
+  seller: string;
   /** YYYY-MM-DD, the day the seller was told. */
   notifiedAt: string;
 }
 
 export interface NotifiedFile {
   note: string;
-  hosts: NotifiedHost[];
+  sellers: NotifiedSeller[];
 }
 
 export interface RecordEntry {
@@ -62,7 +66,7 @@ export interface RecordIndex {
   kind: "vet402-observation-records";
   version: 0;
   policy: string;
-  notifiedHosts: number;
+  notifiedSellers: number;
   days: DayEntry[];
   records: RecordEntry[];
 }
@@ -75,18 +79,32 @@ export function sha256Hex(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-export function notifiedHosts(file: NotifiedFile): Set<string> {
+/** "host" or "host#service" (the ranking's seller key). */
+export const SELLER_KEY = /^[a-z0-9.-]+(?:#[A-Za-z0-9._:-]+)?$/;
+
+export function notifiedSellers(file: NotifiedFile): Set<string> {
+  if ("hosts" in (file as object)) throw new Error('notified.json: "hosts" is replaced by "sellers" ({ seller, notifiedAt }; seller = host or host#service)');
   const out = new Set<string>();
-  for (const h of file.hosts) {
-    if (!/^[a-z0-9.-]+$/.test(h.host) || !/^\d{4}-\d{2}-\d{2}$/.test(h.notifiedAt)) throw new Error(`notified.json: bad entry ${JSON.stringify(h)}`);
-    out.add(h.host);
+  for (const h of file.sellers) {
+    if (typeof h.seller !== "string" || !SELLER_KEY.test(h.seller) || !/^\d{4}-\d{2}-\d{2}$/.test(h.notifiedAt)) throw new Error(`notified.json: bad entry ${JSON.stringify(h)}`);
+    out.add(h.seller);
   }
   return out;
 }
 
-export function isPublishable(o: Pick<Observation, "verdict" | "resourceUrl">, notified: ReadonlySet<string>): boolean {
+/** The seller key belongs to the record's host: the host itself, or host#service. */
+export function sellerOfHost(seller: string, host: string): boolean {
+  return seller === host || seller.startsWith(`${host}#`);
+}
+
+/**
+ * DELIVERED: always. Otherwise only when this exact seller key was told. A bare host entry matches only
+ * a seller whose key is the bare host, which the ranking uses only when the host has at most one service.
+ */
+export function isPublishable(o: Pick<Observation, "verdict" | "resourceUrl">, seller: string, notified: ReadonlySet<string>): boolean {
+  if (!sellerOfHost(seller, hostOfUrl(o.resourceUrl))) return false;
   if (o.verdict.code === "DELIVERED") return true;
-  return notified.has(hostOfUrl(o.resourceUrl));
+  return notified.has(seller);
 }
 
 /** Credential and local-machine shapes that must never appear in a published record. */
@@ -144,7 +162,7 @@ export async function loadPublishedRecords(dir: string): Promise<LoadedRecords> 
   const index = JSON.parse(readFileSync(join(dir, "index.json"), "utf8")) as RecordIndex;
   const notified = JSON.parse(readFileSync(join(dir, "notified.json"), "utf8")) as NotifiedFile;
   if (index.kind !== "vet402-observation-records" || index.version !== 0) throw new Error(`${dir}/index.json: not a records index`);
-  const told = notifiedHosts(notified);
+  const told = notifiedSellers(notified);
   const problems: string[] = [];
   const records: LoadedRecord[] = [];
   const listed = new Set<string>(["index.json", "notified.json"]);
@@ -166,7 +184,8 @@ export async function loadPublishedRecords(dir: string): Promise<LoadedRecords> 
     if (o.id !== e.id || o.verdict.code !== e.verdict || o.resourceUrl !== e.resourceUrl || o.payment.network !== e.network || hostOfUrl(o.resourceUrl) !== e.host)
       problems.push(`${e.id}: index.json does not describe the file`);
     if (!VERDICTS.includes(o.verdict.code)) problems.push(`${e.id}: unknown verdict`);
-    if (!isPublishable(o, told)) problems.push(`${e.id}: ${o.verdict.code} for ${e.host}, which is not in notified.json`);
+    if (!sellerOfHost(e.seller, hostOfUrl(o.resourceUrl))) problems.push(`${e.id}: seller ${e.seller} is not the record's host ${hostOfUrl(o.resourceUrl)}`);
+    else if (!isPublishable(o, e.seller, told)) problems.push(`${e.id}: ${o.verdict.code} for seller ${e.seller}, which is not in notified.json`);
     for (const x of publicRecordProblems(text, o)) problems.push(`${e.id}: ${x}`);
     const key = publishedObserverKey(o.observer.address);
     if (!key) problems.push(`${e.id}: signed by ${o.observer.address}, not a vet402 observation key`);
