@@ -55,10 +55,10 @@ npm run first-buyer -- --init-ledger                  # once, before the very fi
 
 I (Sen) started vet402 on 2026-07-13. Before this repository, vet402 already had:
 - the main product at https://vet402.com (purchase lanes on Base, Solana, Tempo and Arc);
-- an Algorand version for the Algorand x402 Global Challenge: https://github.com/kzmttkc/vet402-algorand (its census data is read here as input to the ranking);
+- an Algorand version for Algorand's Global x402 Challenge: https://github.com/kzmttkc/vet402-algorand (its census data is read here as input to the ranking);
 - entries at ETHGlobal ETHOnline 2026 and ETHGlobal Tokyo 2026 (their submitted code is not part of this repository).
 
-The code in this repository was written from 2026-09-28 onward. Data from earlier purchases is used as input and is labelled with its date.
+The code in this repository was written from 2026-09-28 onward, with one exception: the delivery verdict rules in `src/verdict.ts` and the failure groups in `src/classify.ts` are ported from vet402-algorand (each file says so in its header), so that the chains are judged the same way. Those two files are prior work, not part of this entry. Data from earlier purchases is used as input and is labelled with its date.
 
 ## Run
 
