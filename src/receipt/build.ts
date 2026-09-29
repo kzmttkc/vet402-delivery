@@ -53,7 +53,10 @@ export interface VerdictInput {
 
 /**
  * The four words, decided only by recorded facts:
- *  - NOT_DELIVERED: paid, then no response / 5xx / 402 again / 2xx with an empty body.
+ *  - NOT_DELIVERED: paid, then no response / 5xx / 402 again / 2xx with an empty body / any other
+ *    status that is neither 2xx nor 4xx (1xx, 3xx: a paid request answered with a redirect delivered
+ *    nothing). The same line as the ranking's paid_not_delivered rule (src/rank/classify.ts), which is
+ *    the reference: a record never calls "can't tell" what the ranking puts on the seller's side.
  *    These do not depend on anything vet402 sent, so they stand on vet402's observation alone.
  *  - MISMATCH: paid, a 2xx came back, and a declared or signed value disagrees (named in the reason).
  *  - UNCLEAR: paid, then another 4xx. vet402 built that request from the seller's listing, so a
@@ -86,13 +89,13 @@ export function decideVerdict(v: VerdictInput): Verdict {
     const fmt = v.declaredFormatMatched === true ? ", matched the declared format" : "";
     return mk("DELIVERED", `Payment settled; HTTP ${s}, ${body}${fmt}.`);
   }
-  if (s >= 400)
+  if (s >= 400 && s <= 499)
     return mk(
       "UNCLEAR",
       `Payment settled; the seller answered HTTP ${s}. vet402 built this request from the seller's listing, so a fault on vet402's side is not ruled out.`,
       "On the seller's request, or in vet402's next purchase of this resource.",
     );
-  return mk("UNCLEAR", `Payment settled; unexpected HTTP ${s}.`, "In vet402's next purchase of this resource.");
+  return mk("NOT_DELIVERED", `Payment settled; the seller answered HTTP ${s}, not a 2xx answer.`);
 }
 
 // ---------- request hashes ----------

@@ -105,6 +105,7 @@ npm run records:publish -- --from ~/vet402-solana-receipt/results/receipts --day
 
 - A purchase becomes a record only when its transfer was read back on chain and the spend ledger, written before signing, agrees on the amount (on Tempo also on the recipient and the tx). What the seller sent back is never read into a record.
 - Sequence numbers continue from the last record. A day already built is never signed again, a day earlier than a built one is refused, and so is the current UTC day unless `--allow-open-day` is given.
+- A day built with `--allow-open-day` is for a local look only: `records:publish` and `receipts:anchor` refuse it. Both also hash again each input the day was signed from (listed in its local `sources.json`) and stop if one changed, for example when a second run the same day added purchases. The day is then built again from the current files.
 - `records:publish --day` adds that day only; the days already in `data/records/` stay byte for byte.
 
 Writing the root on chain needs `--send` and the Solana payer key. The records are read from `~/vet402-solana-receipt/results/receipts`; `--send` and `--resume` refuse any other folder unless `--other-receipts-dir` is added. The network fee is the only thing that leaves the wallet. One root per day, checked twice before signing:

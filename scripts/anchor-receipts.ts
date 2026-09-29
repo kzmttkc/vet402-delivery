@@ -10,6 +10,10 @@
  * built. --from <dir> reads elsewhere for a simulation; --send and --resume refuse any other folder
  * unless --other-receipts-dir is given as well, so a stray copy can never be anchored by accident.
  *
+ * Before anything else the day must pass src/receipt/sources.ts: its inputs in the remeasure folder
+ * (--remeasure-dir, default the production one) unchanged since the build, and not built while its UTC
+ * day was open. --resume without --send skips this, since it only records a send already made.
+ *
  * Without --send nothing is signed or sent. With --send the Solana payer key (.keys/payer.json, mode
  * 600, must be the anchor wallet) signs a memo-only transaction; the network fee is the only thing that
  * leaves the wallet, and above MAX_FEE_LAMPORTS nothing is signed. RPC: SOLANA_RPC_URL.
@@ -21,6 +25,8 @@ import { loadPayer } from "../src/client.js";
 import { jsonRpc } from "../src/chain.js";
 import { PAYER_ADDRESS } from "../src/constants.js";
 import { plan, resume, send, type AnchorDeps } from "../src/receipt/anchor-run.js";
+import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
+import { RM_PROD_DIR } from "../src/remeasure/constants.js";
 
 export const DEFAULT_RECEIPTS_DIR = join(homedir(), "vet402-solana-receipt", "results", "receipts");
 
@@ -35,7 +41,7 @@ const argValue = (name: string): string | undefined => {
 };
 const day = argValue("--day");
 if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-  console.error("usage: anchor-receipts.ts --day YYYY-MM-DD [--send] [--resume] [--from <dir> [--other-receipts-dir]]");
+  console.error("usage: anchor-receipts.ts --day YYYY-MM-DD [--send] [--resume] [--from <dir> [--other-receipts-dir]] [--remeasure-dir <dir>]");
   process.exit(2);
 }
 const doSend = args.includes("--send");
@@ -44,6 +50,22 @@ const from = resolve(argValue("--from") ?? DEFAULT_RECEIPTS_DIR);
 if ((doSend || doResume) && from !== DEFAULT_RECEIPTS_DIR && !args.includes("--other-receipts-dir")) {
   console.error(`--send and --resume only use ${DEFAULT_RECEIPTS_DIR} (got ${from}); add --other-receipts-dir to override`);
   process.exit(2);
+}
+
+const remeasureDir = resolve(argValue("--remeasure-dir") ?? RM_PROD_DIR);
+if ((doSend || doResume) && remeasureDir !== resolve(RM_PROD_DIR) && !args.includes("--other-receipts-dir")) {
+  console.error(`--send and --resume only check the day against ${RM_PROD_DIR} (got ${remeasureDir}); add --other-receipts-dir to override`);
+  process.exit(2);
+}
+// The day's inputs must be what it was signed from, and it must not have been built while open.
+// --resume alone only reads the chain for a send already made, so it is not held back.
+if (!doResume || doSend) {
+  try {
+    assertDaySourcesCurrent(join(from, day), day, remeasureDir);
+  } catch (e) {
+    console.error(`not anchoring: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(2);
+  }
 }
 
 const deps: AnchorDeps = {

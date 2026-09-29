@@ -12,7 +12,9 @@
  *   tempo-ledger-<day>.json); <dir> defaults to the one production folder (src/remeasure/constants.ts).
  *   Sequence numbers continue from the records already in <receipts>. A day that is already built, or
  *   earlier than a day that is, is refused: a built day is never signed again. The current UTC day is
- *   refused unless --allow-open-day, because a later run that day would add purchases the root leaves out.
+ *   refused unless --allow-open-day, because a later run that day would add purchases the root leaves out;
+ *   a day built that way is marked openDay in sources.json, and publish-records and anchor-receipts refuse it.
+ *   sources.json also keeps the hash of each input, which those two check again before they touch the day.
  *
  * The first build (the 2026-09-28 purchases, sequence from 1):
  *
@@ -27,7 +29,7 @@
  *   <out>/private/salts.json (mode 600): the params_hash salts, disclosed only to parties in a dispute
  *   <out>/did.json: the did:web document to publish at https://vet402.com/.well-known/did.json
  */
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { toHex, type Hex } from "viem";
@@ -57,6 +59,7 @@ import { renderObservationPage } from "../src/receipt/html.js";
 import { anchorMemo, buildTree } from "../src/receipt/merkle.js";
 import { validateObservation } from "../src/receipt/schema.js";
 import type { Observation } from "../src/receipt/types.js";
+import { SOURCES_KIND, sourceDigest, type DaySources, type SourceEntry } from "../src/receipt/sources.js";
 import { verifyOffline } from "../src/receipt/verify.js";
 
 function arg(name: string): string | undefined {
@@ -93,29 +96,32 @@ const built: BuiltDay[] = existsSync(outDir)
 // ---------- facts ----------
 const facts: Facts[] = [];
 const skips: Skip[] = [];
-const sources: { dataset: string; file: string; sha256: string }[] = [];
+const sources: SourceEntry[] = [];
 const byChain: Record<string, { facts: number; skipped: number }> = {};
 function take(chain: string, r: { facts: Facts[]; skips: Skip[] }) {
   facts.push(...r.facts);
   skips.push(...r.skips);
   byChain[chain] = { facts: r.facts.length, skipped: r.skips.length };
 }
-function readSource(dataset: string, path: string): string {
+/** Read an input and note its hash in sources.json; publish and anchor check it again (src/receipt/sources.ts). */
+function readSource(dataset: string, path: string, scope: SourceEntry["scope"] = "file"): string {
   if (!existsSync(path)) fail(`${dataset}: ${basename(path)} not found in the remeasure folder`);
   const text = readFileSync(path, "utf8");
-  sources.push({ dataset, file: basename(path), sha256: createHash("sha256").update(text).digest("hex") });
+  sources.push({ dataset, file: basename(path), scope, sha256: sourceDigest(scope, text, day!) });
   return text;
 }
 
 const day = arg("--day");
 let firstSeq = 1;
+let openDay = false;
 if (day !== undefined) {
   if (!DAY_RE.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`))) fail("--day needs YYYY-MM-DD");
   if (["--solana", "--tempo", "--base"].some((f) => process.argv.includes(f))) fail("--day builds from the remeasure results only; --solana/--tempo/--base belong to the first build");
   const today = new Date().toISOString().slice(0, 10);
   if (day > today) fail(`${day} is in the future (UTC today is ${today})`);
   if (day === today && !process.argv.includes("--allow-open-day"))
-    fail(`${day} is still open (UTC). A later remeasure run today would add purchases this root leaves out. Build it tomorrow, or pass --allow-open-day when no more runs are planned today.`);
+    fail(`${day} is still open (UTC). A later remeasure run today would add purchases this root leaves out. Build it tomorrow, or pass --allow-open-day for a local look (such a day is never published or anchored).`);
+  openDay = day === today;
   try {
     firstSeq = nextSequence(built, day, account.address);
   } catch (e) {
@@ -130,7 +136,7 @@ if (day !== undefined) {
     if (file.date !== day || file.chain !== chain) fail(`${dataset}: the file says ${file.chain} ${file.date}`);
     let spends: RemeasureSpend[];
     if (chain === "solana") {
-      const b = JSON.parse(readSource(`${dataset} budget`, join(rmDir, `budget-solana-${day.slice(0, 7)}.json`))) as { purchases: { key: string; amount: string; at: string }[] };
+      const b = JSON.parse(readSource(`${dataset} budget`, join(rmDir, `budget-solana-${day.slice(0, 7)}.json`), "day-purchases")) as { purchases: { key: string; amount: string; at: string }[] };
       spends = b.purchases.filter((p) => p.key.startsWith(`${day}|`)).map((p) => ({ key: p.key, amount: p.amount, at: p.at }));
     } else {
       const l = JSON.parse(readSource(`${dataset} ledger`, join(rmDir, `tempo-ledger-${day}.json`))) as {
@@ -244,7 +250,8 @@ for (const [d, obs] of days) {
   );
   if (day !== undefined) {
     writeFileSync(join(tmp, "skipped.json"), `${JSON.stringify(skips, null, 2)}\n`);
-    writeFileSync(join(tmp, "sources.json"), `${JSON.stringify(sources, null, 2)}\n`);
+    const ds: DaySources = { kind: SOURCES_KIND, version: 1, day: d, openDay, builtAt: new Date().toISOString(), files: sources };
+    writeFileSync(join(tmp, "sources.json"), `${JSON.stringify(ds, null, 2)}\n`);
   }
   renameSync(tmp, dir);
   summary[d] = { count: obs.length, sequenceRange: seq, countsByNetwork: counts, root: tree.root, simulation };

@@ -4,11 +4,14 @@
  * nothing, sends nothing, reads no key.
  *
  *   npx tsx scripts/publish-records.ts --from results/receipts [--data data] [--out data/records] [--day YYYY-MM-DD]
+ *       [--remeasure-dir <dir>]
  *
  * Without --day every day folder in --from is published afresh. With --day only that day is (re)published:
  * the other days already in <out> stay byte for byte as they are, after the same checks the site build
  * runs on them (loadPublishedRecords).
  *
+ * A day is published only when its inputs are unchanged since the build and it was not built while its
+ * UTC day was open (sources.json, src/receipt/sources.ts; <dir> defaults to the production remeasure folder).
  * A record is copied only when:
  *  - the policy allows it (src/receipt/publish.ts): DELIVERED, or the seller (host, or host#service as in
  *    the ranking) is in notified.json
@@ -24,7 +27,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeBase, normalizeSolanaCensus, normalizeSolanaGate1, normalizeTempoLedger, parseTempoRunLog, tempoPlanUrls } from "../src/rank/normalize.js";
 import { sellerKeys } from "../src/rank/score.js";
+import { RM_PROD_DIR } from "../src/remeasure/constants.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
+import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
 import type { Attempt } from "../src/rank/types.js";
 import {
   hostOfUrl,
@@ -55,6 +60,7 @@ const argValue = (name: string): string | undefined => {
 const from = resolve(argValue("--from") ?? join(ROOT, "results", "receipts"));
 const dataDir = resolve(argValue("--data") ?? join(ROOT, "data"));
 const outDir = resolve(argValue("--out") ?? join(dataDir, "records"));
+const remeasureDir = resolve(argValue("--remeasure-dir") ?? RM_PROD_DIR);
 
 // ---------- ranking inputs: tx -> seller key and delivered ----------
 interface DataEntry {
@@ -121,6 +127,21 @@ const days = readdirSync(from)
   .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && (onlyDay === undefined || d === onlyDay))
   .sort();
 if (days.length === 0) throw new Error(`${from}: no day folders${onlyDay ? ` for ${onlyDay}` : ""}`);
+// A day is published only from the inputs it was signed from, and never when it was built while open.
+{
+  const gate: string[] = [];
+  for (const day of days) {
+    try {
+      assertDaySourcesCurrent(join(from, day), day, remeasureDir);
+    } catch (e) {
+      gate.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  if (gate.length) {
+    console.error(`refused (nothing written):\n  ${gate.join("\n  ")}`);
+    process.exit(1);
+  }
+}
 // --day: the other days already published stay as they are, once they pass the site build's checks.
 const kept = onlyDay !== undefined && existsSync(join(outDir, "index.json")) ? (await loadPublishedRecords(outDir)).index : null;
 const entries: RecordEntry[] = [];

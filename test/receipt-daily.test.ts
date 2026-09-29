@@ -6,6 +6,7 @@
  *  - nothing the seller sent back (`detail`) reaches a record
  *  - sequence numbers continue across days; a built day is never signed again; an earlier day after a
  *    later one, and the still-open UTC day, are refused
+ *  - publish and anchor refuse a day whose inputs changed since the build, or that was built while open
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,6 +18,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import { assemble, factsFromRemeasure, HASH_NOT_RECORDED_REMEASURE, nextSequence, type RemeasureFile, type RemeasureRowIn, type RemeasureSpend } from "../src/receipt/build.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
+import { classifyFailure } from "../src/rank/classify.js";
+import { assertDaySourcesCurrent, sourceDigest, type DaySources } from "../src/receipt/sources.js";
 import type { Observation } from "../src/receipt/types.js";
 
 const DAY = "2026-09-01";
@@ -280,3 +283,164 @@ test("build-receipts --day: continues sequences, never re-signs a built day, ref
   }
 });
 
+
+// ---------- W1: the record's word follows the ranking's rule for every status ----------
+
+test("W1: a settled purchase answered 1xx/3xx is NOT_DELIVERED, the ranking's seller side; each status gives the same side in both", () => {
+  const statuses: (number | null)[] = [null, 100, 200, 204, 301, 302, 304, 307, 308, 399, 400, 401, 402, 404, 422, 429, 499, 500, 503, 599, 600];
+  const rows = statuses.map((st) => solRow({ httpStatus: st, delivered: st === 200 }));
+  const f = file("solana", rows);
+  const ranked = normalizeRemeasure({ ...f, rows: f.rows.map((r) => ({ ...r, detail: null, host: new URL(r.url).hostname, service: null })) }, "remeasure/solana");
+  const { facts } = factsFromRemeasure(f, "remeasure-solana", solSpends(rows));
+  assert.equal(facts.length, statuses.length);
+  const side = { DELIVERED: "delivered", NOT_DELIVERED: "seller", UNCLEAR: "unknown", MISMATCH: "?" } as const;
+  facts.forEach((x, i) => {
+    const code = assemble(x, i + 1, observer, SALT, 1).verdict.code;
+    const a = ranked[i]!;
+    const rank = a.delivered ? "delivered" : classifyFailure(a).fault;
+    assert.equal(side[code], rank, `HTTP ${statuses[i]}: record ${code}, ranking ${rank}`);
+  });
+  const codeOf = (st: number) => assemble(facts[statuses.indexOf(st)]!, 1, observer, SALT, 1).verdict;
+  for (const st of [100, 301, 302, 304, 307, 308, 399]) {
+    assert.equal(codeOf(st).code, "NOT_DELIVERED", `HTTP ${st}`);
+    assert.equal(codeOf(st).recheck, null);
+  }
+  assert.equal(codeOf(404).code, "UNCLEAR");
+  assert.equal(codeOf(503).code, "NOT_DELIVERED");
+});
+
+// ---------- the sources gate before publish and anchor ----------
+
+function fixture(days: string[]) {
+  const root = mkdtempSync(join(tmpdir(), "daily-src-"));
+  const rm = join(root, "remeasure");
+  const out = join(root, "receipts");
+  const key = join(root, "attest.json");
+  writeFileSync(key, JSON.stringify({ privateKey: generatePrivateKey() }), { mode: 0o600 });
+  mkdirSync(rm, { recursive: true });
+  const budget: RemeasureSpend[] = [];
+  for (const d of days) {
+    const s = [solRow({}, d), solRow({ delivered: false, httpStatus: 500 }, d)];
+    const t = [tempoRow({}, d)];
+    budget.push(...solSpends(s));
+    writeFileSync(join(rm, `solana-${d}.json`), JSON.stringify(file("solana", s, d)));
+    writeFileSync(join(rm, `tempo-${d}.json`), JSON.stringify(file("tempo", t, d)));
+    writeFileSync(join(rm, `tempo-ledger-${d}.json`), JSON.stringify({ version: 1, payer: TEMPO_PAYER, capAtomic: "1000000", entries: tempoSpends(t).map((e) => ({ ...e, reservedAt: e.at })) }));
+  }
+  const budgetPath = (d: string) => join(rm, `budget-solana-${d.slice(0, 7)}.json`);
+  for (const m of new Set(days.map((d) => d.slice(0, 7))))
+    writeFileSync(budgetPath(`${m}-01`), JSON.stringify({ baselineAtomic: "0", spentAtomic: "0", purchases: budget.filter((b) => b.key.startsWith(m)) }));
+  const cwd = join(import.meta.dirname, "..");
+  const build = (...extra: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", "scripts/build-receipts.ts", "--key", key, "--out", out, "--remeasure-dir", rm, ...extra], { cwd, encoding: "utf8" });
+  const publish = (d: string, dataOut: string) =>
+    spawnSync(process.execPath, ["--import", "tsx", "scripts/publish-records.ts", "--from", out, "--day", d, "--out", dataOut, "--remeasure-dir", rm], { cwd, encoding: "utf8" });
+  const anchor = (d: string) =>
+    spawnSync(process.execPath, ["--import", "tsx", "scripts/anchor-receipts.ts", "--day", d, "--from", out, "--remeasure-dir", rm], { cwd, encoding: "utf8", env: { ...process.env, SOLANA_RPC_URL: "http://127.0.0.1:9" } });
+  return { root, rm, out, build, publish, anchor, budgetPath };
+}
+
+test("sources gate: publish and anchor pass a day whose inputs are unchanged, and stop once one changes", () => {
+  const D = "2026-09-03";
+  const fx = fixture([D]);
+  try {
+    const b = fx.build("--day", D);
+    assert.equal(b.status, 0, b.stderr);
+    const src = JSON.parse(readFileSync(join(fx.out, D, "sources.json"), "utf8")) as DaySources;
+    assert.equal(src.kind, "vet402-day-sources");
+    assert.equal(src.openDay, false);
+    assert.deepEqual(
+      src.files.map((f) => [f.file, f.scope]),
+      [
+        [`solana-${D}.json`, "file"],
+        ["budget-solana-2026-09.json", "day-purchases"],
+        [`tempo-${D}.json`, "file"],
+        [`tempo-ledger-${D}.json`, "file"],
+      ],
+    );
+    assert.ok(!JSON.stringify(src).includes(fx.root), "no local path in sources.json");
+    assert.match(assertDaySourcesCurrent(join(fx.out, D), D, fx.rm), /4 inputs unchanged/);
+
+    // The month ledger grows with later days: that is not a change to this day.
+    const bp = fx.budgetPath(D);
+    const ledger = JSON.parse(readFileSync(bp, "utf8")) as { purchases: RemeasureSpend[] };
+    ledger.purchases.push({ key: "2026-09-04|Other111|0", amount: "1000", at: "2026-09-04T08:00:00.000Z" });
+    writeFileSync(bp, JSON.stringify(ledger));
+    assert.doesNotThrow(() => assertDaySourcesCurrent(join(fx.out, D), D, fx.rm));
+    // A purchase of the same day added to the ledger is.
+    ledger.purchases.push({ key: `${D}|Late1111|1`, amount: "1000", at: `${D}T10:05:00.000Z` });
+    writeFileSync(bp, JSON.stringify(ledger));
+    assert.throws(() => assertDaySourcesCurrent(join(fx.out, D), D, fx.rm), /budget-solana-2026-09\.json \(the 2026-09-03 purchases\) changed since the build/);
+    ledger.purchases.pop();
+    writeFileSync(bp, JSON.stringify(ledger));
+
+    // A second run the same day adds rows to the result file: publish and anchor stop, nothing written.
+    const sp = join(fx.rm, `solana-${D}.json`);
+    const sol = JSON.parse(readFileSync(sp, "utf8")) as RemeasureFile;
+    const original = readFileSync(sp, "utf8");
+    sol.rows.push(solRow({ key: `${D}|Late1111|1` }, D));
+    writeFileSync(sp, JSON.stringify(sol));
+    const data = join(fx.root, "records");
+    const p = fx.publish(D, data);
+    assert.equal(p.status, 1, p.stderr);
+    assert.match(p.stderr, /refused \(nothing written\)[\s\S]*solana-2026-09-03\.json changed since the build/);
+    assert.throws(() => readdirSync(data), /ENOENT/);
+    const a = fx.anchor(D);
+    assert.equal(a.status, 2, a.stderr);
+    assert.match(a.stderr, /not anchoring: .*solana-2026-09-03\.json changed since the build/);
+
+    // A missing input stops them too.
+    rmSync(join(fx.rm, `tempo-ledger-${D}.json`));
+    writeFileSync(sp, original);
+    assert.throws(() => assertDaySourcesCurrent(join(fx.out, D), D, fx.rm), /tempo-ledger-2026-09-03\.json is gone/);
+  } finally {
+    rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
+test("sources gate: a day built while open (--allow-open-day) is never published or anchored", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const fx = fixture([today]);
+  try {
+    const b = fx.build("--day", today, "--allow-open-day");
+    assert.equal(b.status, 0, b.stderr);
+    const src = JSON.parse(readFileSync(join(fx.out, today, "sources.json"), "utf8")) as DaySources;
+    assert.equal(src.openDay, true);
+    assert.throws(() => assertDaySourcesCurrent(join(fx.out, today), today, fx.rm), /still open \(--allow-open-day\)/);
+    const data = join(fx.root, "records");
+    const p = fx.publish(today, data);
+    assert.equal(p.status, 1, p.stderr);
+    assert.match(p.stderr, /still open/);
+    assert.throws(() => readdirSync(data), /ENOENT/);
+    const a = fx.anchor(today);
+    assert.equal(a.status, 2, a.stderr);
+    assert.match(a.stderr, /not anchoring: .*still open/);
+  } finally {
+    rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
+test("sources gate: without sources.json only the first build (sequence from 1) passes; an old list-shaped file is refused", () => {
+  const dir = mkdtempSync(join(tmpdir(), "daily-src-"));
+  try {
+    const rec = (seq: number) => JSON.stringify({ observer: { sequence: seq } });
+    writeFileSync(join(dir, "obs_2026-09-28_000001.json"), rec(1));
+    assert.match(assertDaySourcesCurrent(dir, "2026-09-28", dir), /first build/);
+    rmSync(join(dir, "obs_2026-09-28_000001.json"));
+    writeFileSync(join(dir, "obs_2026-09-29_000166.json"), rec(166));
+    assert.throws(() => assertDaySourcesCurrent(dir, "2026-09-29", dir), /sources\.json is missing/);
+    writeFileSync(join(dir, "sources.json"), JSON.stringify([{ dataset: "x", file: "solana-2026-09-29.json", sha256: "00" }]));
+    assert.throws(() => assertDaySourcesCurrent(dir, "2026-09-29", dir), /older build-receipts/);
+    const base: DaySources = { kind: "vet402-day-sources", version: 1, day: "2026-09-29", openDay: false, builtAt: "", files: [] };
+    writeFileSync(join(dir, "sources.json"), JSON.stringify(base));
+    assert.throws(() => assertDaySourcesCurrent(dir, "2026-09-29", dir), /lists no inputs/);
+    writeFileSync(join(dir, "sources.json"), JSON.stringify({ ...base, files: [{ dataset: "x", file: "../x.json", scope: "file", sha256: "00" }] }));
+    assert.throws(() => assertDaySourcesCurrent(dir, "2026-09-29", dir), /not a file name/);
+    writeFileSync(join(dir, "x.json"), "{}");
+    writeFileSync(join(dir, "sources.json"), JSON.stringify({ ...base, files: [{ dataset: "x", file: "x.json", scope: "file", sha256: sourceDigest("file", "{}", "2026-09-29") }] }));
+    assert.match(assertDaySourcesCurrent(dir, "2026-09-29", dir), /1 inputs unchanged/);
+    assert.throws(() => assertDaySourcesCurrent(dir, "2026-09-30", dir), /sources\.json is for 2026-09-29/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
