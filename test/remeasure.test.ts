@@ -1,0 +1,436 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { generateKeyPairSigner } from "@solana/kit";
+import { encodeFunctionData, type Hex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { Abis, Transaction } from "viem/tempo";
+import { MEASURE_SPACING_MS, PAYER_ADDRESS, SOLANA_MAINNET, USDC_MINT } from "../src/constants.js";
+import { SellerPacer } from "../src/measure.js";
+import type { PayDeps } from "../src/pay.js";
+import { TEMPO_MAINNET_CHAIN_ID, USDC_E, FEE_RESERVE_ATOMIC } from "../src/tempo/constants.js";
+import { Ledger } from "../src/tempo/ledger.js";
+import type { PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
+import type { Signer } from "../src/tempo/chain.js";
+import { aggregate, rank } from "../src/rank/score.js";
+import type { Attempt } from "../src/rank/types.js";
+import { RemeasureBudget, budgetKey } from "../src/remeasure/budget.js";
+import { RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_SOLANA_MAX_PER_RUN_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
+import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
+import { dryRunSolana, paySolana } from "../src/remeasure/solana.js";
+import { dayLedgerPath, dryRunTempo, ensureStartBlock, monthCommittedElsewhere, payTempo } from "../src/remeasure/tempo.js";
+import { normalizeRemeasure } from "../src/remeasure/normalize.js";
+import { resultFilesUpTo, type RemeasureRow, type ResultFile } from "../src/remeasure/results.js";
+
+const FACILITATOR = (await generateKeyPairSigner()).address;
+const P1 = (await generateKeyPairSigner()).address;
+const P2 = (await generateKeyPairSigner()).address;
+const P3 = (await generateKeyPairSigner()).address;
+const OTHER_SOL = (await generateKeyPairSigner()).address;
+const SIG = "5".repeat(88);
+const DATE = "2026-10-01";
+const tmp = () => mkdtempSync(join(tmpdir(), "rm-"));
+const read = (p: string) => JSON.parse(readFileSync(join(import.meta.dirname, "..", "data", p), "utf8"));
+
+// ---------- targets from the published data ----------
+
+test("targets: settled purchases only, one slot per payTo, cheapest resource first", () => {
+  const sol = [...solanaFromCensus(read("solana/census-2026-09-28.json"), "c"), ...solanaFromGate1(read("solana/gate1-2026-09-29.json"), "g")];
+  assert.equal(sol.length, 96);
+  assert.ok(sol.every((t) => t.solana!.lock.payTo === t.payTo && /^\d+$/.test(t.amountAtomic) && BigInt(t.amountAtomic) <= 100_000n));
+  const s = selectSlots(sol, 1);
+  assert.equal(s.payTos, 94);
+  assert.equal(s.slots.length, 94);
+  assert.equal(new Set(s.slots.map((x) => x.target.payTo)).size, 94);
+
+  const tem = tempoFromLedger(read("tempo/ledger.json"), read("tempo/census-plan-2026-09-28.json"), "t");
+  assert.equal(tem.length, 70);
+  const ts = selectSlots(tem, 1);
+  assert.equal(ts.payTos, 35);
+  // the payTo that fronts 28 services gets one slot, always the same (cheapest, then URL)
+  const locus = tem.filter((t) => t.payTo === "0x060b0fb0be9d90557577b3aee480711067149ff0");
+  assert.equal(locus.length, 28);
+  const chosen = ts.slots.find((x) => x.target.payTo === "0x060b0fb0be9d90557577b3aee480711067149ff0")!.target;
+  assert.equal(BigInt(chosen.amountAtomic), locus.reduce((m, t) => (BigInt(t.amountAtomic) < m ? BigInt(t.amountAtomic) : m), 10n ** 18n));
+  assert.deepEqual(selectSlots(tem, 1).slots.map((x) => x.target.service), ts.slots.map((x) => x.target.service));
+});
+
+test("targets: vet402's own hosts and payers are never selected; slots go round by payTo", () => {
+  const t = (host: string, payTo: string, amount = "1000"): Target => ({
+    chain: "solana", host, service: null, url: `https://${host}/x`, requestUrl: `https://${host}/x`, payTo, amountAtomic: amount, from: "t",
+    solana: { lock: { payTo, amount, asset: USDC_MINT, network: SOLANA_MAINNET, feePayer: FACILITATOR } },
+  });
+  const s = selectSlots([t("vet402.com", P1), t("a.example", PAYER_ADDRESS), t("b.example", P2), t("c.example", P2, "500"), t("d.example", P3)], 3);
+  assert.deepEqual(s.excluded.map((e) => e.reason).sort(), ["own_host", "own_payto"]);
+  assert.equal(s.slots.length, 6);
+  // round 0 covers every payTo before round 1 starts
+  assert.deepEqual(new Set(s.slots.slice(0, 2).map((x) => x.target.payTo)), new Set([P2, P3]));
+  // P2: c (cheaper) then b then c again
+  assert.deepEqual(s.slots.filter((x) => x.target.payTo === P2).map((x) => x.target.host), ["c.example", "b.example", "c.example"]);
+});
+
+// ---------- Solana: fake sellers ----------
+
+function solTarget(host: string, payTo: string, amount = "10000"): Target {
+  return {
+    chain: "solana", host, service: null, url: `https://${host}/x`, requestUrl: `https://${host}/x`, payTo, amountAtomic: amount, from: "test",
+    solana: { lock: { payTo, amount, asset: USDC_MINT, network: SOLANA_MAINNET, feePayer: FACILITATOR } },
+  };
+}
+
+function solWorld(sellers: Record<string, { payTo: string; amount: string }>, clock: { t: number } = { t: 0 }) {
+  const signs: { host: string; at: number }[] = [];
+  const f = (async (url: string, init?: RequestInit) => {
+    const host = new URL(url).host;
+    const s = sellers[host]!;
+    if (new Headers(init?.headers).has("PAYMENT-SIGNATURE")) return new Response('{"ok":1}', { status: 200, headers: { "content-type": "application/json" } });
+    const pr = { x402Version: 2, resource: { url }, accepts: [{ scheme: "exact", network: SOLANA_MAINNET, amount: s.amount, asset: USDC_MINT, payTo: s.payTo, extra: { feePayer: FACILITATOR } }] };
+    return new Response("{}", { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(pr)).toString("base64") } });
+  }) as unknown as typeof fetch;
+  const pay: Omit<PayDeps, "budget"> = {
+    fetch: f,
+    payer: PAYER_ADDRESS,
+    createPayment: async (pr) => {
+      signs.push({ host: new URL((pr as { resource: { url: string } }).resource.url).host, at: clock.t });
+      return { headers: { "PAYMENT-SIGNATURE": "signed" }, txBase64: "AAAA" };
+    },
+    checkTx: async (_tx, a) => ({ ok: true, facts: { feePayer: FACILITATOR, destinationAta: "x", amount: a.amount, memo: "m" } }),
+    readBalances: async () => ({ lamports: 100_000_000n, usdcAtomic: 50_000_000n }),
+    waitForSettlement: async (_s, _m, payTo) => {
+      const amt = Object.values(sellers).find((x) => x.payTo === payTo)!.amount;
+      return { signature: SIG, found: true, confirmed: true, err: null, memo: "m", payToDeltaAtomic: amt, payerDeltaAtomic: `-${amt}`, payerLamportsDelta: "0", feePayer: FACILITATOR };
+    },
+  };
+  return { pay, signs, clock };
+}
+
+function fakeTime() {
+  const clock = { t: Date.parse("2026-10-01T00:00:00Z") };
+  const sleeps: number[] = [];
+  return {
+    clock,
+    sleeps,
+    now: () => new Date(clock.t),
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+      clock.t += ms;
+    },
+    pacer: () => new SellerPacer(5, MEASURE_SPACING_MS, () => clock.t),
+  };
+}
+
+test("solana: one purchase per payTo per run by default; the budget file is written before signing", async () => {
+  const dir = tmp();
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" }, "b.example": { payTo: P1, amount: "20000" }, "c.example": { payTo: P2, amount: "10000" } }, ft.clock);
+  const budget = new RemeasureBudget(join(dir, "budget.json"));
+  let fileAtFirstSign: string | null = null;
+  const pay: Omit<PayDeps, "budget"> = {
+    ...w.pay,
+    createPayment: async (pr, a) => ((fileAtFirstSign ??= readFileSync(join(dir, "budget.json"), "utf8")), w.pay.createPayment(pr, a)),
+  };
+  const sel = selectSlots([solTarget("a.example", P1), solTarget("b.example", P1, "20000"), solTarget("c.example", P2)], 1);
+  const res = await paySolana(sel.slots, pay, { date: DATE, budget, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(res.stopped, null);
+  // P1 has a (0.01) and b (0.02): only a, the cheaper one, is bought
+  assert.deepEqual(res.rows.map((r) => [r.host, r.outcome, r.settled, r.delivered]).sort(), [["a.example", "sent", true, true], ["c.example", "sent", true, true]]);
+  assert.equal(w.signs.length, 2);
+  assert.match(fileAtFirstSign!, new RegExp(`${DATE}\\|`));
+  assert.equal(budget.runSpentAtomic, 20_000n);
+});
+
+test("solana: the same payTo twice in one run waits MEASURE_SPACING_MS between purchases", async () => {
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" } }, ft.clock);
+  const sel = selectSlots([solTarget("a.example", P1)], 3);
+  const res = await paySolana(sel.slots, w.pay, { date: DATE, budget: new RemeasureBudget(null), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(res.rows.length, 3);
+  assert.equal(w.signs.length, 3);
+  for (let i = 1; i < w.signs.length; i++) assert.ok(w.signs[i]!.at - w.signs[i - 1]!.at >= MEASURE_SPACING_MS, `gap ${w.signs[i]!.at - w.signs[i - 1]!.at}`);
+  assert.deepEqual(ft.sleeps, [MEASURE_SPACING_MS, MEASURE_SPACING_MS]);
+});
+
+test("solana: more than MEASURE_MAX_PER_SELLER slots for one payTo are skipped, never signed", async () => {
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "1000" } }, ft.clock);
+  const slots = Array.from({ length: 7 }, (_, i) => ({ target: solTarget("a.example", P1, "1000"), slot: i }));
+  const res = await paySolana(slots, w.pay, { date: DATE, budget: new RemeasureBudget(null), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs.length, 5);
+  assert.deepEqual(res.skipped.map((s) => s.reason), ["per_payto_limit", "per_payto_limit"]);
+});
+
+test("solana: run cap boundary: exactly the cap is bought, one atomic unit more stops before signing", async () => {
+  // 3 USDC run cap: 30 purchases of 0.10 fit exactly; the 31st does not.
+  const sellers: Record<string, { payTo: string; amount: string }> = {};
+  const targets: Target[] = [];
+  for (let i = 0; i < 31; i++) {
+    const payTo = (await generateKeyPairSigner()).address;
+    sellers[`s${i}.example`] = { payTo, amount: "100000" };
+    targets.push(solTarget(`s${i}.example`, payTo, "100000"));
+  }
+  const ft = fakeTime();
+  const w = solWorld(sellers, ft.clock);
+  const budget = new RemeasureBudget(null);
+  const res = await paySolana(selectSlots(targets, 1).slots, w.pay, { date: DATE, budget, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs.length, 30);
+  assert.equal(budget.runSpentAtomic, RM_SOLANA_MAX_PER_RUN_ATOMIC);
+  assert.match(res.stopped!, /^total_cap_reached: run 3000000 \+ 100000 > 3000000/);
+  // the Budget itself (inside payOne) holds the same line
+  const b = new RemeasureBudget(null, 30_000n);
+  assert.ok("ok" in b.reserve(30_000n, "k1"));
+  assert.equal((b.reserve(1n, "k2") as { refused: string }).refused, "total_cap_reached");
+});
+
+test("solana: month cap boundary, persisted: what is left is bought, then the run stops before signing; a second run the same day cannot rebuy", async () => {
+  const dir = tmp();
+  const file = join(dir, "budget-solana-2026-10.json");
+  // 29.99 USDC already spent this month
+  writeFileSync(file, JSON.stringify({ baselineAtomic: null, spentAtomic: (RM_SOLANA_MAX_PER_MONTH_ATOMIC - 10_000n).toString(), purchases: [] }));
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" }, "b.example": { payTo: P2, amount: "10000" } }, ft.clock);
+  const slots = selectSlots([solTarget("a.example", P1), solTarget("b.example", P2)], 1).slots;
+  const res = await paySolana(slots, w.pay, { date: DATE, budget: new RemeasureBudget(file), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs.length, 1);
+  assert.match(res.stopped!, /^total_cap_reached: month 30000000 \+ 10000 > 30000000/);
+  assert.equal(new RemeasureBudget(file).spent, RM_SOLANA_MAX_PER_MONTH_ATOMIC);
+
+  // same day, fresh month budget with room: the key <date>|<payTo>|<slot> is already in the file
+  const dir2 = tmp();
+  const f2 = join(dir2, "budget.json");
+  const w2 = solWorld({ "a.example": { payTo: P1, amount: "10000" } }, ft.clock);
+  const one = selectSlots([solTarget("a.example", P1)], 1).slots;
+  await paySolana(one, w2.pay, { date: DATE, budget: new RemeasureBudget(f2), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  const again = await paySolana(one, w2.pay, { date: DATE, budget: new RemeasureBudget(f2), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w2.signs.length, 1);
+  assert.equal(again.rows[0]!.reason, "already_bought");
+  assert.equal(again.rows[0]!.outcome, "refused");
+  // the next day it may be bought again
+  await paySolana(one, w2.pay, { date: "2026-10-02", budget: new RemeasureBudget(f2), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w2.signs.length, 2);
+  assert.deepEqual(JSON.parse(readFileSync(f2, "utf8")).purchases.map((p: { key: string }) => p.key), [budgetKey(DATE, P1, 0), budgetKey("2026-10-02", P1, 0)]);
+});
+
+test("solana: a live 402 naming another payTo is not paid and is recorded as pay_to_changed", async () => {
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: OTHER_SOL, amount: "10000" } }, ft.clock);
+  const budget = new RemeasureBudget(null);
+  const res = await paySolana(selectSlots([solTarget("a.example", P1)], 1).slots, w.pay, { date: DATE, budget, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs.length, 0);
+  assert.equal(budget.spent, 0n);
+  const r = res.rows[0]!;
+  assert.deepEqual([r.outcome, r.reason, r.payTo, r.expectedPayTo], ["refused", "pay_to_changed", OTHER_SOL, P1]);
+  const a = normalizeRemeasure(fileOf("solana", [r]), "remeasure/solana-2026-10-01")[0]!;
+  assert.deepEqual([a.category, a.tried, a.payTo, a.expectedPayTo], ["payto_changed", false, OTHER_SOL, P1]);
+  // dry run says the same without anything built
+  const d = await dryRunSolana(selectSlots([solTarget("a.example", P1)], 1).slots, w.pay.fetch, { date: DATE, budget: new RemeasureBudget(null) });
+  assert.equal(d.rows[0]!.reason, "pay_to_changed");
+  assert.equal(w.signs.length, 0);
+});
+
+test("solana dry run: would_pay within the caps, over-cap slots listed, nothing signed or written", async () => {
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" }, "b.example": { payTo: P2, amount: "10000" } });
+  const res = await dryRunSolana(selectSlots([solTarget("a.example", P1), solTarget("b.example", P2)], 1).slots, w.pay.fetch, {
+    date: DATE,
+    budget: new RemeasureBudget(null, RM_SOLANA_MAX_PER_RUN_ATOMIC, 10_000n),
+  });
+  assert.deepEqual(res.rows.map((r) => r.outcome), ["would_pay"]);
+  assert.equal(res.skipped.length, 1);
+  assert.equal(res.stopped, null);
+  assert.equal(w.signs.length, 0);
+});
+
+// ---------- Tempo: fake seller and signer ----------
+
+const throwaway = privateKeyToAccount(generatePrivateKey());
+const SELLER = "0x060b0fB0Be9d90557577B3AEE480711067149Ff0";
+const OTHER = "0x1111111111111111111111111111111111111111";
+
+function b64url(o: unknown): string {
+  return Buffer.from(JSON.stringify(o)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+const challenge = (recipient: string, amount: string) =>
+  `Payment id="abc", realm="svc.example", method="tempo", intent="charge", request="${b64url({ amount, currency: USDC_E, recipient, methodDetails: { chainId: TEMPO_MAINNET_CHAIN_ID } })}", expires="2099-01-01T00:00:00Z"`;
+
+async function signedTransfer(to: string, amount: bigint): Promise<string> {
+  const data = encodeFunctionData({ abi: Abis.tip20, functionName: "transfer", args: [to as Hex, amount] });
+  const tx = { type: "tempo" as const, chainId: 4217, calls: [{ to: USDC_E as Hex, data }], nonce: 0, gas: 100_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n, nonceKey: 2n ** 256n - 1n, validBefore: 1_790_000_000 };
+  return throwaway.signTransaction(tx as never, { serializer: Transaction.serialize as never });
+}
+
+function tempoTarget(service: string, amount = "6000", recipient = SELLER): Target {
+  const payTo = recipient.toLowerCase();
+  return {
+    chain: "tempo", host: "svc.example", service, url: `https://svc.example/${service}`, requestUrl: `https://svc.example/${service}`, payTo, amountAtomic: amount, from: "test",
+    tempo: {
+      plan: { serviceId: service, request: { url: `https://svc.example/${service}`, method: "GET", body: null, contentType: null, inputSource: "none" }, lockedRecipient: payTo, lockedAmount: amount, sponsored: false, allowlist: [] },
+      feeReserveAtomic: FEE_RESERVE_ATOMIC.toString(),
+    },
+  };
+}
+
+function tempoWorld(live: { recipient: string; amount: string }) {
+  let signs = 0;
+  const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
+    if (new Headers(init?.headers).get("authorization")) return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+    return new Response("{}", { status: 402, headers: { "www-authenticate": challenge(live.recipient, live.amount) } });
+  };
+  const signer: Signer = {
+    address: throwaway.address,
+    async credentialFor(_res, _id, recipient) {
+      signs++;
+      return { credential: "Payment eyJ4IjoxfQ", serializedTx: await signedTransfer(recipient, BigInt(live.amount)) };
+    },
+  };
+  const pay: Omit<TempoPayDeps, "ledger"> = {
+    fetchImpl,
+    signer,
+    payer: throwaway.address,
+    balance: async () => 10_000_000n,
+    chainSpent: async () => 0n,
+    verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
+  };
+  return { pay, fetchImpl, signs: () => signs };
+}
+
+test("tempo: pays through payOne, one per payTo, and records the paid amount", async () => {
+  const ft = fakeTime();
+  const w = tempoWorld({ recipient: SELLER, amount: "6000" });
+  const ledger = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  const res = await payTempo(selectSlots([tempoTarget("a"), tempoTarget("b")], 1).slots, w.pay, { ledger, monthElsewhere: 0n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs(), 1);
+  assert.equal(res.rows.length, 1);
+  const r = res.rows[0]!;
+  assert.deepEqual([r.outcome, r.settled, r.delivered, r.priceUsdc, r.service, r.bodyBytes], ["sent", true, true, "0.006000", "a", 11]);
+  assert.equal(normalizeRemeasure(fileOf("tempo", [r]), "x")[0]!.category, "delivered");
+});
+
+test("tempo: a changed recipient is refused before signing and recorded as pay_to_changed", async () => {
+  const ft = fakeTime();
+  const w = tempoWorld({ recipient: OTHER, amount: "6000" });
+  const ledger = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  const res = await payTempo(selectSlots([tempoTarget("a")], 1).slots, w.pay, { ledger, monthElsewhere: 0n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(w.signs(), 0);
+  assert.equal(ledger.committed(), 0n);
+  const r = res.rows[0]!;
+  assert.deepEqual([r.outcome, r.reason, r.payTo, r.expectedPayTo], ["refused", "pay_to_changed", OTHER.toLowerCase(), SELLER.toLowerCase()]);
+  const d = await dryRunTempo(selectSlots([tempoTarget("a")], 1).slots, w.fetchImpl, { monthElsewhere: 0n, monthCommittedToday: 0n });
+  assert.deepEqual([d.rows[0]!.reason, d.rows[0]!.payTo], ["pay_to_changed", OTHER.toLowerCase()]);
+});
+
+test("tempo: run (day ledger) cap and month cap stop before signing, at the boundary", async () => {
+  // run cap: 1 USDC.e incl. 0.002 fee reserve each. 98,000 + 2,000 = 100,000 per purchase -> 10 fit, the 11th does not.
+  const ft = fakeTime();
+  const targets = Array.from({ length: 11 }, (_, i) => tempoTarget(`s${i}`, "98000", `0x${(i + 1).toString(16).padStart(40, "a")}`));
+  let signs = 0;
+  const pay = (recipientOf: (url: string) => string): Omit<TempoPayDeps, "ledger"> => ({
+    fetchImpl: async (url, init) =>
+      new Headers(init?.headers).get("authorization")
+        ? new Response("{}", { status: 200 })
+        : new Response("{}", { status: 402, headers: { "www-authenticate": challenge(recipientOf(url), "98000") } }),
+    signer: { address: throwaway.address, credentialFor: async (_r, _i, to) => (signs++, { credential: "Payment eyJ4IjoxfQ", serializedTx: await signedTransfer(to, 98_000n) }) },
+    payer: throwaway.address,
+    balance: async () => 10_000_000n,
+    chainSpent: async () => 0n,
+    verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
+  });
+  const recipientOf = (url: string) => targets.find((t) => t.requestUrl === url)!.payTo;
+  const ledger = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  const res = await payTempo(selectSlots(targets, 1).slots, pay(recipientOf), { ledger, monthElsewhere: 0n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(signs, 10);
+  assert.equal(ledger.committed(), RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  assert.match(res.stopped!, /^total_cap_reached: run\/day 1000000 \+ 100000 > 1000000/);
+
+  // month cap: other day ledgers of the month hold 29.9 USDC.e committed -> exactly one 0.1 fits
+  signs = 0;
+  const l2 = new Ledger(join(tmp(), "l.json"), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
+  const r2 = await payTempo(selectSlots(targets.slice(0, 2), 1).slots, pay(recipientOf), { ledger: l2, monthElsewhere: 29_900_000n, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(signs, 1);
+  assert.match(r2.stopped!, /^month_cap_reached: 30000000 \+ 100000 > 30000000/);
+});
+
+test("tempo: month total is summed over the month's day ledgers; the start block is written once", async () => {
+  const dir = tmp();
+  for (const [d, amt] of [["2026-10-01", 50_000n], ["2026-10-02", 70_000n], ["2026-09-30", 999_000n]] as const) {
+    const l = new Ledger(dayLedgerPath(dir, d), "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51", RM_TEMPO_MAX_PER_RUN_ATOMIC);
+    l.reserve({ key: "k", url: "u", recipient: SELLER, amount: amt, sponsored: true });
+  }
+  assert.equal(monthCommittedElsewhere(dir, "2026-10", "2026-10-02"), 50_000n);
+  assert.equal(monthCommittedElsewhere(dir, "2026-10", "2026-10-03"), 120_000n);
+  const f = join(dir, "tempo-start-2026-10-03.json");
+  assert.equal(await ensureStartBlock(f, async () => 123n), 123n);
+  assert.equal(await ensureStartBlock(f, async () => 999n), 123n);
+  assert.ok(existsSync(f));
+});
+
+// ---------- rank reads remeasure files as more days ----------
+
+function fileOf(chain: "solana" | "tempo", rows: RemeasureRow[], date = DATE): ResultFile {
+  return { kind: "vet402-remeasure", version: 1, chain, date, payer: "p", note: "n", runs: [], rows };
+}
+
+function earlier(host: string, i: number): Attempt {
+  return {
+    chain: "solana", source: "solana/census-2026-09-28", host, service: null, url: `https://${host}/x`, payTo: P1, expectedPayTo: null,
+    at: `2026-09-28T0${i % 10}:00:00.000Z`, tried: true, settled: true, delivered: true, category: "delivered", rawReason: "delivered",
+    detail: null, tx: SIG, priceUsdc: "0.010000", httpStatus: 200, declaredMatch: null, bodyChecked: true, feedbackTx: null,
+  };
+}
+
+function remeasureRow(host: string, over: Partial<RemeasureRow> = {}): RemeasureRow {
+  return {
+    at: "2026-09-30T10:00:00.000Z", chain: "solana", host, service: null, url: `https://${host}/x`, requestUrl: `https://${host}/x`,
+    payTo: P1, expectedPayTo: P1, outcome: "sent", reason: "sent", detail: "{}", settled: true, delivered: true, httpStatus: 200,
+    bodyBytes: null, tx: SIG, priceUsdc: "0.010000", slot: 0, ...over,
+  };
+}
+
+test("rank: a remeasure file on a second day turns measuring sellers into ranked ones", () => {
+  // two sellers with 10 counted purchases, all on 2026-09-28: enough purchases, one day -> measuring
+  const day1 = [...Array.from({ length: 10 }, (_, i) => earlier("a.example", i)), ...Array.from({ length: 10 }, (_, i) => earlier("b.example", i))];
+  const before = rank(aggregate(day1));
+  assert.equal(before.filter((s) => s.rank !== null).length, 0);
+  // one remeasure purchase each on 2026-09-30 (a seller-side failure for b still counts, and still makes a day)
+  const day2 = normalizeRemeasure(
+    fileOf("solana", [remeasureRow("a.example"), remeasureRow("b.example", { delivered: false, httpStatus: 500, detail: "boom" })], "2026-09-30"),
+    "remeasure/solana-2026-09-30",
+  );
+  const after = rank(aggregate([...day1, ...day2]));
+  const ranked = after.filter((s) => s.rank !== null);
+  assert.equal(ranked.length, 2);
+  assert.deepEqual(after.find((s) => s.key === "a.example")!.days, ["2026-09-28", "2026-09-30"]);
+  assert.equal(after.find((s) => s.key === "b.example")!.counted, 11);
+  // a remeasure row the rank cannot count (payTo changed) adds no day
+  const changed = normalizeRemeasure(fileOf("solana", [remeasureRow("a.example", { outcome: "refused", reason: "pay_to_changed", payTo: OTHER_SOL, settled: null, delivered: null, tx: null })]), "x");
+  assert.equal(rank(aggregate([...day1, ...changed])).filter((s) => s.rank !== null).length, 0);
+});
+
+test("rank: Tempo remeasure rows join the host#service seller and use the body length", () => {
+  const rows = normalizeRemeasure(
+    fileOf("tempo", [
+      remeasureRow("svc.example", { chain: "tempo", service: "a", bodyBytes: 0 }),
+      remeasureRow("svc.example", { chain: "tempo", service: "b", bodyBytes: null }),
+      remeasureRow("svc.example", { chain: "tempo", service: "c", outcome: "unknown", reason: "unknown", settled: null, delivered: null, detail: "The operation was aborted due to timeout" }),
+    ]),
+    "remeasure/tempo-2026-10-01",
+  );
+  assert.deepEqual(rows.map((r) => [r.category, r.bodyChecked]), [["settled_empty_body", true], ["delivered", false], ["unconfirmed_server_error", true]]);
+  const keys = aggregate(rows).map((s) => s.key).sort();
+  assert.deepEqual(keys, ["svc.example#a", "svc.example#b", "svc.example#c"]);
+});
+
+test("rank input: unknown refusal words and dry-run rows are refused loudly", () => {
+  assert.throws(() => normalizeRemeasure(fileOf("solana", [remeasureRow("a.example", { outcome: "refused", reason: "made_up" })]), "x"), /unknown remeasure refusal/);
+  assert.throws(() => normalizeRemeasure(fileOf("solana", [remeasureRow("a.example", { outcome: "would_pay", reason: "would_pay" })]), "x"), /does not belong/);
+  assert.throws(() => normalizeRemeasure({ kind: "other" }, "x"), /expected a vet402-remeasure/);
+});
+
+test("rank input: only <chain>-YYYY-MM-DD.json up to the report date, oldest first", () => {
+  const dir = tmp();
+  for (const n of ["solana-2026-09-30.json", "tempo-2026-09-30.json", "solana-2026-10-01.json", "solana-2026-10-02.json", "solana-2026-10-01.dry-run.json", "tempo-ledger-2026-10-01.json", "budget-solana-2026-10.json"]) {
+    writeFileSync(join(dir, n), "{}");
+  }
+  assert.deepEqual(resultFilesUpTo(dir, "2026-10-01").map((f) => f.name), ["solana-2026-09-30.json", "tempo-2026-09-30.json", "solana-2026-10-01.json"]);
+  assert.deepEqual(resultFilesUpTo(join(dir, "missing"), "2026-10-01"), []);
+});

@@ -16,6 +16,7 @@ This repository is the multi-chain part of vet402: it buys sellers on **Solana, 
 | Public ranking site | Static pages (list, one page per seller, method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |
 | First-buyer mode | Buys once, for life, from each Solana seller (payTo) that no one has paid yet, and publishes whether it settled and delivered, or why it cannot be paid | `scripts/first-buyer.ts`, `src/first-buyer/` |
 | Delivery records | One signed record per purchase (x402-observation/v0): what vet402 paid, on which chain, and what came back, with a Merkle proof into a daily root that is written into a Solana memo | `src/receipt/`, `scripts/build-receipts.ts`, `scripts/publish-records.ts`, `scripts/anchor-receipts.ts`, `data/records/`, `site/records/` |
+| Remeasure | Buys again, once a day, from Solana and Tempo sellers vet402 already paid (payment settled), so the ranking gets purchases on more than one day | `scripts/remeasure.ts`, `src/remeasure/` |
 
 ## Money safety
 
@@ -92,6 +93,21 @@ npm run receipts:anchor -- --day 2026-09-28 --resume --send   # only if the line
 - Failed on chain, or expired with no memo for the day on chain: the file is moved to `anchor-sent.failed-*` or `anchor-sent.expired-*`, and `--resume --send` (or `--send`) writes the root afresh.
 - A memo for the day with a different root is on chain: nothing is changed. Stop and look before anything else.
 - A matching memo is on chain but `anchor-sent.json` is missing: `--resume` records it.
+
+## Remeasure (Solana, Tempo)
+
+The ranking gives a rank number only after 10 counted purchases on 2 or more UTC days. Remeasure buys again from sellers vet402 already paid, once a day, so each seller's record grows day by day. It never buys from a new seller.
+
+- Who: the settled purchases in `data/` (Solana census and gate1 results, the Tempo ledger). The payTo and price are locked to that earlier payment. A live 402 that names another payTo is not paid and is recorded as `pay_to_changed`; a higher price is not paid either.
+- How many: one purchase per payTo per run (`--per-payto` up to 5), at least 60 s apart for the same payTo. A payTo with several resources gets them in a fixed order, cheapest first, so the same resource adds up.
+- Caps: 0.10 per purchase; 3 USDC (Solana) or 1 USDC.e (Tempo) per run; 30 per month on each chain. The same payTo is bought at most once per slot per UTC day, however many runs that day.
+- Money moves only through the existing payment functions (`src/pay.ts`, `src/tempo/pay.ts`), which write the ledger before anything is signed.
+- Results: `results/remeasure/<chain>-YYYY-MM-DD.json`, read by `npm run rank` as purchases on that day. Ledgers: `budget-solana-YYYY-MM.json`, `tempo-ledger-YYYY-MM-DD.json` and `tempo-start-YYYY-MM-DD.json` in the same folder; keep them where `--pay` runs.
+
+```bash
+npm run remeasure -- --chain solana               # dry run (the default): targets and estimate; pays nothing
+npm run remeasure -- --chain tempo --dry-run
+```
 
 ## Scope and prior work
 

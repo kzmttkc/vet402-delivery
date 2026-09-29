@@ -30,6 +30,8 @@ import {
 } from "../src/rank/normalize.js";
 import { buildReport, type InputRecord } from "../src/rank/report.js";
 import type { Attempt } from "../src/rank/types.js";
+import { normalizeRemeasure } from "../src/remeasure/normalize.js";
+import { resultFilesUpTo } from "../src/remeasure/results.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const HOME = process.env.HOME ?? "";
@@ -48,6 +50,8 @@ const INPUTS = {
   basePurchases: join(HOME, "vet402-solana-base/results/base-purchases.jsonl"),
   baseFeedback: join(HOME, "vet402-solana-base/results/base-feedback-ledger.json"),
   cdp: "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
+  /** scripts/remeasure.ts output: <chain>-YYYY-MM-DD.json, one per chain and UTC day. */
+  remeasureDir: join(ROOT, "results", "remeasure"),
 };
 
 const args = process.argv.slice(2);
@@ -160,6 +164,15 @@ async function main(): Promise<void> {
 
   const feedback = JSON.parse(readLocal("base/feedback-ledger", INPUTS.baseFeedback));
   attempts.push(...normalizeBase(readLocal("base/purchases", INPUTS.basePurchases), feedback, "base/purchases"));
+
+  // Remeasure files dated on or before --date: results/remeasure/, or the data/ labels remeasure/<chain>-YYYY-MM-DD.
+  const remeasure = dataDir
+    ? manifest!.files.map((f) => f.label).filter((l) => /^remeasure\/(solana|tempo)-\d{4}-\d{2}-\d{2}$/.test(l) && l.slice(-10) <= date).sort()
+    : resultFilesUpTo(INPUTS.remeasureDir, date).map((f) => `remeasure/${f.name.replace(/\.json$/, "")}`);
+  for (const label of remeasure) {
+    const path = join(INPUTS.remeasureDir, `${label.slice("remeasure/".length)}.json`);
+    attempts.push(...normalizeRemeasure(JSON.parse(readLocal(label, path)), label));
+  }
 
   const cdp = cdpByHost(await fetchCdpItems());
   const mercator = mercatorBestRanks(plan, "tempo/plan");
