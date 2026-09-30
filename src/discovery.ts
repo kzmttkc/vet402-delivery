@@ -4,6 +4,8 @@
  */
 import { MAX_PER_PURCHASE_ATOMIC, OWN_HOSTS, SOLANA_MAINNET, USDC_MINT } from "./constants.js";
 import { normalizeAccept, type SolAccept } from "./guard.js";
+import { fillParams, isPlaceholder } from "./inputs/fill.js";
+import { fromBazaar } from "./inputs/spec.js";
 
 export interface Listing {
   resource: string;
@@ -82,7 +84,7 @@ export interface BuiltGet {
 }
 
 /** The GET request vet402 would send, from the seller's own example. */
-export function buildGet(l: Listing): BuiltGet | { ok: false; reason: string } {
+export function buildGet(l: Listing, today: string = new Date().toISOString().slice(0, 10)): BuiltGet | { ok: false; reason: string } {
   const inp = declaredInput(l) ?? {};
   const method = String(inp.method ?? l.method ?? "GET").toUpperCase();
   if (method !== "GET") return { ok: false, reason: "not_get" };
@@ -135,8 +137,36 @@ export function buildGet(l: Listing): BuiltGet | { ok: false; reason: string } {
     }
   }
   const hasExample = Object.keys(example).length > 0;
+  // A placeholder the regex above lets through ("example", "string") or a parameter without a usable example:
+  // fill it from the listing's schema and src/inputs/values.ts. If that is not possible the listing stays at score 0
+  // (nothing is sent), as before.
+  if (unusable > 0 || Object.values(example).some((v) => isPlaceholder(v))) {
+    const filled = fillFromListing(l, q, today);
+    if (filled) return { ok: true, url: filled.url, exampleScore: 2, exampleInput: filled.input };
+  }
   const exampleScore: 0 | 1 | 2 = unusable > 0 ? 0 : hasExample ? 2 : 1;
   return { ok: true, url: u.toString(), exampleScore, exampleInput: hasExample ? example : null };
+}
+
+/** The listing's query with its placeholders and missing required parameters filled; null when one cannot be. */
+function fillFromListing(l: Listing, q: Record<string, unknown> | undefined, today: string): { url: string; input: Record<string, string> } | null {
+  const sent: Record<string, unknown> = {};
+  for (const [k, raw] of Object.entries(q ?? {})) {
+    const s = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+    const v = s ? (s.example ?? s.default ?? null) : raw;
+    sent[k] = typeof v === "string" && PLACEHOLDER_RE.test(v) ? null : v;
+  }
+  const spec = fromBazaar(l as unknown as Record<string, unknown>, "listing");
+  const r = fillParams(sent, spec ? { ...spec, params: spec.params.filter((p) => p.in === "query") } : null, today, new URL(l.resource).pathname);
+  if (!r.ok) return null;
+  const u = new URL(l.resource);
+  const input: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r.params)) {
+    if (v === null || v === undefined || typeof v === "object") return null;
+    input[k] = String(v);
+    u.searchParams.set(k, String(v));
+  }
+  return Object.keys(input).length > 0 ? { url: u.toString(), input } : null;
 }
 
 export interface CatalogCandidate {

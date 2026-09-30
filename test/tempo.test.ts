@@ -286,8 +286,12 @@ test("chooseEndpoint prefers a usable input over a cheaper blind POST, and falls
   assert.equal(chooseEndpoint(dynamicOnly)?.ep.path, "/search");
   const noInput = svc([{ method: "POST", path: "/v1/messages", paymentOffers: [offer("5")] }]);
   assert.equal(chooseEndpoint(noInput)?.usableInput, false);
-  const getNeedsArgs = svc([{ method: "GET", path: "/w", inputSchema: { required: ["city"] }, paymentOffers: [offer("5")] }]);
-  assert.equal(chooseEndpoint(getNeedsArgs)?.usableInput, false);
+  // A required argument without an example: filled when vet402 can make a real value (src/inputs/values.ts) ...
+  const getNeedsCity = chooseEndpoint(svc([{ method: "GET", path: "/w", inputSchema: { required: ["city"] }, paymentOffers: [offer("5")] }]), "2026-10-01")!;
+  assert.deepEqual([getNeedsCity.usableInput, getNeedsCity.req.url, getNeedsCity.req.inputSource], [true, "https://svc.example/api/w?city=San+Francisco", "vet402_filled"]);
+  // ... and not usable when it cannot (the id of a job only an earlier call could have made).
+  const getNeedsJob = svc([{ method: "GET", path: "/w", inputSchema: { required: ["jobId"] }, paymentOffers: [offer("5")] }]);
+  assert.equal(chooseEndpoint(getNeedsJob)?.usableInput, false);
 });
 
 // ---------- vouch Tempo L1 breakdown ----------

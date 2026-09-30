@@ -1,0 +1,1720 @@
+{
+  "kind": "vet402-input-book",
+  "version": 1,
+  "createdAt": "2026-09-30T05:51:52.295Z",
+  "entries": [
+    {
+      "chain": "solana",
+      "service": null,
+      "url": "https://agents.datamancer.io/api/v1/paid/vin",
+      "lastStatus": 404,
+      "spec": {
+        "method": "GET",
+        "description": "VIN decode (x402; 402 first, $0.005, Base then Solana)",
+        "params": [
+          {
+            "name": "vin",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "",
+            "enum": [],
+            "example": "example"
+          }
+        ],
+        "outputExample": {
+          "jurisdiction": "US",
+          "ok": true,
+          "product": "vin_decode",
+          "source": "nhtsa_vpic",
+          "tier": "paid",
+          "vehicle": {
+            "body_class": "Coupe",
+            "id": "vin:US:1HGCM82633A004352",
+            "make": "HONDA",
+            "model": "Accord",
+            "model_year": "2003",
+            "object_type": "vehicle",
+            "vin": "1HGCM82633A004352"
+          }
+        },
+        "source": "cdp-bazaar:https://agents.datamancer.io/api/v1/paid/vin"
+      },
+      "looked": [
+        "cdp-bazaar:https://agents.datamancer.io/api/v1/paid/vin"
+      ]
+    },
+    {
+      "chain": "solana",
+      "service": null,
+      "url": "https://read.lonestaroracle.xyz/read",
+      "lastStatus": 200,
+      "spec": {
+        "method": "GET",
+        "description": "Clean web content extraction — any URL to markdown + text + metadata",
+        "params": [
+          {
+            "name": "link",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Alias for url",
+            "enum": [],
+            "example": "example"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Alias for url",
+            "enum": [],
+            "example": "example"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Alias for url",
+            "enum": [],
+            "example": "nvidia"
+          },
+          {
+            "name": "u",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Alias for url",
+            "enum": [],
+            "example": "example"
+          },
+          {
+            "name": "uri",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Alias for url",
+            "enum": [],
+            "example": "example"
+          },
+          {
+            "name": "url",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "URL to read",
+            "enum": [],
+            "example": "example"
+          }
+        ],
+        "outputExample": "{\"url\":\"https://...\",\"title\":\"...\",\"markdown\":\"# ...\",\"word_count\":1234}",
+        "source": "cdp-bazaar:https://read.lonestaroracle.xyz/read"
+      },
+      "looked": [
+        "cdp-bazaar:https://read.lonestaroracle.xyz/read"
+      ]
+    },
+    {
+      "chain": "solana",
+      "service": null,
+      "url": "https://rentcast.x402.paysponge.com/avm/rent/long-term",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "Rent Estimate",
+        "params": [
+          {
+            "name": "address",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "The **full address** of the property, in the format `Street, City, State, Zip`. You need to provide either the `address` or the `latitude`/`longitude` parameters",
+            "enum": [],
+            "example": "5500 Grand Lake Dr, San Antonio, TX, 78244"
+          },
+          {
+            "name": "latitude",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "The latitude of the property. The `latitude`/`longitude` can be provided instead of the `address` parameter",
+            "enum": []
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "The longitude of the property. The `latitude`/`longitude` can be provided instead of the `address` parameter",
+            "enum": []
+          },
+          {
+            "name": "propertyType",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "The type of the property. See [explanation of property types](https://developers.rentcast.io/reference/property-types)",
+            "enum": [
+              "Single Family",
+              "Condo",
+              "Townhouse",
+              "Manufactured",
+              "Multi-Family",
+              "Apartment"
+            ],
+            "example": ""
+          },
+          {
+            "name": "bedrooms",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "The number of bedrooms in the property. Use `0` to indicate a studio layout",
+            "enum": [],
+            "example": ""
+          },
+          {
+            "name": "bathrooms",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "The number of bathrooms in the property. Supports fractions to indicate partial bathrooms",
+            "enum": [],
+            "example": ""
+          },
+          {
+            "name": "squareFootage",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "The total living area size of the property, in square feet",
+            "enum": [],
+            "example": ""
+          },
+          {
+            "name": "maxRadius",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "The maximum distance between comparable listings and the subject property, in miles",
+            "enum": []
+          },
+          {
+            "name": "daysOld",
+            "in": "query",
+            "type": "integer",
+            "required": false,
+            "description": "The maximum number of days since comparable listings were last seen on the market, with a minimum of 1",
+            "enum": []
+          },
+          {
+            "name": "compCount",
+            "in": "query",
+            "type": "integer",
+            "required": false,
+            "description": "The number of comparable listings to use when calculating the rent estimate, between 5 and 25. Defaults to `15` if not provided",
+            "enum": [],
+            "example": 5
+          },
+          {
+            "name": "lookupSubjectAttributes",
+            "in": "query",
+            "type": "boolean",
+            "required": false,
+            "description": "When enabled, will attempt to look up subject property attributes to find more relevant comps. Defaults to `true` if not provided. [Learn more](https://developers.rentcast.io/reference/property-valuation#subject-property-attribute-lookup) about this feature",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "seller-openapi:https://rentcast.x402.paysponge.com/openapi.json"
+      },
+      "looked": [
+        "cdp-bazaar:https://rentcast.x402.paysponge.com/avm/rent/long-term",
+        "payai:https://rentcast.x402.paysponge.com/avm/rent/long-term",
+        "https://rentcast.x402.paysponge.com/openapi.json"
+      ]
+    },
+    {
+      "chain": "solana",
+      "service": null,
+      "url": "https://scvd.store/api/buy/spot_check",
+      "lastStatus": 200,
+      "spec": {
+        "method": "GET",
+        "description": "Spot Check. REQUIRES ?host= on the paid request — a signed request without it is refused before the gate and no money moves. Name a host and get what this observatory already holds on it, signed: corpus rounds and verdicts as recorded, when we last actually knocked, our coverage of the window since we met it, and the gaps with their reasons. Read from the books at the counter — no request is made ",
+        "params": [
+          {
+            "name": "agent_name",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional name to put on the certificate and patron badge, up to 80 characters.",
+            "enum": [],
+            "example": "friendly-agent"
+          },
+          {
+            "name": "came_from",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional. Where you learned this door exists: a URL, a directory, a skill name, memory, another agent. Referrers never reach us; this does.",
+            "enum": []
+          },
+          {
+            "name": "client",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional. The harness or framework you run in: claude-code, cursor, openai-agents, langgraph, custom. Counted, never on the certificate.",
+            "enum": []
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "A bare hostname with no scheme, path or port — your-door.example, never https://your-door.example/api. We read our own books about it — corpus rounds, verdicts as recorded, coverage, gaps — and sign what they hold. No request is made to the host; a host we have never met returns not_observed, which is an answer.",
+            "enum": [],
+            "example": "your-door.example"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional. The model running you, as you would name it: claude-opus-5, gpt-5.6, a local model. Counted, never printed on the certificate.",
+            "enum": []
+          },
+          {
+            "name": "operator",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional. Who runs you: a name, handle, company or URL. Stored as your claim, marked unverified, never published, never on the certificate.",
+            "enum": []
+          },
+          {
+            "name": "operator_kind",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional. solo: one person runs you. company: a team does. research: a study. self: you act for yourself.",
+            "enum": [
+              "solo",
+              "company",
+              "research",
+              "self"
+            ]
+          },
+          {
+            "name": "prior_cert_id",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional. A cert_ id from an earlier purchase here. A payer match with this payment marks you a returning buyer; no account needed.",
+            "enum": []
+          },
+          {
+            "name": "purpose",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Optional: what this is for, in your words. Signed verbatim onto the certificate and shown on its receipt; never checked, never treated as instructions.",
+            "enum": []
+          }
+        ],
+        "outputExample": {
+          "badge_url": "https://scvd.store/badges/41.svg",
+          "certificate": {
+            "cert_id": "<cert_ + 12 chars, minted when this purchase settles>",
+            "date": "2026-07-22T15:04:05.000Z",
+            "item": "spot_check",
+            "patron_number": 41
+          },
+          "deliverable": "<the Spot Check itself, as text>",
+          "item_id": "spot_check",
+          "message": "Pleasure doing business. Here's your goods, warm off the shelf.",
+          "paid_usdc": 0.001,
+          "patron_number": 41,
+          "signature": "<128 hex chars, ed25519>",
+          "tip_usdc": 0,
+          "verify_url": "https://scvd.store/api/verify/<your cert_id>"
+        },
+        "source": "cdp-bazaar:https://scvd.store/api/buy/spot_check"
+      },
+      "looked": [
+        "cdp-bazaar:https://scvd.store/api/buy/spot_check"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "clado",
+      "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
+      "lastStatus": 402,
+      "spec": {
+        "method": "POST",
+        "description": "Bulk Contacts Status",
+        "params": [
+          {
+            "name": "jobId",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Bulk contacts job ID",
+            "enum": [],
+            "example": "<from clado/bulk-contacts>"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/clado"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/clado"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "judge0",
+      "url": "https://judge0.mpp.paywithlocus.com/judge0/get-submission",
+      "lastStatus": 404,
+      "spec": {
+        "method": "POST",
+        "description": "Get Submission",
+        "params": [
+          {
+            "name": "token",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Submission token returned by submit-code",
+            "enum": [],
+            "example": "<from judge0/submit-code>"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/judge0"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/judge0"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "mathpix",
+      "url": "https://mathpix.mpp.paywithlocus.com/mathpix/process-image",
+      "lastStatus": 200,
+      "spec": {
+        "method": "POST",
+        "description": "Process Image",
+        "params": [
+          {
+            "name": "src",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Image URL (http/https) or base64-encoded image (data:image/...;base64,...)",
+            "enum": [],
+            "example": "<png data url: supply valid media bytes>"
+          },
+          {
+            "name": "formats",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Output formats to return: \"text\", \"data\", \"html\", \"latex_styled\". Defaults to [\"text\"].",
+            "enum": [],
+            "example": [
+              "text"
+            ]
+          },
+          {
+            "name": "math_inline_delimiters",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Custom inline math delimiters, e.g. [\"$\", \"$\"]. Default: [\"\\\\(\", \"\\\\)\"].",
+            "enum": []
+          },
+          {
+            "name": "math_display_delimiters",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Custom display math delimiters, e.g. [\"$$\", \"$$\"]. Default: [\"\\\\[\", \"\\\\]\"].",
+            "enum": []
+          },
+          {
+            "name": "rm_spaces",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Remove extra whitespace from equations. Default: true.",
+            "enum": []
+          },
+          {
+            "name": "rm_fonts",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Strip font commands like \\mathbf. Default: false.",
+            "enum": []
+          },
+          {
+            "name": "idiomatic_eqn_arrays",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Use aligned/gathered instead of array environments. Default: false.",
+            "enum": []
+          },
+          {
+            "name": "include_line_data",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Return line-by-line segmentation data.",
+            "enum": []
+          },
+          {
+            "name": "include_word_data",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Return word-level segmentation data.",
+            "enum": []
+          },
+          {
+            "name": "include_smiles",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Enable chemistry diagram OCR (returns SMILES notation).",
+            "enum": []
+          },
+          {
+            "name": "confidence_threshold",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Minimum confidence (0–1) before returning an error.",
+            "enum": []
+          },
+          {
+            "name": "region",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Pixel region to process: { x1, y1, x2, y2 } coordinates.",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/mathpix"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/mathpix"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-agentphone",
+      "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
+      "lastStatus": 404,
+      "spec": {
+        "method": "POST",
+        "description": "Send an SMS from an agent's phone number. First message compliance: Your initial SMS to any new contact must include",
+        "params": [
+          {
+            "name": "agent_id",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Agent sending the message.",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "to_number",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Recipient in E.164 format.",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Message text.",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "media_url",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "URL for MMS attachment.",
+            "enum": []
+          },
+          {
+            "name": "number_id",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Specific number to send from.",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-agentphone"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-agentphone"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-aviato",
+      "url": "https://mpp.orthogonal.com/aviato/geocoder/search?text=string",
+      "lastStatus": 200,
+      "spec": {
+        "method": "GET",
+        "description": "Search for a location and get geocoded matches. Use the geocoded ID with person/company search locationIDList filter.",
+        "params": [
+          {
+            "name": "text",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "Location search query",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-aviato"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-aviato"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-baseten",
+      "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
+      "lastStatus": 404,
+      "spec": {
+        "method": "POST",
+        "description": "Send a conversation to a model and get a completion back. Works exactly like the OpenAI chat completions endpoint. Pass",
+        "params": [
+          {
+            "name": "messages",
+            "in": "body",
+            "type": "array",
+            "required": true,
+            "description": "Array of message objects, each with a 'role' (system, user, assistant, tool) and 'content' (string or array of content parts). This is the conversation history sent to the model.",
+            "enum": [],
+            "example": [
+              null
+            ]
+          },
+          {
+            "name": "model",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Model slug to run inference against. Available models: deepseek-ai/DeepSeek-V3-0324 (164k context, reasoning), deepseek-ai/DeepSeek-V3.1 (164k context, reasoning), zai-org/GLM-4.6 (200k context, reasoning), zai-org/GLM-4.7 (200k context, reasoning), moonshotai/Kimi-K2-Instruct-0905 (128k context), moonshotai/Kimi-K2-Thinking (262k context, always-on reasoning), moonshotai/Kimi-K2.5 (262k context),",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "frequency_penalty",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Penalize tokens based on how often they've appeared so far. Range -2.0 to 2.0. Positive values reduce repetition. Default: 0.",
+            "enum": []
+          },
+          {
+            "name": "logit_bias",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Map of token IDs to bias values (-100 to 100). Increase or decrease the likelihood of specific tokens appearing in the output.",
+            "enum": []
+          },
+          {
+            "name": "logprobs",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, returns the log probabilities of each output token in the response.",
+            "enum": []
+          },
+          {
+            "name": "top_logprobs",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "How many of the most likely tokens (0-20) to return log probabilities for at each position. Requires logprobs to be true.",
+            "enum": []
+          },
+          {
+            "name": "max_tokens",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Maximum number of tokens to generate in the response. Default is 4096.",
+            "enum": []
+          },
+          {
+            "name": "n",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Number of completions to generate. Currently only supports 1.",
+            "enum": []
+          },
+          {
+            "name": "presence_penalty",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Penalize tokens based on whether they've appeared at all. Range -2.0 to 2.0. Positive values encourage the model to explore new topics. Default: 0.",
+            "enum": []
+          },
+          {
+            "name": "response_format",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Constrain the output format. Use {\"type\": \"json_object\"} for JSON mode, or {\"type\": \"json_schema\", \"json_schema\": {\"name\": \"...\", \"schema\": {...}}} for structured outputs with a specific schema.",
+            "enum": []
+          },
+          {
+            "name": "seed",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Integer for deterministic sampling. Same seed with same parameters should return the same result. Not guaranteed across model versions.",
+            "enum": []
+          },
+          {
+            "name": "stop",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Up to 4 sequences where the model will stop generating. Can be a string or array of strings.",
+            "enum": []
+          },
+          {
+            "name": "stream",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, returns server-sent events (SSE) with partial message deltas as tokens are generated, instead of waiting for the full response.",
+            "enum": []
+          },
+          {
+            "name": "stream_options",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Options for streaming. Use {\"include_usage\": true} to get a final chunk with token usage statistics.",
+            "enum": []
+          },
+          {
+            "name": "temperature",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Sampling temperature between 0 and 4. Lower values (e.g. 0.2) produce more focused, deterministic output. Higher values (e.g. 1.5) increase creativity. Default is 1.",
+            "enum": []
+          },
+          {
+            "name": "top_p",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Nucleus sampling threshold between 0 and 1. Only tokens within this cumulative probability mass are considered. 0.1 means only the top 10%. Use as an alternative to temperature.",
+            "enum": []
+          },
+          {
+            "name": "tools",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Array of tool/function definitions the model can call. Each tool has {\"type\": \"function\", \"function\": {\"name\": \"...\", \"description\": \"...\", \"parameters\": {...}}}. The model may respond with tool_calls instead of content.",
+            "enum": []
+          },
+          {
+            "name": "tool_choice",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Controls tool calling behavior. 'auto' lets the model decide, 'none' disables tools, 'required' forces a tool call, or pass {\"type\": \"function\", \"function\": {\"name\": \"...\"}} to force a specific tool.",
+            "enum": []
+          },
+          {
+            "name": "parallel_tool_calls",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether the model can make multiple tool calls in parallel in a single response. Default: true.",
+            "enum": []
+          },
+          {
+            "name": "user",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "A unique string identifying the end user. Useful for abuse monitoring and rate limiting.",
+            "enum": []
+          },
+          {
+            "name": "top_k",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Top-K sampling. Only the K most likely next tokens are considered. Lower values make output more focused.",
+            "enum": []
+          },
+          {
+            "name": "top_p_min",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Minimum dynamic nucleus sampling threshold. Sets a floor for top_p when using adaptive sampling.",
+            "enum": []
+          },
+          {
+            "name": "min_p",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Minimum probability threshold. Tokens below this probability relative to the most likely token are filtered out.",
+            "enum": []
+          },
+          {
+            "name": "repetition_penalty",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Multiplicative penalty for repeated tokens. Values > 1.0 discourage repetition, < 1.0 encourage it.",
+            "enum": []
+          },
+          {
+            "name": "length_penalty",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Penalty applied during beam search. Values > 1.0 favor longer sequences, < 1.0 favor shorter ones.",
+            "enum": []
+          },
+          {
+            "name": "early_stopping",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "In beam search, stop as soon as the required number of complete candidates are found.",
+            "enum": []
+          },
+          {
+            "name": "bad",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Words or phrases the model should avoid generating. Passed as a string.",
+            "enum": []
+          },
+          {
+            "name": "bad_token_ids",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Array of token IDs that should never appear in the output.",
+            "enum": []
+          },
+          {
+            "name": "stop_token_ids",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Array of token IDs that will cause generation to stop when produced.",
+            "enum": []
+          },
+          {
+            "name": "include_stop_str_in_output",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, includes the stop string in the generated output rather than trimming it.",
+            "enum": []
+          },
+          {
+            "name": "ignore_eos",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, the model continues generating past the end-of-sequence token.",
+            "enum": []
+          },
+          {
+            "name": "min_tokens",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Minimum number of tokens to generate before any stop condition can trigger.",
+            "enum": []
+          },
+          {
+            "name": "skip_special_tokens",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, special tokens are removed from the output text. Default: true.",
+            "enum": []
+          },
+          {
+            "name": "spaces_between_special_tokens",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, adds spaces between special tokens in the detokenized output.",
+            "enum": []
+          },
+          {
+            "name": "truncate_prompt_tokens",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Truncate the prompt to this many tokens if it exceeds the limit, keeping the most recent tokens.",
+            "enum": []
+          },
+          {
+            "name": "echo",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, prepends the last input message to the generated output.",
+            "enum": []
+          },
+          {
+            "name": "add_generation_prompt",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, applies the model's generation prompt template. Usually needed for chat models.",
+            "enum": []
+          },
+          {
+            "name": "add_special_tokens",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "If true, adds special tokens (like BOS) to the input. Default: true.",
+            "enum": []
+          },
+          {
+            "name": "documents",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Array of document objects for retrieval-augmented generation (RAG). Each document has content the model can reference when responding.",
+            "enum": []
+          },
+          {
+            "name": "chat_template",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Custom Jinja2 template for formatting the conversation. Overrides the model's default chat template.",
+            "enum": []
+          },
+          {
+            "name": "chat_template_args",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Additional arguments passed to the chat template as template variables.",
+            "enum": []
+          },
+          {
+            "name": "best_of",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "Number of candidate completions to generate server-side, returning the best. Currently only supports 1.",
+            "enum": []
+          },
+          {
+            "name": "disaggregated_params",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Advanced parameters for distributed inference. Only relevant for disaggregated serving configurations.",
+            "enum": []
+          },
+          {
+            "name": "reasoning_effort",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Controls thinking depth for reasoning models. Options: 'low', 'medium', 'high'. Default: 'medium'. Higher effort uses more tokens but produces more thorough reasoning. Supported on DeepSeek V3/V3.1, GLM 4.6/4.7, and Kimi K2 Thinking.",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-baseten"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-baseten"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-captaindata",
+      "url": "https://mpp.orthogonal.com/captaindata/companies/enrich?li_company_url=string",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "Get comprehensive company information from a LinkedIn Company URL. Returns company details, industry, size, and more.",
+        "params": [
+          {
+            "name": "li_company_url",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "A LinkedIn Company URL (should start with https://www.linkedin.com/sales/company/ or similar).",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-captaindata"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-captaindata"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-company-enrich",
+      "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "Enrich a company by domain name. Returns the full company profile including industry, employee count, revenue",
+        "params": [
+          {
+            "name": "domain",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "Company website domain to enrich, e.g. \"stripe.com\" — bare host only, no protocol or path. This GET form enriches a single company by its domain. To enrich by company name or a social URL instead, use POST /companies/enrich.",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "type": "array",
+            "required": false,
+            "description": "Expandable response fields. Repeat the parameter to request multiple expansions.\n\nSupported values:\n- `workforce`: costs 5 credits per company and adds the `workforce` field to `CompanyInfo`.",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-company-enrich"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-company-enrich"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-context-dev",
+      "url": "https://mpp.orthogonal.com/context-dev/web/scrape/html?url=string",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "Scrapes the given URL and returns the raw HTML content of the page.",
+        "params": [
+          {
+            "name": "url",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "Full URL to scrape (must include http:// or https:// protocol)",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-context-dev"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-context-dev"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-coresignal",
+      "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
+      "lastStatus": 404,
+      "spec": {
+        "method": "GET",
+        "description": "Look up a company by its website domain and get a full cleaned company profile. This is the easiest way to get company",
+        "params": [],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-coresignal"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-coresignal"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-didit",
+      "url": "https://mpp.orthogonal.com/didit/v3/email/send",
+      "lastStatus": 400,
+      "spec": {
+        "method": "POST",
+        "description": "Send a one-time verification code to an email address.",
+        "params": [
+          {
+            "name": "email",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Email address to verify",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "options",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Options object with code_size (4-8, default 6) and locale (e.g. en-US)",
+            "enum": []
+          },
+          {
+            "name": "signals",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "Fraud detection signals: ip, device_id, user_agent",
+            "enum": []
+          },
+          {
+            "name": "vendor_data",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Unique identifier for vendor/user (UUID or email) for session tracking",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-didit"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-didit"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-edges",
+      "url": "https://mpp.orthogonal.com/edges/actions/linkedin-find-company-url/run/live",
+      "lastStatus": 400,
+      "spec": {
+        "method": "POST",
+        "description": "Use AI to find a LinkedIn company page URL from a company name or domain.",
+        "params": [
+          {
+            "name": "input",
+            "in": "body",
+            "type": "object",
+            "required": true,
+            "description": "Input parameters: domain (required, string): Company domain (e.g., microsoft.com)",
+            "enum": [],
+            "example": {}
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-edges"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-edges"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-fiber",
+      "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
+      "lastStatus": 400,
+      "spec": {
+        "method": "POST",
+        "description": "Checks if a given email is likely to bounce using a waterfall of strategies. Works for catch-all email addresses, which",
+        "params": [
+          {
+            "name": "email",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "The email to validate",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-fiber"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-fiber"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-influencers-club",
+      "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
+      "lastStatus": 400,
+      "spec": {
+        "method": "POST",
+        "description": "Retrieve raw platform data for a creator by handle. Returns unprocessed data including profile info, post data, media",
+        "params": [
+          {
+            "name": "handle",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Creator identifier: username, profile URL, or YouTube channel ID",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "platform",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Platform: instagram, youtube, tiktok, twitter, snapchat, discord, pinterest, facebook, linkedin, twitch",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-influencers-club"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-influencers-club"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-joinmassive",
+      "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
+      "lastStatus": 422,
+      "spec": {
+        "method": "GET",
+        "description": "Retrieve results or status of a queued search.",
+        "params": [
+          {
+            "name": "id",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "UUID of the queued search",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-joinmassive"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-joinmassive"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-leadsforge",
+      "url": "https://mpp.orthogonal.com/leadsforge/enrichment/jobs",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "List enrichment jobs with optional filtering.",
+        "params": [
+          {
+            "name": "offset",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "Offset for pagination",
+            "enum": []
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "number",
+            "required": false,
+            "description": "Page size",
+            "enum": []
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Filter by status (in_progress, completed, failed, no_results)",
+            "enum": []
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Filter by type (email, phone, linkedin)",
+            "enum": []
+          },
+          {
+            "name": "clientRequestID",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Filter by client request ID",
+            "enum": []
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Created-at lower bound (RFC3339)",
+            "enum": []
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Created-at upper bound (RFC3339)",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-leadsforge"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-leadsforge"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-openmart",
+      "url": "https://mpp.orthogonal.com/openmart/api/v1/search",
+      "lastStatus": 200,
+      "spec": {
+        "method": "POST",
+        "description": "Search local businesses by natural language query with 22+ filter categories.",
+        "params": [
+          {
+            "name": "query",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "geo",
+            "in": "body",
+            "type": "object",
+            "required": false,
+            "description": "",
+            "enum": []
+          },
+          {
+            "name": "tags",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "",
+            "enum": []
+          },
+          {
+            "name": "page_size",
+            "in": "body",
+            "type": "integer",
+            "required": false,
+            "description": "",
+            "enum": []
+          },
+          {
+            "name": "min_rating",
+            "in": "body",
+            "type": "number",
+            "required": false,
+            "description": "",
+            "enum": []
+          },
+          {
+            "name": "min_reviews",
+            "in": "body",
+            "type": "integer",
+            "required": false,
+            "description": "",
+            "enum": []
+          },
+          {
+            "name": "ownership_type",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-openmart"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-openmart"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-peopledatalabs",
+      "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "Enrich an IP address with associated company, location, and metadata.",
+        "params": [
+          {
+            "name": "ip",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "IP address to enrich",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "return_if_unmatched",
+            "in": "query",
+            "type": "boolean",
+            "required": false,
+            "description": "Return location data even if no company match",
+            "enum": []
+          },
+          {
+            "name": "pretty",
+            "in": "query",
+            "type": "boolean",
+            "required": false,
+            "description": "Pretty print JSON response",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-peopledatalabs"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-peopledatalabs"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-scrapecreators",
+      "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
+      "lastStatus": 404,
+      "spec": {
+        "method": "GET",
+        "description": "Komi",
+        "params": [
+          {
+            "name": "url",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "URL to Komi page",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-scrapecreators"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-scrapecreators"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-seltz",
+      "url": "https://mpp.orthogonal.com/seltz/v1/search",
+      "lastStatus": 200,
+      "spec": {
+        "method": "POST",
+        "description": "Search the web and return matching documents with URLs and content.",
+        "params": [
+          {
+            "name": "query",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "The search query. Keep it short for best performance.",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "max_results",
+            "in": "body",
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of documents to return. Default: 10.",
+            "enum": []
+          },
+          {
+            "name": "scope",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Limits search to a specific vertical. Options: \"news\", \"wikipedia\", \"people\", \"companies\". Defaults to \"news\" when omitted.",
+            "enum": []
+          },
+          {
+            "name": "include_domains",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Include only results from these domains (e.g. [\"google.com\", \"example.com\"]).",
+            "enum": []
+          },
+          {
+            "name": "exclude_domains",
+            "in": "body",
+            "type": "array",
+            "required": false,
+            "description": "Exclude results from these domains.",
+            "enum": []
+          },
+          {
+            "name": "from_date",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Only include results published on or after this date (ISO 8601, e.g. \"2025-10-28\").",
+            "enum": []
+          },
+          {
+            "name": "to_date",
+            "in": "body",
+            "type": "string",
+            "required": false,
+            "description": "Only include results published on or before this date (ISO 8601, e.g. \"2026-04-29\").",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-seltz"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-seltz"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-serper-scrape",
+      "url": "https://mpp.orthogonal.com/serper-scrape/",
+      "lastStatus": 400,
+      "spec": {
+        "method": "POST",
+        "description": "Scrape any webpage and extract its content as clean text, markdown, or raw HTML. Handles JavaScript-rendered pages",
+        "params": [
+          {
+            "name": "url",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "URL of the webpage to scrape",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "includeMarkdown",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Include markdown version of the content",
+            "enum": []
+          },
+          {
+            "name": "includeHtml",
+            "in": "body",
+            "type": "boolean",
+            "required": false,
+            "description": "Include raw HTML of the page",
+            "enum": []
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-serper-scrape"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-serper-scrape"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-tomba",
+      "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
+      "lastStatus": 422,
+      "spec": {
+        "method": "GET",
+        "description": "Get person information from an email address.",
+        "params": [
+          {
+            "name": "email",
+            "in": "query",
+            "type": "string",
+            "required": true,
+            "description": "Email address to look up",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-tomba"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-tomba"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "orth-voygr",
+      "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
+      "lastStatus": 402,
+      "spec": {
+        "method": "POST",
+        "description": "Check whether a business exists at the given address and whether it is open or closed. Returns existence_status",
+        "params": [
+          {
+            "name": "name",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Business name",
+            "enum": [],
+            "example": "string"
+          },
+          {
+            "name": "address",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Full street address",
+            "enum": [],
+            "example": "string"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/orth-voygr"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/orth-voygr"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "replicate",
+      "url": "https://replicate.mpp.paywithlocus.com/replicate/get-prediction",
+      "lastStatus": 404,
+      "spec": {
+        "method": "POST",
+        "description": "Get Prediction",
+        "params": [
+          {
+            "name": "prediction_id",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Prediction ID returned by the run endpoint",
+            "enum": [],
+            "example": "<from replicate/run>"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/replicate"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/replicate"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "serpapi",
+      "url": "https://serpapi.mpp.tempo.xyz/search",
+      "lastStatus": 400,
+      "spec": {
+        "method": "GET",
+        "description": "Google Flights search",
+        "params": [],
+        "outputExample": null,
+        "source": "mercator:/v1/services/serpapi"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/serpapi"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "spyfu",
+      "url": "https://spyfu.mpp.tempo.xyz/apis/domain_stats_api/v2/*",
+      "lastStatus": 404,
+      "spec": {
+        "method": "GET",
+        "description": "Domain stats lookup",
+        "params": [],
+        "outputExample": null,
+        "source": "mercator:/v1/services/spyfu"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/spyfu"
+      ]
+    },
+    {
+      "chain": "tempo",
+      "service": "stability-ai",
+      "url": "https://stability-ai.mpp.paywithlocus.com/stability-ai/result",
+      "lastStatus": 404,
+      "spec": {
+        "method": "POST",
+        "description": "Result",
+        "params": [
+          {
+            "name": "id",
+            "in": "body",
+            "type": "string",
+            "required": true,
+            "description": "Async generation ID returned by the initiating call",
+            "enum": [],
+            "example": "<from stability-ai/upscale-creative>"
+          }
+        ],
+        "outputExample": null,
+        "source": "mercator:/v1/services/stability-ai"
+      },
+      "looked": [
+        "https://mercator.sh/v1/services/stability-ai"
+      ]
+    }
+  ]
+}

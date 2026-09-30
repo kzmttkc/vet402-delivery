@@ -50,6 +50,8 @@ import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type T
 import { readResultFile, resultPath, runDirs, writeJsonAtomic, type RemeasureRow, type RunInfo } from "../src/remeasure/results.js";
 import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
 import type { LoopResult } from "../src/remeasure/loop.js";
+import { readBook } from "../src/inputs/book.js";
+import { repairTargets, type RepairLine } from "../src/inputs/repair.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -98,6 +100,8 @@ interface DataEntry {
 }
 const manifest = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { files: DataEntry[] };
 const inputs: { label: string; sha256: string }[] = [];
+/** What the input repair did to each target the book lists (written to the dry-run plan). */
+const inputRepair: RepairLine[] = [];
 
 function readData(e: DataEntry): unknown {
   const text = readFileSync(join(DATA, e.path), "utf8");
@@ -170,6 +174,7 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>, targets: Target[
       caps: { perPurchase: "0.100000", perRun: atomicToUsdc(RM_SOLANA_MAX_PER_RUN_ATOMIC), perMonth: atomicToUsdc(RM_SOLANA_MAX_PER_MONTH_ATOMIC), monthLeft: atomicToUsdc(monthLeft) },
       summary: { payTos: slotsAll.payTos, resources: slotsAll.resources, slots: slotsAll.slots.length, ...sum, payerUsdcBefore: atomicToUsdc(before.usdcAtomic), payerUsdcAfter: atomicToUsdc(after.usdcAtomic), payerLamportsBefore: before.lamports.toString(), payerLamportsAfter: after.lamports.toString() },
       excluded: slotsAll.excluded,
+      inputRepair,
       rows: res.rows,
       skipped: res.skipped,
     });
@@ -266,6 +271,7 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
       caps: { perPurchase: "0.100000", perRun: atomicToUnits(RM_TEMPO_MAX_PER_RUN_ATOMIC), perMonth: atomicToUnits(RM_TEMPO_MAX_PER_MONTH_ATOMIC), monthLeft: atomicToUnits(monthLeft), feeReservePerPurchase: "0.002000 (counted unless the live 402 is sponsored)" },
       summary: { payTos: slotsAll.payTos, resources: slotsAll.resources, slots: slotsAll.slots.length, ...sum, payerUsdcEBefore: atomicToUnits(before), payerUsdcEAfter: atomicToUnits(after) },
       excluded: slotsAll.excluded,
+      inputRepair,
       rows: res.rows,
       skipped: res.skipped,
     });
@@ -364,6 +370,33 @@ function logRow(r: RemeasureRow) {
   console.log(`${r.outcome.padEnd(8)} ${r.reason.padEnd(16)} ${r.host.padEnd(44)} ${r.priceUsdc ?? "-"} settled=${r.settled ?? "-"} delivered=${r.delivered ?? "-"} tx=${r.tx ?? "-"}`);
 }
 
-const allTargets = targetsFor(chain);
+/**
+ * Inputs: placeholders and missing required parameters are filled from src/inputs/book.json and
+ * src/inputs/values.ts before the slots are chosen (src/inputs/repair.ts). A target whose input cannot be made
+ * and whose last paid answer was 400/404/422, or that sends a message to someone or commits to a purchase, is
+ * not bought. Without a
+ * usable book (missing, unreadable, too old) the targets are bought as they were, and the run says so.
+ * Only the request changes: payTo and price locks, caps, ledgers and the payment functions are the same.
+ */
+function repairInputs(targets: Target[]): { targets: Target[]; lines: RepairLine[] } {
+  try {
+    return repairTargets(targets, readBook(join(ROOT, "src", "inputs", "book.json"), NOW), DATE);
+  } catch (e) {
+    console.warn(`INPUTS not repaired: ${(e as Error).message}`);
+    return { targets, lines: [] };
+  }
+}
+
+const originalTargets = targetsFor(chain);
+const repair = repairInputs(originalTargets);
+for (const l of repair.lines) {
+  if (l.result === "unchanged") continue;
+  const what = l.result === "changed" ? l.filled.map((f) => `${f.param}<-${f.rule}`).join(" ") : `${l.reason}${l.param ? `(${l.param})` : ""}`;
+  console.log(`INPUT ${l.result.padEnd(8)} ${(l.service ?? new URL(l.url).host).padEnd(34)} ${what}`);
+}
+const allTargets = repair.targets;
+inputRepair.push(...repair.lines);
+/** reconcile finds a crashed purchase by payTo and URL: the repaired targets, plus the ones not bought today. */
+const reconcileTargets = [...allTargets, ...originalTargets.filter((t) => !allTargets.some((r) => r.chain === t.chain && r.url === t.url && r.payTo === t.payTo && r.service === t.service))];
 const slots = selectSlots(allTargets, perPayTo);
-process.exitCode = chain === "solana" ? await solana(slots, allTargets) : await tempo(slots, allTargets);
+process.exitCode = chain === "solana" ? await solana(slots, reconcileTargets) : await tempo(slots, reconcileTargets);

@@ -16,6 +16,8 @@
  * diagnostic search (`evidence=pre-confidence`), which the sweep uses.
  */
 import { MERCATOR_ORIGIN, MPP_DIRECTORY_URL, TEMPO_MAINNET_CAIP2, USER_AGENT, USDC_E, normAddr } from "./constants.js";
+import { repairTempoRequest } from "../inputs/repair.js";
+import { fromMercator } from "../inputs/spec.js";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -198,8 +200,11 @@ export interface PlannedRequest {
   method: string;
   body: string | null;
   contentType: string | null;
-  /** where the request inputs came from */
-  inputSource: "mercator_example" | "none";
+  /**
+   * where the request inputs came from: the catalog's example as is, nothing, or the catalog's example with its
+   * placeholders and missing required parameters filled by vet402 (src/inputs/repair.ts, values in src/inputs/values.ts)
+   */
+  inputSource: "mercator_example" | "none" | "vet402_filled";
 }
 
 export function joinUrl(base: string, path: string): string {
@@ -241,7 +246,7 @@ export function buildRequest(s: MercatorService, ep: MercatorEndpoint): PlannedR
  * endpoints that needed input; 31 of its 47 settled-not-delivered rows are that (see docs).
  */
 export function hasUsableInput(ep: MercatorEndpoint, req: PlannedRequest): boolean {
-  if (req.inputSource === "mercator_example") return true;
+  if (req.inputSource === "mercator_example" || req.inputSource === "vet402_filled") return true;
   const required = (ep.inputSchema as { required?: unknown } | undefined)?.required;
   const needs = Array.isArray(required) && required.length > 0;
   return req.method === "GET" && !needs;
@@ -254,15 +259,24 @@ export function hasUsableInput(ep: MercatorEndpoint, req: PlannedRequest): boole
  */
 export function chooseEndpoint(
   s: MercatorService,
+  today: string = new Date().toISOString().slice(0, 10),
 ): { ep: MercatorEndpoint; offer: PaymentOffer; req: PlannedRequest; usableInput: boolean } | null {
   const cands: { ep: MercatorEndpoint; offer: PaymentOffer; req: PlannedRequest; amount: bigint | null; usable: boolean }[] = [];
   for (const ep of s.endpoints) {
     const offer = tempoChargeOffer(ep);
     if (!offer) continue;
-    const req = buildRequest(s, ep);
-    if (!req) continue;
+    const built = buildRequest(s, ep);
+    if (!built) continue;
+    // Placeholders ("string", "<from x/y>", a `*` path) and missing required parameters are filled from the
+    // catalog's schema and src/inputs/values.ts; a request that cannot be filled has no usable input.
+    const repaired = repairTempoRequest(built, fromMercator(ep, `mercator:/v1/services/${s.id}`), today);
     const fixed = /^\d+$/.test(String(offer.amount ?? ""));
-    cands.push({ ep, offer, req, amount: fixed ? BigInt(offer.amount!) : null, usable: hasUsableInput(ep, req) });
+    const amount = fixed ? BigInt(offer.amount!) : null;
+    if (!repaired.ok) {
+      cands.push({ ep, offer, req: built, amount, usable: false });
+      continue;
+    }
+    cands.push({ ep, offer, req: repaired.value, amount, usable: hasUsableInput(ep, repaired.value) });
   }
   if (cands.length === 0) return null;
   cands.sort((a, b) => {
