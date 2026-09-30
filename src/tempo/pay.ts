@@ -46,6 +46,11 @@ export interface PayDeps {
     waitMs?: number;
     sleep?: (ms: number) => Promise<void>;
   };
+  /**
+   * Optional: receives the paid answer's body exactly as read (capped at MAX_BODY), for a caller that
+   * hands it on (proxy buy). Called after the payment was sent; never affects whether or what is paid.
+   */
+  onBody?: (body: Buffer | null) => void;
 }
 
 export interface PayOutcome {
@@ -155,6 +160,11 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
       signal: AbortSignal.timeout(deps.paidTimeoutMs ?? PAID_TIMEOUT_MS),
     });
     const buf = await readCapped(res);
+    try {
+      deps.onBody?.(buf);
+    } catch {
+      // a caller's hook must not turn a sent payment's outcome into "unknown"
+    }
     const latencyMs = Date.now() - t0;
     let candidate: string | null = null;
     let txHashSource: PayOutcome["txHashSource"] = null;

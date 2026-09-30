@@ -59,10 +59,11 @@ The x402 fetch hook, the output fields and the options: `packages/check/README.m
 | Robinhood Chain | Buys, in USDG, every seller whose live 402 lists Robinhood Chain (one purchase per payTo), and checks stock prices sold over x402 against the Chainlink feed of the Stock Token: age against the heartbeat, `oraclePaused()`, and the ERC-8056 multiplier between share price and token price | `scripts/evm-lane.ts`, `src/robinhood/`, `src/evm/`, `site/robinhood.html` |
 | Arbitrum One | Buys each seller that lists Arbitrum One with the same payTo as its Base accept, once on Arbitrum and once on Base, and shows per seller whether each chain settled and came back, and why not | `scripts/evm-lane.ts`, `src/evm/`, `site/arbitrum.html` |
 | Daily root on EVM chains | One transaction a day on the chain the lane bought on, carrying the Merkle root of that day's purchase records; `contracts/DeliveryRoots.sol` holds the same root for other contracts to verify in one call (tested, not deployed) | `scripts/evm-anchor.ts`, `src/evm/evm-anchor.ts`, `contracts/` |
+| Proxy buy | An agent pays vet402 the seller's price + 0.005 (x402 on Solana, MPP on Tempo); after that payment settles, vet402 pays a seller it already paid before and returns the answer with both transactions and a record. Not deployed yet | `src/proxy-buy/`, `scripts/proxy-buy-serve.ts` |
 
 ## Money safety
 
-Every paying script signs exactly one transfer per purchase, to the payTo locked from the seller's own 402, within a per-purchase cap and a persistent total cap, and refuses anything else before signing. Keys live in `.keys/` (git-ignored) and never appear in logs or results. The Tempo, Base, delivery-record and first-buyer paths were reviewed independently (the fixes are in the commit log). The first Solana runs (gate 1 and the census) ran before an independent review; they stayed within the caps above.
+Every paying script signs exactly one transfer per purchase, to the payTo locked from the seller's own 402, within a per-purchase cap and a persistent total cap, and refuses anything else before signing. Keys live in `.keys/` (git-ignored) and never appear in logs or results. The Tempo, Base, delivery-record and first-buyer paths were reviewed independently (the fixes are in the commit log). The first Solana runs (gate 1 and the census) ran before an independent review; they stayed within the caps above. Proxy buy (below) reads its keys from environment variables instead, uses wallets of its own, and has not been reviewed independently yet.
 
 ## First-buyer mode (Solana)
 
@@ -167,6 +168,71 @@ Remeasure window: 2026-09-29 to 2026-10-08 (UTC days), every day, twice on Solan
 npm run remeasure -- --chain solana               # dry run (the default): targets and estimate; pays nothing
 npm run remeasure -- --chain tempo --dry-run
 ```
+
+## Proxy buy (Solana, Tempo)
+
+An agent asks vet402 to buy a seller's answer for it. vet402 pays the seller from its own wallet only after the agent's payment has settled, and returns the seller's answer together with both transactions and a public record of the purchase.
+
+Status on 2026-09-30: the code and its tests are in this repository; no public endpoint runs it yet, and it has not been reviewed independently.
+
+Use:
+
+```bash
+curl -i 'https://<host>/v1/buy?url=<seller endpoint>'   # free: shows the price, charges nothing
+```
+
+The answer is a 402 with the price on every chain vet402 can pay that seller on:
+- Solana: an x402 `PAYMENT-REQUIRED` header (scheme `exact`, USDC). Pay it with any x402 v2 client and send the same GET with `PAYMENT-SIGNATURE`.
+- Tempo: an MPP `WWW-Authenticate: Payment` challenge (`tempo/charge`, USDC.e on chain 4217). Send the same GET with `Authorization: Payment ...` carrying a signed transaction for vet402 to broadcast (pull mode). A transaction already broadcast (push mode) is refused.
+
+vet402 pays the seller on the chain the agent paid on.
+
+Price: the seller's price plus 0.005 (USDC on Solana, USDC.e on Tempo). The 402 body shows the seller's price, the fee, the total, the seller's payTo, and how many earlier vet402 purchases from that seller settled and delivered. On Tempo the agent pays its own network fee.
+
+Who vet402 buys from: only a seller host and payTo pair that vet402 already paid with a settled payment, read from `data/` when the process starts (`npm run proxy-buy -- --check` prints how many pairs there are). Any other host is refused without being contacted, and a seller whose payTo moved is refused.
+
+What comes back after a paid request:
+- 200: the seller's answer as it came (content type kept; the Solana path forwards it as UTF-8 text, the Tempo path byte for byte), with `x-vet402-customer-tx`, `x-vet402-seller-tx`, `x-vet402-seller-status` and `x-vet402-record`.
+- 502 with JSON: the agent's payment settled but no answer is handed over (`not_delivered`, `seller_not_paid`, `answer_too_large`, `customer_payment_unconfirmed`). The body names the reason and the record.
+- `GET /v1/buy/records/<id>` returns the record: target, seller payTo and price, fee, total, both transactions, the seller's HTTP status, the sha256 and size of the answer, and the outcome.
+
+Order of a paid request, and where it stops. Every stop before the agent's payment settles charges nothing (`"charged": false`):
+1. Read the seller's 402 again and price it again. The agent's payment must be for exactly that price and that seller: x402 v2 matches the signed `accepted` field (the target, the seller's price and payTo are in `extra`); MPP matches the challenge's HMAC, amount and `externalId` (a hash of the target). A price or payTo that moved answers 402 with the new price.
+2. Take the payment key (a hash of the signed payment). The same payment sent again, at the same time or later, answers 409. Keys are kept on disk.
+3. Check the day's headroom: the daily cap, the number of purchases, the proxy wallet's balance, and on Tempo whether more left the wallet on chain than its ledger shows.
+4. Settle the agent's payment (Solana: through the facilitator; Tempo: vet402 broadcasts and waits for the receipt), then read the transfer on chain: exactly the total into vet402's receive wallet.
+5. Pay the seller through the same payment code as the census (`src/pay.ts`, `src/tempo/pay.ts`): the seller's 402 is read once more and a raised price or a changed payTo is refused before signing; the signed transaction is read back before it is sent.
+
+After step 4 there is no refund. If vet402 then does not pay the seller, or the seller does not deliver, the record says so with both transactions.
+
+Wallets and caps:
+- Two wallets per chain: a receive wallet (its key is not on the server) and a payer wallet that only pays sellers. Neither may be a census or remeasure wallet; the process refuses to start otherwise.
+- 0.10 per purchase (seller price), 100 purchases per UTC day, and a daily cap (default 2.00, at most 5.00) per chain, kept in their own ledgers (`<data dir>/solana-YYYY-MM-DD.json`, `<data dir>/tempo-YYYY-MM-DD.json`), separate from every other ledger here.
+- One process per data directory (an exclusive lock file); a second one refuses to start.
+- Nothing is quoted, settled or paid unless `VET402_PROXY_BUY_ENABLED=1`.
+
+Run:
+
+```bash
+npm run proxy-buy -- --check   # prints the configuration (addresses and caps, never keys) and the allowlist size
+npm run proxy-buy              # serves on PORT (default 8402), 127.0.0.1 unless HOST is set
+```
+
+| Variable | What |
+|---|---|
+| `VET402_PROXY_BUY_ENABLED` | `1` to buy; anything else answers 503 and does nothing |
+| `VET402_PROXY_PUBLIC_ORIGIN` | public origin, for record links |
+| `VET402_PROXY_DATA_DIR` | ledgers, payment keys, records (default `results/proxy-buy`, git-ignored) |
+| `VET402_PROXY_SOLANA_RECEIVE`, `VET402_PROXY_SOLANA_PAYER`, `VET402_PROXY_SOLANA_PAYER_KEY` | Solana receive address, payer address, payer key (64-byte JSON array) |
+| `SOLANA_RPC_URL`, `VET402_PROXY_FACILITATOR_URL` | Solana RPC; facilitator for the agent's payment (default PayAI) |
+| `VET402_PROXY_TEMPO_RECEIVE`, `VET402_PROXY_TEMPO_PAYER`, `VET402_PROXY_TEMPO_PAYER_KEY` | Tempo receive address, payer address, payer key (0x, 32 bytes) |
+| `VET402_PROXY_MPP_SECRET`, `TEMPO_RPC_URL` | secret that binds MPP challenges (32+ characters); Tempo RPC |
+| `VET402_PROXY_SOLANA_DAILY_CAP`, `VET402_PROXY_TEMPO_DAILY_CAP` | daily caps, e.g. `2.00` |
+| `VET402_PROXY_TRUST_PROXY` | `1` only behind a reverse proxy that sets `x-real-ip` |
+
+Keys are read from the environment only and never printed; an error about a key never quotes it.
+
+Code: `src/proxy-buy/`, `scripts/proxy-buy-serve.ts`. Tests: `test/proxy-buy.test.ts` (mock sellers, a fake facilitator and a fake Tempo RPC: success, no delivery, price raised, payTo changed, the same payment twice, cap and balance) and `test/proxy-buy-e2e.test.ts` (the same over real sockets on 127.0.0.1).
 
 ## Daily runner (launchd)
 
@@ -273,6 +339,8 @@ I (Sen) started vet402 on 2026-07-13. Before this repository, vet402 already had
 - entries at ETHGlobal ETHOnline 2026 and ETHGlobal Tokyo 2026 (their submitted code is not part of this repository).
 
 The code in this repository was written from 2026-09-28 onward, with one exception: the delivery verdict rules in `src/verdict.ts` and the failure groups in `src/classify.ts` are ported from vet402-algorand (each file says so in its header), so that the chains are judged the same way. Those two files are prior work, not part of this entry. Data from earlier purchases is used as input and is labelled with its date.
+
+Proxy buy (`src/proxy-buy/`) was written in this repository on 2026-09-30. Its flow (settle the agent's payment first, then pay the seller, then hand over the answer) is ported from vet402-algorand's `/v1/buy` (`src/buy.ts` and `src/settle-first.ts` there). That Algorand code is prior work and not part of this entry; the Solana and Tempo code here was written anew on top of this repository's own payment code.
 
 ## Run
 
