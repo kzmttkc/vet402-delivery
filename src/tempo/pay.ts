@@ -28,6 +28,23 @@ export interface PayDeps {
   verify: (txHash: string, exp: { payer: string; recipient: string; amount: bigint }) => Promise<SettlementCheck>;
   now?: () => Date;
   paidTimeoutMs?: number;
+  /**
+   * Read-only, optional: find the payment on chain when the paid response gave no hash the chain knows.
+   * A sponsored fee changes the envelope the server broadcasts, so the signed tx's hash is not the one on
+   * chain, and a 5xx carries no Payment-Receipt (2026-09-29, kicksdb: paid on chain, recorded as unknown).
+   * `head` is read before the paid request; `search` lists tx hashes from that block on with a USDC.e
+   * Transfer payer -> recipient of exactly the amount. A hash is taken only when it is the one such hash
+   * no ledger entry (nor `known`) already carries, and only as a candidate for `verify`.
+   */
+  findTx?: {
+    head: () => Promise<bigint>;
+    search: (exp: { payer: string; recipient: string; amount: bigint }, fromBlock: bigint) => Promise<string[]>;
+    /** Hashes on other records of the key (another purchase's tx). */
+    known?: () => Iterable<string>;
+    tries?: number;
+    waitMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  };
 }
 
 export interface PayOutcome {
@@ -36,7 +53,7 @@ export interface PayOutcome {
   refusal?: Refusal;
   httpStatus?: number | null;
   txHash?: string | null;
-  txHashSource?: "payment_receipt" | "signed_tx" | null;
+  txHashSource?: "payment_receipt" | "signed_tx" | "chain_search" | null;
   settled?: boolean | null;
   delivered?: boolean | null;
   /** USDC.e (atomic) the payer paid as fee in this tx, read back from the chain. */
@@ -122,6 +139,9 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
     return refused(id, { refused: "tx_check_failed", detail: txProblem });
   }
 
+  // The block before the paid request, for findTx. A failed read only turns the search off.
+  const fromBlock = deps.findTx ? await deps.findTx.head().catch(() => null) : null;
+
   // 7. from here money can move
   ledger.update(id, { status: "sent" });
   const t0 = Date.now();
@@ -150,7 +170,18 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
       candidate = keccak256(serializedTx as Hex);
       txHashSource = "signed_tx";
     }
-    const settlement = candidate ? await deps.verify(candidate, { payer: deps.payer, recipient, amount }) : null;
+    let settlement = candidate ? await deps.verify(candidate, { payer: deps.payer, recipient, amount }) : null;
+    if ((settlement === null || settlement.detail === "receipt not found") && deps.findTx && fromBlock !== null) {
+      const found = await searchTx(deps, { payer: deps.payer, recipient, amount }, fromBlock);
+      if (found) {
+        const s2 = await deps.verify(found, { payer: deps.payer, recipient, amount }).catch(() => null);
+        if (s2?.settled) {
+          candidate = found;
+          txHashSource = "chain_search";
+          settlement = s2;
+        }
+      }
+    }
     const settled = settlement ? settlement.settled : null;
     const onChain = settlement !== null && settlement.detail !== "receipt not found";
     const txHash = onChain ? candidate : null;
@@ -185,6 +216,28 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
     ledger.update(id, { status: "unknown", note: `after send: ${detail}` });
     return { serviceId: id, result: "unknown", detail, latencyMs: Date.now() - t0 };
   }
+}
+
+/** The one unrecorded tx paying `exp` since `fromBlock`, or null (none yet, several, or the read failed). */
+async function searchTx(deps: PayDeps, exp: { payer: string; recipient: string; amount: bigint }, fromBlock: bigint): Promise<string | null> {
+  const f = deps.findTx!;
+  const tries = f.tries ?? 3;
+  const sleep = f.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let i = 0; i < tries; i++) {
+    if (i > 0) await sleep(f.waitMs ?? 2_000);
+    let hashes: string[];
+    let taken: Set<string>;
+    try {
+      hashes = await f.search(exp, fromBlock);
+      taken = new Set([...deps.ledger.entries().map((e) => e.txHash), ...(f.known?.() ?? [])].filter((h): h is string => !!h).map((h) => h.toLowerCase()));
+    } catch {
+      continue;
+    }
+    const open = [...new Set(hashes.map((h) => h.toLowerCase()))].filter((h) => !taken.has(h));
+    if (open.length === 1) return open[0]!;
+    if (open.length > 1) return null; // more than one fits: the post-run chain check decides
+  }
+  return null;
 }
 
 /**

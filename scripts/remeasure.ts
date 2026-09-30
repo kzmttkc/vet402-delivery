@@ -23,6 +23,10 @@
  * run, MEASURE_SPACING_MS apart. One --pay run per chain at a time (results/remeasure/<chain>.lock).
  *
  * Output: results/remeasure/<chain>-YYYY-MM-DD.json (read by `npm run rank`), or <chain>-YYYY-MM-DD.dry-run.json.
+ *
+ * After a --pay run: every payment that left the payer during the run must be on a row
+ * (src/remeasure/chaincheck.ts, recorded in runs[].chainCheck). Exit 3 when one is not, or the chain
+ * could not be read; scripts/chain-check.ts runs the same check on a past day.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -213,8 +217,14 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>, targets: Target[
     run.stopped = res.stopped;
     save();
     console.log(`sent ${res.rows.filter((r) => r.outcome === "sent").length}, run spent ${atomicToUsdc(budget.runSpentAtomic)} USDC, month ledger ${atomicToUsdc(budget.spent)} USDC${res.stopped ? `; stopped: ${res.stopped}` : ""}`);
+    // Every USDC that left the payer during the run must be on a row (src/remeasure/chaincheck.ts).
+    const { checkSolanaRun, liveSolanaReader } = await import("../src/remeasure/chaincheck.js");
+    const checked = await chainCheck(() =>
+      checkSolanaRun({ file: result, run, reader: liveSolanaReader(rpc, PAYER_ADDRESS, payerAta), endMs: Date.parse(run.endedAt!), write: true }),
+    );
+    save();
     console.log(`results: ${file}`);
-    return res.stopped?.startsWith("payer SOL decreased") ? 1 : 0;
+    return res.stopped?.startsWith("payer SOL decreased") ? 1 : checked ? 0 : 3;
   } finally {
     release();
   }
@@ -227,6 +237,7 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
   const { Ledger } = await import("../src/tempo/ledger.js");
   const { dayLedgerPath, dryRunTempo, liveChainView, monthCommittedElsewhere, payTempo } = await import("../src/remeasure/tempo.js");
   const { TEMPO_KEY_LEDGERS } = await import("../src/tempo/key-ledgers.js");
+  const { keyLedgerTxs } = await import("../src/tempo/chaincheck.js");
   const chainView = liveChainView(TEMPO_PAYER);
   const dayFile = dayLedgerPath(OUT, DATE);
   const monthElsewhere = monthCommittedElsewhere(OUT, MONTH, DATE);
@@ -290,6 +301,8 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
         payer: TEMPO_PAYER,
         balance: () => tchain.usdcBalance(TEMPO_PAYER),
         verify: (h, e) => tchain.verifySettlement(h, e),
+        // A paid response without a hash the chain knows (sponsored fee, 5xx): look the transfer up.
+        findTx: { head: () => tchain.headBlock(), search: (e, from) => tchain.findPayerTransfers(e, from), known: () => keyLedgerTxs(TEMPO_KEY_LEDGERS, TEMPO_PAYER).known },
       },
       // payOne's chain check: outflow since the census start <= this day ledger + every other ledger of the key.
       { date: DATE, ledger, keyLedgers: TEMPO_KEY_LEDGERS, chain: chainView, monthElsewhere, sleep: realSleep, onRow: (r) => (result.rows.push(r), save(), logRow(r)) },
@@ -298,13 +311,43 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
     run.stopped = res.stopped;
     save();
     console.log(`sent ${res.rows.filter((r) => r.outcome === "sent").length}, day ledger ${atomicToUnits(ledger.committed())} USDC.e committed${res.stopped ? `; stopped: ${res.stopped}` : ""}`);
+    // Every USDC.e that left the key during the run must be on a row (src/remeasure/chaincheck.ts).
+    const { checkTempoRun } = await import("../src/remeasure/chaincheck.js");
+    const { liveTempoReader } = await import("../src/tempo/chaincheck.js");
+    const dayLedger = ledger;
+    const checked = await chainCheck(() =>
+      checkTempoRun({ file: result, run, dayLedger, set: TEMPO_KEY_LEDGERS, reader: liveTempoReader(TEMPO_PAYER), endMs: Date.parse(run.endedAt!) }),
+    );
+    save();
     console.log(`results: ${file}`);
-    return res.stopped ? 2 : 0;
+    return res.stopped ? 2 : checked ? 0 : 3;
   } finally {
     ledger?.release();
     release();
   }
 }
+
+/**
+ * The post-run chain check. Waits CHAIN_CHECK_SETTLE_MS first so a payment still landing is seen.
+ * false (exit code 3) when a payment is on no row, a tx is on two, or the chain could not be read.
+ */
+async function chainCheck(run: () => Promise<import("../src/chaincheck.js").ChainCheckRecord>): Promise<boolean> {
+  const { checkFailed } = await import("../src/chaincheck.js");
+  const { realSleep } = await import("../src/remeasure/loop.js");
+  await realSleep(CHAIN_CHECK_SETTLE_MS);
+  try {
+    const r = await run();
+    console.log(`chain check: ${r.txs} txs out of the payer, ${r.recorded} on a row, ${r.added.length} found on chain and recorded, ${r.unmatched.length} unmatched, ${r.duplicates.length} duplicate`);
+    for (const a of r.added) console.log(`  recorded ${a.key} tx ${a.tx}`);
+    for (const u of r.unmatched) console.error(`  UNMATCHED ${u.tx} at ${u.time}: ${u.reason}`);
+    for (const d of r.duplicates) console.error(`  DUPLICATE ${d}`);
+    return !checkFailed(r);
+  } catch (e) {
+    console.error(`chain check failed to run: ${(e as Error).message}. Run scripts/chain-check.ts --chain ${chain} --date ${DATE} once the chain answers.`);
+    return false;
+  }
+}
+const CHAIN_CHECK_SETTLE_MS = 15_000;
 
 function lockOrExit(file: string): () => void {
   try {

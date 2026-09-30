@@ -31,6 +31,11 @@ export const TOKEN_SYMBOLS: Record<string, string> = {
   [MACH]: "MACH",
 };
 export const TIP20_DECIMALS = 6;
+/**
+ * Tempo's fee manager: a payer that pays its own fee sends the USDC.e fee here, in the same tx as the
+ * payment. Read on chain 2026-09-30: every fee transfer out of PAYER_ADDRESS since the census went here.
+ */
+export const TEMPO_FEE_MANAGER = "0xfeec000000000000000000000000000000000000";
 
 /** vet402's shared EVM payer (key in <repo>/.keys/evm.json; never printed). */
 export const PAYER_ADDRESS = "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51";

@@ -11,6 +11,8 @@
  *       counted as max(ledger, on-chain outflow)), recipient and price locked to the dry run,
  *       Tempo mainnet 4217 only, USDC.e only, no splits, persistent ledger written before signing,
  *       signed tx decoded and checked before it leaves the process.
+ *       At the end, every USDC.e that left the key during the run must be on a ledger entry
+ *       (src/tempo/chaincheck.ts); written to results/tempo-census-check-<start>.json. Exit 3 if not.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -103,6 +105,8 @@ async function pay(): Promise<void> {
   console.error(`[pay] payer ${signer.address} cap ${atomicToUnits(cap)} USDC.e, ledger committed ${atomicToUnits(ledger.committed())}`);
 
   const plan: PlanEntry[] = rep.plan.slice(0, max);
+  const { keyLedgerTxs, checkCensusRun, liveTempoReader } = await import("../src/tempo/chaincheck.js");
+  const startedAt = new Date().toISOString();
   try {
     const { stopped } = await runPlan(
       plan,
@@ -115,6 +119,8 @@ async function pay(): Promise<void> {
         // The key also pays remeasure's day ledgers: outflow they account for is not this ledger's (src/tempo/key-ledgers.ts).
         chainSpent: unaccountedChainSpent(ledgerPath, () => chain.usdcOutflowSinceStart(PAYER_ADDRESS), PAYER_ADDRESS),
         verify: (h, e) => chain.verifySettlement(h, e),
+        // A paid response without a hash the chain knows (sponsored fee, 5xx): look the transfer up.
+        findTx: { head: () => chain.headBlock(), search: (e, from) => chain.findPayerTransfers(e, from), known: () => keyLedgerTxs(TEMPO_KEY_LEDGERS, PAYER_ADDRESS).known },
       },
       (entry, o) => {
         const tx = o.txHash ? ` ${TEMPO_EXPLORER_TX}${o.txHash}` : "";
@@ -127,6 +133,20 @@ async function pay(): Promise<void> {
     if (stopped) {
       console.error(`[pay] STOPPED at ${stopped.serviceId}: ${stopped.reason}. Nothing further was signed.`);
       process.exitCode = 2;
+    }
+    // Every USDC.e that left the key during the run must be on a ledger entry (src/tempo/chaincheck.ts).
+    await new Promise((r) => setTimeout(r, 15_000)); // a payment still landing is seen
+    const { checkFailed } = await import("../src/chaincheck.js");
+    try {
+      const cc = await checkCensusRun({ ledger, startedAt, endMs: Date.now(), set: TEMPO_KEY_LEDGERS, reader: liveTempoReader(PAYER_ADDRESS) });
+      const out = join(dirname(ledgerPath), `tempo-census-check-${startedAt.replace(/[:.]/g, "")}.json`);
+      writeFileSync(out, JSON.stringify(cc, null, 2) + "\n");
+      console.log(`[check] ${cc.txs} txs out of the key, ${cc.recorded} on a ledger, ${cc.added.length} found on chain and recorded, ${cc.unmatched.length} unmatched, ${cc.duplicates.length} duplicate; wrote ${out}`);
+      for (const u of cc.unmatched) console.error(`[check] UNMATCHED ${u.tx} at ${u.time}: ${u.reason}`);
+      if (checkFailed(cc)) process.exitCode = 3;
+    } catch (e) {
+      console.error(`[check] the chain check failed to run: ${(e as Error).message}`);
+      process.exitCode = 3;
     }
   } finally {
     ledger.release();

@@ -600,3 +600,111 @@ test("loadSigner: an unreadable key file fails with a fixed message that does no
   );
   assert.throws(() => loadSigner(join(dir, "missing.json")), /unreadable key file/);
 });
+
+// ---------- payOne: the tx of a paid response that carries none (2026-09-29, kicksdb) ----------
+
+const sponsoredEntry: PlanEntry = { ...planEntry, sponsored: true };
+const sponsoredReq = () => goodReq({ methodDetails: { chainId: 4217, feePayer: true } });
+const FOUND = `0x${"d2".repeat(32)}`;
+
+function withSearch(f: ReturnType<typeof fakeDeps>, results: string[][], known: string[] = []) {
+  const seen: { from: bigint; exp: unknown }[] = [];
+  let i = 0;
+  f.deps.findTx = {
+    head: async () => 41_772_500n,
+    search: async (exp, from) => (seen.push({ from, exp }), results[Math.min(i++, results.length - 1)]!),
+    known: () => known,
+    tries: 3,
+    waitMs: 0,
+    sleep: async () => undefined,
+  };
+  const verified: string[] = [];
+  f.deps.verify = async (h) => (verified.push(h), h === FOUND ? { settled: true, detail: "transfer found", feePaid: null } : { settled: false, detail: "receipt not found", feePaid: null });
+  return { seen, verified };
+}
+
+test("payOne: a sponsored purchase answered 500 without a receipt finds its tx on chain (chain_search) and records it", async () => {
+  const f = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  const s = withSearch(f, [[], [FOUND.toUpperCase().replace("0X", "0x")]]);
+  const out = await payOne(sponsoredEntry, f.deps);
+  assert.equal(out.result, "sent");
+  assert.equal(out.httpStatus, 500);
+  assert.equal(out.txHash, FOUND);
+  assert.equal(out.txHashSource, "chain_search");
+  assert.equal(out.settled, true);
+  assert.equal(out.delivered, false);
+  assert.deepEqual(s.verified, [FOUND]);
+  assert.equal(s.seen[0]!.from, 41_772_500n);
+  assert.deepEqual(s.seen[0]!.exp, { payer: throwaway.address, recipient: SELLER, amount: 6000n });
+  const e = JSON.parse(readFileSync(f.path, "utf8")).entries[0];
+  assert.equal(e.txHash, FOUND);
+  assert.equal(e.settled, true);
+});
+
+test("payOne: without findTx a sponsored 500 stays settled null, as before", async () => {
+  const f = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  const out = await payOne(sponsoredEntry, f.deps);
+  assert.equal(out.txHash, null);
+  assert.equal(out.settled, null);
+});
+
+test("payOne: two unrecorded transfers that fit, or only a tx another record carries, are not taken", async () => {
+  const other = `0x${"aa".repeat(32)}`;
+  const f1 = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  withSearch(f1, [[FOUND, other]]);
+  const o1 = await payOne(sponsoredEntry, f1.deps);
+  assert.equal(o1.txHash, null);
+  assert.equal(o1.settled, null);
+  const f2 = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  const s2 = withSearch(f2, [[other]], [other]);
+  const o2 = await payOne(sponsoredEntry, f2.deps);
+  assert.equal(o2.txHash, null);
+  assert.deepEqual(s2.verified, []);
+});
+
+test("payOne: a failing search or head read changes nothing but the tx lookup", async () => {
+  const f = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  withSearch(f, [[FOUND]]);
+  f.deps.findTx!.head = async () => {
+    throw new Error("rpc down");
+  };
+  const out = await payOne(sponsoredEntry, f.deps);
+  assert.equal(out.result, "sent");
+  assert.equal(out.settled, null);
+  const g = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  withSearch(g, [[FOUND]]);
+  g.deps.findTx!.search = async () => {
+    throw new Error("rpc down");
+  };
+  const o2 = await payOne(sponsoredEntry, g.deps);
+  assert.equal(o2.result, "sent");
+  assert.equal(o2.settled, null);
+});
+
+test("payOne: unsponsored, the signed envelope not on chain, the search finds the transfer", async () => {
+  const f = fakeDeps({ paidStatus: 502 });
+  withSearch(f, [[FOUND]]);
+  const out = await payOne(planEntry, f.deps);
+  assert.equal(out.txHash, FOUND);
+  assert.equal(out.settled, true);
+  assert.equal(out.txHashSource, "chain_search");
+});
+
+test("payOne: a throwing known() or verify of the found tx leaves the outcome as without the search", async () => {
+  const f = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  withSearch(f, [[FOUND]]);
+  f.deps.findTx!.known = () => {
+    throw new Error("a day ledger is missing");
+  };
+  const o1 = await payOne(sponsoredEntry, f.deps);
+  assert.equal(o1.result, "sent");
+  assert.equal(o1.settled, null);
+  const g = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  withSearch(g, [[FOUND]]);
+  g.deps.verify = async () => {
+    throw new Error("rpc down");
+  };
+  const o2 = await payOne(sponsoredEntry, g.deps);
+  assert.equal(o2.result, "sent");
+  assert.equal(o2.settled, null);
+});

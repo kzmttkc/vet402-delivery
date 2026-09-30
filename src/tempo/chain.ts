@@ -46,6 +46,41 @@ export async function usdcOutflowSinceStart(owner: string, rpc = TEMPO_RPC_URL):
   return sum;
 }
 
+/** One USDC.e Transfer out of the owner. */
+export interface PayerTransfer {
+  tx: string;
+  block: bigint;
+  to: string;
+  amount: bigint;
+}
+
+/** Every USDC.e Transfer from `owner` in blocks [fromBlock, toBlock], read from the logs. */
+export async function payerTransfers(owner: string, fromBlock: bigint, toBlock: bigint, rpc = TEMPO_RPC_URL): Promise<PayerTransfer[]> {
+  const c = publicClient(rpc);
+  const out: PayerTransfer[] = [];
+  for (let from = fromBlock; from <= toBlock; from += LOG_RANGE + 1n) {
+    const to = from + LOG_RANGE > toBlock ? toBlock : from + LOG_RANGE;
+    const logs = await c.getLogs({ address: USDC_E as Hex, event: TRANSFER, args: { from: owner as Hex }, fromBlock: from, toBlock: to });
+    for (const l of logs) out.push({ tx: l.transactionHash, block: l.blockNumber, to: normAddr(l.args.to), amount: l.args.amount ?? 0n });
+  }
+  return out;
+}
+
+export async function headBlock(rpc = TEMPO_RPC_URL): Promise<bigint> {
+  return publicClient(rpc).getBlockNumber();
+}
+
+/**
+ * Tx hashes, from `fromBlock` to the head, with a USDC.e Transfer payer -> recipient of exactly `amount`.
+ * payOne reads this when the paid response gave no hash it could find on chain (a sponsored fee changes
+ * the envelope, so the signed tx's hash is not the one broadcast).
+ */
+export async function findPayerTransfers(exp: { payer: string; recipient: string; amount: bigint }, fromBlock: bigint, rpc = TEMPO_RPC_URL): Promise<string[]> {
+  const head = await headBlock(rpc);
+  const all = await payerTransfers(exp.payer, fromBlock, head, rpc);
+  return [...new Set(all.filter((t) => t.to === normAddr(exp.recipient) && t.amount === exp.amount).map((t) => t.tx.toLowerCase()))];
+}
+
 export interface SettlementCheck {
   settled: boolean;
   detail: string;
