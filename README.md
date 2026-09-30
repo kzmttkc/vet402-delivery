@@ -159,6 +159,8 @@ npm run remeasure -- --chain tempo --dry-run
 
 Both times are inside one UTC day (01:17 and 13:17 UTC). The `am`, `pm` and `records` jobs do nothing from JST 2026-10-09 on (`VET402_DAILY_END`), so the last purchases are on UTC day 2026-10-08; `board` runs until JST 2026-10-31 (`VET402_BOARD_END`).
 
+The jobs end on their own days (JST): `am`, `pm` and `publish` do nothing from 2026-10-09 (`VET402_DAILY_END`), `records` from 2026-10-10 (`VET402_RECORDS_END`), so the 2026-10-09 09:05 run still records, publishes and anchors the last purchase day (UTC 2026-10-08), and `board` from 2026-10-31. That last records publish rebuilds the site after 2026-10-08, so the ranking's generatedAt is past the remeasure period and the site's remeasure sentence switches to the past tense.
+
 Publishing: each result file is copied into `data/` through the secret gate (`scripts/daily/secret-gate.ts`), `data/manifest.json` is updated, rank and site are rebuilt, the tree is scanned again, typecheck and `npm test` run, and one commit with `data/` and `site/` only is checked against the pre-push review gate and pushed. A dry run (`--dry-run`) does the same with a made-up copy of the newest day dated today, and never pushes.
 
 ### Setting it up

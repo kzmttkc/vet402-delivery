@@ -29,8 +29,9 @@
 # HALT-<lane> in the state folder, and later runs of that lane stop until a person has looked and removed it.
 # A refused plan (over a cap) still publishes what the chains before it bought; a failed or stopped --pay run
 # publishes nothing.
-# Only one run at a time (lockf on the state folder's lock). Nothing runs on or after VET402_DAILY_END (JST);
-# for board, VET402_BOARD_END.
+# Only one run at a time (lockf on the state folder's lock). Each job stops on its own JST day: am, pm and
+# publish on VET402_DAILY_END, records a day later on VET402_RECORDS_END (so the last purchase day, UTC
+# 2026-10-08, is still recorded, published and anchored on 2026-10-09 09:05 JST), board on VET402_BOARD_END.
 #
 # Settings: KEY=value lines in ~/.config/vet402-daily/env (outside the repository). Without that file, or without
 # VET402_ALERTS_FILE in it, nothing runs: the stop is logged and shown as a notification.
@@ -41,7 +42,8 @@
 #   ~/.config/vet402-daily/records-enabled  present: records sends the anchor; absent: records runs as a dry run
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
-#   VET402_DAILY_END     first JST day with no am/pm/records runs                 default 2026-10-09
+#   VET402_DAILY_END     first JST day with no am/pm/publish runs                 default 2026-10-09
+#   VET402_RECORDS_END   first JST day with no records runs                       default 2026-10-10
 #   VET402_BOARD_END     first JST day with no board runs                         default 2026-10-31
 #   VET402_DAILY_NOTIFY  0 turns the macOS notification off
 #   VET402_DAILY_NOW     epoch seconds to use as now (tests)
@@ -94,6 +96,7 @@ main() {
   STATE="${VET402_DAILY_STATE:-$HOME/.local/state/vet402-daily}"
   ALERTS="${VET402_ALERTS_FILE:-}"
   END_DAY="${VET402_DAILY_END:-2026-10-09}"
+  [ "$MODE" = records ] && END_DAY="${VET402_RECORDS_END:-2026-10-10}"
   [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-2026-10-31}"
   NOW="${VET402_DAILY_NOW:-$(/bin/date +%s)}"
   GIT=/usr/bin/git

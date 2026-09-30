@@ -796,6 +796,27 @@ test("launch.sh: when run.sh is missing, launchd's start still writes the alert 
   rmSync(dir, { recursive: true });
 });
 
+test("run.sh end dates: on 2026-10-09 JST records still records UTC 2026-10-08 while am and pm do nothing; on 2026-10-10 records stops too", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-08.json"), "{}");
+  const am = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-10-09T01:17:00Z") });
+  const pm = runSh(sb, ["pm"], { VET402_DAILY_NOW: at("2026-10-09T13:17:00Z") });
+  assert.equal(am.status, 0);
+  assert.equal(pm.status, 0);
+  assert.match(logs(sb), /JST 2026-10-09 is on or after 2026-10-09: nothing runs/);
+  assert.ok(!calls(sb).includes("remeasure") && !calls(sb).includes("--chain"), "no remeasure on 2026-10-09");
+  const rec = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-09T00:05:00Z") });
+  assert.equal(rec.status, 0, logs(sb));
+  assert.match(logs(sb), /days to record \(oldest first, at most 3\): 2026-10-08/);
+  assert.match(calls(sb), /anchor-receipts --day 2026-10-08/);
+  const before = calls(sb);
+  const late = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-10T00:05:00Z") });
+  assert.equal(late.status, 0);
+  assert.match(logs(sb), /JST 2026-10-10 is on or after 2026-10-10: nothing runs/);
+  assert.equal(calls(sb), before, "records does nothing on 2026-10-10");
+  rmSync(sb.dir, { recursive: true });
+});
+
 // ---------- run.sh board: the vet402-algorand board workflow, watched from outside ----------
 
 /** A stand-in for gh: FAKE_BOARD is the board file on main (unset = 404), FAKE_RUNNING the unfinished runs. */
