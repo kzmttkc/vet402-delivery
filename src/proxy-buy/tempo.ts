@@ -22,7 +22,7 @@ import { atomicToUnits, FEE_RESERVE_ATOMIC } from "../tempo/constants.js";
 import { Ledger } from "../tempo/ledger.js";
 import { payOne, type PayDeps, type PayOutcome } from "../tempo/pay.js";
 import type { Signer } from "../tempo/chain.js";
-import { PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
+import { ANSWER_LIMIT_NOTE, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
 import { decodeTempoTx, tempoTxFate, type Fate, type TempoReads, type TempoTxFacts } from "./fate.js";
 import { noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
 import { refusalReason } from "./reasons.js";
@@ -122,11 +122,16 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
   const total = totalAtomic(seller, ctx.feeAtomic);
   const feeReserve = offer.request.feePayer ? 0n : FEE_RESERVE_ATOMIC;
   const now = ctx.now();
-  if (!(await store.claim({ id, chain: "tempo", target, sellerAmount: seller, feeReserve, total, facts: { agent: { ...agentTx, search: { recipient: side.receive.toLowerCase(), amount: total.toString(), fromBlock: "0" } } }, now }))) {
+  // An earlier purchase from this agent or to this seller that stopped half way is settled first; others go on.
+  if ((await store.blockingFor(now, ctx.staleMs, { agent: sender, host: offer.known.host })) > 0) {
+    return noCharge(503, "reconcile_pending", "an earlier purchase from this payer or to this seller is being settled on chain first; nothing was charged, try again later");
+  }
+  if (!(await store.claim({ id, chain: "tempo", target, sellerHost: offer.known.host, agent: sender, sellerAmount: seller, feeReserve, total, facts: { agent: { ...agentTx, search: { recipient: side.receive.toLowerCase(), amount: total.toString(), fromBlock: "0" } } }, now }))) {
     return noCharge(409, "duplicate_payment", "this signed transaction was already used or is being used now");
   }
   let bal: bigint;
   let fromBlock: bigint;
+  const balanceReadAt = ctx.now();
   try {
     bal = await side.pay.balance();
     fromBlock = await side.head();
@@ -137,7 +142,7 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
   const day = utcDay(now);
   // The wallet reservation is the most this purchase can take out: a refund of the total plus its fee (>= the seller price + fee).
   const need = total + FEE_RESERVE_ATOMIC > seller + feeReserve ? total + FEE_RESERVE_ATOMIC : seller + feeReserve;
-  const room = await store.admit(id, { chain: "tempo", payer: side.payer, day, caps: ctx.caps, need, balance: bal, now });
+  const room = await store.admit(id, { chain: "tempo", payer: side.payer, day, caps: ctx.caps, need, balance: bal, balanceReadAt, now });
   if (!room.ok) {
     await store.release(id);
     return noCharge(503, room.reason, room.detail);
@@ -269,7 +274,8 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     outcome: delivered ? "delivered" : "not_delivered",
     reason: delivered ? null : `seller answered ${status ?? "nothing"}${buf && buf.byteLength === 0 ? " with an empty body" : ""}; vet402's payment to it settled`,
   };
-  await store.finish(id, ["in_progress"], { record: r, spent, now: ctx.now() });
+  // A failed closing write must not lose an answer vet402 paid for: the reconciler closes the purchase later.
+  await store.finish(id, ["in_progress"], { record: r, spent, now: ctx.now() }).catch(() => false);
   if (!delivered) {
     return {
       kind: "json",
@@ -295,6 +301,7 @@ export function tempoPriceInfo(offer: TempoOffer, feeAtomic: bigint) {
     total: atomicToUnits(total),
     sellerPayTo: offer.request.recipient,
     refund: REFUND_POLICY,
+    largeAnswers: ANSWER_LIMIT_NOTE,
     vet402Record: { settledPurchases: offer.known.settled, delivered: offer.known.delivered, lastAt: offer.known.lastAt },
   };
 }

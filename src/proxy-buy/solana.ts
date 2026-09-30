@@ -22,7 +22,7 @@ import type { PaymentPayload, PaymentRequirements, SettleResponse } from "@x402/
 import { SOLANA_MAINNET, USDC_MINT, atomicToUsdc } from "../constants.js";
 import { Budget } from "../guard.js";
 import { payOne, type PayDeps, type PurchaseRecord as PayRecord } from "../pay.js";
-import { OFFER_TTL_SECONDS, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
+import { ANSWER_LIMIT_NOTE, OFFER_TTL_SECONDS, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
 import { decodeSolanaTx, type Fate, type SolanaTxFacts } from "./fate.js";
 import { noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
 import { redact, refusalReason } from "./reasons.js";
@@ -32,8 +32,11 @@ import { totalAtomic, type SolanaOffer } from "./quote.js";
 
 export type { PaidAnswer } from "./flow.js";
 
-/** SOL the Solana proxy payer must hold to pay a refund's network fee (lamports). */
-export const REFUND_SOL_MIN_LAMPORTS = 100_000n;
+/**
+ * SOL the Solana proxy payer must hold for one refund: the network fee, and the rent of the agent's USDC account
+ * when the refund has to create it again (2,039,280 lamports for a token account).
+ */
+export const REFUND_SOL_MIN_LAMPORTS = 2_100_000n;
 
 export interface SolanaSide {
   /** Where agents pay (USDC ATA must exist). Its key is not on the server. */
@@ -46,12 +49,12 @@ export interface SolanaSide {
   /** src/pay.ts dependencies for the proxy payer (budget, judge, payer and the body hooks are set per purchase). */
   pay: Omit<PayDeps, "budget" | "judge" | "payer" | "onBody" | "maxBodyBytes">;
   /**
-   * The agent's transfer, read on chain: success, `receive` up by exactly `amount`, `authority` down by exactly
-   * `amount`. `definite`: the transaction is on chain and failed or moved something else (no charge).
+   * The agent's transfer, read on chain: success and `receive` up by exactly `amount` (charged); `payer` is the owner
+   * of the account that paid (the refund address). `definite`: on chain and failed or moved something else (no charge).
    */
-  confirmCustomer: (tx: string, authority: string, amount: bigint) => Promise<{ ok: true } | { ok: false; detail: string; definite: boolean }>;
+  confirmCustomer: (tx: string, authority: string, amount: bigint) => Promise<{ ok: true; payer: string } | { ok: false; detail: string; definite: boolean }>;
   /** The fate of a transaction found by its message hash among `account`'s signatures (fate.ts solanaTxFate). */
-  fate: (f: { messageHash: string; blockhash: string; account: string }) => Promise<Fate>;
+  fate: (f: { messageHash: string; blockhash: string; account: string; since?: number }) => Promise<Fate>;
   /** Send `amount` USDC from the proxy payer to `to` (refund.ts sendSolanaRefund). */
   refund: RefundSender;
 }
@@ -181,10 +184,16 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   const seller = offer.sellerAtomic;
   const total = BigInt(req.amount);
   const now = ctx.now();
-  if (!(await store.claim({ id, chain: "solana", target, sellerAmount: seller, feeReserve: 0n, total, facts: { agent: { ...agentTx, account: side.receiveAta } }, now }))) {
+  const since = Math.floor(now.getTime() / 1000) - 120;
+  // An earlier purchase from this agent or to this seller that stopped half way is settled first; others go on.
+  if ((await store.blockingFor(now, ctx.staleMs, { agent: authority, host: offer.known.host })) > 0) {
+    return noCharge(503, "reconcile_pending", "an earlier purchase from this payer or to this seller is being settled on chain first; nothing was charged, try again later");
+  }
+  if (!(await store.claim({ id, chain: "solana", target, sellerHost: offer.known.host, agent: authority, sellerAmount: seller, feeReserve: 0n, total, facts: { agent: { ...agentTx, account: side.receiveAta, since } }, now }))) {
     return noCharge(409, "duplicate_payment", "this signed transaction was already used or is being used now");
   }
   let bal: { usdcAtomic: bigint; lamports: bigint };
+  const balanceReadAt = ctx.now();
   try {
     bal = await side.pay.readBalances();
   } catch {
@@ -197,7 +206,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   const day = utcDay(now);
   // The wallet reservation is the most this purchase can take out: a refund of the total (>= the seller price).
-  const room = await store.admit(id, { chain: "solana", payer: side.payer, day, caps: ctx.caps, need: total, balance: bal.usdcAtomic, now });
+  const room = await store.admit(id, { chain: "solana", payer: side.payer, day, caps: ctx.caps, need: total, balance: bal.usdcAtomic, balanceReadAt, now });
   if (!room.ok) {
     await store.release(id);
     return noCharge(503, room.reason, room.detail);
@@ -227,8 +236,15 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   if (!settled.success) {
     if (settleFailedBeforeSend(settled)) {
-      await store.finish(id, ["settling"], { record: { ...unknownBase, outcome: "no_charge", reason: "customer_settlement_failed" }, spent: 0n, now: ctx.now() });
-      return noCharge(402, "customer_settlement_failed", redact(settled.errorReason ?? "settlement failed"));
+      // The facilitator says it never sent; the chain has the last word: dead (blockhash expired, not there) = no charge.
+      const f = await waitFate(ctx, () => side.fate({ messageHash: agentTx.messageHash, blockhash: agentTx.blockhash, account: side.receiveAta, since }));
+      if (f.fate === "dead" || f.fate === "failed") {
+        await store.finish(id, ["settling"], { record: { ...unknownBase, outcome: "no_charge", reason: "customer_settlement_failed" }, spent: 0n, now: ctx.now() });
+        return noCharge(402, "customer_settlement_failed", redact(settled.errorReason ?? "settlement failed"));
+      }
+      const r: PurchaseRecord = { ...unknownBase, outcome: "customer_payment_unconfirmed", reason: "settle_failed_not_proven" };
+      await store.move(id, ["settling"], "settling", { record: r, facts: f.fate === "landed" ? { settleTx: f.tx } : {}, now: ctx.now() });
+      return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(id), charged: "unknown", refund: "pending_reconcile" }, headers: { "x-vet402-record": ctx.recordUrl(id) } };
     }
     const r: PurchaseRecord = { ...unknownBase, customer: { ...unknownBase.customer, tx: settled.transaction || null }, outcome: "customer_payment_unconfirmed", reason: "settle_outcome_unknown" };
     await store.move(id, ["settling"], "settling", { record: r, facts: { settleTx: settled.transaction || null }, now: ctx.now() });
@@ -248,13 +264,15 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile" }, headers: paidHeaders };
   }
   base.customer.confirmed = true;
+  const payerAddr = conf.payer;
+  base.customer.payer = payerAddr;
   // The agent's on-chain payment is used once, and the in-progress record is written, before anyone is paid.
-  if (!(await store.useCustomerTx(id, "solana", settled.transaction, { facts: { customerTx: settled.transaction }, record: base, now: ctx.now() }))) {
+  if (!(await store.useCustomerTx(id, "solana", settled.transaction, { facts: { customerTx: settled.transaction, refundTo: payerAddr }, record: base, now: ctx.now() }))) {
     await store.finish(id, ["settling"], { record: { ...base, outcome: "duplicate_customer_tx", reason: "this on-chain payment already paid for a purchase" }, spent: 0n, now: ctx.now() });
     return { kind: "json", status: 409, body: { error: "duplicate_customer_tx", record: ctx.recordUrl(id), refund: "none" }, headers: paidHeaders };
   }
   const owe = (reason: string, from: ("in_progress" | "seller_unsettled")[]) =>
-    refundOwed(ctx, { id, chain: "solana", day, from, base, reason, to: authority, total, send: side.refund, headers: paidHeaders });
+    refundOwed(ctx, { id, chain: "solana", day, from, base, reason, to: payerAddr, total, send: side.refund, headers: paidHeaders });
 
   // The seller: through the census payment path, with a single-purchase budget (the caps are in the database).
   const got: { body: Uint8Array | null; truncated: boolean; sellerTx: SolanaTxFacts | null } = { body: null, truncated: false, sellerTx: null };
@@ -274,7 +292,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
           const created = await side.pay.createPayment(pr, accept);
           const f = decodeSolanaTx(created.txBase64);
           if (!f) throw new Error("seller payment not decodable");
-          if (!(await store.move(id, ["in_progress"], "in_progress", { facts: { seller: { ...f, account: side.payerAta } }, now: ctx.now() }))) throw new Error("purchase moved");
+          if (!(await store.move(id, ["in_progress"], "in_progress", { facts: { seller: { ...f, account: side.payerAta, since } }, now: ctx.now() }))) throw new Error("purchase moved");
           got.sellerTx = f;
           return created;
         },
@@ -312,7 +330,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   if (sellerSettled !== true && !delivered) {
     // vet402's payment was handed over and not seen settled: wait for proof either way before deciding.
     const f = got.sellerTx
-      ? await waitFate(ctx, () => side.fate({ messageHash: got.sellerTx!.messageHash, blockhash: got.sellerTx!.blockhash, account: side.payerAta }))
+      ? await waitFate(ctx, () => side.fate({ messageHash: got.sellerTx!.messageHash, blockhash: got.sellerTx!.blockhash, account: side.payerAta, since }))
       : ({ fate: "pending" } as Fate);
     if (f.fate === "dead" || f.fate === "failed") return owe(f.fate === "dead" ? "seller_payment_expired_unsent" : "seller_payment_failed_on_chain", ["in_progress"]);
     if (f.fate === "landed") {
@@ -337,7 +355,8 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     return { kind: "json", status: 502, body: { error: "answer_too_large", record: ctx.recordUrl(id), refund: "none" }, headers };
   }
   const r: PurchaseRecord = { ...base, sellerPayment, answer: { ...answer, delivered }, outcome: delivered ? "delivered" : "not_delivered", reason: delivered ? null : `seller answered ${status ?? "nothing"}; vet402's payment to it settled` };
-  await store.finish(id, ["in_progress"], { record: r, spent: seller, now: ctx.now() });
+  // A failed closing write must not lose an answer vet402 paid for: the reconciler closes the purchase later.
+  await store.finish(id, ["in_progress"], { record: r, spent: seller, now: ctx.now() }).catch(() => false);
   if (!delivered) {
     return {
       kind: "json",
@@ -364,6 +383,7 @@ export function solanaPriceInfo(offer: SolanaOffer, feeAtomic: bigint) {
     total: atomicToUsdc(total),
     sellerPayTo: offer.accept.payTo,
     refund: REFUND_POLICY,
+    largeAnswers: ANSWER_LIMIT_NOTE,
     vet402Record: { settledPurchases: offer.known.settled, delivered: offer.known.delivered, lastAt: offer.known.lastAt },
   };
 }

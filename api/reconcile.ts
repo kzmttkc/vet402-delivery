@@ -29,6 +29,8 @@ export async function GET(request: Request): Promise<Response> {
       ...(built.solana ? { solana: built.solana } : {}),
       ...(built.tempo ? { tempo: built.tempo } : {}),
     });
+    // A refund that is stuck or refused, or a purchase with no address to refund, needs a human: say so in the logs.
+    for (const a of actions) if (a.action.startsWith("ALERT")) console.error(`proxy buy ALERT ${a.chain} ${a.id}: ${a.action}`);
     return new Response(JSON.stringify({ actions }, null, 2), { status: 200, headers: { "content-type": "application/json" } });
   } catch (e) {
     console.error(`proxy buy reconcile: ${redact(String((e as Error).message ?? e), 300)}`);

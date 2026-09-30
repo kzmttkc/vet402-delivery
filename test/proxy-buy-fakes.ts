@@ -298,7 +298,7 @@ export async function solRig(
     confirmCustomer: async (_tx, authority, amount) => {
       if (state.confirm === "timeout") return { ok: false, detail: "customer_tx_not_confirmed_in_time", definite: false };
       if (state.confirm === "failed") return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
-      return authority === agent.address && amount > 0n ? { ok: true } : { ok: false, detail: "customer_payer_mismatch", definite: true };
+      return authority === agent.address && amount > 0n ? { ok: true, payer: agent.address } : { ok: false, detail: "customer_amount_mismatch", definite: true };
     },
     fate: async (f) => chain.fate(f.messageHash),
     refund,

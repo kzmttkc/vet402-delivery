@@ -11,9 +11,9 @@ import pg from "pg";
 import { createClient, createPublicClient, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { tempo as tempoChain } from "viem/chains";
-import { jsonRpc, readBalances, readTransaction, waitForSettlement, type Rpc } from "../chain.js";
+import { jsonRpc, readBalances, waitForSettlement, type Rpc } from "../chain.js";
 import { makeCreatePayment } from "../client.js";
-import { PAYER_ADDRESS as SOLANA_CENSUS_PAYER, SOLANA_MAINNET } from "../constants.js";
+import { PAYER_ADDRESS as SOLANA_CENSUS_PAYER, SOLANA_MAINNET, USDC_MINT } from "../constants.js";
 import { checkPaymentTransaction, usdcAta } from "../txcheck.js";
 import { findPayerTransfers, headBlock, signerFor, usdcBalance, verifySettlement } from "../tempo/chain.js";
 import { PAYER_ADDRESS as TEMPO_CENSUS_PAYER, USDC_E } from "../tempo/constants.js";
@@ -34,8 +34,11 @@ export function ownAddresses(sol: SolanaConfig | null, tem: TempoConfig | null):
 }
 
 /**
- * The agent's Solana transfer, read on chain until it is confirmed or time runs out: success, the receive wallet
- * up by exactly `amount`, and the transfer's authority (the refund address) down by exactly `amount`.
+ * The agent's Solana transfer, read on chain until it is confirmed or time runs out. The agent is charged when
+ * the transaction succeeded and vet402's receive wallet went up by exactly `amount`. The refund address is the
+ * owner of the account that went down by exactly `amount` (the source account's owner: with a delegate as the
+ * signing authority, the delegate's balance does not move, the owner's does); when no single owner went down by
+ * exactly that, the signing authority.
  * Fixed reason codes only: an RPC error message can carry the RPC URL.
  */
 export async function confirmSolanaTransfer(
@@ -45,17 +48,28 @@ export async function confirmSolanaTransfer(
   receive: string,
   amount: bigint,
   o: { timeoutMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
-): Promise<{ ok: true } | { ok: false; detail: string; definite: boolean }> {
+): Promise<{ ok: true; payer: string } | { ok: false; detail: string; definite: boolean }> {
   const deadline = Date.now() + (o.timeoutMs ?? CUSTOMER_CONFIRM_TIMEOUT_MS);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  type Bal = { owner?: string; mint: string; uiTokenAmount: { amount: string } };
   for (;;) {
     try {
-      const r = await readTransaction(rpc, tx, authority, receive);
-      if (r.found) {
-        if (r.err !== null) return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
-        if (r.payToDeltaAtomic !== amount.toString()) return { ok: false, detail: `customer_amount_mismatch: receive wallet got ${r.payToDeltaAtomic}, expected ${amount}`, definite: true };
-        if (r.payerDeltaAtomic !== `-${amount}`) return { ok: false, detail: `customer_payer_mismatch: the signer's balance moved ${r.payerDeltaAtomic}`, definite: true };
-        return { ok: true };
+      const t = (await rpc("getTransaction", [tx, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
+        meta: { err: unknown; preTokenBalances?: Bal[]; postTokenBalances?: Bal[] } | null;
+      } | null;
+      if (t && t.meta) {
+        if (t.meta.err !== null && t.meta.err !== undefined) return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
+        const delta = new Map<string, bigint>();
+        for (const [list, sign] of [[t.meta.preTokenBalances ?? [], -1n], [t.meta.postTokenBalances ?? [], 1n]] as const) {
+          for (const b of list) {
+            if (b.mint !== USDC_MINT || !b.owner) continue;
+            delta.set(b.owner, (delta.get(b.owner) ?? 0n) + sign * BigInt(b.uiTokenAmount.amount));
+          }
+        }
+        const got = delta.get(receive) ?? 0n;
+        if (got !== amount) return { ok: false, detail: `customer_amount_mismatch: receive wallet got ${got}, expected ${amount}`, definite: true };
+        const sources = [...delta.entries()].filter(([owner, d]) => owner !== receive && d === -amount).map(([owner]) => owner);
+        return { ok: true, payer: sources.length === 1 ? sources[0]! : authority };
       }
     } catch {
       /* keep polling */
@@ -148,7 +162,11 @@ export function mppAdapter(mppx: MppxLike): MppServer {
 export function tempoReads(rpcUrl: string, client = createPublicClient({ chain: tempoChain, transport: http(rpcUrl, { timeout: 15_000, retryCount: 1 }) })): TempoReads {
   return {
     async receipt(hash) {
-      const r = await client.getTransactionReceipt({ hash: hash as Hex }).catch(() => null);
+      // Only "no such receipt" is an answer; any other error (a 503, a timeout) is thrown, and fate.ts reads it as pending.
+      const r = await client.getTransactionReceipt({ hash: hash as Hex }).catch((e: unknown) => {
+        if ((e as { name?: string })?.name === "TransactionReceiptNotFoundError") return null;
+        throw e;
+      });
       return r ? { status: r.status === "success" ? "success" : "reverted" } : null;
     },
     async headTime() {

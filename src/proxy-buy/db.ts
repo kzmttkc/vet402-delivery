@@ -25,6 +25,8 @@ create table if not exists pb_purchase (
   state text not null,
   day date,
   target text not null,
+  seller_host text not null default '',
+  agent text,
   seller_amount bigint not null,
   fee_reserve bigint not null,
   total bigint not null,
@@ -35,6 +37,8 @@ create table if not exists pb_purchase (
   updated_at timestamptz not null
 );
 create index if not exists pb_purchase_state_idx on pb_purchase (state, updated_at);
+create index if not exists pb_purchase_host_idx on pb_purchase (seller_host, state);
+create index if not exists pb_purchase_agent_idx on pb_purchase (agent, state);
 create table if not exists pb_customer_tx (
   chain text not null,
   tx text not null,
@@ -50,6 +54,7 @@ create table if not exists pb_day (
   committed bigint not null default 0,
   count integer not null default 0,
   refunded bigint not null default 0,
+  refund_reserved bigint not null default 0,
   primary key (chain, day)
 );
 create table if not exists pb_wallet (
@@ -99,6 +104,12 @@ export function pgSql(pool: Pool): Sql {
   return wrap(pool);
 }
 
+/** Advisory lock key for migrations: concurrent cold starts create the tables one at a time. */
+const MIGRATE_LOCK = 402_402_402;
+
 export async function migrate(sql: Sql): Promise<void> {
-  for (const stmt of SCHEMA.split(";").map((s) => s.trim()).filter(Boolean)) await sql.query(stmt);
+  await sql.tx(async (q) => {
+    await q.query("select pg_advisory_xact_lock($1)", [MIGRATE_LOCK]);
+    for (const stmt of SCHEMA.split(";").map((x) => x.trim()).filter(Boolean)) await q.query(stmt);
+  });
 }

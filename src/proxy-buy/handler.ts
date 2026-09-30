@@ -105,6 +105,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     caps,
     maxRefund: o.maxRefund,
     deadline: Date.now() + (o.requestBudgetMs ?? DEFAULT_REQUEST_BUDGET_MS),
+    staleMs,
     ...(o.sleep ? { sleep: o.sleep } : {}),
     ...(o.pollMs !== undefined ? { pollMs: o.pollMs } : {}),
   });
@@ -162,19 +163,19 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     );
   }
 
-  /** Purchases that stopped half way: reconcile them now; refuse new paid requests while any cannot be settled yet. */
-  async function gate(): Promise<Response | null> {
-    if ((await o.store.blocking(now(), staleMs)) === 0) return null;
-    const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(o.tempo ? { tempo: o.tempo } : {}), staleMs, deadline: Date.now() + 60_000 };
+  /**
+   * Purchases that stopped half way: give the reconciler a short, bounded turn before a paid request. This never
+   * refuses the request by itself: a purchase that cannot be settled yet holds up only new requests from the same
+   * agent or to the same seller (solana.ts / tempo.ts), so one stuck purchase cannot stop the service.
+   */
+  async function reconcileSome(): Promise<void> {
+    if ((await o.store.stale(now(), staleMs, 1)).length === 0) return;
+    const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(o.tempo ? { tempo: o.tempo } : {}), deadline: Date.now() + 20_000, limit: 5 };
     await reconcile(ctx).catch(() => []);
-    const left = await o.store.blocking(now(), staleMs);
-    if (left === 0) return null;
-    return json(503, { verdict: "REFUSE", reason: "reconcile_pending", detail: `${left} earlier purchase(s) are being settled on chain first; nothing was charged, try again later`, charged: false });
   }
 
   async function paid(target: string | null, pay: { chain: "solana" | "tempo"; header: string }): Promise<Response> {
-    const g = await gate();
-    if (g) return g;
+    await reconcileSome();
     const q = await quote(target, quoteDeps);
     if ("ok" in q && q.ok === false) return refusedResponse(q);
     const qq = q as Quote;

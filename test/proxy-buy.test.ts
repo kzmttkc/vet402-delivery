@@ -372,14 +372,16 @@ test("H1: while an abandoned purchase cannot be settled yet, new paid requests a
   assert.equal(r.fac.settles, settlesBefore);
 });
 
-test("solana: refunds: over the daily refund cap it is refused and recorded (closed); a refund that fails before sending is retried by the reconciler", async () => {
+test("C1 solana: the day's refund room is reserved at admission, so a refund is never refused by the cap after the agent paid; a refund that fails before sending is retried", async () => {
   const raise = { onRead: (n: number, s: J) => void (n === 3 && (s.price = 12_000n)) };
   const r = await solRig({ caps: { refundCap: 10_000n }, seller: raise });
   const h = await agentPaysSolana(r.buy);
-  const j = await body(await r.buy.handle(paidReq(h.header)));
-  assert.equal(j.refund.status, "refused");
-  assert.equal(j.refund.reason, "daily_refund_cap_reached");
-  assert.deepEqual(await r.reconcile(), []);
+  const res = await r.buy.handle(paidReq(h.header));
+  assert.equal(res.status, 503);
+  const j = await body(res);
+  assert.equal(j.reason, "daily_refund_cap_reached");
+  assert.equal(j.charged, false);
+  assert.equal(r.fac.settles, 0);
   const f = await solRig({ seller: raise });
   f.state.refund = "failed";
   const h2 = await agentPaysSolana(f.buy);
@@ -496,7 +498,7 @@ test("records: unknown or malformed ids are 404; POST is 405; /v1/buy?record= wo
 
 // ================= chain reads and refund builders =================
 
-test("M1 confirmSolanaTransfer: the receive wallet up and the signer down by exactly the total", async () => {
+test("C2/M1 confirmSolanaTransfer: charged when the receive wallet went up by the total; the refund goes to the owner whose balance paid", async () => {
   const tx = (payTo: string, payer: string, err: unknown = null) => ({
     meta: {
       err,
@@ -515,13 +517,24 @@ test("M1 confirmSolanaTransfer: the receive wallet up and the signer down by exa
   });
   const rpcWith = (v: unknown) => async () => v;
   const s = async () => undefined;
-  assert.deepEqual(await confirmSolanaTransfer(rpcWith(tx("15000", "85000")), "sig", agent.address, RECEIVE, 15_000n, { sleep: s }), { ok: true });
-  assert.equal((await confirmSolanaTransfer(rpcWith(tx("15000", "100000")), "sig", agent.address, RECEIVE, 15_000n, { sleep: s })) .ok, false, "someone else paid: not the signer's money");
+  assert.deepEqual(await confirmSolanaTransfer(rpcWith(tx("15000", "85000")), "sig", agent.address, RECEIVE, 15_000n, { sleep: s }), { ok: true, payer: agent.address });
+  // the receive wallet got the total from an account this test does not list: charged; the refund falls back to the signer
+  assert.deepEqual(await confirmSolanaTransfer(rpcWith(tx("15000", "100000")), "sig", agent.address, RECEIVE, 15_000n, { sleep: s }), { ok: true, payer: agent.address });
   assert.equal((await confirmSolanaTransfer(rpcWith(tx("14999", "85001")), "sig", agent.address, RECEIVE, 15_000n, { sleep: s })).ok, false);
   const failed = await confirmSolanaTransfer(rpcWith(tx("15000", "85000", { x: 1 })), "sig", agent.address, RECEIVE, 15_000n, { sleep: s });
   assert.deepEqual(failed, { ok: false, detail: "customer_tx_failed_on_chain", definite: true });
   const none = await confirmSolanaTransfer(rpcWith(null), "sig", agent.address, RECEIVE, 15_000n, { timeoutMs: 0, sleep: s });
   assert.equal(none.ok === false && none.definite, false);
+  // review zz2-delegate: the signing authority is a delegate D; owner X's USDC paid -> charged, refunded to X
+  const bal = (owner: string, amount: string) => ({ owner, mint: USDC_MINT, uiTokenAmount: { amount } });
+  const delegated = async (m: string) => {
+    if (m !== "getTransaction") throw new Error(m);
+    return {
+      meta: { err: null, preBalances: [0], postBalances: [0], preTokenBalances: [bal("OWNER_X", "1000000"), bal("RECEIVE", "0")], postTokenBalances: [bal("OWNER_X", "895000"), bal("RECEIVE", "105000")] },
+      transaction: { message: { accountKeys: [{ pubkey: "FAC" }], instructions: [] } },
+    };
+  };
+  assert.deepEqual(await confirmSolanaTransfer(delegated as never, "SIG", "DELEGATE_D", "RECEIVE", 105_000n, { timeoutMs: 10 }), { ok: true, payer: "OWNER_X" });
 });
 
 test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, transfer search, validBefore and nonce", async () => {
@@ -551,8 +564,8 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     if (method === "isBlockhashValid") return { value: false };
     throw new Error(method);
   };
-  assert.deepEqual(await solanaTxFate(busy, { ...f, limit: 2 }), { fate: "pending" });
-  assert.deepEqual(await solanaTxFate(busy, { ...f, limit: 3 }), { fate: "dead" });
+  assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 2 }), { fate: "pending" });
+  assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 3 }), { fate: "dead" });
 
   const base = { hash: "0xaa", from: "0xf", nonce: "3", nonceKey: "0", validBefore: "1000", sponsored: false };
   const reads = (o: { receipt?: "success" | null; time?: bigint; nonce?: bigint; hits?: string[] }) => ({
@@ -591,7 +604,7 @@ test("solana refund: one USDC transfer to the signer's account, facts written be
   assert.equal(written.length, 1);
   assert.equal(written[0]!.facts.account, PAYER_ATA);
   assert.equal(await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: agent.address, amount: 15_000n }), null);
-  assert.match((await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: SELLER, amount: 15_000n }))!, /destination/);
+  assert.match((await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: SELLER, amount: 15_000n }))!, /ATA\(to, USDC\)|destination/);
   const taken = await sendSolanaRefund({ rpc, signer: proxyPayer }, agent.address, 15_000n, async () => false);
   assert.equal(taken.status, "failed");
   assert.equal(sent.length, 1, "nothing sent when the attempt belongs to someone else");

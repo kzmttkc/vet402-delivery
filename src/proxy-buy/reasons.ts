@@ -36,6 +36,9 @@ export function redact(s: string, max = 160): string {
   return s
     .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, "<url>")
     .replace(/\b(api[-_]?key|apikey|token|secret|key|auth(orization)?)\s*[=:]\s*[^\s,;"']+/gi, "$1=<redacted>")
+    // host names and addresses (a database or RPC error names its server, e.g. "getaddrinfo ENOTFOUND ep-x.neon.tech")
+    .replace(/\b(?:[a-z0-9-]+\.)+(?:tech|com|net|io|app|dev|xyz|org|cloud|co|ai|sh|build|network|link|test)\b/gi, "<host>")
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "<ip>")
     .slice(0, max);
 }
 

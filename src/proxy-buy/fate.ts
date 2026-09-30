@@ -65,34 +65,58 @@ export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
   }
 }
 
-/** Find the transaction with `messageHash` among `account`'s recent signatures; then, if absent, whether it can still land. */
-export async function solanaTxFate(rpc: Rpc, f: { messageHash: string; blockhash: string; account: string; limit?: number }): Promise<Fate> {
-  const limit = f.limit ?? 100;
-  let full = false;
+/**
+ * Find the transaction with `messageHash` among `account`'s signatures, paging back (`before`) until the history
+ * is older than `since` (unix seconds, the purchase's start) or ends; then, if absent, whether it can still land.
+ * "dead" needs the whole window read: a listed signature whose transaction the RPC does not serve yet, a history
+ * longer than `maxPages`, or any read error leaves the answer at "pending" (no refund on a guess).
+ */
+export async function solanaTxFate(
+  rpc: Rpc,
+  f: { messageHash: string; blockhash: string; account: string; since?: number; pageSize?: number; maxPages?: number },
+): Promise<Fate> {
+  const pageSize = f.pageSize ?? 100;
+  const maxPages = f.maxPages ?? 10;
+  let complete = false;
   const find = async (): Promise<Fate | null> => {
-    const sigs = (await rpc("getSignaturesForAddress", [f.account, { limit, commitment: "confirmed" }])) as { signature: string }[];
-    // A full page may have pushed the transaction out of view: "not found" then proves nothing.
-    full = sigs.length >= limit;
-    for (const s of sigs) {
-      const t = (await rpc("getTransaction", [s.signature, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
-        meta: { err: unknown } | null;
-        transaction: [string, string];
-      } | null;
-      if (!t) continue;
-      const d = decodeSolanaTx(t.transaction[0]);
-      if (d && d.messageHash === f.messageHash) return t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature };
+    complete = false;
+    let unreadable = false;
+    let before: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const sigs = (await rpc("getSignaturesForAddress", [f.account, { limit: pageSize, commitment: "confirmed", ...(before ? { before } : {}) }])) as { signature: string; blockTime?: number | null }[];
+      for (const s of sigs) {
+        if (f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) {
+          complete = !unreadable;
+          return null;
+        }
+        const t = (await rpc("getTransaction", [s.signature, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
+          meta: { err: unknown } | null;
+          transaction: [string, string];
+        } | null;
+        if (!t) {
+          unreadable = true; // listed but not served: it may be the one
+          continue;
+        }
+        const d = decodeSolanaTx(t.transaction[0]);
+        if (d && d.messageHash === f.messageHash) return t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature };
+      }
+      if (sigs.length < pageSize) {
+        complete = !unreadable;
+        return null;
+      }
+      before = sigs[sigs.length - 1]!.signature;
     }
-    return null;
+    return null; // more history than maxPages: not complete
   };
   try {
     const hit = await find();
     if (hit) return hit;
-    const valid = (await rpc("isBlockhashValid", [f.blockhash, { commitment: "confirmed" }])) as { value: boolean };
-    if (valid.value) return { fate: "pending" };
-    // expired: one last look, in case it landed between the two reads
+    const valid = (await rpc("isBlockhashValid", [f.blockhash, { commitment: "confirmed" }])) as { value: boolean } | null;
+    if (!valid || valid.value !== false) return { fate: "pending" };
+    // expired: one last full look, in case it landed between the two reads
     const last = await find();
     if (last) return last;
-    return full ? { fate: "pending" } : { fate: "dead" };
+    return complete ? { fate: "dead" } : { fate: "pending" };
   } catch {
     return { fate: "pending" };
   }

@@ -37,3 +37,7 @@ export const DEFAULT_FACILITATOR_URL = "https://facilitator.payai.network";
 /** Shown with every price and in the README. */
 export const REFUND_POLICY =
   "If your payment settles and vet402 then does not pay the seller, vet402 refunds your full payment to the address that paid, on the same chain in the same token. If vet402 paid the seller and the seller did not deliver, there is no refund; the purchase is recorded against the seller.";
+
+/** Shown with every price: what happens to an answer above PROXY_MAX_FORWARD_BYTES. */
+export const ANSWER_LIMIT_NOTE =
+  "An answer above 1,000,000 bytes is not forwarded. vet402 has paid the seller by then, so there is no refund; the record keeps its size and sha256.";

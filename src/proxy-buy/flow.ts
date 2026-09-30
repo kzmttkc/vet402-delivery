@@ -22,6 +22,8 @@ export interface Common {
   maxRefund: bigint;
   /** Epoch ms by which this request must stop waiting on chains (a serverless function has a hard limit). */
   deadline: number;
+  /** A non-final purchase older than this is taken to be abandoned (reconciler; per-agent and per-seller wait). */
+  staleMs: number;
   sleep?: (ms: number) => Promise<void>;
   pollMs?: number;
 }
@@ -58,8 +60,9 @@ export async function refundOwed(
   }
   const refund: RefundRecord = await refundAgent(c.store, o.send, { id: o.id, chain: o.chain, day: o.day, to: o.to, amount: o.total, maxRefund: c.maxRefund, now: c.now, ...(o.retry ? { retry: true } : {}) });
   const record: PurchaseRecord = { ...pending, refund };
+  // Only a sent refund closes the purchase. A refused, failed, unknown or stuck refund keeps it open (refund_pending):
+  // the money is still owed, the reconciler keeps at it, and a stuck one is reported for a human.
   if (refund.status === "sent") await c.store.finish(o.id, ["refund_pending"], { record, spent: o.total, now: c.now() });
-  else if (refund.status === "refused") await c.store.finish(o.id, ["refund_pending"], { record, spent: 0n, now: c.now() });
   else await c.store.move(o.id, ["refund_pending"], "refund_pending", { record, now: c.now() });
   return {
     kind: "json",
