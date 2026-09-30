@@ -46,6 +46,21 @@ export async function waitFate(c: Common, fate: () => Promise<Fate>): Promise<Fa
 }
 
 /**
+ * A fate look that keeps, with the purchase's facts under `key`, the slot where the transaction's blockhash was
+ * first seen expired: every later look (this request's next poll, the reconciler) reads the same window.
+ */
+export function keepExpiry<F extends { expiredSlot?: number }>(store: Store, id: string, key: string, facts: F, look: (f: F) => Promise<Fate>): () => Promise<Fate> {
+  return async () => {
+    const f = await look(facts);
+    if (f.fate === "pending" && f.expiredSlot !== undefined && facts.expiredSlot === undefined) {
+      facts.expiredSlot = f.expiredSlot;
+      await store.mergeFacts(id, key, { expiredSlot: f.expiredSlot }).catch(() => undefined);
+    }
+    return f;
+  };
+}
+
+/**
  * vet402 did not pay the seller (proven): record that a refund is owed, refund, and close the purchase when
  * the refund is settled or refused. A refund that failed before sending, or whose outcome is unknown, leaves
  * the purchase in refund_pending for the reconciler.

@@ -184,3 +184,44 @@ test("pg (third review): 20 concurrent admits with SOL for 3 refunds -> exactly 
   assert.equal(res.filter((x) => x.ok).length, 3);
   assert.ok(res.filter((x) => !x.ok).every((x) => (x as { reason: string }).reason === "refund_fee_unavailable"));
 });
+
+// Fourth review (zz4-race): many reconcilers at once on one purchase, three rounds each.
+for (const round of [1, 2, 3]) {
+  test(`pg (fourth review) race ${round}: 8 reconcilers at once on a seller payment proven dead -> exactly one refund, books closed once`, { skip }, async () => {
+    await fresh();
+    const r = await solRig({ seller: { paidStatus: 500 }, sellerSettles: false, budgetMs: 200, sql: sql! });
+    r.chain.blockhashValid = true;
+    const { header } = await agentPaysSolana(r.buy);
+    assert.equal((await r.buy.handle(paidReq(header))).status, 502);
+    r.chain.blockhashValid = false; // now provably dead
+    await Promise.all(Array.from({ length: 8 }, () => r.reconcile()));
+    assert.equal(r.refunds.length, 1, String(r.refunds.length));
+    assert.deepEqual((await pool!.query(`select state from pb_purchase`)).rows.map((x) => x.state), ["done"]);
+    assert.deepEqual((await pool!.query(`select status, attempt from pb_refund`)).rows, [{ status: "sent", attempt: 1 }]);
+    assert.deepEqual((await pool!.query(`select refund_reserved::text as rr from pb_day`)).rows, [{ rr: "0" }]);
+  });
+  test(`pg (fourth review) race ${round}: settle answer lost, 8 reconcilers at once -> one refund`, { skip }, async () => {
+    await fresh();
+    const r = await solRig({ sql: sql!, budgetMs: 200 });
+    r.fac.fail = "settle_throw";
+    const { header } = await agentPaysSolana(r.buy);
+    assert.equal((await r.buy.handle(paidReq(header))).status, 502);
+    await Promise.all(Array.from({ length: 8 }, () => r.reconcile()));
+    assert.equal(r.refunds.length, 1, String(r.refunds.length));
+    assert.equal(r.sellerPays.length, 0);
+  });
+}
+
+test("pg (fourth review): a floor raise leaves out a closed purchase's seller payment not yet seen on chain", { skip }, async () => {
+  const s = await fresh();
+  const wide = { cap: 5_000_000n, maxCount: 100, refundCap: 5_000_000n };
+  const t = (sec: number) => new Date(now.getTime() + sec * 1000);
+  const admitAt = (id: string, balance: bigint, at: Date) => s.admit(id, { chain: "solana", payer: "P", day, caps: wide, need: 105_000n, balance, balanceReadAt: at, now: at });
+  await claim(s, "A");
+  assert.deepEqual(await admitAt("A", 1_000_000n, t(0)), { ok: true });
+  await s.move("A", ["admitted"], "in_progress", { now: t(1) });
+  assert.ok(await s.finish("A", ["in_progress"], { record: { outcome: "delivered" } as never, spent: 100_000n, sellerOpen: true, now: t(2) }));
+  await claim(s, "B");
+  assert.deepEqual(await admitAt("B", 1_000_000n, t(3600)), { ok: true });
+  assert.equal((await s.wallet("solana"))!.floor, 900_000n - 105_000n);
+});

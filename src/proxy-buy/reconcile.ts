@@ -12,10 +12,11 @@
  * with), so two reconcilers, or a reconciler and a request, never act twice on one purchase.
  * Actions starting with "ALERT" need a human (the cron logs them).
  */
-import { OPEN_ALERT_MS } from "./constants.js";
+import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS } from "./constants.js";
 import { tempoTxFate, type Fate, type TempoFateFacts } from "./fate.js";
 import { refundOwed, type Common } from "./flow.js";
 import { redact } from "./reasons.js";
+import { ACCOUNT_CREATION_WAIT } from "./refund.js";
 import type { SolanaSide } from "./solana.js";
 import type { PurchaseRecord, PurchaseRow } from "./store.js";
 import { KNOWN_TX_WINDOW_MS, type TempoSide } from "./tempo.js";
@@ -25,6 +26,10 @@ export interface ReconcileContext extends Common {
   tempo?: TempoSide;
   /** At most this many purchases per run (the request gate uses a few; the cron and the script more). */
   limit?: number;
+  /** Chain transaction reads for the whole run (default RECONCILE_MAX_TX_READS). */
+  maxTxReads?: number;
+  /** Closed purchases with a seller payment not seen yet, looked at per run (default 10). */
+  sellerOpenLimit?: number;
 }
 
 export interface ReconcileAction {
@@ -58,44 +63,78 @@ function fallbackRecord(row: PurchaseRow, now: Date): PurchaseRecord {
   return { ...d, ...(row.record ?? {}), customer: { ...d.customer, ...(row.record?.customer ?? {}) } };
 }
 
-async function txFate(ctx: ReconcileContext, row: PurchaseRow, f: Facts | null): Promise<Fate> {
+/** One reconcile run: the chain reads it may still make, and what the current row's looks found. */
+interface Run {
+  budget: { reads: number };
+  /** The run's read budget ran out: stop taking rows. */
+  exhausted: boolean;
+  /** This row's search was cut short for a reason of its own: look again only after CAPPED_RECHECK_MS. */
+  capped: boolean;
+  /** This row has nothing to do before this time (e.g. the next UTC day). */
+  nextAt: Date | null;
+}
+
+/** Where a transaction's facts are kept, to add the slot its blockhash was first seen expired. */
+type Keep = { key: "agent" | "seller" } | { refundTx: string | null };
+
+async function txFate(ctx: ReconcileContext, run: Run, row: PurchaseRow, f: Facts | null, keep: Keep): Promise<Fate> {
   if (!f) return { fate: "pending" };
   if (row.chain === "solana" && ctx.solana) {
     const messageHash = str(f.messageHash);
     const blockhash = str(f.blockhash);
     const account = str(f.account);
     if (!messageHash || !blockhash || !account) return { fate: "pending" };
-    return ctx.solana.fate({
+    const out = await ctx.solana.fate({
       messageHash,
       blockhash,
       account,
       ...(typeof f.since === "number" ? { since: f.since } : {}),
       ...(typeof f.minSlot === "number" ? { minSlot: f.minSlot } : {}),
+      ...(typeof f.expiredSlot === "number" ? { expiredSlot: f.expiredSlot } : {}),
+      ...(str(f.signature) ? { signature: str(f.signature)! } : {}),
       deadline: ctx.deadline,
+      budget: run.budget,
     });
+    if (out.fate === "pending") {
+      if (out.capped === "run_budget") run.exhausted = true;
+      else if (out.capped) run.capped = true;
+      if (out.expiredSlot !== undefined && typeof f.expiredSlot !== "number") {
+        if ("key" in keep) await ctx.store.mergeFacts(row.id, keep.key, { expiredSlot: out.expiredSlot });
+        else await ctx.store.refundMergeFacts(row.id, keep.refundTx, { expiredSlot: out.expiredSlot });
+      }
+    }
+    return out;
   }
   if (row.chain === "tempo" && ctx.tempo) {
     const facts = f as unknown as TempoFateFacts;
     const known = facts.sponsored ? await ctx.store.knownTxs("tempo", row.id, new Date(ctx.now().getTime() - KNOWN_TX_WINDOW_MS)) : [];
-    return tempoTxFate(ctx.tempo.reads, { ...facts, memo: facts.memo ?? null, known });
+    const out = await tempoTxFate(ctx.tempo.reads, { ...facts, memo: facts.memo ?? null, known });
+    if (out.fate === "pending" && out.capped) run.capped = true;
+    return out;
   }
   return { fate: "pending" };
 }
 
-/** A "pending" whose search was cut short needs a human: said as an ALERT. */
-const waiting = (what: string, f: Fate) => (f.fate === "pending" && f.capped ? `ALERT waiting: ${what}; the chain search was cut short (${f.capped})` : `waiting: ${what}`);
+/** A "pending" whose search was cut short needs a human: said as an ALERT (a run out of reads just waits). */
+const waiting = (what: string, f: Fate) =>
+  f.fate === "pending" && f.capped && f.capped !== "run_budget" ? `ALERT waiting: ${what}; the chain search was cut short (${f.capped})` : `waiting: ${what}`;
+
+const nextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
 
 export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[]> {
   const { store } = ctx;
   const out: ReconcileAction[] = [];
+  const budget = { reads: ctx.maxTxReads ?? RECONCILE_MAX_TX_READS };
   await store.pruneCounters(new Date(ctx.now().getTime() - 2 * 86_400_000)).catch(() => undefined);
   const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50);
+  let exhausted = false;
   for (const row of rows) {
-    if (Date.now() >= ctx.deadline) break;
+    if (Date.now() >= ctx.deadline || exhausted) break;
     const note = (action: string) => out.push({ id: row.id, chain: row.chain, state: row.state, action });
+    const run: Run = { budget, exhausted: false, capped: false, nextAt: null };
     let last = "";
     try {
-      await one(ctx, row, (a) => {
+      await one(ctx, run, row, (a) => {
         last = a;
         note(a);
       });
@@ -103,17 +142,43 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
       last = "error";
       note(`error, will retry: ${redact(String((e as Error).message ?? e), 120)}`);
     }
-    // Looked at: to the back of the queue. Still open long after it started: a human looks.
-    await store.touch(row.id, ctx.now()).catch(() => undefined);
+    exhausted = run.exhausted;
+    // Looked at: to the back of the queue; a search cut short is looked at again only after a while.
+    const next = run.capped ? new Date(ctx.now().getTime() + CAPPED_RECHECK_MS) : (run.nextAt ?? ctx.now());
+    await store.touch(row.id, next).catch(() => undefined);
+    // Still open long after it started: a human looks.
     const age = ctx.now().getTime() - Date.parse(row.created_at);
     if (!/^(closed|released)/.test(last) && age > OPEN_ALERT_MS && !last.startsWith("ALERT")) {
       note(`ALERT open for ${Math.floor(age / 60_000)} minutes (${row.state}): needs a human if it does not close`);
     }
   }
+  // Closed purchases whose payment to the seller was not seen on chain yet: once it is (landed or dead), it no
+  // longer holds back the wallet floor.
+  if (!exhausted && Date.now() < ctx.deadline) {
+    for (const row of await store.sellerOpen(ctx.sellerOpenLimit ?? 10)) {
+      if (Date.now() >= ctx.deadline) break;
+      const run: Run = { budget, exhausted: false, capped: false, nextAt: null };
+      const seller = obj(row.facts.seller);
+      const f: Fate = seller ? await txFate(ctx, run, row, seller, { key: "seller" }) : { fate: "dead" };
+      const note = (action: string) => out.push({ id: row.id, chain: row.chain, state: row.state, action });
+      if (f.fate === "pending") {
+        note(waiting("a delivered purchase's seller payment is not seen on chain yet", f));
+        if (run.exhausted) break;
+        continue;
+      }
+      const rec = row.record ? { ...row.record, sellerPayment: f.fate === "landed" ? { tx: f.tx, settled: true } : { tx: null, settled: false } } : null;
+      if (f.fate === "landed" && !(await store.bindTx(row.chain, f.tx, row.id, "seller", ctx.now()))) {
+        note(`ALERT seller transaction ${f.tx} is bound to another purchase: needs a human`);
+        continue;
+      }
+      await store.sellerSeen(row.id, rec);
+      note(`seller payment seen: ${f.fate}`);
+    }
+  }
   return out;
 }
 
-async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) => void): Promise<void> {
+async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: string) => void): Promise<void> {
   const { store } = ctx;
   const side = row.chain === "solana" ? ctx.solana : ctx.tempo;
   if (!side) return note("skipped: chain not configured");
@@ -127,6 +192,10 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
   const headers: Record<string, string> = {};
   const refundNote = (r: { body: Record<string, unknown> }) => {
     const rf = (r.body.refund ?? {}) as { status?: string; reason?: string };
+    if (rf.status === "failed" && rf.reason === ACCOUNT_CREATION_WAIT) {
+      run.nextAt = nextUtcDay(ctx.now());
+      return "waiting: the refund needs the agent's USDC account created; the day's creations are used up (next UTC day)";
+    }
     return rf.status === "sent" ? 'refund: "sent"' : `ALERT refund ${rf.status ?? "?"}: ${rf.reason ?? ""}`;
   };
 
@@ -142,21 +211,21 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
     let payer: string | null = null;
     const settleTx = str(row.facts.settleTx);
     if (settleTx && signer) {
-      const c = await side.confirmCustomer(settleTx, signer, total).catch(() => ({ ok: false as const, detail: "confirm_error", definite: false }));
+      const c = await side.confirmCustomer(settleTx, signer, total, str(agent?.messageHash) ?? "").catch(() => ({ ok: false as const, detail: "confirm_error", definite: false }));
       if (c.ok) {
         paidTx = settleTx;
         payer = "payer" in c && typeof c.payer === "string" ? c.payer : signer;
       }
     }
     if (!paidTx) {
-      const f = await txFate(ctx, row, agent);
+      const f = await txFate(ctx, run, row, agent, { key: "agent" });
       if (f.fate === "pending") return note(waiting("the agent's payment can still land", f));
       if (f.fate === "dead" || f.fate === "failed") {
         await store.finish(row.id, ["settling"], { record: { ...base, outcome: "no_charge", reason: `agent_payment_${f.fate}` }, spent: 0n, ...pin, now: ctx.now() });
         return note(`closed: agent payment ${f.fate}, no charge`);
       }
       if (!signer) return note("ALERT agent address unknown");
-      const c = await side.confirmCustomer(f.tx, signer, total).catch(() => ({ ok: false as const, detail: "confirm_error", definite: false }));
+      const c = await side.confirmCustomer(f.tx, signer, total, str(agent?.messageHash) ?? "").catch(() => ({ ok: false as const, detail: "confirm_error", definite: false }));
       if (!c.ok) {
         if (c.definite) {
           await store.finish(row.id, ["settling"], { record: { ...base, outcome: "no_charge", reason: c.detail }, spent: 0n, ...pin, now: ctx.now() });
@@ -182,7 +251,7 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
 
   if (row.state === "in_progress" || row.state === "seller_unsettled") {
     const seller = obj(row.facts.seller);
-    const f: Fate = seller ? await txFate(ctx, row, seller) : { fate: "dead" }; // never handed over
+    const f: Fate = seller ? await txFate(ctx, run, row, seller, { key: "seller" }) : { fate: "dead" }; // never handed over
     if (f.fate === "pending") return note(waiting("vet402's payment to the seller can still land", f));
     if (f.fate === "landed") {
       if (!(await store.bindTx(row.chain, f.tx, row.id, "seller", ctx.now()))) return note(`ALERT seller transaction ${f.tx} is bound to another purchase: needs a human`);
@@ -209,7 +278,7 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
       return note("closed: refund sent");
     }
     if (rf && (rf.status === "sending" || rf.status === "unknown")) {
-      const f = await txFate(ctx, row, rf.facts);
+      const f = await txFate(ctx, run, row, rf.facts, { refundTx: rf.tx });
       if (f.fate === "pending") return note(waiting("the refund can still land", f));
       if (f.fate === "landed") {
         if (!(await store.bindTx(row.chain, f.tx, row.id, "refund", ctx.now()))) return note(`ALERT refund transaction ${f.tx} is bound to another purchase: needs a human`);

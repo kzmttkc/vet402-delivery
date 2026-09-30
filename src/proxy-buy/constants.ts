@@ -42,6 +42,12 @@ export const REFUND_ACCOUNT_CREATIONS_PER_DAY = 10;
 /** A Tempo payment's validBefore may be at most this far ahead (mppx signs 25 s ahead): past it, it is refused. */
 export const TEMPO_MAX_VALID_AHEAD_SECONDS = 600;
 
+/** Chain transaction reads one reconcile run may make in all (the cron's RPC bill has a ceiling). */
+export const RECONCILE_MAX_TX_READS = 1000;
+
+/** A purchase whose chain search was cut short is looked at again only after this long. */
+export const CAPPED_RECHECK_MS = 15 * 60_000;
+
 /** An open purchase older than this is reported by the reconciler (ALERT) on every look. */
 export const OPEN_ALERT_MS = 2 * 3_600_000;
 

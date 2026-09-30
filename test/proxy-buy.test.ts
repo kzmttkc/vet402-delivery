@@ -223,15 +223,19 @@ test("R4 solana: one payment sent 10 times at once under both header names and r
   assert.equal(r2.fac.settles, 0);
 });
 
-test("solana: a facilitator that answers a new payment with an earlier settled transaction -> nothing paid or refunded for it", async () => {
+test("solana: a facilitator that answers a new payment with an earlier settled transaction -> not taken as this payment; nothing paid or refunded for it", async () => {
   const r = await solRig();
-  r.fac.fixedTx = "custSAME";
   const a = await agentPaysSolana(r.buy, S_URL, "ee112233445566778899aabbccddeeff");
-  assert.equal((await r.buy.handle(paidReq(a.header))).status, 200);
+  const ra = await r.buy.handle(paidReq(a.header));
+  assert.equal(ra.status, 200);
+  r.fac.fixedTx = ra.headers.get("x-vet402-customer-tx");
   const b = await agentPaysSolana(r.buy, S_URL, "ff112233445566778899aabbccddeeff");
   const rb = await r.buy.handle(paidReq(b.header));
-  assert.equal(rb.status, 409);
-  assert.equal((await body(rb)).error, "duplicate_customer_tx");
+  // the named transaction is not the one the agent signed: not confirmed; the agent's own transaction decides
+  assert.equal(rb.status, 502);
+  assert.equal((await body(rb)).error, "customer_payment_unconfirmed");
+  const acts = await r.reconcile();
+  assert.ok(acts.some((x) => x.action === "closed: agent payment dead, no charge"), JSON.stringify(acts));
   assert.equal(r.sellerPays.length, 1);
   assert.equal(r.refunds.length, 0);
 });
@@ -544,30 +548,36 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
   assert.equal(facts.amount, "15000");
   let valid = true;
   let landed = false;
+  let slot = 100;
   const rpc = async (method: string) => {
-    if (method === "getSignaturesForAddress") return landed ? [{ signature: "S1" }] : [];
+    if (method === "getSignaturesForAddress") return landed ? [{ signature: "S1", slot: 90 }] : [];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [txb, "base64"] };
-    if (method === "isBlockhashValid") return { value: valid };
-    if (method === "getSlot") return 100;
+    if (method === "isBlockhashValid") return { context: { slot }, value: valid };
+    if (method === "getSlot") return slot;
     throw new Error(method);
   };
   const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE };
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending" });
   valid = false;
-  assert.deepEqual(await solanaTxFate(rpc, f), { fate: "dead" });
+  // the first answer that says "expired" is only kept (its slot bounds the window); "dead" needs a later look
+  assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending", expiredSlot: 100 });
+  slot = 120;
+  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 100 }), { fate: "pending", expiredSlot: 100 });
+  slot = 140;
+  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 100 }), { fate: "dead" });
   landed = true;
-  assert.deepEqual(await solanaTxFate(rpc, f), { fate: "landed", tx: "S1" });
+  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 100 }), { fate: "landed", tx: "S1" });
   assert.deepEqual(await solanaTxFate(async () => { throw new Error("https://rpc/KEY"); }, f), { fate: "pending" });
   // a full page of other signatures: not finding it proves nothing, so never "dead" (no refund on a guess)
   const busy = async (method: string) => {
-    if (method === "getSignaturesForAddress") return [{ signature: "X1" }, { signature: "X2" }];
+    if (method === "getSignaturesForAddress") return [{ signature: "X1", slot: 50 }, { signature: "X2", slot: 50 }];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [await transferTx(agent, VET_FAC, SELLER, 1n), "base64"] };
-    if (method === "isBlockhashValid") return { value: false };
-    if (method === "getSlot") return 100;
+    if (method === "isBlockhashValid") return { context: { slot: 200 }, value: false };
+    if (method === "getSlot") return 200;
     throw new Error(method);
   };
-  assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 2 }), { fate: "pending", capped: "pages" });
-  assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 3 }), { fate: "dead" });
+  assert.deepEqual(await solanaTxFate(busy, { ...f, expiredSlot: 100, pageSize: 2 }), { fate: "pending", capped: "pages", expiredSlot: 100 });
+  assert.deepEqual(await solanaTxFate(busy, { ...f, expiredSlot: 100, pageSize: 3 }), { fate: "dead" });
 
   const base = { hash: "0xaa", from: "0xf", nonce: "3", nonceKey: "0", validBefore: "1000", sponsored: false, memo: null };
   const reads = (o: { receipt?: "success" | null; time?: bigint; nonce?: bigint; hits?: string[] }) => ({

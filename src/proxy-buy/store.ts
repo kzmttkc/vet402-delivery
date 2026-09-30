@@ -23,6 +23,11 @@ export type PurchaseState = "claimed" | "admitted" | "settling" | "in_progress" 
 export const OPEN_STATES: PurchaseState[] = ["settling", "in_progress", "seller_unsettled", "refund_pending"];
 /** A refund is sent at most this many times; then it is "stuck" and needs a human (the reconciler reports it). */
 export const MAX_REFUND_ATTEMPTS = 3;
+/**
+ * A wallet balance read may lag what purchases closed just before it spent: those spends are held back from a floor
+ * raise for this long after they closed.
+ */
+export const FLOOR_SETTLE_MS = 180_000;
 /** Refund attempts that fail before sending (a read error, a refused build): after this many, "stuck" too. */
 export const MAX_REFUND_FAILURES_BEFORE_SEND = 6;
 
@@ -118,9 +123,11 @@ export interface RefundRow {
   /** Attempts that failed before sending. */
   failures: number;
   updated_at: string;
+  /** The UTC day of updated_at. */
+  updated_day: string;
 }
 const REFUND_ROW = `purchase_id, chain, to_char(day, 'YYYY-MM-DD') as day, to_addr, amount::text as amount, status, attempt, tx, facts,
-  fee_paid::text as fee_paid, reason, failures, updated_at::text as updated_at`;
+  fee_paid::text as fee_paid, reason, failures, updated_at::text as updated_at, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD') as updated_day`;
 
 export class Store {
   constructor(readonly sql: Sql) {}
@@ -186,11 +193,19 @@ export class Store {
         let floor = BigInt(wallet.floor);
         if (o.balance < floor) throw new Rollback({ ok: false, reason: "chain_spend_exceeds_ledger", detail: `balance ${o.balance} < floor ${floor}` });
         if (o.balance > floor) {
-          const busy = await q.query(
-            `select 1 from pb_purchase where chain = $1 and id <> $2 and (state = any($3) or (state = 'done' and updated_at >= $4)) limit 1`,
-            [o.chain, id, ["admitted", ...OPEN_STATES], iso(o.balanceReadAt ?? o.now)],
-          );
-          if (busy.rows.length === 0) floor = o.balance;
+          // A top-up. The floor rises only while nothing is in flight, and never past what the balance read may not
+          // show yet: what purchases closed in the last FLOOR_SETTLE_MS spent (a lagging read), and what closed
+          // purchases spent on a seller payment not yet seen on chain (it may still land).
+          const busy = await q.query(`select 1 from pb_purchase where chain = $1 and id <> $2 and state = any($3) limit 1`, [o.chain, id, ["admitted", ...OPEN_STATES]]);
+          if (busy.rows.length === 0) {
+            const since = new Date((o.balanceReadAt ?? o.now).getTime() - FLOOR_SETTLE_MS);
+            const u = await q.query<{ s: string | null }>(
+              `select coalesce(sum(spent), 0)::text as s from pb_purchase where chain = $1 and state = 'done' and (seller_open or updated_at >= $2)`,
+              [o.chain, iso(since)],
+            );
+            const candidate = o.balance - BigInt(u.rows[0]?.s ?? "0");
+            if (candidate > floor) floor = candidate;
+          }
         }
         if (floor - o.need < 0n) throw new Rollback({ ok: false, reason: "insufficient_balance", detail: `balance for proxy buy ${floor} < ${o.need}` });
         if (o.lamports) {
@@ -292,13 +307,25 @@ export class Store {
    * Final: the record; what the purchase did not take out of the wallet (`reserved - spent`) goes back to the floor,
    * and its refund room goes back to the day.
    */
-  async finish(id: string, from: PurchaseState[], o: { record: PurchaseRecord; spent: bigint; facts?: Record<string, unknown>; updatedAt?: string; now: Date }): Promise<boolean> {
+  async finish(
+    id: string,
+    from: PurchaseState[],
+    o: {
+      record: PurchaseRecord;
+      spent: bigint;
+      facts?: Record<string, unknown>;
+      /** vet402's payment to the seller was handed over and not yet seen on chain (landed or dead): it may still leave the wallet. */
+      sellerOpen?: boolean;
+      updatedAt?: string;
+      now: Date;
+    },
+  ): Promise<boolean> {
     return this.sql.tx(async (q) => {
       const r = await q.query<{ chain: string; reserved: string; total: string; day: string | null }>(
-        `update pb_purchase set state = 'done', record = $3::jsonb, facts = facts || $4::jsonb, updated_at = $5
+        `update pb_purchase set state = 'done', record = $3::jsonb, facts = facts || $4::jsonb, updated_at = $5, spent = $7, seller_open = $8
          where id = $1 and state = any($2) and ($6::timestamptz is null or updated_at = $6::timestamptz)
          returning chain, reserved::text as reserved, total::text as total, to_char(day, 'YYYY-MM-DD') as day`,
-        [id, from, JSON.stringify(o.record), JSON.stringify(o.facts ?? {}), iso(o.now), o.updatedAt ?? null],
+        [id, from, JSON.stringify(o.record), JSON.stringify(o.facts ?? {}), iso(o.now), o.updatedAt ?? null, o.spent.toString(), o.sellerOpen === true],
       );
       if (r.rows.length !== 1) return false;
       const row = r.rows[0]!;
@@ -358,12 +385,14 @@ export class Store {
    * A refund attempt that failed before anything was sent: counted, and "stuck" (a human's) when the failure cannot
    * change by itself (`permanent`) or after MAX_REFUND_FAILURES_BEFORE_SEND of them. Returns the new status.
    */
-  async refundFailed(id: string, from: RefundRow["status"][], o: { reason: string; permanent: boolean; now: Date }): Promise<RefundRow["status"] | null> {
+  async refundFailed(id: string, from: RefundRow["status"][], o: { reason: string; permanent: boolean; counted?: boolean; now: Date }): Promise<RefundRow["status"] | null> {
+    // `counted: false`: a wait that ends by itself (the day's account creations are used up), not a failure.
+    const inc = o.counted === false ? 0 : 1;
     const r = await this.sql.query<{ status: RefundRow["status"] }>(
-      `update pb_refund set failures = failures + 1, reason = $3, updated_at = $4,
-         status = case when $5::boolean or failures + 1 >= $6 then 'stuck' else 'failed' end
+      `update pb_refund set failures = failures + $7, reason = $3, updated_at = $4,
+         status = case when $5::boolean or failures + $7 >= $6 then 'stuck' else 'failed' end
        where purchase_id = $1 and status = any($2) returning status`,
-      [id, from, o.reason, iso(o.now), o.permanent, MAX_REFUND_FAILURES_BEFORE_SEND],
+      [id, from, o.reason, iso(o.now), o.permanent, MAX_REFUND_FAILURES_BEFORE_SEND, inc],
     );
     return r.rows[0]?.status ?? null;
   }
@@ -387,16 +416,50 @@ export class Store {
   async stale(now: Date, staleMs: number, limit = 50): Promise<PurchaseRow[]> {
     // Least recently looked at first: rows that cannot be decided yet go to the back after each look, so a newer
     // row that can be decided is reached by the next run however many undecidable rows there are.
+    // A row whose next look was put off (checked_at in the future: its last look was cut short) waits for it.
     const r = await this.sql.query<PurchaseRow>(
-      `select ${ROW} from pb_purchase where state <> 'done' and updated_at < $1 order by coalesce(checked_at, updated_at), id limit $2`,
-      [iso(new Date(now.getTime() - staleMs)), limit],
+      `select ${ROW} from pb_purchase where state <> 'done' and updated_at < $1 and (checked_at is null or checked_at <= $3)
+       order by coalesce(checked_at, updated_at), id limit $2`,
+      [iso(new Date(now.getTime() - staleMs)), limit, iso(now)],
     );
     return r.rows;
   }
 
-  /** The reconciler looked at this row (its state and updated_at stay as they are). */
-  async touch(id: string, now: Date): Promise<void> {
-    await this.sql.query(`update pb_purchase set checked_at = $2 where id = $1`, [id, iso(now)]);
+  /** The reconciler looked at this row; `next`: when to look again (its state and updated_at stay as they are). */
+  async touch(id: string, next: Date): Promise<void> {
+    await this.sql.query(`update pb_purchase set checked_at = $2 where id = $1`, [id, iso(next)]);
+  }
+
+  /**
+   * Merge `patch` into the facts under `key` (e.g. the slot a blockhash was first seen expired), without moving the
+   * row's state or updated_at (so a pinned change by a reconciler stays valid).
+   */
+  async mergeFacts(id: string, key: string, patch: Record<string, unknown>): Promise<void> {
+    await this.sql.query(`update pb_purchase set facts = jsonb_set(facts, array[$2::text], coalesce(facts->$2, '{}'::jsonb) || $3::jsonb) where id = $1`, [
+      id,
+      key,
+      JSON.stringify(patch),
+    ]);
+  }
+
+  /** The same for a refund's facts, while the row still carries transaction `tx`. */
+  async refundMergeFacts(id: string, tx: string | null, patch: Record<string, unknown>): Promise<void> {
+    await this.sql.query(`update pb_refund set facts = facts || $3::jsonb where purchase_id = $1 and tx is not distinct from $2`, [id, tx, JSON.stringify(patch)]);
+  }
+
+  /** Closed purchases whose payment to the seller was not yet seen on chain (landed or dead). */
+  async sellerOpen(limit: number): Promise<PurchaseRow[]> {
+    const r = await this.sql.query<PurchaseRow>(`select ${ROW} from pb_purchase where state = 'done' and seller_open order by updated_at limit $1`, [limit]);
+    return r.rows;
+  }
+
+  /** The seller payment of a closed purchase is settled either way: it no longer holds back a floor raise. */
+  async sellerSeen(id: string, record: PurchaseRecord | null): Promise<boolean> {
+    const r = await this.sql.query(`update pb_purchase set seller_open = false, record = coalesce($2::jsonb, record) where id = $1 and seller_open returning id`, [
+      id,
+      record ? JSON.stringify(record) : null,
+    ]);
+    return r.rows.length === 1;
   }
 
   /**

@@ -49,6 +49,12 @@ export type RefundOutcome =
   /** A signed refund may have left vet402 and is not confirmed yet: the reconciler decides, never a blind retry. */
   | { status: "unknown"; reason: string; tx: string | null };
 
+/**
+ * The refund needs the agent's USDC account created and the day's creations are used up: not a failure, it is
+ * tried again on the next UTC day.
+ */
+export const ACCOUNT_CREATION_WAIT = "refund_account_missing_creation_limit";
+
 /** Facts written to the database before a refund is sent (so a stopped process can find it). */
 export type BeforeSend = (facts: { tx: string; facts: Record<string, unknown> }) => Promise<boolean>;
 
@@ -121,8 +127,8 @@ export interface SolanaRefundDeps {
  * The owner may be any address, a program-derived one (a multisig vault) included: its associated USDC account is
  * derived the same way and the associated token program creates it for an off-curve owner too.
  * The USDC account is created by the refund only when it does not exist, and only while the day's count of such
- * creations (their rent is paid in SOL by the payer) is below REFUND_ACCOUNT_CREATIONS_PER_DAY; otherwise the
- * attempt fails before sending and the reconciler tries again (and reports it once it is stuck).
+ * creations (their rent is paid in SOL by the payer) is below REFUND_ACCOUNT_CREATIONS_PER_DAY; otherwise nothing
+ * is sent and the reconciler tries again on the next UTC day (not counted as a failure).
  */
 export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend, opts: SendOptions = {}): Promise<RefundOutcome> {
   const payer = d.signer.address;
@@ -144,7 +150,7 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
     return { status: "failed", reason: "rpc_error", tx: null };
   }
   if (create && !(opts.mayCreateAccount && (await opts.mayCreateAccount().catch(() => false)))) {
-    return { status: "failed", reason: "refund_account_missing_creation_limit", tx: null };
+    return { status: "failed", reason: ACCOUNT_CREATION_WAIT, tx: null };
   }
   const message = pipe(
     createTransactionMessage({ version: 0 }),
@@ -165,7 +171,7 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
   if (await checkSolanaRefundTx(b64, { payer, to, amount })) return { status: "failed", reason: "refund_tx_check_failed", tx: null, permanent: true };
   const facts = decodeSolanaTx(b64);
   const since = Math.floor(Date.now() / 1000) - 120;
-  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", messageHash: facts?.messageHash, blockhash: lifetime.blockhash, account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
+  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", signature: sig, messageHash: facts?.messageHash, blockhash: lifetime.blockhash, account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
     return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
   }
 
@@ -295,6 +301,10 @@ export async function refundAgent(
   } else {
     const rf = await store.getRefund(o.id);
     if (rf && rf.status === "stuck") return { status: "stuck", to: o.to, amountAtomic, tx: rf.tx, reason: rf.reason ?? "stuck" };
+    // Waiting for the next UTC day's account creations: nothing to try before then.
+    if (rf && rf.status === "failed" && rf.reason === ACCOUNT_CREATION_WAIT && rf.updated_day === o.now().toISOString().slice(0, 10)) {
+      return { status: "failed", to: o.to, amountAtomic, tx: null, reason: ACCOUNT_CREATION_WAIT };
+    }
     if (rf && rf.status === "dead" && rf.attempt >= MAX_REFUND_ATTEMPTS) {
       await store.refundSet(o.id, ["dead"], "stuck", { reason: "too_many_attempts", now: o.now() });
       return { status: "stuck", to: o.to, amountAtomic, tx: rf.tx, reason: "too_many_attempts" };
@@ -320,7 +330,7 @@ export async function refundAgent(
     if (taken) await store.refundSet(o.id, ["sending"], "unknown", { reason: out.reason, tx: out.tx, now: o.now() });
   } else if (out.status === "failed" && !taken && out.reason !== "refund_taken_by_another_attempt") {
     // Failed before anything was sent (a read or build error): counted; "stuck" when it cannot change or repeats.
-    const st = await store.refundFailed(o.id, from, { reason: out.reason, permanent: out.permanent === true, now: o.now() });
+    const st = await store.refundFailed(o.id, from, { reason: out.reason, permanent: out.permanent === true, counted: out.reason !== ACCOUNT_CREATION_WAIT, now: o.now() });
     if (st === "stuck") return { status: "stuck", to: o.to, amountAtomic, tx: null, reason: out.reason };
   }
   return { status: out.status, to: o.to, amountAtomic, tx: out.tx, reason: out.status === "sent" ? null : out.reason };

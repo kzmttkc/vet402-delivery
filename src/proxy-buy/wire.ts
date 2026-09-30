@@ -21,7 +21,7 @@ import { loadAllowlist, type Allowlist } from "./allowlist.js";
 import type { ProxyConfig, SolanaConfig, TempoConfig } from "./config.js";
 import { CUSTOMER_CONFIRM_TIMEOUT_MS } from "./constants.js";
 import { migrate, pgSql, type Sql } from "./db.js";
-import { solanaTxFate, type TempoReads } from "./fate.js";
+import { decodeSolanaTx, solanaTxFate, type TempoReads } from "./fate.js";
 import { createProxyBuy, type ProxyBuy } from "./handler.js";
 import { sendSolanaRefund, sendTempoRefund } from "./refund.js";
 import type { SolanaSide } from "./solana.js";
@@ -34,7 +34,9 @@ export function ownAddresses(sol: SolanaConfig | null, tem: TempoConfig | null):
 }
 
 /**
- * The agent's Solana transfer, read on chain until it is confirmed or time runs out. The agent is charged when
+ * The agent's Solana transfer, read on chain until it is confirmed or time runs out. It must be the transaction the
+ * agent signed (`messageHash`, the sha256 of its message): another one named by the facilitator is not taken (not
+ * definite: the agent's own transaction is then found by its message). The agent is charged when
  * the transaction succeeded and vet402's receive wallet went up by exactly `amount`. The refund address is the
  * owner of the account that went down by exactly `amount` (the source account's owner: with a delegate as the
  * signing authority, the delegate's balance does not move, the owner's does); when no single owner went down by
@@ -47,17 +49,22 @@ export async function confirmSolanaTransfer(
   authority: string,
   receive: string,
   amount: bigint,
-  o: { timeoutMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  o: { messageHash?: string; timeoutMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<{ ok: true; payer: string } | { ok: false; detail: string; definite: boolean }> {
   const deadline = Date.now() + (o.timeoutMs ?? CUSTOMER_CONFIRM_TIMEOUT_MS);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   type Bal = { owner?: string; mint: string; uiTokenAmount: { amount: string } };
   for (;;) {
     try {
-      const t = (await rpc("getTransaction", [tx, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
+      const t = (await rpc("getTransaction", [tx, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
         meta: { err: unknown; preTokenBalances?: Bal[]; postTokenBalances?: Bal[] } | null;
+        transaction?: [string, string];
       } | null;
       if (t && t.meta) {
+        if (o.messageHash !== undefined) {
+          const d = t.transaction ? decodeSolanaTx(t.transaction[0]) : null;
+          if (!d || d.messageHash !== o.messageHash) return { ok: false, detail: "customer_tx_not_the_signed_payment", definite: false };
+        }
         if (t.meta.err !== null && t.meta.err !== undefined) return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
         const delta = new Map<string, bigint>();
         for (const [list, sign] of [[t.meta.preTokenBalances ?? [], -1n], [t.meta.postTokenBalances ?? [], 1n]] as const) {
@@ -113,7 +120,7 @@ export async function solanaSide(c: SolanaConfig, own: string[]): Promise<Solana
       waitForSettlement: (sig, memo, payTo) => waitForSettlement({ rpc, signature: sig, memo, payer: c.payer, payerUsdcAta: payerAta, payTo, timeoutMs: 25_000 }),
       ownAddresses: own,
     },
-    confirmCustomer: (tx, authority, amount) => confirmSolanaTransfer(rpc, tx, authority, c.receive, amount),
+    confirmCustomer: (tx, authority, amount, messageHash) => confirmSolanaTransfer(rpc, tx, authority, c.receive, amount, { messageHash }),
     fate: (f) => solanaTxFate(rpc, f),
     slot: async () => Number(await rpc("getSlot", [{ commitment: "confirmed" }])),
     refund: (to, amount, beforeSend) => serial.run(() => sendSolanaRefund({ rpc, signer }, to, amount, beforeSend)),
@@ -244,9 +251,10 @@ export async function buildProxyBuy(cfg: ProxyConfig, o: { dataDir: string; sql?
   const own = ownAddresses(cfg.solana, cfg.tempo);
   const realm = new URL(cfg.publicOrigin).host;
   const solana = cfg.solana ? await solanaSide(cfg.solana, own) : undefined;
-  const tempo = cfg.tempo ? tempoSide(cfg.tempo, realm) : undefined;
+  // Tempo off (the default): nothing Tempo is built, so neither requests nor the reconciler touch it.
+  const tempo = cfg.tempo && cfg.tempoEnabled ? tempoSide(cfg.tempo, realm) : undefined;
   const sCaps = dayCaps(cfg, "solana");
-  const tCaps = dayCaps(cfg, "tempo");
+  const tCaps = tempo ? dayCaps(cfg, "tempo") : undefined;
   const buy = createProxyBuy({
     enabled: cfg.enabled,
     tempoEnabled: cfg.tempoEnabled,
@@ -256,7 +264,7 @@ export async function buildProxyBuy(cfg: ProxyConfig, o: { dataDir: string; sql?
     store,
     caps: { ...(sCaps ? { solana: sCaps } : {}), ...(tCaps ? { tempo: tCaps } : {}) },
     maxRefund: cfg.maxPerCallAtomic + cfg.feeAtomic,
-    quoteDeps: { fetchImpl: fetch, ownAddresses: own, solanaPayer: cfg.solana?.payer ?? null, tempoPayer: cfg.tempo?.payer ?? null },
+    quoteDeps: { fetchImpl: fetch, ownAddresses: own, solanaPayer: cfg.solana?.payer ?? null, tempoPayer: tempo ? cfg.tempo!.payer : null },
     ...(solana ? { solana } : {}),
     ...(tempo ? { tempo } : {}),
   });

@@ -95,6 +95,9 @@ create table if not exists pb_refund (
 );
 alter table pb_purchase add column if not exists checked_at timestamptz;
 alter table pb_refund add column if not exists failures integer not null default 0;
+alter table pb_purchase add column if not exists spent bigint not null default 0;
+alter table pb_purchase add column if not exists seller_open boolean not null default false;
+create index if not exists pb_purchase_seller_open_idx on pb_purchase (seller_open) where seller_open;
 create index if not exists pb_counter_at_idx on pb_counter (at);
 `;
 

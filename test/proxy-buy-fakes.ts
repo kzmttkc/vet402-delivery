@@ -295,9 +295,11 @@ export async function solRig(
       },
       ownAddresses: [RECEIVE, proxyPayer.address],
     },
-    confirmCustomer: async (_tx, authority, amount) => {
+    confirmCustomer: async (tx, authority, amount, messageHash) => {
       if (state.confirm === "timeout") return { ok: false, detail: "customer_tx_not_confirmed_in_time", definite: false };
       if (state.confirm === "failed") return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
+      // like the production read: the named transaction must be the one the agent signed
+      if (chain.landed.get(messageHash)?.sig !== tx) return { ok: false, detail: "customer_tx_not_the_signed_payment", definite: false };
       return authority === agent.address && amount > 0n ? { ok: true, payer: agent.address } : { ok: false, detail: "customer_amount_mismatch", definite: true };
     },
     fate: async (f) => chain.fate(f.messageHash),

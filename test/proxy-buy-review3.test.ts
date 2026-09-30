@@ -71,7 +71,7 @@ async function floodRpc(o: { sigs: { signature: string; slot?: number; blockTime
       return o.sigs.slice(start, start + p.limit);
     }
     if (method === "getTransaction") return { meta: { err: null }, transaction: [foreign, "base64"] };
-    if (method === "isBlockhashValid") return { value: o.valid };
+    if (method === "isBlockhashValid") return { context: { slot: o.slotNow }, value: o.valid };
     if (method === "getSlot") return o.slotNow;
     throw new Error(method);
   };
@@ -83,28 +83,28 @@ test("zz3-S1: 1100 fresh signatures inside the window -> 'pending' capped at the
   const now = Math.floor(Date.now() / 1000);
   const { rpc, calls } = await floodRpc({ sigs: Array.from({ length: 1100 }, (_, i) => ({ signature: `sig${i}`, slot: 1000 - i / 100, blockTime: now })), valid: false, slotNow: 2000 });
   const f = await solanaTxFate(rpc, { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, since: now - 600, minSlot: 900 });
-  assert.deepEqual(f, { fate: "pending", capped: "tx_reads" });
+  assert.deepEqual(f, { fate: "pending", capped: "tx_reads", expiredSlot: 2000 });
   assert.ok((calls.getTransaction ?? 0) <= SOLANA_FATE_MAX_TX_READS, JSON.stringify(calls));
 });
 
 test("zz3-S1: signatures after the blockhash expired are skipped unread; below minSlot the search stops; the deadline stops it", async () => {
   const mine = decodeSolanaTx(await transferTx(proxyPayer, SELLER, SELLER, 10_000n))!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 500 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 500, expiredSlot: 800 };
   // 1100 signatures landed after expiry (slot > 800), then 3 in the window, then history before minSlot
   const sigs = [
     ...Array.from({ length: 1100 }, (_, i) => ({ signature: `late${i}`, slot: 900 })),
     ...Array.from({ length: 3 }, (_, i) => ({ signature: `in${i}`, slot: 700 })),
     ...Array.from({ length: 50 }, (_, i) => ({ signature: `old${i}`, slot: 100 })),
   ];
-  const a = await floodRpc({ sigs, valid: false, slotNow: 800 });
+  const a = await floodRpc({ sigs, valid: false, slotNow: 900 });
   assert.deepEqual(await solanaTxFate(a.rpc, q), { fate: "dead" });
   assert.equal(a.calls.getTransaction, 3, "only the three signatures inside the window are read");
   // still valid: never dead, whatever the history
-  const b = await floodRpc({ sigs, valid: true, slotNow: 800 });
+  const b = await floodRpc({ sigs, valid: true, slotNow: 900 });
   assert.equal((await solanaTxFate(b.rpc, q)).fate, "pending");
   // past the deadline: nothing is read, pending with the reason
-  const c = await floodRpc({ sigs, valid: false, slotNow: 800 });
-  assert.deepEqual(await solanaTxFate(c.rpc, { ...q, deadline: Date.now() - 1 }), { fate: "pending", capped: "deadline" });
+  const c = await floodRpc({ sigs, valid: false, slotNow: 900 });
+  assert.deepEqual(await solanaTxFate(c.rpc, { ...q, deadline: Date.now() - 1 }), { fate: "pending", capped: "deadline", expiredSlot: 800 });
   assert.equal(c.calls.getTransaction ?? 0, 0);
 });
 

@@ -300,7 +300,7 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     reason: delivered ? null : `seller answered ${status ?? "nothing"}${buf && buf.byteLength === 0 ? " with an empty body" : ""}; vet402's payment to it settled`,
   };
   // A failed closing write must not lose an answer vet402 paid for: the reconciler closes the purchase later.
-  await store.finish(id, ["in_progress"], { record: r, spent, now: ctx.now() }).catch(() => false);
+  await store.finish(id, ["in_progress"], { record: r, spent: sellerSettled === false ? 0n : spent, sellerOpen: sellerSettled === null, now: ctx.now() }).catch(() => false);
   if (!delivered) {
     return {
       kind: "json",

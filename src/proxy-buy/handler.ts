@@ -168,8 +168,8 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
    */
   async function reconcileSome(): Promise<void> {
     if ((await o.store.stale(now(), staleMs, 1)).length === 0) return;
-    // Tempo rows (if any were written while Tempo was on) are still reconciled when Tempo is configured.
-    const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(o.tempo ? { tempo: o.tempo } : {}), deadline: Date.now() + 20_000, limit: 5 };
+    // With Tempo off, nothing Tempo is read, even for rows written while it was on.
+    const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(tempo ? { tempo } : {}), deadline: Date.now() + 20_000, limit: 5, maxTxReads: 200 };
     await reconcile(ctx).catch(() => []);
   }
 
