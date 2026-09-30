@@ -6,6 +6,8 @@
  *   - its recipient is the row's payTo and its amount is the row's price,
  *   - its block time falls inside that row's paid request (from the row's start to the next attempt),
  *   - no other unrecorded payment fits that row, and no other row fits that payment,
+ *   - no earlier row to the same payTo at the same price is still without a tx (that row's payment can land
+ *     after the next row started, inside the next row's window),
  *   - the tx is not already on another row.
  * Anything else stays "unmatched" and the run fails (exit code), so a human looks.
  *
@@ -101,6 +103,9 @@ export function checkOutflows(inp: CheckInput): CheckResult {
     );
   }
   const txsOf = (c: Candidate) => unrecorded.filter((u) => fit.get(u.tx)!.includes(c));
+  // An earlier candidate (started no later, ended no later) to the same payTo at the same price: the payment may be its.
+  const earlierOpen = (c: Candidate) =>
+    inp.candidates.some((o) => o !== c && norm(o.payTo) === norm(c.payTo) && o.amount === c.amount && o.fromMs <= c.fromMs && o.toMs <= c.toMs);
 
   const matched: Matched[] = [];
   const unmatched: Unmatched[] = [];
@@ -111,6 +116,7 @@ export function checkOutflows(inp: CheckInput): CheckResult {
     else if (cs.length === 0) unmatched.push({ ...show, reason: "no row with this payTo and price was paying at this time" });
     else if (cs.length > 1) unmatched.push({ ...show, reason: "more than one row fits" });
     else if (txsOf(cs[0]!).length > 1) unmatched.push({ ...show, reason: "the row fits more than one unrecorded payment" });
+    else if (earlierOpen(cs[0]!)) unmatched.push({ ...show, reason: "an earlier row with this payTo and price has no tx yet; the payment may be its" });
     else matched.push({ id: cs[0]!.id, tx: u.tx, time: iso(u.timeMs) });
   }
   return { txs: inp.txs.length, recorded: inp.txs.length - unrecorded.length, matched, unmatched, duplicates };

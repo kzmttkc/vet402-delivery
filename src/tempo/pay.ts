@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { keccak256, type Hex } from "viem";
 import { Receipt } from "mppx";
-import { FEE_RESERVE_ATOMIC, PAID_TIMEOUT_MS, PROBE_TIMEOUT_MS } from "./constants.js";
+import { FEE_RESERVE_ATOMIC, normAddr, PAID_TIMEOUT_MS, PROBE_TIMEOUT_MS } from "./constants.js";
 import { mppChallengesFromHeader, tempoChargeRequest } from "./challenge.js";
 import { checkCharge, pickTempoCharge, type Refusal } from "./guard.js";
 import type { Ledger } from "./ledger.js";
@@ -172,7 +172,7 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
     }
     let settlement = candidate ? await deps.verify(candidate, { payer: deps.payer, recipient, amount }) : null;
     if ((settlement === null || settlement.detail === "receipt not found") && deps.findTx && fromBlock !== null) {
-      const found = await searchTx(deps, { payer: deps.payer, recipient, amount }, fromBlock);
+      const found = await searchTx(deps, id, { payer: deps.payer, recipient, amount }, fromBlock);
       if (found) {
         const s2 = await deps.verify(found, { payer: deps.payer, recipient, amount }).catch(() => null);
         if (s2?.settled) {
@@ -218,9 +218,25 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
   }
 }
 
-/** The one unrecorded tx paying `exp` since `fromBlock`, or null (none yet, several, or the read failed). */
-async function searchTx(deps: PayDeps, exp: { payer: string; recipient: string; amount: bigint }, fromBlock: bigint): Promise<string | null> {
+/**
+ * The one unrecorded tx paying `exp` since `fromBlock`, or null (none yet, several, the read failed, or an
+ * earlier entry of the ledger to the same recipient at the same amount was sent and has no settled tx: its
+ * transfer can land after this purchase's head block, and would then be taken for this one).
+ */
+async function searchTx(deps: PayDeps, key: string, exp: { payer: string; recipient: string; amount: bigint }, fromBlock: bigint): Promise<string | null> {
   const f = deps.findTx!;
+  const entries = deps.ledger.entries();
+  let self = -1;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i]!.key === key && entries[i]!.status !== "refused_before_sign") {
+      self = i;
+      break;
+    }
+  }
+  const earlierOpen = entries
+    .slice(0, self < 0 ? entries.length : self)
+    .some((e) => (e.status === "sent" || e.status === "unknown") && e.settled !== true && normAddr(e.recipient) === normAddr(exp.recipient) && e.amount === exp.amount.toString());
+  if (earlierOpen) return null; // the post-run chain check decides
   const tries = f.tries ?? 3;
   const sleep = f.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let i = 0; i < tries; i++) {

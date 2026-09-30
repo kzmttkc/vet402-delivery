@@ -708,3 +708,47 @@ test("payOne: a throwing known() or verify of the found tx leaves the outcome as
   assert.equal(o2.result, "sent");
   assert.equal(o2.settled, null);
 });
+
+// ---------- review WARN1: an earlier purchase to the same payTo at the same price that has no tx yet ----------
+
+test("payOne: the search does not take a transfer while an earlier entry to the same payTo at the same price has no tx (it may be that one's)", async () => {
+  const f = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+  // N: its transfer is not on chain yet when N's own search runs
+  const s = withSearch(f, [[]]);
+  const n = await payOne(sponsoredEntry, f.deps);
+  assert.equal(n.settled, null);
+  assert.equal(n.txHash, null);
+  // N+1, same recipient and amount: N's transfer lands after N+1's head block and is the only fit
+  f.deps.findTx!.search = async () => [FOUND];
+  const n1 = await payOne({ ...sponsoredEntry, serviceId: "openweather-2" }, f.deps);
+  assert.equal(n1.result, "sent");
+  assert.equal(n1.txHash, null);
+  assert.equal(n1.settled, null);
+  assert.equal(n1.txHashSource, null);
+  assert.deepEqual(s.verified, []);
+  const entries = JSON.parse(readFileSync(f.path, "utf8")).entries;
+  assert.deepEqual(entries.map((e: { txHash: string | null }) => e.txHash), [null, null]);
+});
+
+test("payOne: an earlier entry to the same payTo that settled, or one at another price, does not block the search", async () => {
+  for (const [why, first] of [
+    ["earlier one settled with its tx", { liveReq: sponsoredReq(), search: [[FOUND]] }],
+    ["earlier one at another price", { liveReq: goodReq({ amount: "7000", methodDetails: { chainId: 4217, feePayer: true } }), search: [[]] }],
+  ] as const) {
+    const f = fakeDeps({ liveReq: first.liveReq, paidStatus: 500 });
+    withSearch(f, first.search.map((x) => [...x]));
+    await payOne({ ...sponsoredEntry, lockedAmount: first.liveReq.amount as string }, f.deps);
+    const next = `0x${"e3".repeat(32)}`;
+    const g = fakeDeps({ liveReq: sponsoredReq(), paidStatus: 500 });
+    g.deps.ledger = f.deps.ledger;
+    g.deps.findTx = { ...f.deps.findTx!, search: async () => [FOUND, next] };
+    g.deps.verify = async (h) => (h === next ? { settled: true, detail: "transfer found", feePaid: null } : { settled: false, detail: "receipt not found", feePaid: null });
+    const o = await payOne({ ...sponsoredEntry, serviceId: "openweather-2" }, g.deps);
+    if (why === "earlier one settled with its tx") {
+      assert.equal(o.txHash, next, why); // FOUND is on the earlier entry, so only `next` is open
+      assert.equal(o.txHashSource, "chain_search", why);
+    } else {
+      assert.equal(o.txHash, null, why); // two open hashes fit: not taken, as before
+    }
+  }
+});

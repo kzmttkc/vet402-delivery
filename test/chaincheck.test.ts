@@ -264,3 +264,25 @@ test("checkSolanaRun: a payment the row recorded as not settled (no signature) i
   const r2 = await checkSolanaRun({ file, run, reader, endMs: Date.parse(run.endedAt!), write: false });
   assert.deepEqual(r2.unmatched.map((u) => u.tx), ["stray"]);
 });
+
+// ---------- review WARN1: row N's payment landing inside row N+1's window ----------
+
+test("chain check: a payment inside row N+1's window is unmatched when an earlier row N to the same payTo at the same price has no tx", () => {
+  const t0 = Date.parse("2026-09-29T10:00:00Z");
+  const n: Candidate = { id: "N", payTo: MPP_PROXY, amount: 500n, fromMs: t0, toMs: t0 + 60_000 };
+  const n1: Candidate = { id: "N+1", payTo: MPP_PROXY, amount: 500n, fromMs: t0 + 60_000, toMs: t0 + 120_000 };
+  const late: OutTx = { tx: `0x${"c1".repeat(32)}`, timeMs: t0 + 75_000, transfers: [{ to: MPP_PROXY, amount: 500n }] };
+  const inp = { txs: [late], known: [], books: [], candidates: [n, n1], feeSinks: [TEMPO_FEE_MANAGER], norm: normAddr };
+  const r = checkOutflows(inp);
+  assert.deepEqual(r.matched, []);
+  assert.equal(r.unmatched.length, 1);
+  assert.deepEqual(r.unmatched[0]!.candidates, ["N+1"]);
+  assert.match(r.unmatched[0]!.reason, /earlier row with this payTo and price/);
+  // the same without the earlier row, or with the earlier row at another price or payTo: recorded on N+1 as before
+  for (const other of [[], [{ ...n, amount: 501n }], [{ ...n, payTo: "0x060b0fb0be9d90557577b3aee480711067149ff0" }]]) {
+    assert.deepEqual(checkOutflows({ ...inp, candidates: [...other, n1] }).matched.map((m) => m.id), ["N+1"]);
+  }
+  // a later open row (N+1) does not block N's own payment inside N's window
+  const own: OutTx = { ...late, timeMs: t0 + 30_000 };
+  assert.deepEqual(checkOutflows({ ...inp, txs: [own] }).matched.map((m) => m.id), ["N"]);
+});
