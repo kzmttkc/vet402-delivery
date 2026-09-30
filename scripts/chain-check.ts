@@ -3,6 +3,11 @@
  *
  *   npx tsx scripts/chain-check.ts --chain tempo|solana --date YYYY-MM-DD           # read only: report
  *   npx tsx scripts/chain-check.ts --chain tempo|solana --date YYYY-MM-DD --write   # record what it finds
+ *   npx tsx scripts/chain-check.ts --census [--write]   # the Tempo census ledger (one --pay run, 2026-09-28)
+ *
+ * --census: the run is taken as the ledger's first reservation to its last one plus 2 minutes. A payment
+ * exactly one entry can own is written onto that entry (txHash, settled true) with --write, and the check
+ * is saved next to the ledger as tempo-census-check-<start>.json.
  *
  * Every run in results/remeasure/<chain>-<date>.json (the production folder) is checked: each payment
  * that left the payer during the run (and up to 2 minutes after it) must be on a row. A payment exactly
@@ -29,6 +34,47 @@ const opt = (n: string) => {
 const chain = opt("--chain") as RemeasureChain | undefined;
 const date = opt("--date");
 const WRITE = args.includes("--write");
+
+if (args.includes("--census")) {
+  const { readFileSync, writeFileSync } = await import("node:fs");
+  const { dirname } = await import("node:path");
+  const { Ledger } = await import("../src/tempo/ledger.js");
+  const { TEMPO_KEY_LEDGERS } = await import("../src/tempo/key-ledgers.js");
+  const { checkCensusRun, liveTempoReader } = await import("../src/tempo/chaincheck.js");
+  const { assertMainnet } = await import("../src/tempo/chain.js");
+  const { CHAIN_CHECK_GRACE_MS } = await import("../src/remeasure/chaincheck.js");
+  await assertMainnet();
+  const path = TEMPO_KEY_LEDGERS.census;
+  // Opened with the file's own cap, so a write keeps every other byte of the ledger.
+  const cap = BigInt((JSON.parse(readFileSync(path, "utf8")) as { capAtomic: string }).capAtomic);
+  const ledger = new Ledger(path, TEMPO_PAYER, cap, WRITE ? { lock: true } : {});
+  let r: ChainCheckRecord;
+  try {
+    const es = ledger.entries();
+    if (es.length === 0) throw new Error(`${path} has no entries`);
+    const startedAt = es.map((e) => e.reservedAt).sort()[0]!;
+    const endMs = Math.max(...es.map((e) => Date.parse(e.reservedAt))) + CHAIN_CHECK_GRACE_MS;
+    // Read only without --write: a temporary copy of the ledger takes the updates.
+    let target = ledger;
+    if (!WRITE) {
+      const { copyFileSync, mkdtempSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const copy = join(mkdtempSync(join(tmpdir(), "census-check-")), "tempo-ledger.json");
+      copyFileSync(path, copy);
+      target = new Ledger(copy, TEMPO_PAYER, cap);
+    }
+    r = await checkCensusRun({ ledger: target, startedAt, endMs, set: TEMPO_KEY_LEDGERS, reader: liveTempoReader(TEMPO_PAYER), payer: TEMPO_PAYER });
+    print(0, r);
+    if (WRITE) {
+      const out = `${dirname(path)}/tempo-census-check-${startedAt.replace(/[:.]/g, "")}.json`;
+      writeFileSync(out, JSON.stringify(r, null, 2) + "\n");
+      console.log(`wrote ${path} and ${out}`);
+    }
+  } finally {
+    ledger.release();
+  }
+  process.exit(checkFailed(r) ? 1 : 0);
+}
 if ((chain !== "solana" && chain !== "tempo") || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
   console.error("usage: chain-check.ts --chain solana|tempo --date YYYY-MM-DD [--write]");
   process.exit(2);
