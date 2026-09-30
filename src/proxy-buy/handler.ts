@@ -1,22 +1,25 @@
 /**
  * GET /v1/buy?url=<seller endpoint>: vet402 buys the seller's answer for the agent.
- * GET /v1/buy/records/<id>: the record of one purchase (public, no account).
+ * GET /v1/buy/records/<id> (or /v1/buy?record=<id>): the record of one purchase (public, no account).
  *
- * The unpaid request is free: vet402 reads the seller's 402, checks it, and answers 402 with the price
- * (seller price + fee) on every chain it can pay that seller on: an x402 PAYMENT-REQUIRED header for
- * Solana, an MPP WWW-Authenticate challenge for Tempo. The agent pays on one of them; vet402 pays the
- * seller on the same chain.
+ * The unpaid request is free: vet402 reads the seller's 402, checks it, and answers 402 with the price (seller
+ * price + fee) on every chain it can pay that seller on: an x402 PAYMENT-REQUIRED header for Solana, an MPP
+ * WWW-Authenticate challenge for Tempo. The agent pays on one of them; vet402 pays the seller on the same chain.
  *
+ * Before a paid request is taken: purchases that stopped half way (a function killed at its time limit, an
+ * outcome not known) are reconciled first (reconcile.ts). While one of them still cannot be settled, new paid
+ * requests are refused (503, nothing charged).
  * With the flag off, nothing is quoted, verified, settled, written or paid (503).
  */
-import { BUY_PATH, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX } from "./constants.js";
+import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REFUND_POLICY } from "./constants.js";
 import type { Allowlist } from "./allowlist.js";
-import type { Books } from "./books.js";
+import type { DayCaps, Store } from "./store.js";
 import { quote, type Quote, type QuoteDeps, type Refused } from "./quote.js";
-import { paySolana, paymentRequiredHeader, solanaPriceInfo, solanaRequirements, type PaidAnswer, type SolanaSide } from "./solana.js";
+import { paySolana, paymentRequiredHeader, solanaPriceInfo, solanaRequirements, type SolanaSide } from "./solana.js";
 import { payTempo, tempoPriceInfo, tempoRoute, type TempoSide } from "./tempo.js";
+import type { PaidAnswer } from "./flow.js";
+import { reconcile } from "./reconcile.js";
 import { atomicToUsdc } from "../constants.js";
-import { OFFER_TTL_SECONDS, REFUND_POLICY } from "./constants.js";
 
 export interface ProxyBuyOptions {
   enabled: boolean;
@@ -24,17 +27,29 @@ export interface ProxyBuyOptions {
   publicOrigin: string;
   feeAtomic: bigint;
   allowlist: Allowlist;
-  books: Books;
+  store: Store;
+  caps: { solana?: DayCaps; tempo?: DayCaps };
+  maxRefund: bigint;
   quoteDeps: Omit<QuoteDeps, "allowlist">;
   solana?: SolanaSide;
   tempo?: TempoSide;
   now?: () => Date;
   quotesPerMinute?: number;
+  /** How long one request may keep waiting on chains (below the platform's function limit). */
+  requestBudgetMs?: number;
+  /** A non-final purchase older than this is taken to be abandoned and goes to the reconciler. */
+  staleMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  pollMs?: number;
 }
 
 export interface ProxyBuy {
   handle(req: Request): Promise<Response>;
 }
+
+/** Vercel's function limit is 300 s (Hobby); a request stops waiting on chains well before it. */
+export const DEFAULT_REQUEST_BUDGET_MS = 240_000;
+export const DEFAULT_STALE_MS = 330_000;
 
 class Limiter {
   private readonly seen = new Map<string, { start: number; count: number }>();
@@ -56,10 +71,9 @@ class Limiter {
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body, null, 2), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
 
+/** The client address as the platform reports it (Vercel sets x-real-ip; the node adapter overwrites it with the socket address). */
 function clientIp(req: Request): string {
-  const real = req.headers.get("x-real-ip")?.trim();
-  if (real) return real;
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  return req.headers.get("x-real-ip")?.trim() || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
 
 function toResponse(a: PaidAnswer): Response {
@@ -82,6 +96,20 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     tempoPayer: o.tempo ? o.quoteDeps.tempoPayer : null,
     now,
   };
+  const staleMs = o.staleMs ?? DEFAULT_STALE_MS;
+  const common = (caps: DayCaps) => ({
+    store: o.store,
+    feeAtomic: o.feeAtomic,
+    now,
+    recordUrl,
+    caps,
+    maxRefund: o.maxRefund,
+    deadline: Date.now() + (o.requestBudgetMs ?? DEFAULT_REQUEST_BUDGET_MS),
+    ...(o.sleep ? { sleep: o.sleep } : {}),
+    ...(o.pollMs !== undefined ? { pollMs: o.pollMs } : {}),
+  });
+  const solCtx = () => ({ ...common(o.caps.solana!), side: o.solana!, resourceUrl: `${o.publicOrigin}${BUY_PATH}` });
+  const tempoCtx = () => ({ ...common(o.caps.tempo!), side: o.tempo! });
 
   async function unpaid(req: Request, target: string | null): Promise<Response> {
     const q = await quote(target, quoteDeps);
@@ -91,8 +119,9 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     const offers: Record<string, unknown> = {};
     if (qq.solana.ok && o.solana) {
       try {
-        const reqs = await solanaRequirements(solCtx(), qq.solana, qq.target);
-        headers["PAYMENT-REQUIRED"] = await paymentRequiredHeader(solCtx(), reqs, description(qq.target));
+        const c = { side: o.solana, feeAtomic: o.feeAtomic, resourceUrl: `${o.publicOrigin}${BUY_PATH}` };
+        const reqs = await solanaRequirements(c, qq.solana, qq.target);
+        headers["PAYMENT-REQUIRED"] = await paymentRequiredHeader(c, reqs, `vet402 buys ${new URL(qq.target).origin} for you: seller price + fee, answer returned as-is`);
         offers.solana = solanaPriceInfo(qq.solana, o.feeAtomic);
       } catch {
         offers.solana = { refused: "facilitator_unavailable", detail: "the facilitator could not be read" };
@@ -133,37 +162,45 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     );
   }
 
-  function solCtx() {
-    return { side: o.solana!, books: o.books, feeAtomic: o.feeAtomic, now, recordUrl, resourceUrl: `${o.publicOrigin}${BUY_PATH}` };
-  }
-  function tempoCtx() {
-    return { side: o.tempo!, books: o.books, feeAtomic: o.feeAtomic, now, recordUrl };
+  /** Purchases that stopped half way: reconcile them now; refuse new paid requests while any cannot be settled yet. */
+  async function gate(): Promise<Response | null> {
+    if ((await o.store.blocking(now(), staleMs)) === 0) return null;
+    const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(o.tempo ? { tempo: o.tempo } : {}), staleMs, deadline: Date.now() + 60_000 };
+    await reconcile(ctx).catch(() => []);
+    const left = await o.store.blocking(now(), staleMs);
+    if (left === 0) return null;
+    return json(503, { verdict: "REFUSE", reason: "reconcile_pending", detail: `${left} earlier purchase(s) are being settled on chain first; nothing was charged, try again later`, charged: false });
   }
 
-  async function paid(target: string | null, pay: { chain: "solana"; header: string } | { chain: "tempo"; header: string }): Promise<Response> {
+  async function paid(target: string | null, pay: { chain: "solana" | "tempo"; header: string }): Promise<Response> {
+    const g = await gate();
+    if (g) return g;
     const q = await quote(target, quoteDeps);
     if ("ok" in q && q.ok === false) return refusedResponse(q);
     const qq = q as Quote;
     if (pay.chain === "solana") {
-      if (!o.solana) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Solana is not configured", charged: false });
+      if (!o.solana || !o.caps.solana) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Solana is not configured", charged: false });
       if (!qq.solana.ok) return refusedResponse(qq.solana);
       return toResponse(await paySolana(solCtx(), qq.target, qq.solana, pay.header));
     }
-    if (!o.tempo) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Tempo is not configured", charged: false });
+    if (!o.tempo || !o.caps.tempo) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Tempo is not configured", charged: false });
     if (!qq.tempo.ok) return refusedResponse(qq.tempo);
     return toResponse(await payTempo(tempoCtx(), qq.target, qq.tempo, pay.header));
+  }
+
+  async function record(id: string): Promise<Response> {
+    if (!/^[0-9a-f]{32}$/.test(id)) return json(404, { error: "not_found" });
+    const r = await o.store.getRecord(id);
+    return r ? json(200, r, { "access-control-allow-origin": "*" }) : json(404, { error: "not_found" });
   }
 
   return {
     async handle(req) {
       const u = new URL(req.url);
-      if (u.pathname.startsWith(RECORD_PATH_PREFIX) && req.method === "GET") {
-        const id = u.pathname.slice(RECORD_PATH_PREFIX.length);
-        if (!/^[0-9a-f]{32}$/.test(id)) return json(404, { error: "not_found" });
-        const r = o.books.getRecord(id);
-        return r ? json(200, r, { "access-control-allow-origin": "*" }) : json(404, { error: "not_found" });
-      }
-      if (u.pathname !== BUY_PATH) return json(404, { error: "not_found" });
+      const path = u.pathname === "/api/buy" ? BUY_PATH : u.pathname;
+      if (req.method === "GET" && path.startsWith(RECORD_PATH_PREFIX)) return record(path.slice(RECORD_PATH_PREFIX.length));
+      if (req.method === "GET" && path === BUY_PATH && u.searchParams.has("record")) return record(u.searchParams.get("record") ?? "");
+      if (path !== BUY_PATH) return json(404, { error: "not_found" });
       if (req.method !== "GET") return json(405, { verdict: "REFUSE", reason: "method_not_allowed", detail: "use GET", charged: false });
       if (!o.enabled) return json(503, { verdict: "REFUSE", reason: "proxy_buy_disabled", detail: "proxy buy is switched off; nothing was charged", charged: false });
       // Every request below reads the seller's 402 at least once: limit them per client.
@@ -176,8 +213,4 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       return unpaid(req, target);
     },
   };
-}
-
-function description(target: string): string {
-  return `vet402 buys ${target} for you: seller price + fee, answer returned as-is, no refund`;
 }

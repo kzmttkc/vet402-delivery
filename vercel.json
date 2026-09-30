@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
+  "buildCommand": "",
+  "outputDirectory": "site",
+  "rewrites": [
+    { "source": "/v1/buy", "destination": "/api/buy" },
+    { "source": "/v1/buy/records/:id", "destination": "/api/buy?record=:id" }
+  ],
+  "functions": {
+    "api/buy.ts": { "maxDuration": 300, "includeFiles": "data/**" },
+    "api/reconcile.ts": { "maxDuration": 300, "includeFiles": "data/**" }
+  },
+  "crons": [{ "path": "/api/reconcile", "schedule": "17 3 * * *" }]
+}

@@ -54,7 +54,7 @@ const q = (target: string) => `/v1/buy?url=${encodeURIComponent(target)}`;
 
 test("e2e solana: agent -> vet402 (HTTP) -> seller (HTTP): 402, pay, answer, record", async () => {
   const seller = await sellerOverHttp();
-  const r = solRig({ wrapSeller: seller.wrap });
+  const r = await solRig({ wrapSeller: seller.wrap });
   const proxy = await proxyOverHttp(r.buy);
   try {
     const first = await fetch(`${proxy.base}${q(S_URL)}`);
@@ -77,7 +77,6 @@ test("e2e solana: agent -> vet402 (HTTP) -> seller (HTTP): 402, pay, answer, rec
     assert.equal((await fetch(`${proxy.base}${q(S_URL)}`, { headers: { "payment-signature": header } })).status, 409);
     assert.equal(r.fac.settles, 1);
   } finally {
-    r.books.release();
     await close(proxy.server);
     await close(seller.server);
   }
@@ -85,7 +84,7 @@ test("e2e solana: agent -> vet402 (HTTP) -> seller (HTTP): 402, pay, answer, rec
 
 test("e2e solana: the seller goes down after being paid -> 502 with the record, over HTTP", async () => {
   const seller = await sellerOverHttp();
-  const r = solRig({ wrapSeller: seller.wrap, seller: { paidStatus: 503, paidBody: "maintenance" } });
+  const r = await solRig({ wrapSeller: seller.wrap, seller: { paidStatus: 503, paidBody: "maintenance" } });
   const proxy = await proxyOverHttp(r.buy);
   try {
     const first = await fetch(`${proxy.base}${q(S_URL)}`);
@@ -100,7 +99,6 @@ test("e2e solana: the seller goes down after being paid -> 502 with the record, 
     assert.equal(j.sellerStatus, 503);
     assert.equal(j.refund, "none");
   } finally {
-    r.books.release();
     await close(proxy.server);
     await close(seller.server);
   }
@@ -108,7 +106,7 @@ test("e2e solana: the seller goes down after being paid -> 502 with the record, 
 
 test("e2e solana: the seller moves its payTo right before vet402 pays -> seller not paid, the agent is refunded, over HTTP", async () => {
   const seller = await sellerOverHttp();
-  const r = solRig({ wrapSeller: seller.wrap, seller: { onRead: (n, s) => { if (n === 3) s.payTo = SELLER2; } } });
+  const r = await solRig({ wrapSeller: seller.wrap, seller: { onRead: (n, s) => { if (n === 3) s.payTo = SELLER2; } } });
   const proxy = await proxyOverHttp(r.buy);
   try {
     const first = await fetch(`${proxy.base}${q(S_URL)}`);
@@ -125,7 +123,6 @@ test("e2e solana: the seller moves its payTo right before vet402 pays -> seller 
     assert.deepEqual(r.refunds, [{ to: agent.address, amount: 15_000n }]);
     assert.equal(r.sellerPays.length, 0);
   } finally {
-    r.books.release();
     await close(proxy.server);
     await close(seller.server);
   }
@@ -133,7 +130,7 @@ test("e2e solana: the seller moves its payTo right before vet402 pays -> seller 
 
 test("e2e tempo: agent -> vet402 (HTTP, MPP) -> seller (HTTP, MPP): challenge, pull credential, answer", async () => {
   const seller = await sellerOverHttp();
-  const r = tRig({ wrapSeller: seller.wrap });
+  const r = await tRig({ wrapSeller: seller.wrap });
   const proxy = await proxyOverHttp(r.buy);
   try {
     const first = await fetch(`${proxy.base}${q(T_URL)}`);

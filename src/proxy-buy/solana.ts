@@ -1,17 +1,18 @@
 /**
- * Proxy buy on Solana: the agent pays vet402 with x402 (exact, USDC), vet402 pays the seller with its
- * own proxy wallet through the census payment path (src/pay.ts payOne), and hands over the answer.
+ * Proxy buy on Solana: the agent pays vet402 with x402 (exact, USDC), vet402 pays the seller with its own
+ * proxy wallet through the census payment path (src/pay.ts payOne), and hands over the answer.
  *
  * Order (settle first, as in vet402-algorand's /v1/buy):
- *   decode the agent's payment -> read the seller's 402 again and price it again -> the payment must be
- *   for exactly that price (x402 v2 deep equality of `accepted`) -> take the payment key (the signed
- *   transaction's message: a replay guard that re-encoding cannot dodge) -> check the day's headroom,
- *   including what a refund would need -> facilitator verify -> facilitator settle -> read the agent's
- *   transfer on chain -> record the agent's transaction as used (once only) -> payOne (which reads the
- *   seller's 402 a third time and refuses a raised price or a changed payTo before signing) -> answer.
- * Every refusal before settle costs the agent nothing. After settle: if vet402 did not pay the seller,
- * the agent's payment is refunded to the address that paid; if the seller was paid and did not deliver,
- * there is no refund and the record says so.
+ *   decode the agent's payment -> read the seller's 402 again and price it again -> the payment must be for
+ *   exactly that price (x402 v2 deep equality of `accepted`) -> take the payment key in the database (the
+ *   signed transaction's message) -> reserve the wallet and the day in the database -> facilitator verify ->
+ *   mark "settling" -> facilitator settle -> read the agent's transfer on chain (the authority's balance down
+ *   and the receive wallet's up by exactly the total) -> record the agent's transaction as used and the
+ *   purchase as in progress -> payOne (the seller's 402 is read again; vet402's signed payment is recorded in
+ *   the database before it is sent) -> answer.
+ * Every stop before settle costs the agent nothing. After settle: if vet402 did not pay the seller (payOne
+ * refused, or vet402's payment to the seller is proven dead on chain), the agent is refunded; if the seller
+ * was paid, there is no refund; if that cannot be told yet, the reconciler decides later.
  */
 import { createHash } from "node:crypto";
 import { getBase64Encoder, getTransactionDecoder } from "@solana/kit";
@@ -19,33 +20,44 @@ import type { x402ResourceServer } from "@x402/core/server";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequirements, SettleResponse } from "@x402/core/types";
 import { SOLANA_MAINNET, USDC_MINT, atomicToUsdc } from "../constants.js";
+import { Budget } from "../guard.js";
 import { payOne, type PayDeps, type PurchaseRecord as PayRecord } from "../pay.js";
-import type { Books, PurchaseRecord } from "./books.js";
 import { OFFER_TTL_SECONDS, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
+import { decodeSolanaTx, type Fate, type SolanaTxFacts } from "./fate.js";
+import { noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
 import { redact, refusalReason } from "./reasons.js";
-import { refundAgent, type RefundOutcome } from "./refund.js";
+import type { RefundSender } from "./refund.js";
+import { utcDay, type PurchaseRecord } from "./store.js";
 import { totalAtomic, type SolanaOffer } from "./quote.js";
+
+export type { PaidAnswer } from "./flow.js";
+
+/** SOL the Solana proxy payer must hold to pay a refund's network fee (lamports). */
+export const REFUND_SOL_MIN_LAMPORTS = 100_000n;
 
 export interface SolanaSide {
   /** Where agents pay (USDC ATA must exist). Its key is not on the server. */
   receive: string;
+  receiveAta: string;
   /** vet402's proxy payer. Pays sellers and refunds only. */
   payer: string;
+  payerAta: string;
   resourceServer: x402ResourceServer;
   /** src/pay.ts dependencies for the proxy payer (budget, judge, payer and the body hooks are set per purchase). */
   pay: Omit<PayDeps, "budget" | "judge" | "payer" | "onBody" | "maxBodyBytes">;
-  /** The agent's transfer, read on chain: success and exactly `amount` into `receive`. Fixed reason codes only. */
-  confirmCustomer: (tx: string, payer: string | null, amount: bigint) => Promise<{ ok: true } | { ok: false; detail: string }>;
-  /** Send `amount` USDC from the proxy payer to `to` (src/proxy-buy/refund.ts sendSolanaRefund). */
-  refund: (to: string, amount: bigint) => Promise<RefundOutcome>;
+  /**
+   * The agent's transfer, read on chain: success, `receive` up by exactly `amount`, `authority` down by exactly
+   * `amount`. `definite`: the transaction is on chain and failed or moved something else (no charge).
+   */
+  confirmCustomer: (tx: string, authority: string, amount: bigint) => Promise<{ ok: true } | { ok: false; detail: string; definite: boolean }>;
+  /** The fate of a transaction found by its message hash among `account`'s signatures (fate.ts solanaTxFate). */
+  fate: (f: { messageHash: string; blockhash: string; account: string }) => Promise<Fate>;
+  /** Send `amount` USDC from the proxy payer to `to` (refund.ts sendSolanaRefund). */
+  refund: RefundSender;
 }
 
-export interface SolanaContext {
+export interface SolanaContext extends Common {
   side: SolanaSide;
-  books: Books;
-  feeAtomic: bigint;
-  now: () => Date;
-  recordUrl: (id: string) => string;
   resourceUrl: string;
 }
 
@@ -69,7 +81,7 @@ export function resetInit(): void {
   initFor = new WeakMap();
 }
 
-export async function solanaRequirements(ctx: SolanaContext, offer: SolanaOffer, target: string): Promise<PaymentRequirements[]> {
+export async function solanaRequirements(ctx: { side: SolanaSide; feeAtomic: bigint }, offer: SolanaOffer, target: string): Promise<PaymentRequirements[]> {
   const rs = ctx.side.resourceServer;
   await ensureInit(rs);
   const total = totalAtomic(offer.sellerAtomic, ctx.feeAtomic);
@@ -79,17 +91,12 @@ export async function solanaRequirements(ctx: SolanaContext, offer: SolanaOffer,
     payTo: ctx.side.receive,
     price: { amount: total.toString(), asset: USDC_MINT },
     maxTimeoutSeconds: OFFER_TTL_SECONDS,
-    extra: {
-      target,
-      sellerAmount: offer.accept.amount,
-      sellerPayTo: offer.accept.payTo,
-      buyFee: ctx.feeAtomic.toString(),
-    },
+    extra: { target, sellerAmount: offer.accept.amount, sellerPayTo: offer.accept.payTo, buyFee: ctx.feeAtomic.toString() },
   });
 }
 
 /** The PAYMENT-REQUIRED header value for these requirements. */
-export async function paymentRequiredHeader(ctx: SolanaContext, reqs: PaymentRequirements[], description: string, error?: string): Promise<string> {
+export async function paymentRequiredHeader(ctx: { side: SolanaSide; resourceUrl: string }, reqs: PaymentRequirements[], description: string, error?: string): Promise<string> {
   const pr = await ctx.side.resourceServer.createPaymentRequiredResponse(reqs, { url: ctx.resourceUrl, description, mimeType: "application/octet-stream" }, error);
   return encodePaymentRequiredHeader(pr);
 }
@@ -97,8 +104,8 @@ export async function paymentRequiredHeader(ctx: SolanaContext, reqs: PaymentReq
 const sha = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex").slice(0, 32);
 
 /**
- * Replay key of an x402 SVM payment: the signed transaction's message bytes. The same transaction under
- * another JSON encoding, extra payload fields or another header encoding has the same key.
+ * Replay key of an x402 SVM payment: the signed transaction's message bytes. The same transaction under another
+ * JSON encoding, extra payload fields or another header name has the same key.
  */
 export function solanaPaymentKey(p: PaymentPayload): string {
   const tx = (p.payload as { transaction?: unknown } | undefined)?.transaction;
@@ -112,23 +119,37 @@ export function solanaPaymentKey(p: PaymentPayload): string {
   return sha(`raw:${JSON.stringify(p.payload)}`);
 }
 
-export type PaidAnswer =
-  | { kind: "refuse"; status: number; body: Record<string, unknown>; headers?: Record<string, string> }
-  | { kind: "answer"; status: number; body: Uint8Array; headers: Record<string, string> }
-  | { kind: "json"; status: number; body: Record<string, unknown>; headers: Record<string, string> };
-
-const noCharge = (status: number, reason: string, detail: string, extra: Record<string, unknown> = {}): PaidAnswer => ({
-  kind: "refuse",
-  status,
-  body: { verdict: "REFUSE", reason, detail, charged: false, ...extra },
-});
-
 /**
- * One paid Solana request. `offer` comes from the seller's 402 read for this request, `header` is the
- * agent's PAYMENT-SIGNATURE.
+ * A facilitator `success: false` that proves nothing was broadcast: no transaction, and a verification reason
+ * (the x402 SVM facilitator's own checks, run before it signs and sends). Anything else may have been sent.
  */
+export function settleFailedBeforeSend(s: SettleResponse): boolean {
+  if (s.transaction) return false;
+  return /^invalid_exact_svm_(payload_|fee_payer_|network_mismatch|smart_wallet_)/.test(s.errorReason ?? "");
+}
+
+function recordBase(ctx: SolanaContext, id: string, target: string, offer: SolanaOffer, total: bigint, tx: string | null, payer: string | null): PurchaseRecord {
+  return {
+    id,
+    chain: "solana",
+    at: ctx.now().toISOString(),
+    target: publicTarget(target),
+    seller: { host: offer.known.host, payTo: offer.accept.payTo, priceAtomic: offer.accept.amount },
+    feeAtomic: ctx.feeAtomic.toString(),
+    totalAtomic: total.toString(),
+    customer: { tx, payer, confirmed: false },
+    sellerPayment: null,
+    answer: null,
+    outcome: "in_progress",
+    reason: null,
+    refund: "none",
+  };
+}
+
+/** One paid Solana request. `offer` comes from the seller's 402 read for this request. */
 export async function paySolana(ctx: SolanaContext, target: string, offer: SolanaOffer, header: string): Promise<PaidAnswer> {
-  const rs = ctx.side.resourceServer;
+  const { store, side } = ctx;
+  const rs = side.resourceServer;
   let payload: PaymentPayload;
   try {
     payload = decodePaymentSignatureHeader(header);
@@ -136,7 +157,6 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     return noCharge(400, "malformed_payment", "PAYMENT-SIGNATURE is not a readable x402 payment");
   }
   if (payload.x402Version !== 2) return noCharge(400, "unsupported_x402_version", "proxy buy accepts x402 v2 payments only");
-
   let reqs: PaymentRequirements[];
   try {
     reqs = await solanaRequirements(ctx, offer, target);
@@ -145,7 +165,6 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   const req = rs.findMatchingRequirements(reqs, payload);
   if (!req) {
-    // The seller's price or payTo moved since the agent signed, or the payment is for something else.
     const h = await paymentRequiredHeader(ctx, reqs, "price changed: sign again for this price", "price_changed").catch(() => null);
     return {
       kind: "refuse",
@@ -154,180 +173,184 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
       ...(h ? { headers: { "PAYMENT-REQUIRED": h } } : {}),
     };
   }
+  const agentTx = decodeSolanaTx(String((payload.payload as { transaction?: unknown }).transaction ?? ""));
+  if (!agentTx || !agentTx.authority || agentTx.amount !== req.amount) return noCharge(400, "malformed_payment", "the payment is not one USDC transfer of the total");
+  const authority = agentTx.authority;
 
-  const key = solanaPaymentKey(payload);
+  const id = solanaPaymentKey(payload);
   const seller = offer.sellerAtomic;
   const total = BigInt(req.amount);
-  if (!ctx.books.claim(key, "solana", seller, 0n)) {
+  const now = ctx.now();
+  if (!(await store.claim({ id, chain: "solana", target, sellerAmount: seller, feeReserve: 0n, total, facts: { agent: { ...agentTx, account: side.receiveAta } }, now }))) {
     return noCharge(409, "duplicate_payment", "this signed transaction was already used or is being used now");
   }
+  let bal: { usdcAtomic: bigint; lamports: bigint };
   try {
-    let bal: { usdcAtomic: bigint; lamports: bigint };
-    try {
-      bal = await ctx.side.pay.readBalances();
-    } catch {
-      ctx.books.unclaim(key);
-      return noCharge(503, "ledger_unreadable", "the proxy wallet could not be read on chain; nothing was charged");
-    }
-    const room = ctx.books.solanaHeadroom(ctx.now(), bal, key, seller, total);
-    if (!room.ok) {
-      ctx.books.unclaim(key);
-      return noCharge(503, room.reason, room.detail);
-    }
-    const day = room.day; // this purchase stays on this day's ledger until it is over
-    let v;
-    try {
-      v = await rs.verifyPayment(payload, req);
-    } catch {
-      ctx.books.unclaim(key);
-      return noCharge(502, "verify_failed", "the facilitator could not verify the payment; nothing was charged");
-    }
-    if (!v.isValid) {
-      ctx.books.unclaim(key);
-      return noCharge(402, "invalid_payment", redact(v.invalidReason ?? "the facilitator did not accept this payment"));
-    }
-
-    // ---- from here the agent's money may move: the key is spent for good ----
-    ctx.books.burn(key);
-    let settled: SettleResponse;
-    try {
-      settled = await rs.settlePayment(payload, req);
-    } catch {
-      // The facilitator may or may not have broadcast: record it, never pay the seller on an unknown.
-      const r: PurchaseRecord = { ...recordBase(ctx, key, target, offer, total, null, v.payer ?? null), outcome: "customer_payment_unconfirmed", reason: "settle_error" };
-      ctx.books.record(r);
-      return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(key), charged: "unknown", refund: "none" }, headers: { "x-vet402-record": ctx.recordUrl(key) } };
-    }
-    if (!settled.success) return noCharge(402, "customer_settlement_failed", redact(settled.errorReason ?? "settlement failed"));
-
-    const agentAddr = settled.payer || v.payer || null;
-    const base = recordBase(ctx, key, target, offer, total, settled.transaction, agentAddr);
-    const paidHeaders = { "PAYMENT-RESPONSE": encodePaymentResponseHeader(settled), "x-vet402-customer-tx": settled.transaction, "x-vet402-record": ctx.recordUrl(key) };
-
-    const conf = await ctx.side.confirmCustomer(settled.transaction, agentAddr, total).catch(() => ({ ok: false as const, detail: "confirm_error" }));
-    if (!conf.ok) {
-      const r: PurchaseRecord = { ...base, outcome: "customer_payment_unconfirmed", reason: conf.detail };
-      ctx.books.record(r);
-      return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(key), refund: "none" }, headers: paidHeaders };
-    }
-    base.customer.confirmed = true;
-    // Right before anything is paid for it: one purchase per settled on-chain transaction.
-    if (!ctx.books.useCustomerTx("solana", settled.transaction)) {
-      const r: PurchaseRecord = { ...base, outcome: "duplicate_customer_tx", reason: "this on-chain payment already paid for a purchase" };
-      ctx.books.record(r);
-      return { kind: "json", status: 409, body: { error: "duplicate_customer_tx", record: ctx.recordUrl(key), refund: "none" }, headers: paidHeaders };
-    }
-
-    const refundIfUnpaid = async (reason: string, outcome: "seller_not_paid"): Promise<PaidAnswer> => {
-      const refund = await refundAgent(ctx.books, ctx.side.refund, { key, chain: "solana", day: day.day, to: agentAddr, amount: total, now: ctx.now });
-      const r: PurchaseRecord = { ...base, outcome, reason, refund };
-      ctx.books.record(r);
-      return {
-        kind: "json",
-        status: 502,
-        body: { error: outcome, reason, refund, record: ctx.recordUrl(key) },
-        headers: { ...paidHeaders, ...(refund.tx ? { "x-vet402-refund-tx": refund.tx } : {}) },
-      };
-    };
-
-    // The seller: through the census payment path, with the proxy wallet and this purchase's day Budget.
-    const got: { body: Uint8Array | null; truncated: boolean } = { body: null, truncated: false };
-    let rec: PayRecord;
-    try {
-      rec = await payOne(
-        {
-          host: key, // the Budget key: one purchase per agent payment
-          requestUrl: target,
-          exampleInput: null,
-          lock: { payTo: offer.accept.payTo, amount: offer.accept.amount, asset: USDC_MINT, network: SOLANA_MAINNET, feePayer: String(offer.accept.extra?.feePayer ?? "") },
-        },
-        {
-          ...ctx.side.pay,
-          payer: ctx.side.payer,
-          budget: day.budget,
-          maxBodyBytes: PROXY_MAX_FORWARD_BYTES,
-          onBody: (bytes, truncated) => {
-            got.body = bytes;
-            got.truncated = truncated;
-          },
-          judge: (d) => {
-            const delivered = d.status >= 200 && d.status < 300 && d.bodyText.trim().length > 0;
-            return { delivered, reason: delivered ? "delivered" : `http_${d.status}`, summary: "", missingKeys: [] };
-          },
-        },
-      );
-    } catch {
-      // payOne returns its refusals; a throw comes from before anything was signed (a ledger write or a chain read).
-      return refundIfUnpaid("seller_payment_error", "seller_not_paid");
-    }
-    if (rec.outcome !== "sent") {
-      return refundIfUnpaid(rec.refusal ? refusalReason(rec.refusal) : rec.outcome, "seller_not_paid");
-    }
-
-    const sellerTx = rec.signature ?? null;
-    const bytes: Uint8Array | null = got.body;
-    const status = rec.response?.status ?? null;
-    const answer = {
-      httpStatus: status,
-      delivered: rec.delivered ?? null,
-      bodySha256: bytes ? createHash("sha256").update(bytes).digest("hex") : null,
-      bodyBytes: bytes ? bytes.byteLength : null,
-      contentType: rec.response?.contentType ?? null,
-    };
-    const headers = {
-      ...paidHeaders,
-      ...(sellerTx ? { "x-vet402-seller-tx": sellerTx } : {}),
-      "x-vet402-seller-settled": String(rec.settled ?? "unknown"),
-      "x-vet402-seller-status": String(status ?? ""),
-    };
-    const sellerPayment = { tx: sellerTx, settled: rec.settled ?? null };
-    if (got.truncated) {
-      const r: PurchaseRecord = { ...base, sellerPayment, answer, outcome: "answer_too_large", reason: `answer above ${PROXY_MAX_FORWARD_BYTES} bytes` };
-      ctx.books.record(r);
-      return { kind: "json", status: 502, body: { error: "answer_too_large", record: ctx.recordUrl(key), refund: "none" }, headers };
-    }
-    const delivered = rec.delivered === true && bytes !== null && bytes.byteLength > 0;
-    const r: PurchaseRecord = { ...base, sellerPayment, answer: { ...answer, delivered }, outcome: delivered ? "delivered" : "not_delivered", reason: delivered ? null : `seller answered ${status ?? "nothing"}` };
-    ctx.books.record(r);
-    if (!delivered) {
-      return {
-        kind: "json",
-        status: 502,
-        body: { error: "not_delivered", sellerStatus: status, sellerAnswer: bytes ? Buffer.from(bytes.subarray(0, 300)).toString("utf8") : null, record: ctx.recordUrl(key), refund: "none" },
-        headers,
-      };
-    }
-    return {
-      kind: "answer",
-      status: 200,
-      body: bytes!,
-      headers: {
-        ...headers,
-        "content-type": answer.contentType ?? "application/octet-stream",
-        "x-content-type-options": "nosniff",
-        "content-security-policy": "sandbox; default-src 'none'",
-      },
-    };
-  } finally {
-    ctx.books.done(key);
+    bal = await side.pay.readBalances();
+  } catch {
+    await store.release(id);
+    return noCharge(503, "ledger_unreadable", "the proxy wallet could not be read on chain; nothing was charged");
   }
-}
+  if (bal.lamports < REFUND_SOL_MIN_LAMPORTS) {
+    await store.release(id);
+    return noCharge(503, "refund_fee_unavailable", "the proxy wallet cannot pay a refund's network fee; nothing was charged");
+  }
+  const day = utcDay(now);
+  // The wallet reservation is the most this purchase can take out: a refund of the total (>= the seller price).
+  const room = await store.admit(id, { chain: "solana", payer: side.payer, day, caps: ctx.caps, need: total, balance: bal.usdcAtomic, now });
+  if (!room.ok) {
+    await store.release(id);
+    return noCharge(503, room.reason, room.detail);
+  }
+  let v;
+  try {
+    v = await rs.verifyPayment(payload, req);
+  } catch {
+    await store.release(id);
+    return noCharge(502, "verify_failed", "the facilitator could not verify the payment; nothing was charged");
+  }
+  if (!v.isValid) {
+    await store.release(id);
+    return noCharge(402, "invalid_payment", redact(v.invalidReason ?? "the facilitator did not accept this payment"));
+  }
 
-function recordBase(ctx: SolanaContext, key: string, target: string, offer: SolanaOffer, total: bigint, tx: string | null, payer: string | null): PurchaseRecord {
+  // ---- from here the agent's money may move: the key is spent for good ----
+  if (!(await store.move(id, ["admitted"], "settling", { now: ctx.now() }))) return noCharge(409, "duplicate_payment", "this payment moved on in another request");
+  const unknownBase = recordBase(ctx, id, target, offer, total, null, authority);
+  let settled: SettleResponse;
+  try {
+    settled = await rs.settlePayment(payload, req);
+  } catch {
+    const r: PurchaseRecord = { ...unknownBase, outcome: "customer_payment_unconfirmed", reason: "settle_error" };
+    await store.move(id, ["settling"], "settling", { record: r, now: ctx.now() });
+    return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(id), charged: "unknown", refund: "pending_reconcile" }, headers: { "x-vet402-record": ctx.recordUrl(id) } };
+  }
+  if (!settled.success) {
+    if (settleFailedBeforeSend(settled)) {
+      await store.finish(id, ["settling"], { record: { ...unknownBase, outcome: "no_charge", reason: "customer_settlement_failed" }, spent: 0n, now: ctx.now() });
+      return noCharge(402, "customer_settlement_failed", redact(settled.errorReason ?? "settlement failed"));
+    }
+    const r: PurchaseRecord = { ...unknownBase, customer: { ...unknownBase.customer, tx: settled.transaction || null }, outcome: "customer_payment_unconfirmed", reason: "settle_outcome_unknown" };
+    await store.move(id, ["settling"], "settling", { record: r, facts: { settleTx: settled.transaction || null }, now: ctx.now() });
+    return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(id), charged: "unknown", refund: "pending_reconcile" }, headers: { "x-vet402-record": ctx.recordUrl(id) } };
+  }
+
+  const base = recordBase(ctx, id, target, offer, total, settled.transaction, authority);
+  const paidHeaders = { "PAYMENT-RESPONSE": encodePaymentResponseHeader(settled), "x-vet402-customer-tx": settled.transaction, "x-vet402-record": ctx.recordUrl(id) };
+  const conf = await side.confirmCustomer(settled.transaction, authority, total).catch(() => ({ ok: false as const, detail: "confirm_error", definite: false }));
+  if (!conf.ok) {
+    if (conf.definite) {
+      await store.finish(id, ["settling"], { record: { ...base, outcome: "no_charge", reason: conf.detail }, spent: 0n, now: ctx.now() });
+      return noCharge(402, "customer_payment_failed", conf.detail);
+    }
+    const r: PurchaseRecord = { ...base, outcome: "customer_payment_unconfirmed", reason: conf.detail };
+    await store.move(id, ["settling"], "settling", { record: r, facts: { settleTx: settled.transaction }, now: ctx.now() });
+    return { kind: "json", status: 502, body: { error: "customer_payment_unconfirmed", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile" }, headers: paidHeaders };
+  }
+  base.customer.confirmed = true;
+  // The agent's on-chain payment is used once, and the in-progress record is written, before anyone is paid.
+  if (!(await store.useCustomerTx(id, "solana", settled.transaction, { facts: { customerTx: settled.transaction }, record: base, now: ctx.now() }))) {
+    await store.finish(id, ["settling"], { record: { ...base, outcome: "duplicate_customer_tx", reason: "this on-chain payment already paid for a purchase" }, spent: 0n, now: ctx.now() });
+    return { kind: "json", status: 409, body: { error: "duplicate_customer_tx", record: ctx.recordUrl(id), refund: "none" }, headers: paidHeaders };
+  }
+  const owe = (reason: string, from: ("in_progress" | "seller_unsettled")[]) =>
+    refundOwed(ctx, { id, chain: "solana", day, from, base, reason, to: authority, total, send: side.refund, headers: paidHeaders });
+
+  // The seller: through the census payment path, with a single-purchase budget (the caps are in the database).
+  const got: { body: Uint8Array | null; truncated: boolean; sellerTx: SolanaTxFacts | null } = { body: null, truncated: false, sellerTx: null };
+  let rec: PayRecord;
+  try {
+    rec = await payOne(
+      {
+        host: id,
+        requestUrl: target,
+        exampleInput: null,
+        lock: { payTo: offer.accept.payTo, amount: offer.accept.amount, asset: USDC_MINT, network: SOLANA_MAINNET, feePayer: String(offer.accept.extra?.feePayer ?? "") },
+      },
+      {
+        ...side.pay,
+        // vet402's signed payment to the seller is written to the database before payOne can send it.
+        createPayment: async (pr, accept) => {
+          const created = await side.pay.createPayment(pr, accept);
+          const f = decodeSolanaTx(created.txBase64);
+          if (!f) throw new Error("seller payment not decodable");
+          if (!(await store.move(id, ["in_progress"], "in_progress", { facts: { seller: { ...f, account: side.payerAta } }, now: ctx.now() }))) throw new Error("purchase moved");
+          got.sellerTx = f;
+          return created;
+        },
+        payer: side.payer,
+        budget: new Budget(null, seller, 1, seller),
+        maxBodyBytes: PROXY_MAX_FORWARD_BYTES,
+        onBody: (bytes, truncated) => {
+          got.body = bytes;
+          got.truncated = truncated;
+        },
+        judge: (d) => {
+          const delivered = d.status >= 200 && d.status < 300 && d.bodyText.trim().length > 0;
+          return { delivered, reason: delivered ? "delivered" : `http_${d.status}`, summary: "", missingKeys: [] };
+        },
+      },
+    );
+  } catch {
+    // payOne returns its refusals; a throw comes from before anything was sent (the database write above, a read).
+    return owe("seller_payment_error", ["in_progress"]);
+  }
+  if (rec.outcome !== "sent") return owe(rec.refusal ? refusalReason(rec.refusal) : rec.outcome, ["in_progress"]);
+
+  const bytes = got.body;
+  const status = rec.response?.status ?? null;
+  const answer = {
+    httpStatus: status,
+    delivered: rec.delivered ?? null,
+    bodySha256: bytes ? createHash("sha256").update(bytes).digest("hex") : null,
+    bodyBytes: bytes ? bytes.byteLength : null,
+    contentType: rec.response?.contentType ?? null,
+  };
+  const delivered = rec.delivered === true && bytes !== null && bytes.byteLength > 0 && !got.truncated;
+  let sellerSettled: boolean | null = rec.settled === true ? true : null;
+  let sellerTx = rec.signature ?? null;
+  if (sellerSettled !== true && !delivered) {
+    // vet402's payment was handed over and not seen settled: wait for proof either way before deciding.
+    const f = got.sellerTx
+      ? await waitFate(ctx, () => side.fate({ messageHash: got.sellerTx!.messageHash, blockhash: got.sellerTx!.blockhash, account: side.payerAta }))
+      : ({ fate: "pending" } as Fate);
+    if (f.fate === "dead" || f.fate === "failed") return owe(f.fate === "dead" ? "seller_payment_expired_unsent" : "seller_payment_failed_on_chain", ["in_progress"]);
+    if (f.fate === "landed") {
+      sellerSettled = true;
+      sellerTx = f.tx;
+    } else {
+      const r: PurchaseRecord = { ...base, sellerPayment: { tx: sellerTx, settled: null }, answer, outcome: "seller_payment_pending", reason: `seller answered ${status ?? "nothing"}; payment not settled yet` };
+      await store.move(id, ["in_progress"], "seller_unsettled", { record: r, now: ctx.now() });
+      return { kind: "json", status: 502, body: { error: "seller_payment_pending", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile", note: "if vet402's payment to the seller never settles, the reconciler refunds you" }, headers: paidHeaders };
+    }
+  }
+  const headers = {
+    ...paidHeaders,
+    ...(sellerTx ? { "x-vet402-seller-tx": sellerTx } : {}),
+    "x-vet402-seller-settled": String(sellerSettled ?? "unknown"),
+    "x-vet402-seller-status": String(status ?? ""),
+  };
+  const sellerPayment = { tx: sellerTx, settled: sellerSettled };
+  if (got.truncated) {
+    const r: PurchaseRecord = { ...base, sellerPayment, answer, outcome: "answer_too_large", reason: `answer above ${PROXY_MAX_FORWARD_BYTES} bytes` };
+    await store.finish(id, ["in_progress"], { record: r, spent: seller, now: ctx.now() });
+    return { kind: "json", status: 502, body: { error: "answer_too_large", record: ctx.recordUrl(id), refund: "none" }, headers };
+  }
+  const r: PurchaseRecord = { ...base, sellerPayment, answer: { ...answer, delivered }, outcome: delivered ? "delivered" : "not_delivered", reason: delivered ? null : `seller answered ${status ?? "nothing"}; vet402's payment to it settled` };
+  await store.finish(id, ["in_progress"], { record: r, spent: seller, now: ctx.now() });
+  if (!delivered) {
+    return {
+      kind: "json",
+      status: 502,
+      body: { error: "not_delivered", sellerStatus: status, sellerAnswer: bytes ? Buffer.from(bytes.subarray(0, 300)).toString("utf8") : null, record: ctx.recordUrl(id), refund: "none", note: "vet402 paid the seller; no refund" },
+      headers,
+    };
+  }
   return {
-    id: key,
-    chain: "solana",
-    at: ctx.now().toISOString(),
-    target,
-    seller: { host: offer.known.host, payTo: offer.accept.payTo, priceAtomic: offer.accept.amount },
-    feeAtomic: ctx.feeAtomic.toString(),
-    totalAtomic: total.toString(),
-    customer: { tx, payer, confirmed: false },
-    sellerPayment: null,
-    answer: null,
-    outcome: "seller_not_paid",
-    reason: null,
-    refund: "none",
+    kind: "answer",
+    status: 200,
+    body: bytes!,
+    headers: { ...headers, "content-type": answer.contentType ?? "application/octet-stream", "x-content-type-options": "nosniff", "content-security-policy": "sandbox; default-src 'none'" },
   };
 }
 
@@ -344,3 +367,5 @@ export function solanaPriceInfo(offer: SolanaOffer, feeAtomic: bigint) {
     vet402Record: { settledPurchases: offer.known.settled, delivered: offer.known.delivered, lastAt: offer.known.lastAt },
   };
 }
+
+export { utcDay };

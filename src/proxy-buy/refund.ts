@@ -1,11 +1,12 @@
 /**
- * Refunds: when the agent's payment settled but vet402 could not pay the seller, the agent's full payment
- * (seller price + fee) goes back from vet402's proxy payer wallet to the address that paid, on the same
- * chain, in the same token.
+ * Refunds: when the agent's payment settled but vet402 did not pay the seller (proven: payOne refused before
+ * sending, or vet402's payment to the seller is dead on chain), the agent's full payment (seller price + fee)
+ * goes back from vet402's proxy payer wallet to the account whose balance paid, on the same chain, in the
+ * same token.
  *
- * The caller (solana.ts / tempo.ts) decides whether a refund is owed and takes the refund entry in the
- * books first (one refund per payment key, per-refund and daily caps). This file only builds, reads back,
- * sends and confirms one transfer. Every transaction is decoded and checked before it is sent.
+ * Order for one attempt: take the refund (one per purchase, daily refund cap: Store.refundClaim) -> build and
+ * sign -> read the signed transaction back -> write its signature/hash and expiry to the database -> send ->
+ * confirm. A later attempt is made only after the previous one is proven dead on chain (reconcile.ts).
  * Errors are reported as fixed codes: RPC error messages can carry the RPC URL.
  */
 import {
@@ -28,33 +29,27 @@ import {
 } from "@solana/kit";
 import { getTransferCheckedInstruction } from "@solana-program/token";
 import { encodeFunctionData, keccak256, type Client, type Hex, type LocalAccount } from "viem";
-import { getBlock, getTransactionCount, sendRawTransactionSync } from "viem/actions";
+import { call, estimateGas, getBlock, getTransactionCount, sendRawTransactionSync } from "viem/actions";
 import { Abis, Transaction } from "viem/tempo";
 import { readTransaction, type Rpc } from "../chain.js";
 import { COMPUTE_BUDGET_PROGRAM, TOKEN_PROGRAM, USDC_DECIMALS, USDC_MINT } from "../constants.js";
+import { maxFeeAtomic, TEMPO_BASE_FEE_CAP } from "../receipt/tempo-anchor.js";
 import { usdcAta } from "../txcheck.js";
 import type { SettlementCheck } from "../tempo/chain.js";
-import { TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../tempo/constants.js";
+import { FEE_RESERVE_ATOMIC, TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../tempo/constants.js";
 import { checkSignedTransfer } from "../tempo/txcheck.js";
 import type { ProxyChain } from "./allowlist.js";
-import type { Books, RefundRecord } from "./books.js";
+import type { RefundRecord, Store } from "./store.js";
 
 export type RefundOutcome =
   | { status: "sent"; tx: string; feePaid?: string | null }
-  /** Nothing left vet402: safe to say no refund was made. */
+  /** Nothing left vet402 (proven): safe to say no refund was made. */
   | { status: "failed"; reason: string; tx: null }
-  /** A signed refund may have left vet402 (sent, not confirmed): never retried automatically. */
+  /** A signed refund may have left vet402 and is not confirmed yet: the reconciler decides, never a blind retry. */
   | { status: "unknown"; reason: string; tx: string | null };
 
-/** One refund at a time per wallet: the nonce (Tempo) and the balance read stay consistent. */
-export class Serial {
-  private tail: Promise<unknown> = Promise.resolve();
-  run<T>(f: () => Promise<T>): Promise<T> {
-    const next = this.tail.then(f, f);
-    this.tail = next.catch(() => undefined);
-    return next;
-  }
-}
+/** Facts written to the database before a refund is sent (so a stopped process can find it). */
+export type BeforeSend = (facts: { tx: string; facts: Record<string, unknown> }) => Promise<boolean>;
 
 function readU64LE(b: ArrayLike<number>, off: number): bigint {
   let v = 0n;
@@ -110,7 +105,7 @@ export interface SolanaRefundDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: bigint): Promise<RefundOutcome> {
+export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend): Promise<RefundOutcome> {
   const payer = d.signer.address;
   if (!isAddress(to) || isOffCurveAddress(to) || to === payer) return { status: "failed", reason: "refund_to_invalid", tx: null };
   if (amount <= 0n) return { status: "failed", reason: "refund_amount_invalid", tx: null };
@@ -136,22 +131,26 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
   const signed = await signTransactionMessageWithSigners(message);
   const b64 = getBase64EncodedWireTransaction(signed);
   const sig = getSignatureFromTransaction(signed);
-  const problem = await checkSolanaRefundTx(b64, { payer, to, amount });
-  if (problem) return { status: "failed", reason: "refund_tx_check_failed", tx: null };
+  if (await checkSolanaRefundTx(b64, { payer, to, amount })) return { status: "failed", reason: "refund_tx_check_failed", tx: null };
+  const { decodeSolanaTx } = await import("./fate.js");
+  const facts = decodeSolanaTx(b64);
+  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", messageHash: facts?.messageHash, blockhash: lifetime.blockhash, account: src } }))) {
+    return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
+  }
 
   // ---- from here the refund may have left vet402 ----
   try {
     await d.rpc("sendTransaction", [b64, { encoding: "base64", preflightCommitment: "confirmed" }]);
   } catch {
-    // A preflight rejection means nothing was sent; a timeout may not. Only the chain can tell: keep polling.
+    // A preflight rejection means nothing was sent; a timeout may not. Only the chain can tell.
   }
-  const deadline = Date.now() + (d.timeoutMs ?? 60_000);
+  const deadline = Date.now() + (d.timeoutMs ?? 30_000);
   const sleep = d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (;;) {
     try {
       const r = await readTransaction(d.rpc, sig, payer, to);
       if (r.found) {
-        if (r.err !== null) return { status: "failed", reason: "refund_tx_failed_on_chain", tx: null };
+        if (r.err !== null) return { status: "unknown", reason: "refund_tx_failed_on_chain", tx: sig }; // the reconciler proves it and tries again
         if (r.payToDeltaAtomic !== amount.toString()) return { status: "unknown", reason: "refund_amount_mismatch_on_chain", tx: sig };
         return { status: "sent", tx: sig };
       }
@@ -168,34 +167,52 @@ export interface TempoRefundDeps {
   client: Client;
   /** Re-read the refund on chain (src/tempo/chain.ts verifySettlement). */
   verify: (tx: string, exp: { payer: string; recipient: string; amount: bigint }) => Promise<SettlementCheck>;
+  /** Seconds the refund stays valid after the head block's time. */
+  validForSeconds?: number;
 }
 
-export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bigint): Promise<RefundOutcome> {
+/**
+ * The Tempo refund, the way the Tempo anchor sends (src/receipt/anchor-tempo-run.ts): eth_call it first,
+ * eth_estimateGas x 1.25 as the gas limit, the base-fee cap as maxFeePerGas, the fee in USDC.e and its bound
+ * within the fee reserve, plus a validBefore so a transaction that never lands is provably dead.
+ */
+export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend): Promise<RefundOutcome> {
   const payer = d.account.address;
   if (!/^0x[0-9a-fA-F]{40}$/.test(to) || to.toLowerCase() === payer.toLowerCase()) return { status: "failed", reason: "refund_to_invalid", tx: null };
   if (amount <= 0n) return { status: "failed", reason: "refund_amount_invalid", tx: null };
+  const data = encodeFunctionData({ abi: Abis.tip20, functionName: "transfer", args: [to as Hex, amount] });
   let serialized: Hex;
+  let validBefore: bigint;
   try {
+    await call(d.client, { account: payer, to: USDC_E as Hex, data });
+    const estimate = await estimateGas(d.client, { account: payer, to: USDC_E as Hex, data });
+    const gas = (estimate * 5n + 3n) / 4n;
+    if (maxFeeAtomic(gas, TEMPO_BASE_FEE_CAP) > FEE_RESERVE_ATOMIC) return { status: "failed", reason: "refund_fee_over_reserve", tx: null };
     const block = await getBlock(d.client);
-    const nonce = await getTransactionCount(d.client, { address: payer, blockTag: "pending" });
-    const base = block.baseFeePerGas ?? 0n;
+    validBefore = block.timestamp + BigInt(d.validForSeconds ?? 120);
+    const nonce = await getTransactionCount(d.client, { address: payer, blockTag: "latest" });
     const tx = {
       type: "tempo" as const,
       chainId: TEMPO_MAINNET_CHAIN_ID,
-      calls: [{ to: USDC_E as Hex, data: encodeFunctionData({ abi: Abis.tip20, functionName: "transfer", args: [to as Hex, amount] }) }],
+      calls: [{ to: USDC_E as Hex, data }],
       nonce,
-      gas: 150_000n,
-      maxFeePerGas: base * 2n + 1n,
+      gas,
+      maxFeePerGas: TEMPO_BASE_FEE_CAP,
       maxPriorityFeePerGas: 0n,
       feeToken: USDC_E as Hex,
+      validBefore: Number(validBefore),
     };
     serialized = (await d.account.signTransaction!(tx as never, { serializer: Transaction.serialize as never })) as Hex;
   } catch {
-    return { status: "failed", reason: "rpc_error", tx: null };
+    return { status: "failed", reason: "rpc_error_or_simulation_failed", tx: null };
   }
-  const problem = checkSignedTransfer(serialized, { payer, recipient: to, amount, sponsored: false });
-  if (problem) return { status: "failed", reason: "refund_tx_check_failed", tx: null };
+  if (checkSignedTransfer(serialized, { payer, recipient: to, amount, sponsored: false })) return { status: "failed", reason: "refund_tx_check_failed", tx: null };
   const hash = keccak256(serialized);
+  const decoded = Transaction.deserialize(serialized as never) as { nonce?: unknown; validBefore?: unknown };
+  if (String(decoded.validBefore ?? "") !== validBefore.toString()) return { status: "failed", reason: "refund_tx_check_failed", tx: null };
+  if (!(await beforeSend({ tx: hash, facts: { chain: "tempo", hash, from: payer.toLowerCase(), nonce: String(decoded.nonce ?? 0), nonceKey: "0", validBefore: validBefore.toString(), sponsored: false } }))) {
+    return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
+  }
 
   // ---- from here the refund may have left vet402 ----
   try {
@@ -208,26 +225,34 @@ export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bi
   return { status: "unknown", reason: "refund_not_confirmed", tx: hash };
 }
 
+export type RefundSender = (to: string, amount: bigint, beforeSend: BeforeSend) => Promise<RefundOutcome>;
+
 /**
- * Refund one purchase whose seller vet402 did not pay: take the refund entry in the books (one per payment
- * key ever, per-refund and daily caps), send, record the result. Never throws.
+ * Refund one purchase whose seller vet402 did not pay. First attempt: take the refund (one per purchase ever,
+ * per-refund and daily caps). Later attempts (the reconciler): only from status "dead". Never throws.
  */
 export async function refundAgent(
-  books: Books,
-  send: (to: string, amount: bigint) => Promise<RefundOutcome>,
-  o: { key: string; chain: ProxyChain; day: string; to: string | null; amount: bigint; now: () => Date },
+  store: Store,
+  send: RefundSender,
+  o: { id: string; chain: ProxyChain; day: string; to: string | null; amount: bigint; maxRefund: bigint; now: () => Date; retry?: boolean },
 ): Promise<RefundRecord> {
   const amountAtomic = o.amount.toString();
   if (!o.to) return { status: "refused", to: null, amountAtomic, tx: null, reason: "payer_unknown" };
-  const c = books.refundClaim(o.key, o.chain, o.day, o.to, o.amount, o.now());
-  if (!c.ok) return { status: "refused", to: o.to, amountAtomic, tx: null, reason: c.reason };
+  if (!o.retry) {
+    const c = await store.refundClaim(o.id, { chain: o.chain, day: o.day, to: o.to, amount: o.amount, maxRefund: o.maxRefund, now: o.now() });
+    if (!c.ok) return { status: "refused", to: o.to, amountAtomic, tx: null, reason: c.reason };
+  }
+  // A retry starts only from a state where no refund transaction can still land: never sent, failed before
+  // sending, or proven dead on chain.
+  const from: ("pending" | "dead" | "failed")[] = o.retry ? ["pending", "dead", "failed"] : ["pending"];
   let out: RefundOutcome;
   try {
-    out = await send(o.to, o.amount);
+    out = await send(o.to, o.amount, (f) => store.refundSending(o.id, from, { tx: f.tx, facts: f.facts, now: o.now() }));
   } catch {
     out = { status: "unknown", reason: "refund_error", tx: null };
   }
-  const reason = out.status === "sent" ? null : out.reason;
-  books.refundResult(o.key, { status: out.status, tx: out.tx, feePaid: out.status === "sent" ? (out.feePaid ?? null) : null, reason }, o.now());
-  return { status: out.status, to: o.to, amountAtomic, tx: out.tx, reason };
+  if (out.status === "sent") await store.refundSet(o.id, ["sending"], "sent", { feePaid: out.feePaid ?? null, now: o.now() });
+  else if (out.status === "unknown") await store.refundSet(o.id, ["sending"], "unknown", { reason: out.reason, now: o.now() });
+  else await store.refundSet(o.id, from, "failed", { reason: out.reason, now: o.now() });
+  return { status: out.status, to: o.to, amountAtomic, tx: out.tx, reason: out.status === "sent" ? null : out.reason };
 }

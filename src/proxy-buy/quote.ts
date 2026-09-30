@@ -126,6 +126,8 @@ function solanaOffer(headers: Headers, bodyText: string, host: string, deps: Quo
   if (r) return refused(422, r.refused, r.detail);
   const known = deps.allowlist.find("solana", host, accept.payTo);
   if (!known) return refused(403, "payto_not_allowlisted", `vet402 has not paid ${accept.payTo} at ${host} with a settled payment`);
+  // A seller whose every settled purchase came back without an answer is not bought for an agent.
+  if (known.delivered === 0) return refused(403, "seller_never_delivered", `none of vet402's ${known.settled} settled purchase(s) from ${host} came back with an answer`);
   return { ok: true, chain: "solana", accept, paymentRequired: pr, sellerAtomic: BigInt(accept.amount), known };
 }
 
@@ -139,6 +141,8 @@ function tempoOffer(www: string | null, host: string, deps: QuoteDeps): TempoOff
   if (deps.ownAddresses.some((a) => a.toLowerCase() === recipient.toLowerCase())) return refused(422, "self_dealing", "recipient is a vet402 address");
   const known = deps.allowlist.find("tempo", host, recipient);
   if (!known) return refused(403, "payto_not_allowlisted", `vet402 has not paid ${recipient} at ${host} with a settled payment`);
+  // A seller whose every settled purchase came back without an answer is not bought for an agent.
+  if (known.delivered === 0) return refused(403, "seller_never_delivered", `none of vet402's ${known.settled} settled purchase(s) from ${host} came back with an answer`);
   return { ok: true, chain: "tempo", challenge: ch!, request: req, sellerAtomic: BigInt(req.amount), known };
 }
 

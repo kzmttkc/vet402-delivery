@@ -1,15 +1,12 @@
 /**
- * Shared fakes for the proxy buy tests: generated keys, mock sellers, a fake x402 facilitator and a
- * fake Tempo RPC. No network, no mainnet, no real keys.
+ * Shared fakes for the proxy buy tests: generated keys, mock sellers, a fake x402 facilitator, a fake Solana
+ * chain, a fake Tempo RPC that "mines" transactions, and a real Postgres (PGlite, in process) for the books.
+ * No network, no mainnet, no real keys.
  */
-import { existsSync, mkdtempSync, readdirSync } from "node:fs";
-import { generateKeyPairSync } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import assert from "node:assert/strict";
 import {
   address,
   appendTransactionMessageInstructions,
-  createKeyPairSignerFromBytes,
   createTransactionMessage,
   generateKeyPairSigner,
   getBase64EncodedWireTransaction,
@@ -21,10 +18,12 @@ import {
   type KeyPairSigner,
 } from "@solana/kit";
 import { getTransferCheckedInstruction } from "@solana-program/token";
+import { PGlite } from "@electric-sql/pglite";
 import { x402ResourceServer, type FacilitatorClient } from "@x402/core/server";
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
+import { Credential } from "mppx";
 import { Mppx, tempo as mppTempo } from "mppx/server";
 import { createClient, custom, decodeFunctionData, encodeAbiParameters, encodeEventTopics, keccak256, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
@@ -35,17 +34,17 @@ import { checkPaymentTransaction, usdcAta } from "../src/txcheck.js";
 import type { OnChain } from "../src/chain.js";
 import { signerFor } from "../src/tempo/chain.js";
 import { TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../src/tempo/constants.js";
-import { makeAllowlist, loadAllowlist } from "../src/proxy-buy/allowlist.js";
-import { Books } from "../src/proxy-buy/books.js";
+import { makeAllowlist } from "../src/proxy-buy/allowlist.js";
 import { BUY_FEE_ATOMIC } from "../src/proxy-buy/constants.js";
+import { migrate, type Sql } from "../src/proxy-buy/db.js";
+import { decodeSolanaTx, type Fate, type TempoReads } from "../src/proxy-buy/fate.js";
 import { createProxyBuy, type ProxyBuy } from "../src/proxy-buy/handler.js";
+import { reconcile, type ReconcileAction } from "../src/proxy-buy/reconcile.js";
+import { sendTempoRefund, type RefundOutcome, type RefundSender } from "../src/proxy-buy/refund.js";
 import { resetInit, type SolanaSide } from "../src/proxy-buy/solana.js";
+import { Store, type DayCaps } from "../src/proxy-buy/store.js";
 import type { TempoSide } from "../src/proxy-buy/tempo.js";
-import { confirmSolanaTransfer, mppAdapter, type MppxLike } from "../src/proxy-buy/wire.js";
-import { sendTempoRefund } from "../src/proxy-buy/refund.js";
-import { configFromEnv, describeConfig } from "../src/proxy-buy/config.js";
-
-import assert from "node:assert/strict";
+import { mppAdapter, type MppxLike } from "../src/proxy-buy/wire.js";
 
 // ---------- wallets (all generated here) ----------
 export const agent = await generateKeyPairSigner(); // the customer agent (Solana)
@@ -55,6 +54,8 @@ export const SELLER = (await generateKeyPairSigner()).address;
 export const SELLER2 = (await generateKeyPairSigner()).address;
 export const SELLER_FAC = (await generateKeyPairSigner()).address; // the seller's facilitator fee payer
 export const VET_FAC = (await generateKeyPairSigner()).address; // the facilitator vet402 receives through
+export const RECEIVE_ATA = await usdcAta(RECEIVE);
+export const PAYER_ATA = await usdcAta(proxyPayer.address);
 
 export const tAgent = privateKeyToAccount(generatePrivateKey());
 export const tProxy = privateKeyToAccount(generatePrivateKey());
@@ -72,6 +73,35 @@ export const allowlist = makeAllowlist([
   { chain: "solana", host: S_HOST, payTo: SELLER, settled: true, delivered: true, at: "2026-09-29T00:00:00Z" },
   { chain: "tempo", host: T_HOST, payTo: T_SELLER, settled: true, delivered: true, at: "2026-09-29T00:00:00Z" },
 ]);
+
+export const CAPS: DayCaps = { cap: 2_000_000n, maxCount: 100, refundCap: 2_000_000n };
+
+// ---------- the database: a real Postgres in process ----------
+
+/**
+ * PGlite has one connection: statements and transactions are serialised here, the way row locks would
+ * serialise them on a real server. Statements inside a transaction use the transaction's handle.
+ */
+export async function testSql(): Promise<Sql> {
+  const db = new PGlite();
+  let tail: Promise<unknown> = Promise.resolve();
+  const lock = <T>(f: () => Promise<T>): Promise<T> => {
+    const next = tail.then(f, f);
+    tail = next.catch(() => undefined);
+    return next;
+  };
+  type Q = { query: (t: string, p?: unknown[]) => Promise<{ rows: unknown[] }> };
+  const inner = (h: Q): Sql => ({
+    query: async <T>(t: string, p: unknown[] = []) => ({ rows: (await h.query(t, p)).rows as T[] }),
+    tx: (fn) => fn(inner(h)),
+  });
+  const sql: Sql = {
+    query: <T>(t: string, p: unknown[] = []) => lock(async () => ({ rows: (await db.query(t, p)).rows as T[] })),
+    tx: (fn) => lock(() => db.transaction((tx) => fn(inner(tx as unknown as Q)))),
+  };
+  await migrate(sql);
+  return sql;
+}
 
 // ---------- Solana transactions (real encoding, like the census tests) ----------
 export async function transferTx(from: KeyPairSigner, feePayer: string, payTo: string, amount: bigint, memo = "00112233445566778899aabbccddeeff"): Promise<string> {
@@ -91,6 +121,22 @@ export async function transferTx(from: KeyPairSigner, feePayer: string, payTo: s
       ),
   );
   return getBase64EncodedWireTransaction(await partiallySignTransactionMessageWithSigners(tx));
+}
+
+/** A fake Solana chain: which messages landed, and whether blockhashes are still valid. */
+export class FakeSolChain {
+  landed = new Map<string, { sig: string; ok: boolean }>();
+  /** false: every blockhash is expired (an unseen transaction is dead). */
+  blockhashValid = false;
+  mine(txBase64: string, sig: string, ok = true): void {
+    const d = decodeSolanaTx(txBase64);
+    if (d) this.landed.set(d.messageHash, { sig, ok });
+  }
+  fate(messageHash: string): Fate {
+    const hit = this.landed.get(messageHash);
+    if (hit) return hit.ok ? { fate: "landed", tx: hit.sig } : { fate: "failed", tx: hit.sig };
+    return this.blockhashValid ? { fate: "pending" } : { fate: "dead" };
+  }
 }
 
 // ---------- a mock x402 seller on Solana ----------
@@ -131,9 +177,10 @@ export function solSellerFetch(s: SolSeller, fetched: string[]) {
 export class FakeFacilitator implements FacilitatorClient {
   verifies = 0;
   settles = 0;
-  fail: "none" | "settle_false" | "settle_throw" = "none";
+  fail: "none" | "settle_false_verify" | "settle_false_after_send" | "settle_throw" = "none";
   /** When set, every settle answers with this transaction (a facilitator that answers a replay with an earlier settlement). */
   fixedTx: string | null = null;
+  constructor(private readonly chain: FakeSolChain) {}
   async getSupported() {
     return { kinds: [{ x402Version: 2, scheme: "exact", network: SOLANA_MAINNET, extra: { feePayer: VET_FAC } }], extensions: [], signers: {} } as never;
   }
@@ -146,11 +193,17 @@ export class FakeFacilitator implements FacilitatorClient {
   async settle(p: PaymentPayload, r: PaymentRequirements) {
     this.settles++;
     await new Promise((res) => setTimeout(res, 5));
-    if (this.fail === "settle_throw") throw new Error("request to https://rpc.example.test/?api-key=SECRET123 timed out");
-    if (this.fail === "settle_false") return { success: false, errorReason: "blockhash expired", transaction: "", network: r.network } as never;
     const tx = (p.payload as { transaction: string }).transaction;
+    const sig = `cust${keccak256(`0x${Buffer.from(tx, "base64").toString("hex")}` as Hex).slice(2, 60)}`;
+    if (this.fail === "settle_throw") {
+      this.chain.mine(tx, sig); // it went out before the facilitator's answer was lost
+      throw new Error("request to https://rpc.example.test/?api-key=SECRET123 timed out");
+    }
+    if (this.fail === "settle_false_verify") return { success: false, errorReason: "invalid_exact_svm_payload_amount_mismatch", transaction: "", network: r.network } as never;
+    if (this.fail === "settle_false_after_send") return { success: false, errorReason: "invalid_exact_svm_transaction_failed", transaction: "", network: r.network } as never;
     if (this.fixedTx) return { success: true, transaction: this.fixedTx, network: r.network, payer: agent.address } as never;
-    return { success: true, transaction: `cust${keccak256(`0x${Buffer.from(tx, "base64").toString("hex")}` as Hex).slice(2, 60)}`, network: r.network, payer: agent.address } as never;
+    this.chain.mine(tx, sig);
+    return { success: true, transaction: sig, network: r.network, payer: agent.address } as never;
   }
 }
 
@@ -160,39 +213,70 @@ export interface SolRig {
   seller: SolSeller;
   fetched: string[];
   sellerPays: { amount: bigint; payTo: string }[];
-  books: Books;
-  dir: string;
-  state: { balance: bigint; lamports: bigint; confirm: boolean; balanceError: string | null; refund: "sent" | "failed" | "unknown" };
+  store: Store;
+  sql: Sql;
+  chain: FakeSolChain;
+  side: SolanaSide;
+  state: { balance: bigint; lamports: bigint; confirm: "ok" | "timeout" | "failed"; balanceError: string | null; refund: "sent" | "failed" | "unknown" | "hang" };
   refunds: { to: string; amount: bigint }[];
+  reconcile: (o?: { staleMs?: number; now?: Date }) => Promise<ReconcileAction[]>;
 }
 
-export function solRig(o: { seller?: Partial<SolSeller>; enabled?: boolean; dailyCap?: bigint; refundCap?: bigint; balance?: bigint; wrapSeller?: (f: typeof fetch) => typeof fetch } = {}): SolRig {
+export async function solRig(
+  o: {
+    seller?: Partial<SolSeller>;
+    enabled?: boolean;
+    caps?: Partial<DayCaps>;
+    balance?: bigint;
+    wrapSeller?: (f: typeof fetch) => typeof fetch;
+    /** false: the seller takes vet402's signed payment and never settles it. */
+    sellerSettles?: boolean;
+    sql?: Sql;
+    now?: () => Date;
+    budgetMs?: number;
+    staleMs?: number;
+  } = {},
+): Promise<SolRig> {
   const wrap = o.wrapSeller ?? ((f: typeof fetch) => f);
   resetInit();
-  const dir = mkdtempSync(join(tmpdir(), "proxy-buy-sol-"));
-  const books = new Books({
-    dataDir: dir,
-    lock: true,
-    solana: { payer: proxyPayer.address, dailyCapAtomic: o.dailyCap ?? 2_000_000n, maxPerCallAtomic: 100_000n, dailyMaxPurchases: 100, dailyRefundCapAtomic: o.refundCap ?? 2_000_000n, maxRefundAtomic: 105_000n },
-  });
+  const sql = o.sql ?? (await testSql());
+  const store = new Store(sql);
   const seller = solSeller(o.seller);
   const fetched: string[] = [];
-  const fac = new FakeFacilitator();
+  const chain = new FakeSolChain();
+  const fac = new FakeFacilitator(chain);
   const rs = new x402ResourceServer(fac);
   rs.register(SOLANA_MAINNET as `${string}:${string}`, new ExactSvmScheme());
   const sellerPays: { amount: bigint; payTo: string }[] = [];
-  const state: SolRig["state"] = { balance: o.balance ?? 5_000_000n, lamports: 10_000_000n, confirm: true, balanceError: null, refund: "sent" };
+  const state: SolRig["state"] = { balance: o.balance ?? 5_000_000n, lamports: 10_000_000n, confirm: "ok", balanceError: null, refund: "sent" };
   const refunds: { to: string; amount: bigint }[] = [];
-  let lastPay: { amount: bigint; payTo: string } | null = null;
+  let lastPay: { amount: bigint; payTo: string; tx: string } | null = null;
+  let attempts = 0;
+  const refund: RefundSender = async (to, amount, beforeSend): Promise<RefundOutcome> => {
+    const n = ++attempts;
+    if (state.refund === "failed") return { status: "failed", reason: "rpc_error", tx: null };
+    if (!(await beforeSend({ tx: `refundtx${n}`, facts: { chain: "solana", messageHash: `refund-message-${n}`, blockhash: "b", account: PAYER_ATA } }))) {
+      return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
+    }
+    if (state.refund === "hang") return new Promise(() => undefined);
+    // "unknown": signed and handed to the RPC, never landed (the chain says dead once its blockhash expires)
+    if (state.refund === "unknown") return { status: "unknown", reason: "refund_not_confirmed_in_time", tx: `refundtx${n}` };
+    refunds.push({ to, amount });
+    state.balance -= amount;
+    chain.landed.set(`refund-message-${n}`, { sig: `refundtx${n}`, ok: true });
+    return { status: "sent", tx: `refundtx${n}` };
+  };
   const side: SolanaSide = {
     receive: RECEIVE,
+    receiveAta: RECEIVE_ATA,
     payer: proxyPayer.address,
+    payerAta: PAYER_ATA,
     resourceServer: rs,
     pay: {
       fetch: wrap(solSellerFetch(seller, fetched)),
       createPayment: async (_pr, accept) => {
         const tx = await transferTx(proxyPayer, String(accept.extra?.feePayer), accept.payTo, BigInt(accept.amount));
-        lastPay = { amount: BigInt(accept.amount), payTo: accept.payTo };
+        lastPay = { amount: BigInt(accept.amount), payTo: accept.payTo, tx };
         return { headers: { "PAYMENT-SIGNATURE": Buffer.from(JSON.stringify({ x402Version: 2, payload: { transaction: tx } })).toString("base64") }, txBase64: tx };
       },
       checkTx: checkPaymentTransaction,
@@ -200,34 +284,56 @@ export function solRig(o: { seller?: Partial<SolSeller>; enabled?: boolean; dail
         if (state.balanceError) throw new Error(state.balanceError);
         return { lamports: state.lamports, usdcAtomic: state.balance };
       },
-      waitForSettlement: async (_sig, _memo, payTo): Promise<OnChain | null> => {
+      waitForSettlement: async (): Promise<OnChain | null> => {
         const p = lastPay!;
-        sellerPays.push(p);
+        if (o.sellerSettles === false) return null;
+        sellerPays.push({ amount: p.amount, payTo: p.payTo });
         state.balance -= p.amount;
-        return { signature: `sellertx${sellerPays.length}`, found: true, confirmed: true, err: null, memo: null, payToDeltaAtomic: p.amount.toString(), payerDeltaAtomic: `-${p.amount}`, payerLamportsDelta: "0", feePayer: SELLER_FAC, ...(payTo ? {} : {}) };
+        const sig = `sellertx${sellerPays.length}`;
+        chain.mine(p.tx, sig);
+        return { signature: sig, found: true, confirmed: true, err: null, memo: null, payToDeltaAtomic: p.amount.toString(), payerDeltaAtomic: `-${p.amount}`, payerLamportsDelta: "0", feePayer: SELLER_FAC };
       },
       ownAddresses: [RECEIVE, proxyPayer.address],
     },
-    confirmCustomer: async () => (state.confirm ? { ok: true } : { ok: false, detail: "customer_tx_not_confirmed_in_time" }),
-    refund: async (to, amount) => {
-      if (state.refund === "failed") return { status: "failed", reason: "rpc_error", tx: null };
-      refunds.push({ to, amount });
-      state.balance -= amount;
-      if (state.refund === "unknown") return { status: "unknown", reason: "refund_not_confirmed_in_time", tx: `refundtx${refunds.length}` };
-      return { status: "sent", tx: `refundtx${refunds.length}` };
+    confirmCustomer: async (_tx, authority, amount) => {
+      if (state.confirm === "timeout") return { ok: false, detail: "customer_tx_not_confirmed_in_time", definite: false };
+      if (state.confirm === "failed") return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
+      return authority === agent.address && amount > 0n ? { ok: true } : { ok: false, detail: "customer_payer_mismatch", definite: true };
     },
+    fate: async (f) => chain.fate(f.messageHash),
+    refund,
   };
+  const now = o.now ?? (() => new Date());
   const buy = createProxyBuy({
     enabled: o.enabled ?? true,
     publicOrigin: ORIGIN,
     feeAtomic: BUY_FEE_ATOMIC,
     allowlist,
-    books,
+    store,
+    caps: { solana: { ...CAPS, ...o.caps } },
+    maxRefund: 105_000n,
     quoteDeps: { fetchImpl: wrap(solSellerFetch(seller, fetched)), ownAddresses: [RECEIVE, proxyPayer.address], solanaPayer: proxyPayer.address, tempoPayer: null },
     solana: side,
+    now,
     quotesPerMinute: 1000,
+    requestBudgetMs: o.budgetMs ?? 2_000,
+    pollMs: 20,
+    ...(o.staleMs !== undefined ? { staleMs: o.staleMs } : {}),
   });
-  return { buy, fac, seller, fetched, sellerPays, books, dir, state, refunds };
+  const rec = (x: { staleMs?: number; now?: Date } = {}) =>
+    reconcile({
+      store,
+      feeAtomic: BUY_FEE_ATOMIC,
+      now: () => x.now ?? new Date(Date.now() + 3_600_000),
+      recordUrl: (id) => `${ORIGIN}/v1/buy/records/${id}`,
+      caps: { ...CAPS, ...o.caps },
+      maxRefund: 105_000n,
+      deadline: Date.now() + 5_000,
+      pollMs: 20,
+      staleMs: x.staleMs ?? 0,
+      solana: side,
+    });
+  return { buy, fac, seller, fetched, sellerPays, store, sql, chain, side, state, refunds, reconcile: rec };
 }
 
 export const buyUrl = (target: string) => `${ORIGIN}/v1/buy?url=${encodeURIComponent(target)}`;
@@ -244,15 +350,43 @@ export async function agentPaysSolana(buy: ProxyBuy, target = S_URL, memo?: stri
 }
 export const paidReq = (header: string, target = S_URL) => new Request(buyUrl(target), { headers: { "PAYMENT-SIGNATURE": header } });
 
+// ================= Tempo =================
 
 export interface FakeChain {
   broadcasts: number;
-  sent: { from: string; to: string; amount: bigint }[];
+  sent: { from: string; to: string; amount: bigint; hash: string }[];
+  mined: Map<string, "success" | "reverted">;
+  /** Added to the wall clock for the chain's head time (a test moves time past a validBefore). */
+  timeShift: number;
 }
 
-/** A Tempo RPC that signs (fills) like the census tests and "mines" a raw tx into a receipt with TIP-20 logs. */
-export function fakeTempoRpc(chain: FakeChain) {
+export function newFakeChain(): FakeChain {
+  return { broadcasts: 0, sent: [], mined: new Map(), timeShift: 0 };
+}
+
+const nowSec = (c: FakeChain) => Math.floor(Date.now() / 1000) + c.timeShift;
+
+/** Record a signed Tempo transaction as mined (its TIP-20 transfers), return the receipt logs. */
+export function mineTempo(chain: FakeChain, raw: Hex) {
   const blockHash = `0x${"11".repeat(32)}`;
+  const tx = Transaction.deserialize(raw as never) as unknown as { from: Hex; calls: { to: Hex; data: Hex }[] };
+  const hash = keccak256(raw).toLowerCase();
+  const logs = [];
+  let i = 0;
+  for (const c of tx.calls) {
+    const d = decodeFunctionData({ abi: Abis.tip20, data: c.data });
+    const [to, amount, memo] = d.args as [Hex, bigint, Hex | undefined];
+    chain.sent.push({ from: tx.from.toLowerCase(), to: to.toLowerCase(), amount, hash });
+    const base = { address: c.to, blockHash, blockNumber: "0x1", transactionHash: hash, transactionIndex: "0x0", removed: false };
+    logs.push({ ...base, logIndex: `0x${(i++).toString(16)}`, topics: encodeEventTopics({ abi: Abis.tip20, eventName: "Transfer", args: { from: tx.from, to } }), data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
+    if (memo) logs.push({ ...base, logIndex: `0x${(i++).toString(16)}`, topics: encodeEventTopics({ abi: Abis.tip20, eventName: "TransferWithMemo", args: { from: tx.from, to, memo } }), data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
+  }
+  chain.mined.set(hash, "success");
+  return { hash, from: tx.from, logs, to: tx.calls[0]!.to, blockHash };
+}
+
+/** A Tempo RPC that fills like the census tests and "mines" a raw transaction into a receipt with TIP-20 logs. */
+export function fakeTempoRpc(chain: FakeChain) {
   return custom({
     async request({ method, params }: { method: string; params?: unknown[] }) {
       switch (method) {
@@ -265,39 +399,25 @@ export function fakeTempoRpc(chain: FakeChain) {
         case "eth_maxPriorityFeePerGas":
           return "0x0";
         case "eth_getBlockByNumber":
-          return { baseFeePerGas: "0x23c34600", number: "0x1", timestamp: "0x6a", hash: blockHash, transactions: [] };
+          return { baseFeePerGas: "0x23c34600", number: "0x1", timestamp: `0x${nowSec(chain).toString(16)}`, hash: `0x${"11".repeat(32)}`, transactions: [] };
         case "eth_call":
           return "0x";
         case "eth_sendRawTransactionSync": {
           chain.broadcasts++;
-          const raw = (params as [Hex])[0];
-          const tx = Transaction.deserialize(raw as never) as unknown as { from: Hex; calls: { to: Hex; data: Hex }[] };
-          const hash = keccak256(raw);
-          const logs = [];
-          let i = 0;
-          for (const c of tx.calls) {
-            const d = decodeFunctionData({ abi: Abis.tip20, data: c.data });
-            const [to, amount, memo] = d.args as [Hex, bigint, Hex | undefined];
-            chain.sent.push({ from: tx.from.toLowerCase(), to: to.toLowerCase(), amount });
-            const base = { address: c.to, blockHash, blockNumber: "0x1", transactionHash: hash, transactionIndex: "0x0", removed: false };
-            logs.push({ ...base, logIndex: `0x${(i++).toString(16)}`, topics: encodeEventTopics({ abi: Abis.tip20, eventName: "Transfer", args: { from: tx.from, to } }), data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
-            if (memo) {
-              logs.push({ ...base, logIndex: `0x${(i++).toString(16)}`, topics: encodeEventTopics({ abi: Abis.tip20, eventName: "TransferWithMemo", args: { from: tx.from, to, memo } }), data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
-            }
-          }
+          const m = mineTempo(chain, (params as [Hex])[0]);
           return {
-            blockHash,
+            blockHash: m.blockHash,
             blockNumber: "0x1",
             contractAddress: null,
             cumulativeGasUsed: "0xc350",
             effectiveGasPrice: "0x1",
-            from: tx.from,
+            from: m.from,
             gasUsed: "0xc350",
-            logs,
+            logs: m.logs,
             logsBloom: `0x${"00".repeat(256)}`,
             status: "0x1",
-            to: tx.calls[0]!.to,
-            transactionHash: hash,
+            to: m.to,
+            transactionHash: m.hash,
             transactionIndex: "0x0",
             type: "0x76",
           };
@@ -320,13 +440,20 @@ export interface TSeller {
   paidBody: Buffer;
   unpaidReads: number;
   paidRequests: number;
+  /** false: the seller takes vet402's credential and never broadcasts it. */
+  broadcasts: boolean;
   onRead?: (n: number, s: TSeller) => void;
 }
-export function tSellerFetch(s: TSeller, fetched: string[]) {
+export function tSellerFetch(s: TSeller, fetched: string[], chain: FakeChain) {
   return async (url: string, init?: RequestInit): Promise<Response> => {
     fetched.push(url);
-    if (new Headers(init?.headers).get("authorization")) {
+    const auth = new Headers(init?.headers).get("authorization");
+    if (auth) {
       s.paidRequests++;
+      if (s.broadcasts) {
+        const c = Credential.deserialize<{ signature: string }>(auth);
+        mineTempo(chain, c.payload.signature as Hex);
+      }
       return new Response(new Uint8Array(s.paidBody), { status: s.paidStatus, headers: { "content-type": "image/png" } });
     }
     s.unpaidReads++;
@@ -344,24 +471,21 @@ export interface TRig {
   seller: TSeller;
   chain: FakeChain;
   fetched: string[];
-  sellerVerifies: number;
-  dir: string;
-  state: { balance: bigint; outflow: bigint; confirm: boolean; balanceCalls: number; failBalanceAt: number };
+  store: Store;
+  sql: Sql;
+  side: TempoSide;
+  state: { balance: bigint; confirm: "ok" | "timeout"; balanceCalls: number; failBalanceAt: number };
   rpc: ReturnType<typeof fakeTempoRpc>;
-  books: Books;
+  reconcile: (o?: { staleMs?: number }) => Promise<ReconcileAction[]>;
 }
 
-export function tRig(o: { seller?: Partial<TSeller>; dailyCap?: bigint; refundCap?: bigint; enabled?: boolean; wrapSeller?: (f: typeof fetch) => typeof fetch } = {}): TRig {
+export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCaps>; enabled?: boolean; wrapSeller?: (f: typeof fetch) => typeof fetch; sql?: Sql; budgetMs?: number; staleMs?: number } = {}): Promise<TRig> {
   const wrap = (f: (url: string, init?: RequestInit) => Promise<Response>) => (o.wrapSeller ? (o.wrapSeller(f as unknown as typeof fetch) as unknown as typeof f) : f);
-  const dir = mkdtempSync(join(tmpdir(), "proxy-buy-tempo-"));
-  const books = new Books({
-    dataDir: dir,
-    lock: true,
-    tempo: { payer: tProxy.address, dailyCapAtomic: o.dailyCap ?? 2_000_000n, dailyMaxPurchases: 100, dailyRefundCapAtomic: o.refundCap ?? 2_000_000n, maxRefundAtomic: 105_000n },
-  });
+  const sql = o.sql ?? (await testSql());
+  const store = new Store(sql);
   // a binary answer, to check that it is handed over byte for byte
-  const seller: TSeller = { price: "8000", recipient: T_SELLER, paidStatus: 200, paidBody: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x10]), unpaidReads: 0, paidRequests: 0, ...o.seller };
-  const chain: FakeChain = { broadcasts: 0, sent: [] };
+  const seller: TSeller = { price: "8000", recipient: T_SELLER, paidStatus: 200, paidBody: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x10]), unpaidReads: 0, paidRequests: 0, broadcasts: true, ...o.seller };
+  const chain = newFakeChain();
   const rpc = fakeTempoRpc(chain);
   const fetched: string[] = [];
   const mppx = Mppx.create({
@@ -369,58 +493,73 @@ export function tRig(o: { seller?: Partial<TSeller>; dailyCap?: bigint; refundCa
     secretKey: "s".repeat(40),
     realm: "buy.test",
   });
-  const state = { balance: 5_000_000n, outflow: 0n, confirm: true, balanceCalls: 0, failBalanceAt: 0 };
-  const rig: TRig = { buy: null as unknown as ProxyBuy, seller, chain, fetched, sellerVerifies: 0, dir, state, rpc, books };
+  const state: TRig["state"] = { balance: 5_000_000n, confirm: "ok", balanceCalls: 0, failBalanceAt: 0 };
+  const verifyOnChain = async (tx: string, exp: { payer: string; recipient: string; amount: bigint }) => {
+    const hit = chain.sent.find((s) => s.hash === tx.toLowerCase() && s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount);
+    return hit ? { settled: true, detail: "transfer found", feePaid: "31" } : { settled: false, detail: "receipt not found", feePaid: null };
+  };
+  const reads: TempoReads = {
+    receipt: async (hash) => {
+      const s = chain.mined.get(hash.toLowerCase());
+      return s ? { status: s } : null;
+    },
+    headTime: async () => BigInt(nowSec(chain)),
+    nonce: async () => 0n,
+    transfers: async (exp) => chain.sent.filter((s) => s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount).map((s) => s.hash),
+  };
   const side: TempoSide = {
     receive: T_RECEIVE,
     payer: tProxy.address,
     mpp: mppAdapter(mppx as unknown as MppxLike),
     pay: {
-      fetchImpl: wrap(tSellerFetch(seller, fetched)),
+      fetchImpl: wrap(tSellerFetch(seller, fetched, chain)),
       signer: signerFor(tProxy, rpc),
       balance: async () => {
         state.balanceCalls++;
-        if (state.balanceCalls === state.failBalanceAt) throw new Error("rpc down");
+        if (state.balanceCalls === state.failBalanceAt) throw new Error("rpc down https://rpc.example.test/KEY");
         return state.balance;
       },
-      verify: async () => {
-        rig.sellerVerifies++;
-        return { settled: true, detail: "transfer found", feePaid: "30" };
-      },
+      // the seller payment is looked up by the hash of the credential's transaction, which the seller mined (or not)
+      verify: async (tx, exp) => verifyOnChain(tx, exp),
     },
-    outflowSince: async () => state.outflow,
     head: async () => 1n,
-    confirmCustomer: async (_tx, payer, amount) => {
-      if (!state.confirm) return { ok: false, detail: "no matching transfer" };
-      const hit = chain.sent.find((s) => s.from === payer?.toLowerCase() && s.to === T_RECEIVE.toLowerCase() && s.amount === amount);
-      return hit ? { ok: true } : { ok: false, detail: "no matching transfer" };
+    reads,
+    confirmCustomer: async (tx, sender, amount) => {
+      if (state.confirm === "timeout") return { ok: false, detail: "customer_tx_not_confirmed: receipt not found", definite: false };
+      const s = await verifyOnChain(tx, { payer: sender, recipient: T_RECEIVE, amount });
+      return s.settled ? { ok: true } : { ok: false, detail: `customer_tx_not_confirmed: ${s.detail}`, definite: false };
     },
-    // the real refund builder, over the fake RPC; the refund is read back from what the fake chain mined
-    refund: (to, amount) =>
-      sendTempoRefund(
-        {
-          account: tProxy,
-          client: createClient({ chain: tempoChain, transport: rpc }),
-          verify: async (_tx, exp) => {
-            const hit = chain.sent.find((s) => s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount);
-            return hit ? { settled: true, detail: "transfer found", feePaid: "31" } : { settled: false, detail: "receipt not found", feePaid: null };
-          },
-        },
-        to,
-        amount,
-      ),
+    refund: (to, amount, beforeSend) => sendTempoRefund({ account: tProxy, client: createClient({ chain: tempoChain, transport: rpc }), verify: verifyOnChain }, to, amount, beforeSend),
   };
-  rig.buy = createProxyBuy({
+  const buy = createProxyBuy({
     enabled: o.enabled ?? true,
     publicOrigin: ORIGIN,
     feeAtomic: BUY_FEE_ATOMIC,
     allowlist,
-    books,
-    quoteDeps: { fetchImpl: wrap(tSellerFetch(seller, fetched)), ownAddresses: [T_RECEIVE, tProxy.address], solanaPayer: null, tempoPayer: tProxy.address },
+    store,
+    caps: { tempo: { ...CAPS, ...o.caps } },
+    maxRefund: 105_000n,
+    quoteDeps: { fetchImpl: wrap(tSellerFetch(seller, fetched, chain)), ownAddresses: [T_RECEIVE, tProxy.address], solanaPayer: null, tempoPayer: tProxy.address },
     tempo: side,
     quotesPerMinute: 1000,
+    requestBudgetMs: o.budgetMs ?? 2_000,
+    pollMs: 20,
+    ...(o.staleMs !== undefined ? { staleMs: o.staleMs } : {}),
   });
-  return rig;
+  const rec = (x: { staleMs?: number } = {}) =>
+    reconcile({
+      store,
+      feeAtomic: BUY_FEE_ATOMIC,
+      now: () => new Date(Date.now() + 3_600_000),
+      recordUrl: (id) => `${ORIGIN}/v1/buy/records/${id}`,
+      caps: { ...CAPS, ...o.caps },
+      maxRefund: 105_000n,
+      deadline: Date.now() + 5_000,
+      pollMs: 20,
+      staleMs: x.staleMs ?? 0,
+      tempo: side,
+    });
+  return { buy, seller, chain, fetched, store, sql, side, state, rpc, reconcile: rec };
 }
 
 /** The agent: read the 402, build a pull credential for vet402's challenge with the real mppx client. */

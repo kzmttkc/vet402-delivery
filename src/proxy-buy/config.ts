@@ -43,7 +43,8 @@ export interface TempoConfig {
 export interface ProxyConfig {
   enabled: boolean;
   publicOrigin: string;
-  dataDir: string;
+  /** Postgres connection string (DATABASE_URL, as Vercel's Neon integration sets it; POSTGRES_URL also read). Never printed. */
+  databaseUrl: string | null;
   port: number;
   feeAtomic: bigint;
   maxPerCallAtomic: bigint;
@@ -128,7 +129,7 @@ export function configFromEnv(env: Env): ProxyConfig {
   return {
     enabled: env.VET402_PROXY_BUY_ENABLED === "1",
     publicOrigin: origin,
-    dataDir: env.VET402_PROXY_DATA_DIR ?? "results/proxy-buy",
+    databaseUrl: env.DATABASE_URL ?? env.POSTGRES_URL ?? null,
     port: Number(env.PORT ?? 8402),
     feeAtomic: BUY_FEE_ATOMIC,
     maxPerCallAtomic: PROXY_MAX_PER_CALL_ATOMIC,
@@ -143,11 +144,11 @@ export function describeConfig(c: ProxyConfig): Record<string, unknown> {
   return {
     enabled: c.enabled,
     publicOrigin: c.publicOrigin,
-    dataDir: c.dataDir,
+    database: c.databaseUrl ? "set" : "missing",
     fee: c.feeAtomic.toString(),
     maxPerCall: c.maxPerCallAtomic.toString(),
     dailyMaxPurchases: c.dailyMaxPurchases,
-    solana: c.solana ? { receive: c.solana.receive, payer: c.solana.payer, rpcUrl: redactUrl(c.solana.rpcUrl), facilitator: c.solana.facilitatorUrl, dailyCap: c.solana.dailyCapAtomic.toString(), dailyRefundCap: c.solana.dailyRefundCapAtomic.toString() } : null,
+    solana: c.solana ? { receive: c.solana.receive, payer: c.solana.payer, rpcUrl: redactUrl(c.solana.rpcUrl), facilitator: redactUrl(c.solana.facilitatorUrl), dailyCap: c.solana.dailyCapAtomic.toString(), dailyRefundCap: c.solana.dailyRefundCapAtomic.toString() } : null,
     tempo: c.tempo ? { receive: c.tempo.receive, payer: c.tempo.payer, rpcUrl: redactUrl(c.tempo.rpcUrl), dailyCap: c.tempo.dailyCapAtomic.toString(), dailyRefundCap: c.tempo.dailyRefundCapAtomic.toString() } : null,
   };
 }
