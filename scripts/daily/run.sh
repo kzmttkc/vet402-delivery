@@ -430,8 +430,8 @@ publish() {
   others="$(printf '%s\n' "$changed" | grep -v '^$' | grep -Ev '^.. (data|site)/' || true)"
   [ -z "$others" ] || { alert "the build changed files outside data/ and site/: $others" halt; return 1; }
   # The same checks as a real publish, in a dry run too, so a failing test shows before money moves.
-  run "typecheck" in_pub $NPM run -s typecheck || { alert "typecheck failed on the data commit" halt; return 1; }
-  run "npm test" in_pub $NPM test --silent || { alert "npm test failed on the data commit" halt; return 1; }
+  run "typecheck" in_pub $NPM run -s typecheck || { checks_failed "typecheck failed on the data commit"; return 1; }
+  run "npm test" in_pub $NPM test --silent || { checks_failed "npm test failed on the data commit"; return 1; }
   if [ -z "$($GIT -C "$PUB" status --porcelain -- data)" ]; then
     log "data/ unchanged: nothing to publish"
     $GIT -C "$PUB" checkout -q -- site 2>/dev/null
@@ -465,6 +465,19 @@ publish() {
     run "pull main" $GIT -C "$REPO" pull -q --ff-only origin main || alert "pushed $sha, but $REPO did not fast-forward"
   fi
   wait_pages "$sha"
+}
+
+# checks_failed <message>: typecheck or npm test failed on the built data/ and site/. The lane halts as before, but
+# the publish worktree goes back to $BASE first, so the run after a person removes the HALT file does not stop on
+# "not clean". Nothing is lost: the results stay in $RMDIR and the records in $RECEIPTS. run.sh publish on the same
+# UTC day publishes the results again, and the next records run publishes a day that is anchored but not on main.
+checks_failed() {
+  if $GIT -C "$PUB" checkout -q -f --detach "$BASE" && $GIT -C "$PUB" clean -qfd -- data site &&
+    [ -z "$($GIT -C "$PUB" status --porcelain)" ]; then
+    alert "$1; $PUB is back at $BASE, clean" halt
+  else
+    alert "$1; $PUB could not be put back at $BASE and is not clean" halt
+  fi
 }
 
 wait_pages() {

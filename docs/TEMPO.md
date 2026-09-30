@@ -16,7 +16,7 @@ Measured 2026-09-28. Primary sources are linked in each row.
 | native gas token | **none**. "Tempo has no native token"; fees are paid in a USD TIP-20 | https://tempo.xyz/developers/docs/protocol/fees |
 | which token pays the fee | order: tx `feeToken` > account default > **the TIP-20 being transferred** > pathUSD. A USDC.e `transfer` therefore pays its fee in USDC.e. Holding only USDC.e is enough | https://tempo.xyz/developers/docs/protocol/fees/spec-fee |
 | fee size | ~50,000 gas TIP-20 transfer: about $0.0006 at the base-fee cap, $0.00003 at the floor | same page |
-| who pays the fee | per challenge: `feePayer: true` = the seller sponsors (payer needs no fee). Of the 87 payable services, **41 sponsor, 46 do not** (payer pays the fee in USDC.e). The census reserves 0.002 USDC.e per unsponsored purchase against its cap | live 402s (`results/tempo-census-2026-09-28.dry-run.json`) |
+| who pays the fee | per challenge: `feePayer: true` = the seller sponsors (payer needs no fee). Of the 87 payable services, **41 sponsor, 46 do not** (payer pays the fee in USDC.e). The census reserves 0.002 USDC.e per unsponsored purchase against its cap | live 402s (`data/tempo/census-plan-2026-09-28.json`) |
 | first transaction from a fresh account | extra cost not stated in the fee docs [unverified]; covered by the 0.002 reserve | https://tempo.xyz/developers/docs/protocol/fees |
 | payer | `0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51` (plain 20-byte EVM address, same as on Base). Balance 2026-09-28: USDC.e 0, pathUSD 0, MACH 0, nonce 0 | on-chain `balanceOf` / `eth_getTransactionCount` |
 | **amount to send** | **2.11 USDC.e** covers the full guarded census (2.015 in prices + 0.092 fee reserve). Send **2.50 USDC.e** on Tempo mainnet to the payer (the default `--cap` is 2.50) | dry run below |
@@ -90,7 +90,8 @@ Tempo services that reached a Mercator rank in the sweep (35 of 146), with the c
 | 16 | orth-precip | sports data | 0.366 (0.359 / 0.500) | reviewed | - | - | unpaid_400 |
 
 The full list (146 Tempo + 317 others, with rank, tier, endpoint, catalog and live price, recipient,
-feePayer) is `results/tempo-census-2026-09-28.dry-run.json`.
+feePayer) is `data/tempo/census-plan-2026-09-28.json`, the public copy of the dry run (the street address
+in `plan[67].request.body` reads `[redacted: street address]`).
 
 ## 3. Dry run (2026-09-28)
 
@@ -130,7 +131,7 @@ waits 90 s for a paid response.
 ## 5. `--pay` (built, not run)
 
 ```
-npx tsx scripts/tempo-census.ts --pay --plan results/tempo-census-2026-09-28.dry-run.json \
+npx tsx scripts/tempo-census.ts --pay --plan data/tempo/census-plan-2026-09-28.json \
   --key ~/vet402-solana/.keys/evm.json [--cap 2.50] [--max N]
 ```
 

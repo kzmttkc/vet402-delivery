@@ -693,7 +693,7 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
   const seed = join(dir, "seed");
   mkdirSync(join(home, ".config", "vet402-daily"), { recursive: true });
   mkdirSync(join(seed, "fake"), { recursive: true });
-  const pkg = { name: "fake", private: true, type: "module", scripts: { remeasure: "node fake/remeasure.mjs", rank: "node fake/rank.mjs", typecheck: "node -e 0", test: "node -e 0" } };
+  const pkg = { name: "fake", private: true, type: "module", scripts: { remeasure: "node fake/remeasure.mjs", rank: "node fake/rank.mjs", typecheck: "node -e 0", test: "node -e \"process.exit(process.env.FAKE_TEST_FAIL ? 1 : 0)\"" } };
   writeFileSync(join(seed, "package.json"), JSON.stringify(pkg, null, 2));
   writeFileSync(join(seed, "package-lock.json"), JSON.stringify({ name: "fake", lockfileVersion: 3, requires: true, packages: { "": { name: "fake" } } }, null, 2));
   writeFileSync(join(seed, ".gitignore"), "node_modules/\n");
@@ -714,8 +714,17 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
   );
   mkdirSync(join(seed, "site"), { recursive: true });
   writeFileSync(join(seed, "site", "rank.json"), "{}\n");
+  // No automatic maintenance in any sandbox repository. The seed commit and the push otherwise start
+  // `git maintenance run --auto --detach`, which (git 2.54, measured) repacks in the background once objects/17
+  // holds two loose objects: one blob of the seed plus a seed commit whose id, which depends on the second the
+  // test runs in, starts with 17. The local clone below copies objects/ file by file while the repack deletes
+  // the loose objects it has packed, and the clone misses them ("unable to read tree"). The bare origin needs
+  // the settings in its own config: git does not pass GIT_CONFIG_* on to receive-pack.
   git(dir, "init", "-q", "--bare", "-b", "main", origin);
+  git(dir, "--git-dir", origin, "config", "receive.autogc", "false");
+  git(dir, "--git-dir", origin, "config", "maintenance.auto", "false");
   git(seed, "init", "-q", "-b", "main");
+  git(seed, "config", "maintenance.auto", "false");
   git(seed, "config", "user.name", "Test");
   git(seed, "config", "user.email", "test@example.com");
   git(seed, "add", "-A");
@@ -724,6 +733,7 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
   git(seed, "push", "-q", "origin", "main");
   const repo = join(home, "vet402-solana");
   git(dir, "clone", "-q", origin, repo);
+  git(repo, "config", "maintenance.auto", "false");
   git(repo, "config", "user.name", "Test");
   git(repo, "config", "user.email", "test@example.com");
   git(repo, "config", "reviewgate.datare", "^(data/|site/)");
@@ -764,6 +774,13 @@ function runSh(sb: Sandbox, args: string[], env: NodeJS.ProcessEnv = {}) {
 const logs = (sb: Sandbox) => (existsSync(join(sb.dir, "logs")) ? readdirSync(join(sb.dir, "logs")).map((f) => read(join(sb.dir, "logs", f))).join("\n") : "");
 const alerts = (sb: Sandbox) => (existsSync(sb.alerts) ? read(sb.alerts) : "");
 const calls = (sb: Sandbox) => (existsSync(sb.calls) ? read(sb.calls) : "");
+
+test("sandbox: no repository starts a background repack that the local clone could race ('unable to read tree')", () => {
+  const sb = sandbox();
+  for (const d of [sb.origin, join(sb.dir, "seed"), sb.repo]) assert.equal(git(d, "config", "--get", "maintenance.auto"), "false", d);
+  assert.equal(git(sb.origin, "config", "--get", "receive.autogc"), "false");
+  rmSync(sb.dir, { recursive: true });
+});
 
 test("run.sh: without ~/.config/vet402-daily/env (the alert file) nothing runs", () => {
   const sb = sandbox();
@@ -874,6 +891,26 @@ test("run.sh --dry-run: copies through the gate, runs the tests, commits data/ a
   assert.equal(git(sb.pub, "rev-parse", "HEAD"), originBefore, "publish worktree back at origin/main");
   assert.equal(git(sb.pub, "status", "--porcelain"), "");
   assert.ok(!calls(sb).includes("--pay"));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: a failing npm test on the data commit halts the lane and puts the publish worktree back at origin/main, so the next run is not stopped by a dirty tree", () => {
+  const sb = sandbox();
+  writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const originBefore = git(sb.origin, "rev-parse", "main");
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z"), FAKE_TEST_FAIL: "1" });
+  assert.equal(r.status, 1, logs(sb));
+  assert.match(alerts(sb), /am stopped \(dry run\): npm test failed on the data commit; .*vet402-solana-publish is back at origin\/main, clean/);
+  assert.ok(existsSync(join(sb.state, "HALT-pay")));
+  assert.equal(git(sb.pub, "status", "--porcelain"), "");
+  assert.equal(git(sb.pub, "rev-parse", "HEAD"), originBefore);
+  assert.doesNotMatch(logs(sb), /commit [0-9a-f]{40}:/);
+  // A person looks and removes the HALT file: the next run publishes instead of stopping on "not clean".
+  rmSync(join(sb.state, "HALT-pay"));
+  const r2 = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z") });
+  assert.equal(r2.status, 0, logs(sb));
+  assert.doesNotMatch(alerts(sb), /not clean/);
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-01 remeasure on Solana/);
   rmSync(sb.dir, { recursive: true });
 });
 

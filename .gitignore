@@ -10,8 +10,10 @@ results/erc8004-feedback-*.json
 contracts/out/
 contracts/cache/
 results/proxy-buy/
-# results/ is local run output. Tracked (and read by the secret gate) are only the files docs/ and test/ name;
-# a public copy of any other result goes to data/ through the gate.
+# results/ is local run output. Tracked (and read by the secret gate) are only the five files re-included below,
+# dry-run and simulation fixtures that docs/erc8004.md and test/ read; test/daily.test.ts pins the list. Other
+# results/ paths named in docs/ (ledgers, receipts, run plans) are where a run writes on the runner's machine and
+# are not in this repository; a public copy of such a result goes to data/ through the gate.
 results/*
 !results/base-buy-dryrun.json
 !results/base-feedback-dryrun.json
