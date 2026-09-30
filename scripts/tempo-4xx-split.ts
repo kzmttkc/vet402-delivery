@@ -1,6 +1,7 @@
 /**
  * Read-only: the Tempo purchases in data/ (census ledger, run log, remeasure files) classified with the published
- * FAULT_RULES and with FAULT_RULES_NEXT (src/rank/classify.ts), side by side. No network, no key, no writes.
+ * FAULT_RULES without and with the two rules that read the input check (INPUT_RULE_IDS, src/rank/classify.ts),
+ * side by side. No network, no key, no writes.
  *
  *   npx tsx scripts/tempo-4xx-split.ts            # data/ of this checkout
  *   npx tsx scripts/tempo-4xx-split.ts --data <dir>
@@ -8,7 +9,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { classifyFailure, FAULT_RULES, FAULT_RULES_NEXT } from "../src/rank/classify.js";
+import { classifyFailure, FAULT_RULES, INPUT_RULE_IDS } from "../src/rank/classify.js";
+
+const BEFORE = FAULT_RULES.filter((r) => !INPUT_RULE_IDS.has(r.id));
 import { annotateTempoInput, normalizeTempoLedger, parseTempoRunLog, tempoPlanUrls } from "../src/rank/normalize.js";
 import type { Attempt } from "../src/rank/types.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
@@ -53,28 +56,28 @@ for (const a of attempts) {
     r.delivered++;
     continue;
   }
-  const b = classifyFailure(a);
-  const n = classifyFailure(a, FAULT_RULES_NEXT);
+  const b = classifyFailure(a, BEFORE);
+  const n = classifyFailure(a);
   const kb = `${b.fault}/${b.rule}`;
   const kn = `${n.fault}/${n.rule}`;
   r.before[kb] = (r.before[kb] ?? 0) + 1;
   r.after[kn] = (r.after[kn] ?? 0) + 1;
   const line = `${src} ${a.service} http ${a.httpStatus} input ${a.inputProblem ?? "-"}`;
-  if (kb !== kn) moved.push(line);
+  if (kb !== kn) moved.push(`${line}: ${kb} -> ${kn}`);
   else if (n.rule === "paid_then_4xx") stay.push(line);
-  if (b.fault === "seller" && a.inputProblem) sellerSideWithPlaceholder.push(`${line} (${b.rule})`);
+  if (n.fault === "seller" && a.inputProblem) sellerSideWithPlaceholder.push(`${line} (${n.rule})`);
 }
 
-const rules = FAULT_RULES_NEXT.map((r) => r.id);
-console.log(`rules published: ${FAULT_RULES.length}, next: ${FAULT_RULES_NEXT.length}`);
+const rules = FAULT_RULES.map((r) => r.id);
+console.log(`rules without the input check: ${BEFORE.length}, with: ${FAULT_RULES.length}`);
 for (const r of [...bySource.values()].sort((x, y) => (x.source < y.source ? -1 : 1))) {
   console.log(`\n${r.source}: tried ${r.tried}, delivered ${r.delivered}, body tested ${r.bodyChecked}`);
   const keys = [...new Set([...Object.keys(r.before), ...Object.keys(r.after)])].sort((x, y) => rules.indexOf(x.split("/")[1]!) - rules.indexOf(y.split("/")[1]!));
   for (const k of keys) console.log(`  ${k.padEnd(52)} before ${String(r.before[k] ?? 0).padStart(3)}  after ${String(r.after[k] ?? 0).padStart(3)}`);
 }
-console.log(`\nmoved to vet402's side (${moved.length}):`);
+console.log(`\nmoved (${moved.length}):`);
 for (const l of moved) console.log(`  ${l}`);
 console.log(`\nstill can't tell, paid_then_4xx (${stay.length}):`);
 for (const l of stay) console.log(`  ${l}`);
-console.log(`\nseller side under both lists, though the request had an input problem (${sellerSideWithPlaceholder.length}):`);
+console.log(`\nstill seller side, though the request had an input problem (${sellerSideWithPlaceholder.length}):`);
 for (const l of sellerSideWithPlaceholder) console.log(`  ${l}`);

@@ -16,7 +16,8 @@ import { registerDayLedger, type KeyLedgerSet } from "../src/tempo/key-ledgers.j
 import type { Signer } from "../src/tempo/chain.js";
 import type { PlannedRequest } from "../src/tempo/mercator.js";
 import { bodyShape, checkInput, inputProblem, publishableField } from "../src/tempo/answer.js";
-import { classifyFailure, FAULT_RULES, FAULT_RULES_NEXT } from "../src/rank/classify.js";
+import { classifyFailure, FAULT_RULES, INPUT_RULE_IDS } from "../src/rank/classify.js";
+import type { Attempt } from "../src/rank/types.js";
 import { annotateTempoInput, normalizeTempoLedger } from "../src/rank/normalize.js";
 import { RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
 import { selectSlots, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
@@ -71,8 +72,14 @@ test("answer: shape only, never the text; secret-like and random names are withh
   assert.deepEqual(bodyShape(Buffer.from('{"error":"Invalid parameter"}'), 422).inputError, ["invalid"]);
   assert.deepEqual(bodyShape(Buffer.from('{"error":"invalid state"}'), 500).inputError, [], "only a 4xx answer is read for input words");
   assert.deepEqual([bodyShape(Buffer.from('{"a":1,"b":2}'), 200, ["a", "b"]).declaredMatch, bodyShape(Buffer.from('{"a":1}'), 200, ["a", "b"]).declaredMatch], [true, false]);
-  for (const n of ["result", "data", "first_name", "items.count"]) assert.ok(publishableField(n), n);
-  for (const n of ["token", "apiKey", "session_id", "x-auth", "5f2b9c1e8a7d3f60aa", "a b", "x".repeat(40), "1234567"]) assert.ok(!publishableField(n), n);
+  for (const n of ["result", "data", "first_name", "items", "v2"]) assert.ok(publishableField(n), n);
+  for (const n of ["token", "apiKey", "session_id", "x-auth", "5f2b9c1e8a7d3f60aa", "a b", "x".repeat(33), "1234567", "items.count", "firstName"]) assert.ok(!publishableField(n), n);
+});
+
+test("answer: a name that is itself a value (a domain, an email, a path, upper case) is counted, never kept", () => {
+  const s = bodyShape(Buffer.from(JSON.stringify({ "acme.com": { mx: 1 }, "jane@acme.com": 1, "/v1/users": 1, AcmeCorp: 1, "": 1, ok_1: 1 })), 200);
+  assert.deepEqual([s.fields, s.fieldsWithheld], [["ok_1"], 5]);
+  assert.ok(!JSON.stringify(s).includes("acme"), "the domain is not in the record");
 });
 
 // ---------- remeasure on Tempo: the new record, and the placeholder skip ----------
@@ -144,6 +151,7 @@ const file = (rows: RemeasureRow[]): ResultFile => ({ kind: "vet402-remeasure", 
 test("remeasure tempo: a request with a catalog placeholder is not bought (no signature, no reservation), in --pay and in the dry run", async () => {
   const e = env(() => new Response('{"ok":true}', { status: 200 }));
   const t = target("pdl", { method: "GET", body: null, contentType: null, inputSource: "mercator_example" }, "/v5/ip/enrich?ip=string");
+  t.tempo!.censusHttpStatus = 400;
   const res = await e.run([t]);
   assert.deepEqual([e.signs(), e.paidCalls(), e.ledger.committed()], [0, 0, 0n]);
   const r = res.rows[0]!;
@@ -152,18 +160,28 @@ test("remeasure tempo: a request with a catalog placeholder is not bought (no si
   assert.deepEqual([a.tried, a.category], [false, "vet402_skipped"]);
   const d = await dryRunTempo(selectSlots([t], 1).slots, e.fetchImpl, { date: DATE, monthElsewhere: 0n, monthCommittedToday: 0n });
   assert.deepEqual([d.rows[0]!.outcome, d.rows[0]!.reason], ["refused", "placeholder_input"]);
-  // a placeholder the seller answered in the census (a search for "string") is still bought
-  const answered = target("seltz", { method: "POST", body: '{"query":"string"}', contentType: "application/json", inputSource: "mercator_example" });
-  answered.tempo!.censusDelivered = true;
-  const r2 = (await e.run([answered])).rows[0]!;
-  assert.deepEqual([r2.outcome, r2.delivered, r2.input?.placeholders, e.signs()], ["sent", true, ["query"], 1]);
+  for (const st of [404, 422]) {
+    const t2 = { ...t, tempo: { ...t.tempo!, censusHttpStatus: st } };
+    assert.equal((await e.run([t2])).rows.at(-1)!.reason, "placeholder_input", `${st}`);
+  }
+  assert.equal(e.signs(), 0);
 });
 
-test("targets: the census ledger's delivered flag reaches the Tempo target", () => {
+test("remeasure tempo: a placeholder request is still bought when the census got 2xx, 402, 401, 429 or 5xx back (the seller is measured)", async () => {
+  for (const st of [200, 402, 401, 429, 500, null]) {
+    const e = env(() => new Response('{"ok":true}', { status: 200 }));
+    const t = target("voygr", { method: "POST", body: '{"name":"string"}', contentType: "application/json", inputSource: "mercator_example" });
+    t.tempo!.censusHttpStatus = st;
+    const r = (await e.run([t])).rows[0]!;
+    assert.deepEqual([r.outcome, r.input?.placeholders, e.signs()], ["sent", ["name"], 1], `census ${st}`);
+  }
+});
+
+test("targets: the census ledger's paid status reaches the Tempo target", () => {
   const ledger = JSON.parse(readFileSync(join(DATA, "tempo", "ledger.json"), "utf8"));
   const ts = tempoFromLedger(ledger, plan, "t");
-  const by = (id: string) => ts.find((t) => t.service === id)!.tempo!.censusDelivered;
-  assert.deepEqual([by("orth-seltz"), by("orth-peopledatalabs"), by("alphavantage")], [true, false, true]);
+  const by = (id: string) => ts.find((t) => t.service === id)!.tempo!.censusHttpStatus;
+  assert.deepEqual([by("orth-seltz"), by("orth-peopledatalabs"), by("orth-voygr"), by("orth-fundable")], [200, 400, 402, 401]);
 });
 
 test("remeasure tempo: a paid 2xx records the answer's shape; a whitespace body is empty, as on Solana", async () => {
@@ -180,7 +198,7 @@ test("remeasure tempo: a paid 2xx records the answer's shape; a whitespace body 
   assert.equal(blank.category, "settled_empty_body");
 });
 
-test("remeasure tempo: a paid 4xx whose answer says the input was wrong, after vet402 sent no input, goes to vet402's side under the next rules only", async () => {
+test("remeasure tempo: a paid 4xx whose answer says the input was wrong, after vet402 sent no input, goes to vet402's side (400, 404, 422 only)", async () => {
   const e = env(() => new Response('{"error":"q is required"}', { status: 400 }));
   const t = target("search", { method: "GET", body: null, contentType: null, inputSource: "none" });
   const r = (await e.run([t])).rows[0]!;
@@ -188,11 +206,10 @@ test("remeasure tempo: a paid 4xx whose answer says the input was wrong, after v
   assert.ok(!JSON.stringify(r).includes("q is required"), "the answer's text is not kept");
   const a = normalizeRemeasure(file([r]), "x")[0]!;
   assert.equal(a.inputProblem, "no_input_sent");
-  assert.deepEqual(classifyFailure(a), { fault: "unknown", rule: "paid_then_4xx" }, "published rules: unchanged");
-  assert.deepEqual(classifyFailure(a, FAULT_RULES_NEXT), { fault: "vet402_or_facilitator", rule: "paid_then_4xx_vet402_input" });
+  assert.deepEqual(classifyFailure(a), { fault: "vet402_or_facilitator", rule: "paid_then_4xx_vet402_input" });
   // the same 4xx after the catalog's real example stays can't tell
   const withExample = normalizeRemeasure(file([{ ...r, input: { source: "mercator_example", placeholders: [], missingRequired: null } }]), "x")[0]!;
-  assert.deepEqual(classifyFailure(withExample, FAULT_RULES_NEXT), { fault: "unknown", rule: "paid_then_4xx" });
+  assert.deepEqual(classifyFailure(withExample), { fault: "unknown", rule: "paid_then_4xx" });
 });
 
 test("remeasure tempo: the new fields pass the secret gate (no finding), even with secret-like names in the answer", async () => {
@@ -205,17 +222,34 @@ test("remeasure tempo: the new fields pass the secret gate (no finding), even wi
 
 // ---------- the classification lists ----------
 
-test("classify: the published FAULT_RULES are unchanged; FAULT_RULES_NEXT adds one vet402-side rule just before paid_then_4xx", () => {
-  assert.equal(FAULT_RULES.length, 12);
-  assert.ok(!FAULT_RULES.some((r) => r.id === "paid_then_4xx_vet402_input"));
-  const ids = FAULT_RULES_NEXT.map((r) => r.id);
-  assert.deepEqual(ids.filter((id) => id !== "paid_then_4xx_vet402_input"), FAULT_RULES.map((r) => r.id));
+test("classify: with an input problem, only 400, 404 and 422 move to vet402's side; 401, 403, 407, 429 stay can't tell, 5xx the seller's", () => {
+  const paid = (httpStatus: number, inputProblem: Attempt["inputProblem"]): Attempt => ({
+    chain: "tempo", source: "t", host: "s.example", service: "s", url: "https://s.example/x", payTo: null, expectedPayTo: null, at: "2026-10-01T00:00:00.000Z",
+    tried: true, settled: true, delivered: false, category: "settled_error_status", rawReason: `sent/http ${httpStatus}`, detail: null, tx: "0x1",
+    priceUsdc: "0.010000", httpStatus, declaredMatch: null, bodyChecked: true, feedbackTx: null, inputProblem,
+  });
+  for (const p of ["placeholder_input", "no_input_sent", "missing_required"] as const) {
+    for (const st of [400, 404, 422]) assert.deepEqual(classifyFailure(paid(st, p)), { fault: "vet402_or_facilitator", rule: "paid_then_4xx_vet402_input" }, `${p} ${st}`);
+    for (const st of [401, 403, 407, 429]) assert.deepEqual(classifyFailure(paid(st, p)), { fault: "unknown", rule: "paid_then_4xx" }, `${p} ${st}`);
+    for (const st of [500, 502]) assert.deepEqual(classifyFailure(paid(st, p)), { fault: "seller", rule: "paid_not_delivered" }, `${p} ${st}`);
+  }
+  // a paid 402: can't tell when vet402 sent a placeholder, the seller's side otherwise
+  assert.deepEqual(classifyFailure(paid(402, "placeholder_input")), { fault: "unknown", rule: "paid_then_402_placeholder" });
+  for (const p of [null, undefined, "no_input_sent", "missing_required"] as const) assert.deepEqual(classifyFailure(paid(402, p)), { fault: "seller", rule: "settled_not_delivered" }, String(p));
+  for (const st of [400, 404]) assert.deepEqual(classifyFailure(paid(st, null)), { fault: "unknown", rule: "paid_then_4xx" });
+});
+
+test("classify: the two input rules sit just before the rules they narrow", () => {
+  const ids = FAULT_RULES.map((r) => r.id);
+  assert.deepEqual([...INPUT_RULE_IDS].map((id) => ids.includes(id)), [true, true]);
+  assert.equal(ids.indexOf("paid_then_402_placeholder") + 1, ids.indexOf("settled_not_delivered"));
   assert.equal(ids.indexOf("paid_then_4xx_vet402_input") + 1, ids.indexOf("paid_then_4xx"));
 });
 
-test("data/: the census ledger's paid 4xx, judged from the plan: 18 vet402's input, 4 can't tell (22 can't tell under the published rules)", () => {
+test("data/: the census ledger's failures, judged from the plan: 18 vet402's input, 4 can't tell 4xx, 2 can't tell 402 (clado, orth-voygr)", () => {
   const ledger = JSON.parse(readFileSync(join(DATA, "tempo", "ledger.json"), "utf8"));
   const rows = annotateTempoInput(normalizeTempoLedger(ledger, "tempo/ledger"), plan, "tempo/plan").filter((a) => a.tried && !a.delivered);
+  const before = FAULT_RULES.filter((r) => !INPUT_RULE_IDS.has(r.id));
   const count = (rules?: typeof FAULT_RULES) => {
     const c: Record<string, number> = {};
     for (const a of rows) {
@@ -224,9 +258,9 @@ test("data/: the census ledger's paid 4xx, judged from the plan: 18 vet402's inp
     }
     return c;
   };
-  assert.equal(count().paid_then_4xx, 22);
-  const next = count(FAULT_RULES_NEXT);
-  assert.deepEqual([next.paid_then_4xx_vet402_input, next.paid_then_4xx], [18, 4]);
-  // seller-side counts do not move
-  assert.deepEqual([next.settled_not_delivered, next.paid_not_delivered], [count().settled_not_delivered, count().paid_not_delivered]);
+  const b = count(before);
+  const n = count();
+  assert.deepEqual([b.paid_then_4xx, b.settled_not_delivered], [22, 2]);
+  assert.deepEqual([n.paid_then_4xx_vet402_input, n.paid_then_4xx, n.paid_then_402_placeholder, n.settled_not_delivered ?? 0], [18, 4, 2, 0]);
+  assert.equal(n.paid_not_delivered, b.paid_not_delivered, "5xx and empty 2xx do not move");
 });

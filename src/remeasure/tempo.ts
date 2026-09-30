@@ -29,7 +29,7 @@ import type { FetchLike } from "../tempo/mercator.js";
 import { CENSUS_START_BLOCK, publicClient, usdcOutflowSinceStart } from "../tempo/chain.js";
 import { assertDayLedgersPresent, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
 import type { PlanEntry } from "../tempo/census.js";
-import { checkInput, type InputCheck } from "../tempo/answer.js";
+import { checkInput, INPUT_REJECT_STATUSES, type InputCheck } from "../tempo/answer.js";
 import { RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
 import { budgetKey } from "./budget.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
@@ -124,14 +124,15 @@ export function targetInput(s: Slot): InputCheck | null {
 }
 
 /**
- * A slot whose request carries a placeholder (`{"ip":"string"}`, `"<from x/y>"`, a `*` path) and whose census
- * purchase of the same request did not deliver is not bought again: vet402 already knows the seller cannot answer
- * it, and another failure would say nothing about the seller. Recorded as refused, `placeholder_input` (vet402's
- * own skip, never the seller's). A placeholder the seller did answer (a search for "string") is still bought.
- * Checked before payOne; payOne is unchanged.
+ * A slot whose request carries a placeholder (`{"ip":"string"}`, `"<from x/y>"`, a `*` path) and whose settled
+ * census purchase of the same request got 400, 404 or 422 back is not bought again: vet402 already knows the
+ * seller cannot answer it, and another failure would say nothing about the seller. Recorded as refused,
+ * `placeholder_input` (vet402's own skip, never the seller's). Any other census answer (2xx, a search for
+ * "string"; 402; 401; 5xx) is still bought and measured. Checked before payOne; payOne is unchanged.
  */
 function placeholderRefusal(s: Slot, input: InputCheck | null): { refused: "placeholder_input"; detail: string } | null {
-  if (!input || input.placeholders.length === 0 || s.target.tempo?.censusDelivered === true) return null;
+  const census = s.target.tempo?.censusHttpStatus ?? null;
+  if (!input || input.placeholders.length === 0 || census === null || !INPUT_REJECT_STATUSES.has(census)) return null;
   return { refused: "placeholder_input", detail: `placeholders: ${input.placeholders.join(", ")}` };
 }
 

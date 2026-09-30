@@ -1,19 +1,29 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-09-30",
-  "generatedAt": "2026-09-30T04:40:11.403Z",
+  "generatedAt": "2026-09-30T05:12:28.704Z",
   "method": {
     "version": "v3",
     "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
     "delivered": "Came back with an answer = vet402's payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column. The same test on every chain, except the Tempo census purchases (tempo/ledger), whose runner kept no body: for them it means settled, then 2xx. The Tempo re-purchases (remeasure) record the body size and are tested for an empty body.",
     "declared": "Separate column, never part of the grade: whether the answer's keys or shape matched what the seller declared. Checked only where the runner compared them (Algorand census, Solana census) and the seller declared something.",
-    "counted": "Counted = delivered purchases plus failures on the seller's side (payment settled, then 5xx, 402 again, no answer or an empty 2xx; or the seller's server answered 5xx). A settled payment followed by another 4xx is not counted: vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out. Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator.",
+    "counted": "Counted = delivered purchases plus failures on the seller's side (payment settled, then 5xx, 402 again, no answer or an empty 2xx; or the seller's server answered 5xx). A settled payment followed by another 4xx is not counted: vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out. Paid on chain, answered 402, delivered nothing is counted on the seller's side, also when a facilitator error such as \"already in ledger\" came with it: the buyer paid and received nothing, and the seller chose the facilitator. Not when vet402's request carried a placeholder from the catalog instead of a value: then the 402 may come from that input, and it can't be told.",
     "notCounted": "Not counted, shown as numbers: failures on vet402's or the facilitator's side, failures where the cause can't be told, endpoints that were not buyable, vet402's own skips (price cap, input it will not make up, duplicates) and refusals because payTo changed.",
     "faultRules": [
+      {
+        "id": "paid_then_402_placeholder",
+        "fault": "unknown",
+        "when": "vet402's payment settled, then the seller answered 402, and the request vet402 sent carried a placeholder from the catalog in place of a value (such as \"string\"). The 402 may come from that input, so it is not counted against the seller."
+      },
       {
         "id": "settled_not_delivered",
         "fault": "seller",
         "when": "Paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as \"already in ledger\" included), then the seller answered 402. The buyer paid and received nothing."
+      },
+      {
+        "id": "paid_then_4xx_vet402_input",
+        "fault": "vet402_or_facilitator",
+        "when": "vet402's payment settled, then the seller answered 400, 404 or 422, and the request vet402 sent was wrong: a placeholder from the catalog in place of a value (such as \"string\"), a parameter the catalog marks required left out, or no input while the seller's answer says the input was wrong."
       },
       {
         "id": "paid_then_4xx",
@@ -111,7 +121,8 @@
           "Inputs: the daily re-purchases (remeasure) from Solana and Tempo sellers vet402 already paid are read as purchases on their day. They have been read since 2026-09-29; this entry is the first to say so.",
           "A settled payment followed by a 4xx other than 402 (400, 401, 404, 422, 429 …) is no longer counted against the seller: rule paid_then_4xx, can't tell, shown as a count. vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out; the signed records already call it UNCLEAR. 5xx, 402 again, no answer and an empty 2xx after settlement stay on the seller's side. Effect on the 2026-09-29 report: 40 purchases on Solana, Tempo and Base (Solana 4, Tempo 36) and 2 on Algorand move from the seller side to not counted; no grade and no rank number changes, because every seller concerned was still measuring.",
           "Wording only, no change to the test: \"settled\" on Algorand is named for what it is, a settlement receipt with a tx id from the facilitator, which vet402 has not read back on chain; on Solana, Tempo and Base the runners checked the payment on chain. The Tempo note now says which purchases kept no body (the census ledger) and which were tested for an empty body (the re-purchases).",
-          "Wording only, no change to the test: \"delivered\" is shown as \"came back with an answer\", with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402's own purchases, and a paid check is a separate report that never moves a grade."
+          "Wording only, no change to the test: \"delivered\" is shown as \"came back with an answer\", with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402's own purchases, and a paid check is a separate report that never moves a grade.",
+          "2026-09-30, Tempo: vet402 checked the requests it sent. For some sellers the catalog (Mercator) gave the schema's type name in place of an example ({\"ip\":\"string\"}), and vet402 sent it. A settled payment followed by 400, 404 or 422 to such a request, or to a request that left out a required parameter, or with no input where the answer says the input was wrong, is now vet402's side (rule paid_then_4xx_vet402_input); 401, 403, 407 and 429 stay can't tell. A settled 402 to a request with such a placeholder is can't tell (rule paid_then_402_placeholder), no longer the seller's side. From 2026-10-01, remeasure does not buy again a request with a placeholder that got 400, 404 or 422 in the census, and the Tempo re-purchases record the answer's shape (never its text) and are tested for an empty body after trimming, as on Solana."
         ]
       },
       {
@@ -322,11 +333,11 @@
     "tried": 2925,
     "settled": 1665,
     "settledNotDelivered": 88,
-    "counted": 1654,
+    "counted": 1650,
     "delivered": 1577,
     "excluded": {
-      "vet402_or_facilitator": 981,
-      "unknown": 290
+      "vet402_or_facilitator": 1021,
+      "unknown": 254
     },
     "failuresByRule": {
       "request_rejected_4xx": 153,
@@ -338,8 +349,10 @@
       "answer_without_settlement": 13,
       "payment_not_accepted_402": 45,
       "paid_not_delivered": 18,
-      "settled_not_delivered": 10,
-      "paid_then_4xx": 60
+      "settled_not_delivered": 6,
+      "paid_then_4xx": 20,
+      "paid_then_402_placeholder": 4,
+      "paid_then_4xx_vet402_input": 40
     },
     "firstPurchaseAt": "2026-09-27T04:32:04.398Z",
     "lastPurchaseAt": "2026-09-30T02:31:46.377Z"
@@ -369,11 +382,11 @@
         "tried": 569,
         "settled": 517,
         "settledNotDelivered": 78,
-        "counted": 463,
+        "counted": 459,
         "delivered": 439,
         "excluded": {
-          "vet402_or_facilitator": 11,
-          "unknown": 95
+          "vet402_or_facilitator": 51,
+          "unknown": 59
         },
         "failuresByRule": {
           "request_rejected_4xx": 13,
@@ -381,8 +394,9 @@
           "payment_tx_rejected": 11,
           "server_error_5xx": 4,
           "paid_not_delivered": 16,
-          "paid_then_4xx": 58,
-          "settled_not_delivered": 4,
+          "paid_then_4xx": 18,
+          "paid_then_402_placeholder": 4,
+          "paid_then_4xx_vet402_input": 40,
           "answer_without_settlement": 1
         },
         "firstPurchaseAt": "2026-09-28T06:52:30.661Z",
@@ -8163,30 +8177,28 @@
             "tempo": {
               "tried": 1,
               "settled": 1,
-              "counted": 1,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-28T08:03:24.509Z"
             }
           },
           "tried": 1,
-          "counted": 1,
+          "counted": 0,
           "settled": 1,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.7934567085261071,
-          "days": [
-            "2026-09-28"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 1
           },
           "failuresByRule": {
-            "settled_not_delivered": 1
+            "paid_then_402_placeholder": 1
           },
           "declared": {
             "checked": 0,
@@ -8206,46 +8218,17 @@
             "tx": "0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa",
-            "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-28T08:03:24.509Z",
-            "chain": "tempo",
-            "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "settled_not_delivered",
-            "httpStatus": 402,
-            "rawReason": "http 402",
-            "detail": "transfer found",
-            "tx": "0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-28T08:03:24.509Z",
-              "chain": "tempo",
-              "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "settled_not_delivered",
-              "httpStatus": 402,
-              "rawReason": "http 402",
-              "detail": "transfer found",
-              "tx": "0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-28T08:03:24.509Z",
               "chain": "tempo",
               "url": "https://clado.mpp.paywithlocus.com/clado/bulk-contacts-status",
               "delivered": false,
-              "fault": "seller",
-              "rule": "settled_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_402_placeholder",
               "httpStatus": 402,
               "declaredMatch": null,
               "tx": "0xf5fbb2994fb31a4e4cdfde9c1a1504b4be514e9567316468649ed7918bf134aa"
@@ -11794,11 +11777,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -11827,8 +11810,8 @@
               "chain": "tempo",
               "url": "https://judge0.mpp.paywithlocus.com/judge0/get-submission",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x2b7a800be83521693aa3560901a4475f4f21f013d23edfade611746b76e48c27"
@@ -13802,11 +13785,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -13835,8 +13818,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x66403235eeb75b372e07494382993a45d13a4861128bc73d4cb3a2431a94d159"
@@ -13846,8 +13829,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x52e5cba1ccbaad70876b9c01db13e16b8826411957c348b401f3b546b8a3f76a"
@@ -13857,8 +13840,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x664d7f506c966bd3944eb895115a486f7023348e16e08a891a918d4c1c101513"
@@ -14137,11 +14120,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -14170,8 +14153,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x1ad8cc68f79ee6dc31f5d1ee2ca037b55d13a5e41db9178a8044c546e0f6ddb8"
@@ -14181,8 +14164,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xf0d3880ffad8a52bcc73b656737bf10c6b78990cb5ea710ae7d97e5920b59ec1"
@@ -14192,8 +14175,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/baseten/v1/chat/completions",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xa83b0bef34767e9d7f0609605cf4ba4ff7d59d7118e38cbbda46d5026cd12953"
@@ -14359,11 +14342,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -14392,8 +14375,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/captaindata/companies/enrich?li_company_url=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x070d8d95702332bb345b3680f90bb97c224faa88fb9e5a5d25d4770a7eee27c2"
@@ -14441,11 +14424,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -14474,8 +14457,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xcbb86508d00e547676ad854270c7e533c5306a9d5e985773bf313f22d51236ed"
@@ -14485,8 +14468,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x3f8d4972b40f97563f93baee9438eb0ac1deb0e3e806b9e8a0c7aae0cabacf33"
@@ -14496,8 +14479,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/company-enrich/companies/enrich?domain=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xcd5959fb4b25d044c985ee684ea2d29e450b8146ab6aa5bac97db788a37aabb6"
@@ -14550,11 +14533,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -14583,8 +14566,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/context-dev/web/scrape/html?url=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xc5f758cc5e993589ea91b2e8154e8284e0c4d3aa988ec248e4373087f4b0d667"
@@ -14632,11 +14615,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -14665,8 +14648,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x59cda87abdee851c8788144ef4f7a89bdc925ad35f24657439527f0d2b780ebe"
@@ -14676,8 +14659,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x1412555c51de8d207915b38dab69e1b401c84a9b93d66a624019e0c73ddda0e7"
@@ -14687,8 +14670,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/coresignal/v2/company_clean/enrich?website=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x2417c821f38d9b9488620eff1a8d106b9ce0c098c319b132d9059fc940b4d18a"
@@ -14741,11 +14724,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -14774,8 +14757,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/didit/v3/email/send",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x12c662534f7f4e70fc439e0c0e7aa33d950fc3ed9ca3624086bcbf1dc061f964"
@@ -14785,8 +14768,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/didit/v3/email/send",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xf224ed90b0f49f2aaeb88bfc74ffb5f61c9851e6a0760a0ebff04e3b1a90d17e"
@@ -14796,8 +14779,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/didit/v3/email/send",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xc9b38668c09f5fe0673a4e252f52ca3b4c82f83bca74fd52027e6e2f4d4c0a54"
@@ -14959,11 +14942,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -14992,8 +14975,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x0b55cc77b53e24d1385be736c77f37836fc9c81a389e23115c1607a9e836b482"
@@ -15003,8 +14986,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x9c348f9c0793198a169a7512ec7d705a47ebd9ba7c3cf7a7ae32765595ff992c"
@@ -15014,8 +14997,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/fiber/v1/validate-email/single",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x7bbc80788d1b513034f04f6932b19579bf8a93a78edea98069a740b283edb884"
@@ -15403,11 +15386,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -15436,8 +15419,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x063d7d8749c84c871f8bcc621af72f122943def92bbd66bc68f357a554781c2d"
@@ -15447,8 +15430,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x3f930a50121286ba7667d3d594d995f9ded52d8ed6b881537c7efd5dcf27b0b2"
@@ -15458,8 +15441,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/influencers-club/public/v1/creators/enrich/handle/raw/",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x565efb7ac3ff2b172afb4413c47353de75d504607587b31e7c9cc3cfbf8d755e"
@@ -15512,11 +15495,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -15545,8 +15528,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x549b70440c2b1fbdfbf3537c92667b5faff45539bb6de7942f1f290f74c06e49"
@@ -15556,8 +15539,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x1ea6768e1954625bbb0a542267fcef65b8a61094b12a7fb2e9e5922bac5903cf"
@@ -15567,8 +15550,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/joinmassive/search/results?id=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x4ac2aecaffb0851ef2ff213258aa1d3a695345932e7d291ddb3061021dd4d749"
@@ -16069,11 +16052,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -16102,8 +16085,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x719d443092bf6bb9925bcdcf91d72b644588f6c260f7609e8309781e5e63c5c5"
@@ -16113,8 +16096,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xd96440f768859e8244cf7f7a47dad2b501cfdd035c0b32db4ee1bcce64d96be9"
@@ -16124,8 +16107,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/peopledatalabs/v5/ip/enrich?ip=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0xc81d09f68dd2ae0a4f9009159b0470f4856874ce89c3af64606bd3657deb7b37"
@@ -16291,11 +16274,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -16324,8 +16307,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xa804c84a685e12360f35eeb29e5bb0166628c1c1342784142dea7125c45e1e3a"
@@ -16335,8 +16318,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x4d95deeb75c97fee04bd9a81f63c4e8ab5bce707a485dc817b08a8cb49bde934"
@@ -16346,8 +16329,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/scrapecreators/v1/komi?url=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x0688dee325a939d6eaec1df4f6d9d4e47b93dde261c763bf680e00e4770776db"
@@ -16739,11 +16722,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -16772,8 +16755,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/serper-scrape/",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 400,
               "declaredMatch": null,
               "tx": "0x61bfabea5ad609c1987b4df59b84ebd559e6ff6d5451f0d7e58306ebfef19155"
@@ -17160,11 +17143,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 3
+            "vet402_or_facilitator": 3,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 3
+            "paid_then_4xx_vet402_input": 3
           },
           "declared": {
             "checked": 0,
@@ -17193,8 +17176,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x92cb517ccf19392259b0663ad59ba4869e067397ee8a2d939997962577b6991c"
@@ -17204,8 +17187,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0x84550c84a2dfd9a67174d72f11118fb9a5c64d1f848bf32eed16ceeb8759256d"
@@ -17215,8 +17198,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/tomba/v1/people/find?email=string",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 422,
               "declaredMatch": null,
               "tx": "0xbf88195e3e4b86781e9113c7305dc37cd629cc26dcbe350ce629e92444d89232"
@@ -17252,32 +17235,28 @@
             "tempo": {
               "tried": 3,
               "settled": 3,
-              "counted": 3,
+              "counted": 0,
               "delivered": 0,
               "lastAt": "2026-09-30T02:28:14.957Z"
             }
           },
           "tried": 3,
-          "counted": 3,
+          "counted": 0,
           "settled": 3,
           "delivered": 0,
           "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
-          "wilsonUpper": 0.5615060804490177,
-          "days": [
-            "2026-09-28",
-            "2026-09-29",
-            "2026-09-30"
-          ],
+          "wilsonUpper": 1,
+          "days": [],
           "grade": "measuring",
           "qualified": false,
           "excluded": {
             "vet402_or_facilitator": 0,
-            "unknown": 0
+            "unknown": 3
           },
           "failuresByRule": {
-            "settled_not_delivered": 3
+            "paid_then_402_placeholder": 3
           },
           "declared": {
             "checked": 0,
@@ -17297,70 +17276,17 @@
             "tx": "0x0a2cde45a4f5bc0f7a7a9fa3e926e066cbd353313dd42ca5c69023baf551f9f1"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": {
-            "chain": "tempo",
-            "tx": "0x0a2cde45a4f5bc0f7a7a9fa3e926e066cbd353313dd42ca5c69023baf551f9f1",
-            "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
-            "category": "settled_error_status"
-          },
-          "lastFailure": {
-            "at": "2026-09-30T02:28:14.957Z",
-            "chain": "tempo",
-            "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
-            "category": "settled_error_status",
-            "fault": "seller",
-            "rule": "settled_not_delivered",
-            "httpStatus": 402,
-            "rawReason": "sent/http 402",
-            "detail": null,
-            "tx": "0x0a2cde45a4f5bc0f7a7a9fa3e926e066cbd353313dd42ca5c69023baf551f9f1"
-          },
-          "sellerFailures": [
-            {
-              "at": "2026-09-30T02:28:14.957Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "settled_not_delivered",
-              "httpStatus": 402,
-              "rawReason": "sent/http 402",
-              "detail": null,
-              "tx": "0x0a2cde45a4f5bc0f7a7a9fa3e926e066cbd353313dd42ca5c69023baf551f9f1"
-            },
-            {
-              "at": "2026-09-29T08:26:21.441Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "settled_not_delivered",
-              "httpStatus": 402,
-              "rawReason": "sent/http 402",
-              "detail": null,
-              "tx": "0xe1ea3840bf765405c0a2be4e3dff52090511e6961b6e85f6573340f32cab0e82"
-            },
-            {
-              "at": "2026-09-28T08:08:34.352Z",
-              "chain": "tempo",
-              "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
-              "category": "settled_error_status",
-              "fault": "seller",
-              "rule": "settled_not_delivered",
-              "httpStatus": 402,
-              "rawReason": "http 402",
-              "detail": "transfer found",
-              "tx": "0x08d1e154d2dce22fd8e3453bcc914d2ecef466253a2bcd9dfb01c251eb909018"
-            }
-          ],
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
           "recent": [
             {
               "at": "2026-09-30T02:28:14.957Z",
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
               "delivered": false,
-              "fault": "seller",
-              "rule": "settled_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_402_placeholder",
               "httpStatus": 402,
               "declaredMatch": null,
               "tx": "0x0a2cde45a4f5bc0f7a7a9fa3e926e066cbd353313dd42ca5c69023baf551f9f1"
@@ -17370,8 +17296,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
               "delivered": false,
-              "fault": "seller",
-              "rule": "settled_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_402_placeholder",
               "httpStatus": 402,
               "declaredMatch": null,
               "tx": "0xe1ea3840bf765405c0a2be4e3dff52090511e6961b6e85f6573340f32cab0e82"
@@ -17381,8 +17307,8 @@
               "chain": "tempo",
               "url": "https://mpp.orthogonal.com/voygr/v1/business-status",
               "delivered": false,
-              "fault": "seller",
-              "rule": "settled_not_delivered",
+              "fault": "unknown",
+              "rule": "paid_then_402_placeholder",
               "httpStatus": 402,
               "declaredMatch": null,
               "tx": "0x08d1e154d2dce22fd8e3453bcc914d2ecef466253a2bcd9dfb01c251eb909018"
@@ -19945,11 +19871,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -19978,8 +19904,8 @@
               "chain": "tempo",
               "url": "https://replicate.mpp.paywithlocus.com/replicate/get-prediction",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x72762292f40ee9f920fdfbcfc751baeb965b2f6804f0a7beb917cab2619eeddc"
@@ -20912,11 +20838,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -20945,8 +20871,8 @@
               "chain": "tempo",
               "url": "https://spyfu.mpp.tempo.xyz/apis/domain_stats_api/v2/*",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0xcde494af23b7340b713e9f2b4c7b70030ca8976b41b59fbe7c21430bb353247a"
@@ -20994,11 +20920,11 @@
           "grade": "measuring",
           "qualified": false,
           "excluded": {
-            "vet402_or_facilitator": 0,
-            "unknown": 1
+            "vet402_or_facilitator": 1,
+            "unknown": 0
           },
           "failuresByRule": {
-            "paid_then_4xx": 1
+            "paid_then_4xx_vet402_input": 1
           },
           "declared": {
             "checked": 0,
@@ -21027,8 +20953,8 @@
               "chain": "tempo",
               "url": "https://stability-ai.mpp.paywithlocus.com/stability-ai/result",
               "delivered": false,
-              "fault": "unknown",
-              "rule": "paid_then_4xx",
+              "fault": "vet402_or_facilitator",
+              "rule": "paid_then_4xx_vet402_input",
               "httpStatus": 404,
               "declaredMatch": null,
               "tx": "0x847d4c1aed92cf50bbc61cfe7f48bc4d89bffd4001590f1dbf8585683bd48703"

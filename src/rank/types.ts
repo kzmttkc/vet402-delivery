@@ -77,7 +77,7 @@ export interface Attempt {
   feedbackTx: string | null;
   /**
    * Tempo only: why the request vet402 sent was vet402's own mistake (src/tempo/answer.ts inputProblem), null when
-   * it cannot be told, absent when not checked. Read by FAULT_RULES_NEXT in ./classify.ts.
+   * it cannot be told, absent when not checked. Read by the paid_then_402_placeholder and paid_then_4xx_vet402_input rules in ./classify.ts.
    */
   inputProblem?: InputProblem | null;
 }

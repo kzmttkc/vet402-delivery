@@ -102,7 +102,9 @@ shown as counts (per seller, per rule, and in the report totals) and never lower
 
 | rule | fault | when |
 |---|---|---|
+| `paid_then_402_placeholder` | unknown | vet402's payment settled, then 402, and the request vet402 sent carried a placeholder from the catalog in place of a value (such as "string"; Tempo). The 402 may come from that input |
 | `settled_not_delivered` | seller | paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as "already in ledger" included), then the seller answered 402. The buyer paid and received nothing, and the seller chose the facilitator |
+| `paid_then_4xx_vet402_input` | vet402_or_facilitator | vet402's payment settled, then 400, 404 or 422, and the request vet402 sent was wrong: a placeholder from the catalog in place of a value, a parameter the catalog marks required left out, or no input while the answer says the input was wrong (Tempo). 401, 403, 407 and 429 stay `paid_then_4xx` |
 | `paid_then_4xx` | unknown | vet402's payment settled, then 4xx other than 402 (400, 401, 404, 422, 429 …). vet402 built the request from the seller's listing, so a fault on its side is not ruled out; the signed records call the same case UNCLEAR (`src/receipt/build.ts`). Shown as a count (v3) |
 | `paid_not_delivered` | seller | vet402's payment settled, then 5xx, no answer, another non-2xx that is not a 4xx, or 2xx with an empty body |
 | `rate_limited_429` | vet402_or_facilitator | HTTP 429 during vet402's burst buying (hundreds of one seller's items within minutes) |

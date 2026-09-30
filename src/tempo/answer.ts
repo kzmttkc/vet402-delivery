@@ -127,11 +127,12 @@ export const INPUT_ERROR_WORDS: readonly [string, RegExp][] = [
 /** Same word list as the secret gate's name test (src/daily/secret-gate.ts isSecretName), kept local so this stays pure. */
 const SECRET_PARTS = /token|secret|key|passw|credential|cookie|session|bearer|jwt|mnemonic|xprv|seed|priv|auth|sig/;
 
-/** A JSON name that says what the field is, not a value: an identifier, short, not secret-like, not random-looking. */
+/** A JSON name that says what the field is, not a value: identifier-shaped, short, not secret-like, not random-looking. */
 export function publishableField(name: string): boolean {
-  if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,31}$/.test(name)) return false;
-  const folded = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (SECRET_PARTS.test(folded)) return false;
+  // Lower-case letters, digits and _ only, 1 to 32 characters: no dots, @, slashes or upper case, so a name
+  // that is itself a value (a domain such as "acme.com", an email, a path, a mixed-case id) is only counted.
+  if (!/^[a-z0-9_]{1,32}$/.test(name)) return false;
+  if (SECRET_PARTS.test(name.replace(/_/g, ""))) return false;
   // hex runs, long digit runs, or mixed-case runs without separators read as ids, not names
   if (/[0-9a-f]{12,}/i.test(name) && /\d/.test(name)) return false;
   if (/\d{6,}/.test(name)) return false;
@@ -177,6 +178,13 @@ export function bodyShape(buf: Uint8Array | null, status: number | null, declare
  *   no_input_sent       vet402 sent no cataloged input and the seller's 4xx answer says the input was wrong
  * A 4xx that says "invalid" to the catalog's own example stays "can't tell": the example may be the catalog's error.
  */
+/**
+ * The paid 4xx answers that can be the request's fault: 400, 404, 422. Not 401, 403, 407 (auth, which may be the
+ * seller's own setup), 429 (rate) or 402 (payment). Only these move a paid failure to vet402's side, and only
+ * these in the census stop remeasure from buying a placeholder request again.
+ */
+export const INPUT_REJECT_STATUSES: ReadonlySet<number> = new Set([400, 404, 422]);
+
 export type InputProblem = "placeholder_input" | "missing_required" | "no_input_sent";
 
 export function inputProblem(input: InputCheck | null | undefined, body: Pick<BodyShape, "inputError"> | null | undefined): InputProblem | null {
