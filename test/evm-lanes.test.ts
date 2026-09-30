@@ -646,3 +646,11 @@ test("a purchase vet402 refused before paying is 'not bought' for an untold sell
   const row = withholdUnnotified({ ...out, rows: [{ ...out.rows[0]!, status: "refused" }] }, new Set()).rows[0]!;
   assert.equal(row.status, "not_offered_now");
 });
+
+test("the Base column follows the listing the paying run bought, even when the dry run had no plan for that payTo", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, arbitrum: { payTosInCatalogs: 1, payTosWithLive402: 0, choices: [{ payTo: SELLER, catalogListings: 1, hosts: ["f.test"], chosen: null }] } };
+  const mk = (lane: string, tx: Hex) => ({ ...sent({ resource: "https://f.test/x", payTo: SELLER, amountAtomic: "1000", settledOnChain: true, delivered: true, settlementTx: tx }), lane, cause: { cause: "delivered", rule: "d", evidence: "chain", fix: null } });
+  const out = buildLanePublic("arbitrum", dry, [mk("arbitrum", TX), mk("base-compare", ("0x" + "ef".repeat(32)) as Hex)] as never);
+  assert.equal(out.rows[0]!.status, "delivered");
+  assert.equal(out.compare!.find((c) => c.resource === "https://f.test/x")?.status, "delivered");
+});

@@ -232,12 +232,15 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
   };
   if (lane === "arbitrum") {
     out.compare = [];
-    for (const c of sec.choices) {
-      if (!c.chosen) continue;
-      const b = last(c.chosen.resource, "base-compare") ?? paid.filter((p) => p.lane === "base-compare" && p.resource === c.chosen!.resource).at(-1);
+    // One entry per row that has a listing: the planned one, or the one the paying run actually bought
+    // (a paying run plans again, so it can buy a listing the dry run did not plan).
+    for (const row of rows) {
+      const res = row.resource;
+      if (!res) continue;
+      const b = last(res, "base-compare") ?? paid.filter((p) => p.lane === "base-compare" && p.resource === res).at(-1);
       const paidB = b?.outcome === "sent";
       out.compare.push({
-        resource: c.chosen.resource,
+        resource: res,
         status: statusOf(b),
         cause: paidB ? b!.cause : null,
         settlementTx: paidB ? (b!.settlementTx ?? null) : null,
