@@ -2,7 +2,7 @@
 
 Before an AI agent pays for an API, vet402 has already bought it with its own money and shows what came back, with the payment on chain.
 
-On Solana, Tempo and Base, from 2026-09-28 to 2026-09-29 (UTC): 443 purchases from 220 sellers. 389 payments settled; 334 came back with an answer. In 55 cases the payment settled and nothing usable came back.
+On Solana, Tempo and Base, from 2026-09-28 to 2026-09-29 (UTC): 443 purchases from 220 sellers. 391 payments settled; 334 came back with an answer. In 57 cases the payment settled and nothing usable came back.
 
 - **See the results:** https://kzmttkc.github.io/vet402-delivery/ (Solana, Tempo and Base first; Algorand on its own page)
 - **Check one record yourself, no account and no payment:** from a clone of this repository, `npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json`
@@ -146,6 +146,13 @@ npx tsx scripts/solana-feedback.ts                  # dry run (the default): tar
 npx tsx scripts/solana-feedback.ts --simulate       # also simulateTransaction on mainnet, unsigned
 VET402_SOLANA_FEEDBACK_WRITE=yes npx tsx scripts/solana-feedback.ts --send
 ```
+
+## Corrections
+
+Published data is corrected only toward what the chain shows, and every correction is listed here. The previous values stay in git history.
+
+- **2026-09-30**: `data/tempo/ledger.json` (the 2026-09-28 Tempo census): the entries `goflightlabs` (HTTP 502) and `modal` (HTTP 500) were recorded as settled null, with no tx. Both payments settled on chain, to the mpp.tempo.xyz recipient `0xca4e835f803cb0b7c428222b3a3b98518d4779fe`: goflightlabs 0.005 USDC.e in `0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec` (2026-09-28 08:04:39 UTC), modal 0.0001 USDC.e in `0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c` (08:05:17 UTC). Why they were missed: the fee was sponsored, so the transaction on chain is not the one vet402 signed, and an error answer carries no Payment-Receipt, so the runner had no tx hash to read back. Found and written by `npx tsx scripts/chain-check.ts --census --write`, which checks every USDC.e transfer out of the payer during the run against the ledger (72 transactions, 70 already recorded) and writes a transfer onto an entry only when exactly one entry fits it. Both purchases now count as paid with nothing usable back (`paid_not_delivered`) instead of a 5xx without settlement. The 2026-09-28 signed records were anchored on Solana before this correction (tx `JqhzBqMSuL9ZrZz511fCgqcvU7Sjzhs7ccdbpqtdgUUUV7G1iBAuc4my5hReEkbyr6qk9vB3uMqB13cbpVzNeb2`) and do not include these two purchases; they stay as they are.
+- **2026-09-30**: `data/remeasure/tempo-2026-09-29.json` rows[30] (kicksdb, HTTP 500) was recorded as settled null, with no tx. It settled on chain: 0.0005 USDC.e to the same recipient in `0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8` (2026-09-29 08:28:46 UTC), for the same reason. Written by `npx tsx scripts/chain-check.ts --chain tempo --date 2026-09-29 --write` (35 transactions in the run, 34 already on rows). The 2026-09-29 signed records are not published or anchored yet and will include it.
 
 ## Scope and prior work
 
