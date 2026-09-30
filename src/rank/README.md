@@ -135,7 +135,7 @@ run. If purchases paced as in section 2 still get either reply, both rules move 
 - Remeasure window (the plan): 2026-09-29 to 2026-10-08 (UTC days), twice a day on Solana and once on Tempo.
   Remeasure (`scripts/remeasure.ts`, see the top-level README) buys again from the Solana and Tempo sellers whose
   earlier payment settled. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers
-  share one payTo, one of them is bought; payTo and price are locked to the earlier payment. Which sellers were
+  share one payTo, one of them is bought; the payTo is locked to the earlier payment and the price can be no higher. Which sellers were
   bought again is decided by the rows in `data/remeasure/`, and a correction can change them. The days it ran are
   the files in `data/remeasure/`. Base sellers have been bought once.
 

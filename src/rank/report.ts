@@ -171,7 +171,7 @@ export const MONEY_LINE =
 export const REBUY_FIRST_DAY = "2026-09-29";
 export const REBUY_LAST_DAY = "2026-10-08";
 /** The plan and its rules (rank.json method.measurement, the first page, the method page). */
-export const REBUY_PLAN = `Rebuy plan for ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY} (UTC days): two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, at the same price and to the same payTo. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them.`;
+export const REBUY_PLAN = `Rebuy plan for ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY} (UTC days): two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them.`;
 
 /** What was bought again, from the paid remeasure rows of the given sellers. */
 export function rebuyFacts(sellers: readonly Pick<SellerStats, "rebuy">[], through: string): string {
@@ -193,7 +193,7 @@ export function rebuyFacts(sellers: readonly Pick<SellerStats, "rebuy">[], throu
 export function rebuySeller(s: Pick<SellerStats, "rebuy">): string | null {
   const d = s.rebuy.days.length;
   if (d === 0) return null;
-  return `vet402 bought this seller again on ${d} UTC ${d === 1 ? "day" : "days"} since ${REBUY_FIRST_DAY} (${chainCounts(s.rebuy.purchases)}), at the same price and to the same payTo.`;
+  return `vet402 bought this seller again on ${d} UTC ${d === 1 ? "day" : "days"} since ${REBUY_FIRST_DAY} (${chainCounts(s.rebuy.purchases)}), to the same payTo and at no more than the earlier price.`;
 }
 
 const CHAIN_NAME: Record<Chain, string> = { solana: "Solana", tempo: "Tempo", base: "Base", algorand: "Algorand" };

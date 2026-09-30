@@ -622,10 +622,10 @@ test("rebuy on seller pages: what the paid rows in data/remeasure/ say, per sell
   assert.deepEqual(by("unk.example").rebuy, { days: [], purchases: {} }, "but not bought again");
   const pages = renderSite(report);
   const page = (k: string) => pages.get(`seller/${k}.html`)!;
-  assert.ok(page("a.shared.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1), at the same price and to the same payTo."));
+  assert.ok(page("a.shared.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1), to the same payTo and at no more than the earlier price."));
   assert.ok(page("k.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1)"));
   assert.ok(page("m.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1)"));
-  assert.ok(page("gap.example").includes("vet402 bought this seller again on 2 UTC days since 2026-09-29 (Solana 3), at the same price and to the same payTo."));
+  assert.ok(page("gap.example").includes("vet402 bought this seller again on 2 UTC days since 2026-09-29 (Solana 3), to the same payTo and at no more than the earlier price."));
   for (const k of ["b.shared.example", "refused.example", "unk.example", "nocharge.example"]) {
     assert.ok(!/(buys|bought) (this seller )?again/.test(page(k)), `${k}: no rebuy sentence`);
     assert.ok(page(k).includes("It costs the seller nothing"), `${k}: the rest of the line stays`);
