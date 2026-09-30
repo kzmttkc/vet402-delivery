@@ -1,7 +1,7 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-09-29",
-  "generatedAt": "2026-09-29T22:07:55.532Z",
+  "generatedAt": "2026-09-30T00:34:46.803Z",
   "method": {
     "version": "v3",
     "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
@@ -202,7 +202,7 @@
     {
       "label": "remeasure/tempo-2026-09-29",
       "location": "data/remeasure/tempo-2026-09-29.json",
-      "sha256": "1db877d039e6c1668ffd0d1cc5b7fbbda342cad15d0a24e65f5a52083f181473",
+      "sha256": "87f39d13d22d76a3792657dcf5fc130882ed3f3aa681080b72e74b14ebe10cc0",
       "note": "copied from ~/vet402-solana/results/remeasure/tempo-2026-09-29.json"
     },
     {
@@ -269,7 +269,7 @@
       ],
       "rows": 110,
       "tried": 108,
-      "settled": 104,
+      "settled": 105,
       "delivered": 65,
       "notTried": {
         "payto_changed": 2
@@ -306,8 +306,8 @@
   "totals": {
     "attempts": 4203,
     "tried": 2799,
-    "settled": 1536,
-    "settledNotDelivered": 64,
+    "settled": 1537,
+    "settledNotDelivered": 65,
     "counted": 1544,
     "delivered": 1472,
     "excluded": {
@@ -318,12 +318,12 @@
       "request_rejected_4xx": 153,
       "subcent_quota": 363,
       "rate_limited_429": 605,
-      "server_error_5xx": 52,
+      "server_error_5xx": 51,
       "timeout": 19,
       "payment_tx_rejected": 13,
       "answer_without_settlement": 13,
       "payment_not_accepted_402": 45,
-      "paid_not_delivered": 11,
+      "paid_not_delivered": 12,
       "settled_not_delivered": 9,
       "paid_then_4xx": 44
     },
@@ -353,8 +353,8 @@
       "totals": {
         "attempts": 544,
         "tried": 443,
-        "settled": 388,
-        "settledNotDelivered": 54,
+        "settled": 389,
+        "settledNotDelivered": 55,
         "counted": 353,
         "delivered": 334,
         "excluded": {
@@ -365,8 +365,8 @@
           "request_rejected_4xx": 13,
           "payment_not_accepted_402": 23,
           "payment_tx_rejected": 11,
-          "server_error_5xx": 7,
-          "paid_not_delivered": 9,
+          "server_error_5xx": 6,
+          "paid_not_delivered": 10,
           "paid_then_4xx": 42,
           "settled_not_delivered": 3,
           "answer_without_settlement": 1
@@ -10740,7 +10740,7 @@
           "chains": {
             "tempo": {
               "tried": 2,
-              "settled": 1,
+              "settled": 2,
               "counted": 2,
               "delivered": 1,
               "lastAt": "2026-09-29T08:28:30.961Z"
@@ -10748,9 +10748,9 @@
           },
           "tried": 2,
           "counted": 2,
-          "settled": 1,
+          "settled": 2,
           "delivered": 1,
-          "settledRate": 0.5,
+          "settledRate": 1,
           "deliveredRate": 0.5,
           "wilsonLower": 0.09452865480086611,
           "wilsonUpper": 0.905471345199134,
@@ -10765,7 +10765,7 @@
             "unknown": 0
           },
           "failuresByRule": {
-            "server_error_5xx": 1
+            "paid_not_delivered": 1
           },
           "declared": {
             "checked": 0,
@@ -10773,47 +10773,52 @@
           },
           "notTried": {},
           "failures": {
-            "unconfirmed_server_error": 1
+            "settled_error_status": 1
           },
           "lastMeasuredAt": "2026-09-29T08:28:30.961Z",
           "last": {
             "at": "2026-09-29T08:28:30.961Z",
             "chain": "tempo",
-            "category": "unconfirmed_server_error",
+            "category": "settled_error_status",
             "rawReason": "sent/http 500",
             "url": "https://kicksdb.mpp.tempo.xyz/v3/stockx/products",
-            "tx": null
+            "tx": "0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8"
           },
           "exampleDeliveredTx": {
             "chain": "tempo",
             "tx": "0x265b677e68208334a2640c2d2426b3c8de05424601cce8c239a3407a7ab0cfe8",
             "url": "https://kicksdb.mpp.tempo.xyz/v3/stockx/products"
           },
-          "exampleFailedTx": null,
+          "exampleFailedTx": {
+            "chain": "tempo",
+            "tx": "0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8",
+            "url": "https://kicksdb.mpp.tempo.xyz/v3/stockx/products",
+            "category": "settled_error_status"
+          },
           "lastFailure": {
             "at": "2026-09-29T08:28:30.961Z",
             "chain": "tempo",
             "url": "https://kicksdb.mpp.tempo.xyz/v3/stockx/products",
-            "category": "unconfirmed_server_error",
+            "category": "settled_error_status",
             "fault": "seller",
-            "rule": "server_error_5xx",
+            "rule": "paid_not_delivered",
             "httpStatus": 500,
             "rawReason": "sent/http 500",
-            "detail": null,
-            "tx": null
+            "detail": "settled on chain (found by the post-run chain check)",
+            "tx": "0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8"
           },
           "sellerFailures": [
             {
               "at": "2026-09-29T08:28:30.961Z",
               "chain": "tempo",
               "url": "https://kicksdb.mpp.tempo.xyz/v3/stockx/products",
-              "category": "unconfirmed_server_error",
+              "category": "settled_error_status",
               "fault": "seller",
-              "rule": "server_error_5xx",
+              "rule": "paid_not_delivered",
               "httpStatus": 500,
               "rawReason": "sent/http 500",
-              "detail": null,
-              "tx": null
+              "detail": "settled on chain (found by the post-run chain check)",
+              "tx": "0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8"
             }
           ],
           "recent": [
@@ -10823,10 +10828,10 @@
               "url": "https://kicksdb.mpp.tempo.xyz/v3/stockx/products",
               "delivered": false,
               "fault": "seller",
-              "rule": "server_error_5xx",
+              "rule": "paid_not_delivered",
               "httpStatus": 500,
               "declaredMatch": null,
-              "tx": null
+              "tx": "0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8"
             },
             {
               "at": "2026-09-28T08:05:00.715Z",
@@ -10840,7 +10845,7 @@
               "tx": "0x265b677e68208334a2640c2d2426b3c8de05424601cce8c239a3407a7ab0cfe8"
             }
           ],
-          "paidButNotDelivered": 0,
+          "paidButNotDelivered": 1,
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
