@@ -10,8 +10,8 @@
  *   npm run rank -- --data data --offline   # only the published copies in data/ (data/manifest.json), no network
  *
  * --out <dir> writes rank-<date>.json and rank-<date>/ there instead of results/.
- * --generated-at <ISO time> sets generatedAt (default now), so a published report can be rebuilt exactly:
- * the rebuy sentence turns to the past tense in reports generated after its last day.
+ * --generated-at <ISO time> sets generatedAt (default now), so a published report can be rebuilt byte for byte
+ * (test/site.test.ts rebuilds site/rank.json at its published generatedAt).
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";

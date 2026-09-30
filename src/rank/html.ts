@@ -11,7 +11,7 @@
 import { chainName } from "../receipt/html.js";
 import { FAULT_LABEL, ruleById } from "./classify.js";
 import type { Comparison, CompareRow } from "./compare.js";
-import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, rebuyEnded, rebuySeller, rebuyShort, type GroupId, type GroupReport, type RankReport } from "./report.js";
+import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY_PLAN, rebuyFacts, rebuySeller, type GroupId, type GroupReport, type RankReport } from "./report.js";
 import type { ChainFigures, Grade, RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
 
@@ -422,7 +422,7 @@ function renderMainIndex(r: RankReport, g: GroupReport, slugs: Map<string, strin
   const maxDays = Math.max(0, ...g.ranking.map((s) => s.days.length));
   const gradeState = ranked.length
     ? `${publicLegend()}\n${gradedTables(r, g, slugs, "h3")}`
-    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. ${escapeHtml(rebuyShort(rebuyEnded(r.generatedAt)))} One or two purchases are a start, not a verdict.</p>`;
+    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. ${escapeHtml(REBUY_PLAN)} ${escapeHtml(rebuyFacts(g.ranking, r.date))} One or two purchases are a start, not a verdict.</p>`;
   const byChain = g.chains
     .map((c) => ({ c, rows: g.ranking.filter((s) => (s.chains[c]?.tried ?? 0) > 0).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) }))
     .filter((x) => x.rows.length > 0);
@@ -518,7 +518,7 @@ function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): str
         : `Rank ${s.rank} of ${g.totals.sellersRanked} on this page.`
       : `Measuring: a rank number needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; this seller has ${s.counted} on ${s.days.length}.`;
   // Only a seller with purchases in data/remeasure/: several sellers can share one payTo, and only one of them is bought again.
-  const rebuys = g.id === "main" ? rebuySeller(s.rebuyChains ?? [], rebuyEnded(r.generatedAt)) : null;
+  const rebuys = g.id === "main" ? rebuySeller(s) : null;
   const sellerFailN = s.counted - s.delivered;
   const failures = s.sellerFailures.length
     ? `<ol class="plain">${s.sellerFailures
@@ -664,6 +664,7 @@ ${tabs(null)}
 
 <h2>5. How vet402 buys</h2>
 <p>${escapeHtml(m.measurement)}</p>
+<p class="meta">${escapeHtml(rebuyFacts(r.groups.find((x) => x.id === "main")?.ranking ?? [], r.date))}</p>
 <p class="meta">${escapeHtml(m.sellerIdentity)} ${escapeHtml(m.payTo)}</p>
 
 <h2 id="instrument">6. vet402's own record in this report</h2>

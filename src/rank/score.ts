@@ -175,8 +175,11 @@ export interface SellerStats {
   /** Tried rows that settled on-chain (tx) and still did not deliver. */
   paidButNotDelivered: number;
   payTos: string[];
-  /** Chains on which this seller has rows in the remeasure inputs (data/remeasure/): it is bought again there. */
-  rebuyChains: Chain[];
+  /**
+   * Bought again: the paid (tried) rows of the remeasure inputs (data/remeasure/) for this seller, by UTC day
+   * and chain. Refused rows do not count; a payTo shared by several sellers counts only for the seller its rows name.
+   */
+  rebuy: { days: string[]; purchases: Partial<Record<Chain, number>> };
   payToChanged: boolean;
   payToChanges: PayToChange[];
   firstAt: string;
@@ -334,7 +337,7 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
       }),
       paidButNotDelivered: tried.filter((r) => !r.delivered && r.settled === true && r.tx !== null).length,
       payTos,
-      rebuyChains: [...new Set(rows.filter((r) => r.source.startsWith("remeasure/")).map((r) => r.chain))].sort(),
+      rebuy: rebuyOf(rows),
       payToChanged: changes.length > 0,
       payToChanges: changes,
       firstAt: first.at,
@@ -342,6 +345,13 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
     });
   }
   return out;
+}
+
+function rebuyOf(rows: readonly Attempt[]): SellerStats["rebuy"] {
+  const paid = rows.filter((r) => r.source.startsWith("remeasure/") && r.tried);
+  const purchases: Partial<Record<Chain, number>> = {};
+  for (const r of paid) purchases[r.chain] = (purchases[r.chain] ?? 0) + 1;
+  return { days: [...new Set(paid.map((r) => r.at.slice(0, 10)))].sort(), purchases };
 }
 
 /**
