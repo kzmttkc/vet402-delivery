@@ -81,18 +81,18 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <header>
 <h1>vet402 delivery records</h1>
 <p class="lead">One signed record per purchase vet402 made with its own money: what it paid, on which chain, and what came back.</p>
-<p class="dim">321 records published (321 DELIVERED) for 142 sellers, from 2026-09-28. A later day's purchases appear here only after that day's records are built.</p>
+<p class="dim">324 records published (321 DELIVERED, 3 NOT_DELIVERED) for 143 sellers, from 2026-09-28. A later day's purchases appear here only after that day's records are built.</p>
 </header>
 
 <h2>What is published</h2>
-<p>DELIVERED records are published. NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure, so they are published only after vet402 has told that seller, for the sellers listed in data/records/notified.json (host, or host#service for one service behind a shared host). Sellers told so far: 0.</p>
+<p>DELIVERED records are published. NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure, so they are published only after vet402 has told that seller, for the sellers listed in data/records/notified.json (host, or host#service for one service behind a shared host). Sellers told so far: 1.</p>
 <p class="meta">The ranking pages already list each seller's failed purchases with their payments. What waits until the seller has been told is the signed record of a failure, not the fact that it failed.</p>
 <p class="meta">A record proves that vet402 paid and what HTTP status came back at that time. It does not prove that the content was correct, or that the seller works now.</p>
 
 <h2>Daily roots</h2>
 <p class="meta">Every record of a day, published or not, is a leaf of that day's Merkle root, so a record cannot be added or dropped later without changing the root. Each record carries its proof.</p>
-<ul class="plain"><li><b>2026-09-28</b> · 165 records in the root, 131 published here · root <span class="mono">0xc537…56a6</span> · root written on Solana in <a href="https://solscan.io/tx/JqhzBqMSuL9ZrZz511fCgqcvU7Sjzhs7ccdbpqtdgUUUV7G1iBAuc4my5hReEkbyr6qk9vB3uMqB13cbpVzNeb2" rel="noopener noreferrer nofollow">JqhzBq…Neb2</a></li>
-<li><b>2026-09-29</b> · 216 records in the root, 190 published here · root <span class="mono">0xbdee…3e22</span> · root written on Solana in <a href="https://solscan.io/tx/67ZnFvRzuCz2kDu8GLHyeQhsS3zJUybrCvoaCnfrBeN1MBjhXRJaZXX3DWpVpvCej7rqu2TjJ3erg8YJaEsdztb2" rel="noopener noreferrer nofollow">67ZnFv…ztb2</a></li></ul>
+<ul class="plain"><li><b>2026-09-28</b> · 165 records in the root, 132 published here · root <span class="mono">0xc537…56a6</span> · root written on Solana in <a href="https://solscan.io/tx/JqhzBqMSuL9ZrZz511fCgqcvU7Sjzhs7ccdbpqtdgUUUV7G1iBAuc4my5hReEkbyr6qk9vB3uMqB13cbpVzNeb2" rel="noopener noreferrer nofollow">JqhzBq…Neb2</a></li>
+<li><b>2026-09-29</b> · 216 records in the root, 192 published here · root <span class="mono">0xbdee…3e22</span> · root written on Solana in <a href="https://solscan.io/tx/67ZnFvRzuCz2kDu8GLHyeQhsS3zJUybrCvoaCnfrBeN1MBjhXRJaZXX3DWpVpvCej7rqu2TjJ3erg8YJaEsdztb2" rel="noopener noreferrer nofollow">67ZnFv…ztb2</a></li></ul>
 
 <h2>Check a record</h2>
 <p class="meta">No account and no payment needed. The script checks the signature against vet402's published key, the verdict, the Merkle proof, and the payment on chain.</p>
@@ -331,6 +331,14 @@ npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/reco
 <li><a href="obs_2026-09-28_000145.html">DELIVERED · 28 Sep 2026 08:09 UTC · Solana · 0.02 USDC</a> · <a href="obs_2026-09-28_000145.json">JSON</a></li>
 <li><a href="obs_2026-09-29_000174.html">DELIVERED · 29 Sep 2026 08:15 UTC · Solana · 0.02 USDC</a> · <a href="obs_2026-09-29_000174.json">JSON</a></li>
 <li><a href="obs_2026-09-29_000300.html">DELIVERED · 29 Sep 2026 10:07 UTC · Solana · 0.02 USDC</a> · <a href="obs_2026-09-29_000300.json">JSON</a></li>
+</ul>
+</section>
+<section id="s-api.xona-agent.com">
+<h3><a href="../seller/api.xona-agent.com.html">api.xona-agent.com</a></h3>
+<ul class="plain">
+<li><a href="obs_2026-09-28_000164.html">NOT_DELIVERED · 28 Sep 2026 08:28 UTC · Solana · 0.1 USDC</a> · <a href="obs_2026-09-28_000164.json">JSON</a></li>
+<li><a href="obs_2026-09-29_000210.html">NOT_DELIVERED · 29 Sep 2026 08:18 UTC · Solana · 0.1 USDC</a> · <a href="obs_2026-09-29_000210.json">JSON</a></li>
+<li><a href="obs_2026-09-29_000336.html">NOT_DELIVERED · 29 Sep 2026 10:10 UTC · Solana · 0.1 USDC</a> · <a href="obs_2026-09-29_000336.json">JSON</a></li>
 </ul>
 </section>
 <section id="s-apollo.mpp.paywithlocus.com">
