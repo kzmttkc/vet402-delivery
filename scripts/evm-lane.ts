@@ -125,7 +125,7 @@ function verifier(c: EvmChainSpec) {
   return async (tx: Hex, payTo: string, amount: string) => {
     for (let i = 0; i < 20; i++) {
       try {
-        const r = await readUsdcTransfer(client(c), tx, { to: payTo as Address, amountUnits: amount, asset: c.asset });
+        const r = await readUsdcTransfer(client(c), tx, { to: payTo as Address, amountUnits: amount, asset: c.asset, from: payer });
         return { ok: r.ok, from: r.from, reason: r.reason, blockNumber: r.blockNumber?.toString() };
       } catch {
         await new Promise((res) => setTimeout(res, 3000));

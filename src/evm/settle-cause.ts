@@ -10,8 +10,9 @@
  *   unknown       nothing in the response says which
  *
  * seller_config is assigned only on definite evidence: the payment settled on chain and no answer came
- * back, the chain shows the transfer went to another address or amount, or the facilitator named the
- * recipient or asset in its errorReason. A payment that did not settle is never counted against the seller.
+ * back; the settlement tx the seller named has no transfer from vet402 to the payTo, or a different amount
+ * (read from vet402's own Transfer only); or the facilitator reported a recipient mismatch. A reverted tx,
+ * an unsupported token or network, and a pending settlement are never the seller's fault here. A payment that did not settle is never counted against the seller.
  *
  * Inputs are what vet402 saw: the seller's PAYMENT-RESPONSE (errorReason), the HTTP status and body, the
  * settlement read back on chain, and what the facilitators' own /supported pages say about the chain.
@@ -71,9 +72,13 @@ export function predictFacilitator(raw402: string, network: string, amountAtomic
   return { facilitator: f.name, problem: null };
 }
 
-const VET402_REASONS = [/insufficient_funds/, /invalid_exact_evm_payload_signature/, /authorization_valid_(before|after)/, /authorization_value/, /nonce/];
-const FACILITATOR_REASONS = [/invalid_network/, /unsupported_network/, /unsupported_scheme/, /invalid_scheme/, /unexpected_(settle|verify)_error/, /facilitator/];
-const SELLER_REASONS = [/recipient_mismatch/, /payto/, /invalid_payment_requirements/, /asset/];
+const VET402_REASONS = [/insufficient_(funds|balance)/, /invalid_exact_evm_(payload_)?signature/, /authorization_valid_(before|after)/, /authorization_value/, /nonce/];
+/** The facilitator cannot settle this network, scheme, token or transfer method. */
+const FACILITATOR_REASONS = [/invalid_network/, /unsupported_network/, /unsupported_scheme/, /invalid_scheme/, /unexpected_(settle|verify)_error/, /facilitator/, /asset/, /eip3009_not_supported/, /unsupported_payload_type/, /unsupported_asset_transfer_method/];
+/** Named by the facilitator as a difference between the seller's payment requirements and its 402. */
+const SELLER_REASONS = [/recipient_mismatch/, /payto_mismatch/];
+/** Pending or failed on chain: nothing yet says whose side. */
+const PENDING_REASONS = [/pending/, /transaction_failed/, /timeout/];
 
 const FACILITATOR_TEXT = /(unsupported|not supported|no facilitator|unknown) (network|chain)|(network|chain)[^.]{0,40}not supported|facilitator (error|unavailable|rejected)/i;
 const VET402_TEXT = /insufficient (funds|balance)|invalid signature/i;
@@ -83,12 +88,14 @@ const FIX = {
   permit2: "Advertise extra.assetTransferMethod \"permit2\" in the 402 when the facilitator requires Permit2 on this chain, or use a facilitator that accepts EIP-3009 (transferWithAuthorization) for this token.",
   minimum: "Raise the price to the facilitator's minimum for this chain, or use a facilitator without one.",
   settledNoAnswer: "The payment settled; return the answer after settlement (or refund) instead of an error or an empty body.",
-  settledElsewhere: "The settlement did not pay the payTo in the 402; make the 402 payTo the address the facilitator settles to.",
+  recipientMismatch: "The facilitator reported that the recipient in the seller's payment requirements is not the payTo in its 402; make the two the same address.",
+  receiptWithoutPayment: "The settlement tx named in PAYMENT-RESPONSE has no transfer from vet402 to the payTo in the 402; return the tx that moved this payment.",
+  amountMismatch: "The settlement tx moved a different amount from vet402 to the payTo than the 402 asked for.",
   vet402: null,
 };
 
 /** readUsdcTransfer reasons that are a finding about the tx itself; any other failure means vet402 could not read it. */
-export const DEFINITE_SETTLEMENT_REASONS = ["amount_mismatch", "no_usdc_transfer_to_seller", "tx_status_reverted"] as const;
+export const DEFINITE_SETTLEMENT_REASONS = ["amount_mismatch", "no_usdc_transfer_to_seller"] as const;
 
 function settlementReason(check: string | undefined): string | null {
   if (!check?.startsWith("not verified: ")) return null;
@@ -106,7 +113,10 @@ export function classifyRecord(r: ChainBuyRecord, predicted?: { facilitator: str
   // 2. A settlement tx was named but vet402 could not confirm it.
   const why = settlementReason(r.settlementCheck);
   if (r.settlementTx && why !== null) {
-    if ((DEFINITE_SETTLEMENT_REASONS as readonly string[]).includes(why)) return { cause: "seller_config", rule: `settlement:${why}`, evidence: "chain", fix: FIX.settledElsewhere };
+    if (why === "amount_mismatch") return { cause: "seller_config", rule: `settlement:${why}`, evidence: "chain", fix: FIX.amountMismatch };
+    if (why === "no_usdc_transfer_to_seller") return { cause: "seller_config", rule: `settlement:${why}`, evidence: "chain", fix: FIX.receiptWithoutPayment };
+    // Reverted on chain: the payment did not move (a balance race or an expired authorization are possible). Not the seller's fault.
+    if (why === "tx_status_reverted") return { cause: "not_settled", rule: "settlement:tx_status_reverted", evidence: "chain", fix: null };
     return { cause: "unconfirmed", rule: `settlement_unreadable:${why.slice(0, 60)}`, evidence: "none", fix: null };
   }
   if (r.settlementTx && r.settlementCheck?.startsWith("transfer ")) return { cause: "unknown", rule: "transfer_from_another_payer", evidence: "chain", fix: null };
@@ -115,7 +125,8 @@ export function classifyRecord(r: ChainBuyRecord, predicted?: { facilitator: str
   if (reason) {
     if (VET402_REASONS.some((x) => x.test(reason))) return { cause: "vet402", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.vet402 };
     if (FACILITATOR_REASONS.some((x) => x.test(reason))) return { cause: "facilitator", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.facilitator };
-    if (SELLER_REASONS.some((x) => x.test(reason))) return { cause: "seller_config", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.settledElsewhere };
+    if (SELLER_REASONS.some((x) => x.test(reason))) return { cause: "seller_config", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.recipientMismatch };
+    if (PENDING_REASONS.some((x) => x.test(reason))) return { cause: "unconfirmed", rule: `errorReason:${reason}`, evidence: "response", fix: null };
   }
   if (status === null) return { cause: "unconfirmed", rule: "no_response", evidence: "none", fix: null };
   if (VET402_TEXT.test(body)) return { cause: "vet402", rule: "body:vet402", evidence: "response", fix: FIX.vet402 };

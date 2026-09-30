@@ -22,10 +22,11 @@ const STOCK_SELLER_RESOURCE = STOCK_SELLER.resource;
 /**
  * delivered       settled on chain (read back by vet402) and an answer came back
  * settled_no_answer settled on chain, no answer: the only status that is the seller's doing
- * not_settled     vet402 sent a payment and no settlement was read back (facilitator, vet402, unconfirmed or unknown)
+ * not_settled     vet402 sent a payment and no settlement came back (no tx named, or the tx reverted)
+ * unconfirmed     a settlement tx was named (or the request timed out) but vet402 could not read it back
  * withheld        a negative result for a seller not yet in data/records/notified.json: not published
  */
-export type RowStatus = "not_offered_now" | "not_bought_yet" | "refused" | "delivered" | "settled_no_answer" | "not_settled" | "withheld";
+export type RowStatus = "not_offered_now" | "not_bought_yet" | "refused" | "delivered" | "settled_no_answer" | "not_settled" | "unconfirmed" | "withheld";
 
 export interface LaneRow {
   payTo: string;
@@ -42,6 +43,9 @@ export interface LaneRow {
   facilitatorLead: string | null;
   /** Why no listing of this payTo was bought (only when none was chosen). */
   skipped: string | null;
+  /** When vet402 bought more than once from this payTo (the stock-price check): how many, and how many settled. */
+  purchases?: number;
+  settled?: number;
 }
 
 export interface StockRow {
@@ -96,14 +100,15 @@ function statusOf(r: Rec | undefined): RowStatus {
   if (!r || r.outcome === "would_pay" || r.outcome === "not_sent") return "not_bought_yet";
   if (r.outcome === "refused") return "refused";
   if (r.delivered) return "delivered";
-  return r.settledOnChain === true ? "settled_no_answer" : "not_settled";
+  if (r.settledOnChain === true) return "settled_no_answer";
+  return r.cause?.cause === "unconfirmed" ? "unconfirmed" : "not_settled";
 }
 
 /** Skip reasons that say nothing against the seller (it just no longer lists the chain, or is over vet402's cap). */
 const NEUTRAL_SKIPS = [/^the live 402 no longer offers /, /^every listing costs more than the per-purchase cap$/, /^the live 402 asks more than the per-purchase cap$/];
 
 /** Stock verdicts that are a finding against the seller's answer. */
-const NEGATIVE_STOCK = new Set(["close", "differs", "wrong_ticker", "no_price"]);
+const NEGATIVE_STOCK = new Set(["close", "differs", "wrong_ticker"]); // "unreadable" is vet402's limit, "market_closed" and reference_* are no verdict
 
 function hostOf(u: string | null): string | null {
   try {
@@ -115,7 +120,7 @@ function hostOf(u: string | null): string | null {
 
 /** Is this row negative for the seller? (Anything but delivered, not bought, or a neutral skip.) */
 export function rowIsNegative(r: LaneRow): boolean {
-  if (r.status === "settled_no_answer" || r.status === "not_settled" || r.status === "refused") return true;
+  if (r.status === "settled_no_answer" || r.status === "not_settled" || r.status === "unconfirmed" || r.status === "refused") return true;
   if (r.cause && r.cause.cause !== "delivered" && r.cause.cause !== "not_paid") return true;
   if (r.facilitatorLead) return true;
   if (r.skipped && !NEUTRAL_SKIPS.some((x) => x.test(r.skipped!))) return true;
@@ -137,14 +142,14 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
   const rows = l.rows.map((r): LaneRow =>
     !rowIsNegative(r) || told(rowSeller(r))
       ? r
-      : r.status === "not_bought_yet" || r.status === "not_offered_now"
-        ? { ...r, facilitatorLead: null, skipped: null } // not bought: only the lead or skip text goes
+      : r.status === "not_bought_yet" || r.status === "not_offered_now" || r.status === "delivered"
+        ? { ...r, facilitatorLead: null, skipped: null } // not bought, or delivered: only the lead or skip text goes
         : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null },
   );
   const compare = l.compare
     ? Object.fromEntries(
         Object.entries(l.compare).map(([res, c]) => {
-          const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
+          const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
           return [res, neg && !told(hostOf(res)) ? { status: "withheld" as const, cause: null, settlementTx: null, paidRequestMs: null, relayer: null } : c];
         }),
       )
@@ -158,22 +163,31 @@ export function unpublishableRows(l: LanePublic, notified: ReadonlySet<string>):
   const out: string[] = [];
   for (const r of l.rows) if (rowIsNegative(r) && !notified.has(rowSeller(r) ?? "")) out.push(`${l.lane}: ${r.payTo} (${r.status})`);
   for (const [res, c] of Object.entries(l.compare ?? {})) {
-    const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
+    const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
     if (neg && !notified.has(hostOf(res) ?? "")) out.push(`${l.lane}: Base side of ${res} (${c.status})`);
   }
   for (const s of l.stock ?? []) if (s.comparison && NEGATIVE_STOCK.has(s.comparison.verdict) && !notified.has(hostOf(s.resource ?? null) ?? "")) out.push(`${l.lane}: stock ${s.ticker} (${s.comparison.verdict})`);
   return out;
 }
 
-function rowFrom(c: DryRunChoice, r: Rec | undefined, chainLabel: string): LaneRow {
+/**
+ * One row per payTo. When vet402 bought, the row shows the listing it actually bought (resource, host, price),
+ * which can differ from the planned one (the stock-price check buys the equity endpoint of a payTo whose
+ * cheapest listing is another host), and how many of that payTo's purchases settled.
+ */
+function rowFrom(c: DryRunChoice, r: Rec | undefined, chainLabel: string, all: Rec[] = []): LaneRow {
   const paid = r?.outcome === "sent";
+  const resource = paid ? r!.resource : (c.chosen?.resource ?? null);
+  const boughtHost = paid ? hostOf(r!.resource) : null;
+  const sentAll = all.filter((x) => x.outcome === "sent");
   return {
     payTo: c.payTo,
-    hosts: c.hosts,
+    hosts: boughtHost ? [boughtHost, ...c.hosts.filter((h) => h !== boughtHost)] : c.hosts,
     catalogListings: c.catalogListings,
-    resource: c.chosen?.resource ?? null,
-    livePrice: c.chosen?.liveAmount ?? null,
-    status: c.chosen ? statusOf(r) : "not_offered_now",
+    resource,
+    livePrice: paid ? (r!.amountAtomic ?? null) : (c.chosen?.liveAmount ?? null),
+    ...(sentAll.length > 1 ? { purchases: sentAll.length, settled: sentAll.filter((x) => x.settledOnChain === true).length } : {}),
+    status: c.chosen || paid ? statusOf(r) : "not_offered_now",
     cause: paid ? r!.cause : null,
     settlementTx: paid ? (r!.settlementTx ?? null) : null,
     paidRequestMs: paid ? (r!.paidRequestMs ?? null) : null,
@@ -191,7 +205,8 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
   const last = (res: string | null, ln: string = lane): Rec | undefined => paid.filter((p) => p.lane === ln && p.resource === res && p.outcome === "sent").at(-1);
   // A payTo bought through another of its listings (the stock-price entries) still counts for its row.
   const byPayTo = (payTo: string): Rec | undefined => mine.filter((p) => p.outcome === "sent" && (p.payTo ?? "").toLowerCase() === payTo.toLowerCase()).at(-1);
-  const rows = sec.choices.map((c) => rowFrom(c, last(c.chosen?.resource ?? null) ?? byPayTo(c.payTo), EVM_CHAINS[lane].label));
+  const ofPayTo = (payTo: string): Rec[] => mine.filter((p) => (p.payTo ?? "").toLowerCase() === payTo.toLowerCase() || (p.outcome !== "sent" && p.agentId === `payto:${payTo}`));
+  const rows = sec.choices.map((c) => rowFrom(c, last(c.chosen?.resource ?? null) ?? byPayTo(c.payTo), EVM_CHAINS[lane].label, ofPayTo(c.payTo)));
   const out: LanePublic = {
     kind: "vet402-evm-lane",
     lane,
@@ -224,7 +239,7 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
       const cmp = p?.stock && "deviationPct" in (p.stock as object) ? (p.stock as StockComparison) : null;
       return {
         ticker: ref.ticker,
-        resource: STOCK_SELLER_RESOURCE,
+        resource: p?.resource ?? STOCK_SELLER_RESOURCE,
         reference: { feed: ref.feed, token: ref.token, tokenPrice: ref.tokenPrice, sharePrice: ref.sharePrice, multiplier: ref.multiplier, updatedAt: ref.updatedAt, readAt: ref.readAt, stale: ref.stale, oraclePaused: ref.oraclePaused },
         comparison: cmp,
       };
@@ -264,7 +279,8 @@ const STATUS_TEXT: Record<RowStatus, string> = {
   refused: "vet402 did not pay",
   delivered: "settled on chain, came back",
   settled_no_answer: "settled on chain, no answer",
-  not_settled: "sent, not settled",
+  not_settled: "sent; no settlement came back",
+  unconfirmed: "sent; vet402 could not read the settlement back",
   withheld: "bought; the result is shown after the seller is told",
 };
 
@@ -304,7 +320,12 @@ function sellerTable(l: LanePublic, withCompare: boolean): string {
     .map((r) => {
       const cmp = withCompare && r.resource ? l.compare?.[r.resource] : undefined;
       const compareCells = withCompare ? `<td>${escapeHtml(cmp ? STATUS_TEXT[cmp.status] : "–")}${cmp?.settlementTx ? `<span class="sub">${txLink("base", cmp.settlementTx)}</span>` : ""}</td>` : "";
-      return `<tr><td class="name">${escapeHtml(r.hosts.slice(0, 3).join(", "))}${r.hosts.length > 3 ? ` +${r.hosts.length - 3}` : ""}<span class="sub mono">${escapeHtml(short(r.payTo))} · ${r.catalogListings} listed</span></td><td class="num">${escapeHtml(money(r.livePrice, spec.assetSymbol))}</td><td>${escapeHtml(STATUS_TEXT[r.status])}${r.skipped ? `<span class="sub">${escapeHtml(r.skipped)}</span>` : ""}${r.settlementTx ? `<span class="sub">${txLink(l.lane, r.settlementTx)}${r.paidRequestMs !== null ? ` · ${(r.paidRequestMs / 1000).toFixed(1)} s` : ""}</span>` : ""}</td>${compareCells}<td>${causeCell(r.cause)}${!r.cause && r.facilitatorLead ? `<span class="sub">${escapeHtml(r.facilitatorLead)}</span>` : ""}</td></tr>`;
+      const bought = hostOf(r.resource);
+      const name = bought && r.status !== "not_bought_yet" && r.status !== "not_offered_now"
+        ? `${escapeHtml(bought)}${r.hosts.length > 1 ? `<span class="sub">bought here; the same payTo also serves ${r.hosts.length - 1} other ${r.hosts.length === 2 ? "host" : "hosts"}</span>` : ""}`
+        : `${escapeHtml(r.hosts.slice(0, 3).join(", "))}${r.hosts.length > 3 ? ` +${r.hosts.length - 3}` : ""}`;
+      const many = r.purchases ? `<span class="sub">${r.purchases} purchases, ${r.settled ?? 0} settled on chain</span>` : "";
+      return `<tr><td class="name">${name}<span class="sub mono">${escapeHtml(short(r.payTo))} · ${r.catalogListings} listed</span></td><td class="num">${escapeHtml(money(r.livePrice, spec.assetSymbol))}</td><td>${escapeHtml(STATUS_TEXT[r.status])}${many}${r.skipped ? `<span class="sub">${escapeHtml(r.skipped)}</span>` : ""}${r.settlementTx ? `<span class="sub">${txLink(l.lane, r.settlementTx)}${r.paidRequestMs !== null ? ` · ${(r.paidRequestMs / 1000).toFixed(1)} s` : ""}</span>` : ""}</td>${compareCells}<td>${causeCell(r.cause)}${!r.cause && r.facilitatorLead ? `<span class="sub">${escapeHtml(r.facilitatorLead)}</span>` : ""}</td></tr>`;
     })
     .join("\n");
   const head = withCompare ? `<th>seller</th><th class="num">price</th><th>Arbitrum One</th><th>Base, same listing</th><th>why not, and the fix</th>` : `<th>seller</th><th class="num">price</th><th>result</th><th>why not, and the fix</th>`;

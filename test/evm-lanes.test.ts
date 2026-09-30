@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
+import { readUsdcTransfer } from "../src/evm/erc8004.js";
+import { extractSellerPrice, tickerRoot } from "../src/robinhood/stock-check.js";
 import { getAddress, hexToString, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { Budget } from "../src/guard.js";
@@ -224,7 +227,7 @@ test("stock check: graded against the share price (feed / multiplier); stale, pa
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share * 1.05 }), ref(), open).verdict, "differs");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ data: { symbol: "orcl", current_price: "138.7" } }), ref()).verdict, "agrees");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "AAPL", price: share }), ref()).verdict, "wrong_ticker");
-  assert.equal(compareStockAnswer("ORCL", "not json", ref()).verdict, "no_price");
+  assert.equal(compareStockAnswer("ORCL", "not json", ref()).verdict, "unreadable");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ price: share }), ref({ stale: true })).verdict, "reference_stale");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ price: share }), ref({ oraclePaused: true })).verdict, "reference_paused");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ price: share }), ref({ tokenPrice: 0 })).verdict, "reference_invalid");
@@ -352,7 +355,7 @@ test("2: an RPC timeout while reading the settlement back is vet402's 'could not
   const timeout = classifyRecord(sent({ settlementTx: TX, settlementCheck: "not verified: receipt not found in 60 s", response: { status: 200, contentType: null, bytes: 2, first300: "{}" } }));
   assert.equal(timeout.cause, "unconfirmed");
   assert.equal(classifyRecord(sent({ settlementTx: TX, settlementCheck: "not verified: fetch failed", response: { status: 200, contentType: null, bytes: 2, first300: "{}" } })).cause, "unconfirmed");
-  for (const why of ["amount_mismatch", "no_usdc_transfer_to_seller", "tx_status_reverted"]) {
+  for (const why of ["amount_mismatch", "no_usdc_transfer_to_seller"]) {
     assert.equal(classifyRecord(sent({ settlementTx: TX, settlementCheck: `not verified: ${why}`, response: { status: 200, contentType: null, bytes: 2, first300: "{}" } })).cause, "seller_config", why);
   }
 });
@@ -460,4 +463,106 @@ test("9: outside the NYSE core session an answer more than 0.5% off is 'market_c
   assert.equal(at("2026-10-05T23:00:00Z"), "market_closed");
   assert.equal(at(undefined), "market_closed");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ price: share }), ref(), "2026-10-04T15:00:00Z").verdict, "agrees", "a right answer is still right");
+});
+
+// ---------- publication evidence (review of 0389d6e) ----------
+
+const tAbi = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
+const tlog = (from: string, to: string, value: bigint) => ({
+  address: RH.asset,
+  topics: encodeEventTopics({ abi: tAbi, eventName: "Transfer", args: { from: from as Hex, to: to as Hex } }),
+  data: encodeAbiParameters([{ type: "uint256" }], [value]),
+});
+const receipt = (status: string, logs: unknown[]) => ({ getTransactionReceipt: async () => ({ status, logs, blockNumber: 1n }) }) as never;
+
+test("6: only vet402's own Transfer counts; a batched settlement with another buyer's transfer first is still vet402's payment", async () => {
+  const exp = { to: SELLER, amountUnits: "50000", asset: RH.asset, from: PAYER };
+  const a = await readUsdcTransfer(receipt("success", [tlog(OTHER, SELLER, 7n), tlog(PAYER, SELLER, 50000n)]), TX, exp);
+  assert.equal(a.ok, true);
+  assert.equal(getAddress(a.from!), PAYER);
+  const b = await readUsdcTransfer(receipt("success", [tlog(OTHER, SELLER, 50000n)]), TX, exp);
+  assert.equal(b.reason, "no_usdc_transfer_to_seller", "another buyer's same-amount transfer is not vet402's");
+  const c = await readUsdcTransfer(receipt("success", [tlog(OTHER, SELLER, 50000n), tlog(PAYER, SELLER, 49000n)]), TX, exp);
+  assert.equal(c.reason, "amount_mismatch");
+  const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(lane, /asset: c\.asset, from: payer \}/);
+});
+
+test("7: a reverted settlement, an unsupported token or network, and a pending one are never the seller's setup", () => {
+  const rev = classifyRecord(sent({ settlementTx: TX, settlementCheck: "not verified: tx_status_reverted", response: { status: 500, contentType: null, bytes: 0, first300: "" } }));
+  assert.equal(rev.cause, "not_settled");
+  const by = (r: string) => classifyRecord(sent({ settleResponse: { success: false, errorReason: r }, response: { status: 402, contentType: null, bytes: 0, first300: "" } })).cause;
+  for (const r of ["asset_not_deployed_contract", "erc20_approval_asset_mismatch", "unsupported_asset_transfer_method", "Asset not supported on this network", "invalid_exact_evm_eip3009_not_supported", "unsupported_payload_type"]) assert.equal(by(r), "facilitator", r);
+  for (const r of ["settlement_pending", "invalid_exact_evm_transaction_failed"]) assert.equal(by(r), "unconfirmed", r);
+  for (const r of ["invalid_exact_evm_insufficient_balance", "invalid_exact_evm_signature"]) assert.equal(by(r), "vet402", r);
+  assert.equal(by("invalid_exact_evm_recipient_mismatch"), "seller_config");
+});
+
+test("8: every seller-facing fix says what vet402 saw, not what it guessed", () => {
+  const texts = ["amount_mismatch", "no_usdc_transfer_to_seller"].map((w) => classifyRecord(sent({ settlementTx: TX, settlementCheck: `not verified: ${w}`, response: { status: 200, contentType: null, bytes: 2, first300: "{}" } })).fix ?? "");
+  assert.match(texts[0]!, /different amount from vet402 to the payTo/);
+  assert.match(texts[1]!, /no transfer from vet402 to the payTo/);
+  const rm = classifyRecord(sent({ settleResponse: { success: false, errorReason: "invalid_exact_evm_recipient_mismatch" }, response: { status: 402, contentType: null, bytes: 0, first300: "" } })).fix ?? "";
+  assert.match(rm, /^The facilitator reported/);
+  assert.ok(!/did not pay the payTo/.test(readFileSync(new URL("../src/evm/settle-cause.ts", import.meta.url), "utf8")));
+});
+
+test("9: an answer vet402 cannot read is 'unreadable', never a verdict against the seller; readable shapes are read", () => {
+  const r0 = { ...ref(), tokenPrice: 100.2, multiplier: 1.002, sharePrice: 100 };
+  const open = "2026-11-02T15:00:00Z";
+  const v = (b: string) => compareStockAnswer("ORCL", b, r0, open).verdict;
+  assert.equal(v('{"data":{"quote":{"price":100}}}'), "agrees", "nested three levels");
+  assert.equal(v('[{"symbol":"ORCL","price":100}]'), "agrees", "array");
+  assert.equal(v('{"price":"$100.00"}'), "agrees", "dollar string");
+  assert.equal(v('{"symbol":"ORCL.US","price":100}'), "agrees", "ticker with a suffix");
+  assert.equal(v('{"symbol":"NYSE:ORCL","price":100}'), "agrees", "ticker with an exchange");
+  assert.equal(v('{"symbol":"ORCL","close":100}'), "unreadable", "close is not read as the price");
+  assert.equal(v('{"a":{"b":{"c":{"d":{"price":100}}}}}'), "unreadable", "deeper than three levels");
+  assert.equal(v('{"symbol":"AAPL","price":100}'), "wrong_ticker");
+  assert.equal(tickerRoot("brk.b"), "BRK");
+  assert.deepEqual(extractSellerPrice('{"price":"1,234.50"}'), { ticker: null, price: 1234.5 });
+  const l = lanePublic("robinhood", "x");
+  const withVerdict = (verdict: string) => withholdUnnotified({ ...l, rows: [], stock: [{ ...l.stock![0]!, resource: "https://equity.lonestaroracle.xyz/equity", comparison: { ...compareStockAnswer("ORCL", "{}", r0, open), verdict: verdict as never } }] }, new Set()).stock![0]!;
+  assert.notEqual(withVerdict("unreadable").comparison, null, "unreadable is published: it is vet402's limit");
+  assert.equal(withVerdict("differs").comparison, null);
+});
+
+test("10: a payTo bought through another of its hosts shows, and is gated by, the host and resource actually bought", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, robinhood: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: SELLER, catalogListings: 12, hosts: ["equity.lonestaroracle.xyz", "options.lonestaroracle.xyz"], chosen: { resource: "https://options.lonestaroracle.xyz/flow", liveAmount: "10000" } }] } };
+  const rec = (t: string) => ({ ...sent({ agentId: `stock:${t}`, resource: "https://equity.lonestaroracle.xyz/equity", payTo: SELLER, amountAtomic: "50000", response: { status: 402, contentType: null, bytes: 2, first300: "{}" } }), lane: "robinhood", cause: classifyRecord(sent({ response: { status: 402, contentType: null, bytes: 2, first300: "{}" } })) });
+  const out = buildLanePublic("robinhood", dry, ["AAPL", "TSLA"].map(rec));
+  const row = out.rows[0]!;
+  assert.equal(row.resource, "https://equity.lonestaroracle.xyz/equity", "not options/flow");
+  assert.equal(row.livePrice, "50000", "the price actually paid");
+  assert.equal(row.hosts[0], "equity.lonestaroracle.xyz");
+  assert.equal(row.purchases, 2);
+  assert.equal(row.settled, 0);
+  assert.equal(withholdUnnotified(out, new Set(["options.lonestaroracle.xyz"])).rows[0]!.status, "withheld", "telling another host of the payTo does not publish it");
+  assert.equal(withholdUnnotified(out, new Set(["equity.lonestaroracle.xyz"])).rows[0]!.status, "not_settled");
+});
+
+test("16: a settlement vet402 could not read back is shown as such, not as 'no settlement'", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, robinhood: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: SELLER, catalogListings: 1, hosts: ["s.test"], chosen: { resource: "https://s.test/x", liveAmount: "1000" } }] } };
+  const r = sent({ resource: "https://s.test/x", payTo: SELLER, settlementTx: TX, settlementCheck: "not verified: receipt not found in 60 s", response: { status: 200, contentType: null, bytes: 2, first300: "{}" } });
+  const out = buildLanePublic("robinhood", dry, [{ ...r, lane: "robinhood", cause: classifyRecord(r) } as never]);
+  assert.equal(out.rows[0]!.status, "unconfirmed");
+  const html = renderRobinhoodPage(JSON.parse(readFileSync(new URL("../site/rank.json", import.meta.url), "utf8")), null as never, withholdUnnotified(out, new Set(["s.test"])));
+  assert.ok(html.includes("vet402 could not read the settlement back"));
+  assert.ok(!html.includes("no settlement came back"));
+});
+
+test("3b: a delivered row stays delivered for an untold seller; only a facilitator lead on it is dropped", () => {
+  const l = lanePublic("arbitrum", "x");
+  const d = { ...l, compare: {}, rows: [{ ...l.rows[0]!, resource: "https://z.test/x", hosts: ["z.test"], status: "delivered" as const, cause: { cause: "delivered" as const, rule: "d", evidence: "chain" as const, fix: null }, facilitatorLead: "Dexter lists Permit2" }] };
+  const w = withholdUnnotified(d, new Set()).rows[0]!;
+  assert.equal(w.status, "delivered");
+  assert.equal(w.facilitatorLead, null);
+  assert.deepEqual(unpublishableRows(withholdUnnotified(d, new Set()), new Set()), []);
+});
+
+test("publish decides causes and stock verdicts again with the current rules", () => {
+  const src = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
+  assert.match(src, /const cause = classifyRecord\(r,/);
+  assert.match(src, /compareStockAnswer\(ticker, r\.body, ref, r\.at\)/);
+  assert.ok(src.indexOf("classifyRecord(r,") < src.indexOf("buildLanePublic(lane, dry, paid)"));
 });

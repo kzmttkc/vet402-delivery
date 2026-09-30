@@ -225,11 +225,28 @@ export interface TransferProof {
 export async function readUsdcTransfer(
   client: Pick<PublicClient, "getTransactionReceipt">,
   txHash: Hex,
-  expect: { to: Address; amountUnits?: string; asset?: Address },
+  expect: { to: Address; amountUnits?: string; asset?: Address; from?: Address },
 ): Promise<TransferProof> {
   const asset = expect.asset ?? BASE_USDC;
   const r = await client.getTransactionReceipt({ hash: txHash });
   if (r.status !== "success") return { ok: false, reason: `tx_status_${r.status}` };
+  if (expect.from !== undefined) {
+    // Only this payer's own transfer counts: a batched settlement can carry other buyers' transfers to the same payTo.
+    const mine: { from: Address; to: Address; value: bigint }[] = [];
+    for (const log of r.logs) {
+      if (!isAddressEqual(log.address, asset)) continue;
+      try {
+        const ev = decodeEventLog({ abi: erc20TransferEvent, data: log.data, topics: log.topics });
+        if (isAddressEqual(ev.args.to, expect.to) && isAddressEqual(ev.args.from, expect.from)) mine.push(ev.args);
+      } catch {
+        /* not a Transfer */
+      }
+    }
+    const exact = expect.amountUnits === undefined ? mine[0] : mine.find((m) => m.value === BigInt(expect.amountUnits!));
+    if (exact) return { ok: true, from: exact.from, to: exact.to, value: exact.value, blockNumber: r.blockNumber };
+    if (mine[0]) return { ok: false, reason: "amount_mismatch", from: mine[0].from, to: mine[0].to, value: mine[0].value, blockNumber: r.blockNumber };
+    return { ok: false, reason: "no_usdc_transfer_to_seller" };
+  }
   for (const log of r.logs) {
     if (!isAddressEqual(log.address, asset)) continue;
     try {

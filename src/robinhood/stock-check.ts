@@ -122,7 +122,19 @@ export async function readStockReference(client: Reader, ref: StockRef, nowSec: 
   };
 }
 
-/** Pull the ticker and price out of a seller's JSON answer. Looks at the top level and one level down. */
+/** The root of a ticker: "AAPL.US", "NASDAQ:AAPL" and "aapl" all give "AAPL". */
+export function tickerRoot(t: string): string {
+  const u = t.trim().toUpperCase();
+  const afterColon = u.includes(":") ? u.slice(u.lastIndexOf(":") + 1) : u;
+  return afterColon.split(/[.\s/]/)[0] ?? afterColon;
+}
+
+/**
+ * Pull the ticker and price out of a seller's JSON answer: objects up to three levels down, the first
+ * element of an array, a number or a numeric string ("$1,234.50" too). Only keys that mean the current price
+ * are read; "close", "open" and the like are not, so an answer that has only those is unreadable, which is
+ * vet402's limit and never a verdict against the seller.
+ */
 export function extractSellerPrice(body: string): { ticker: string | null; price: number | null } {
   let j: unknown;
   try {
@@ -131,18 +143,25 @@ export function extractSellerPrice(body: string): { ticker: string | null; price
     return { ticker: null, price: null };
   }
   const objs: Record<string, unknown>[] = [];
-  if (j && typeof j === "object" && !Array.isArray(j)) {
-    objs.push(j as Record<string, unknown>);
-    for (const v of Object.values(j as Record<string, unknown>)) if (v && typeof v === "object" && !Array.isArray(v)) objs.push(v as Record<string, unknown>);
-  }
+  const walk = (v: unknown, depth: number) => {
+    if (depth > 3 || v === null || typeof v !== "object") return;
+    if (Array.isArray(v)) {
+      if (v.length) walk(v[0], depth + 1);
+      return;
+    }
+    objs.push(v as Record<string, unknown>);
+    for (const x of Object.values(v as Record<string, unknown>)) walk(x, depth + 1);
+  };
+  walk(j, 0);
   const num = (v: unknown): number | null => {
-    const n = typeof v === "number" ? v : typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN;
+    const t = typeof v === "string" ? v.trim().replace(/^\$/, "").replace(/,/g, "") : v;
+    const n = typeof t === "number" ? t : typeof t === "string" && /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
   };
   let price: number | null = null;
   let ticker: string | null = null;
   for (const o of objs) {
-    for (const k of ["price", "current_price", "currentPrice", "regularMarketPrice", "last", "last_price"]) {
+    for (const k of ["price", "current_price", "currentPrice", "regularMarketPrice", "last", "last_price", "lastPrice"]) {
       if (price === null && k in o) price = num(o[k]);
     }
     for (const k of ["ticker", "symbol"]) {
@@ -157,7 +176,7 @@ export type StockVerdict =
   | "close" // within 2 %
   | "differs" // further off
   | "wrong_ticker" // the answer is about another ticker
-  | "no_price" // no positive price in the answer
+  | "unreadable" // vet402 could not read a price from the answer: vet402's limit, not a verdict
   | "reference_invalid" // the feed answer is zero or negative
   | "reference_stale" // the feed is older than its heartbeat: nothing to compare against
   | "reference_paused" // the token's oracle is paused (a corporate action is being processed)
@@ -192,7 +211,7 @@ export function compareStockAnswer(ticker: string, body: string, ref: StockRefer
   const refPrice = ref.sharePrice ?? ref.tokenPrice;
   const base: StockComparison = {
     ticker,
-    verdict: "no_price",
+    verdict: "unreadable",
     sellerPrice: price,
     sellerTicker,
     comparedWith: ref.sharePrice !== null ? "share_price" : "token_price",
@@ -205,7 +224,7 @@ export function compareStockAnswer(ticker: string, body: string, ref: StockRefer
   if (!(ref.tokenPrice > 0)) return { ...base, verdict: "reference_invalid" };
   if (ref.oraclePaused === true) return { ...base, verdict: "reference_paused" };
   if (ref.stale) return { ...base, verdict: "reference_stale" };
-  if (sellerTicker !== null && sellerTicker !== ticker.toUpperCase()) return { ...base, verdict: "wrong_ticker" };
+  if (sellerTicker !== null && tickerRoot(sellerTicker) !== tickerRoot(ticker)) return { ...base, verdict: "wrong_ticker" };
   if (price === null) return base;
   const d = pct(price, refPrice);
   const other = ref.sharePrice !== null ? pct(price, ref.tokenPrice) : null;
