@@ -6,6 +6,7 @@ On Solana, Tempo and Base since 2026-09-28 (UTC). The current counts (purchases,
 
 - **See the results:** https://kzmttkc.github.io/vet402-delivery/ (Solana, Tempo and Base first; Algorand on its own page)
 - **Check one record yourself, no account and no payment:** from a clone of this repository, `npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json`
+- **Look a seller up before paying, in one line (CLI, MCP server, x402 fetch hook):** see [Try it in 60 seconds](#try-it-in-60-seconds) and `packages/check/`
 - **Use it in an agent, between "search" and "pay":** `skills/vet402-check/`
 
 Who it is for:
@@ -22,6 +23,24 @@ This README carries no counts: the daily publish commits only `data/` and `site/
 
 This repository is the multi-chain part of vet402. It buys the sellers it can on **Solana** (from the PayAI, CDP Bazaar and Pay.sh catalogs) and **Tempo** (from Tempo's Mercator directory), and on **Base** the sellers registered in ERC-8004 (8 purchases from 8 sellers on 2026-09-28, each bought once). Remeasure window: 2026-09-29 to 2026-10-08 (UTC days), every day, twice on Solana and once on Tempo, one purchase per payTo per slot per UTC day among the Solana and Tempo sellers whose earlier payment settled (which ones: the rows in `data/remeasure/`). It keeps every result with its payment, and grades sellers by what was actually delivered, not by how popular a listing is.
 
+## Try it in 60 seconds
+
+Node 22 or newer. Nothing to sign up for, no key, no payment: the check reads `rank.json`, the signed records and the records index, and nothing else.
+
+```sh
+npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending
+```
+
+It prints what vet402's record holds about that seller: purchases tried, settled and answered, the failures counted against the seller and the ones that are not, the grade (`measuring` while there are too few purchases), the newest purchase with its tx, and the signed records. For a seller vet402 never bought from, it prints "vet402 has no record of this seller". The first run installs from GitHub (about 30 seconds on an empty npm cache).
+
+Add `--verify` to re-check the newest signed record (signature, Merkle proof, payment on chain, root in vet402's Solana memo). As an MCP server (tools `check_before_paying` and `verify_record`):
+
+```sh
+claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp
+```
+
+The x402 fetch hook, the output fields and the options: `packages/check/README.md`.
+
 ## What is here
 
 | Part | What it does | Code |
@@ -29,6 +48,7 @@ This repository is the multi-chain part of vet402. It buys the sellers it can on
 | Solana census | Joins the PayAI, CDP Bazaar and Pay.sh catalogs and buys each seller once (one purchase per payTo), then records settled / delivered with the tx signature | `scripts/census.ts`, `src/census.ts` |
 | Tempo census | Buys the MPP services listed in Tempo's Mercator directory on Tempo mainnet (USDC.e) and records the result | `scripts/tempo-census.ts`, `src/tempo/` |
 | Base | Buys ERC-8004-registered sellers and writes the delivered result to the ERC-8004 ReputationRegistry with `proofOfPayment`, from the same address that paid | `scripts/base-buy.ts`, `scripts/base-feedback.ts`, `src/evm/` |
+| Check before paying | Read-only lookup of one seller in `rank.json` and the signed records, with optional verification of a record down to the Solana memo anchor: a CLI (`npx`), an MCP server and a hook for the fetch an x402 client pays through | `packages/check/` |
 | Check skill | A check to run between "search" and "pay" in an agent's x402 flow | `skills/vet402-check/` |
 | Delivery ranking | Grades sellers by independent purchases, per page: Solana, Tempo and Base together, Algorand on its own (method v3); failures caused by vet402 or the facilitator are not counted against the seller | `src/rank/` (method: `src/rank/README.md`) |
 | Public site | Static pages (Solana, Tempo and Base results first, an Algorand page, one page per seller, the method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |

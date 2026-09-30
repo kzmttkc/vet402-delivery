@@ -5,7 +5,7 @@
   "type": "module",
   "description": "vet402 on Solana: Colosseum gate 1 (PayAI-only sellers, settle-and-deliver check)",
   "scripts": {
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts packages/check/test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "gate1": "tsx scripts/gate1.ts",
     "census": "tsx scripts/census.ts",
@@ -21,8 +21,22 @@
     "records:publish": "tsx scripts/publish-records.ts",
     "receipts:anchor": "tsx scripts/anchor-receipts.ts",
     "first-buyer": "tsx scripts/first-buyer.ts",
-    "remeasure": "tsx scripts/remeasure.ts"
+    "remeasure": "tsx scripts/remeasure.ts",
+    "check-before-paying": "node packages/check/bin/vet402-check.mjs"
   },
+  "bin": {
+    "vet402-check": "packages/check/bin/vet402-check.mjs"
+  },
+  "exports": {
+    "./check": "./packages/check/src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "packages/check/bin",
+    "packages/check/src",
+    "packages/check/README.md",
+    "src"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -36,11 +50,11 @@
     "@x402/fetch": "2.27.0",
     "@x402/svm": "2.27.0",
     "mppx": "0.11.0",
+    "tsx": "4.23.15",
     "viem": "2.56.9"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
-    "tsx": "4.23.15",
     "typescript": "5.9.3"
   }
 }
