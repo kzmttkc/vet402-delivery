@@ -176,7 +176,7 @@ export interface SellerStats {
   paidButNotDelivered: number;
   payTos: string[];
   /**
-   * Bought again: the paid (tried) rows of the remeasure inputs (data/remeasure/) for this seller, by UTC day
+   * Bought again: the rows of the remeasure inputs whose outcome is "sent" (data/remeasure/) for this seller, by UTC day
    * and chain. Refused rows do not count; a payTo shared by several sellers counts only for the seller its rows name.
    */
   rebuy: { days: string[]; purchases: Partial<Record<Chain, number>> };
@@ -348,7 +348,9 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
 }
 
 function rebuyOf(rows: readonly Attempt[]): SellerStats["rebuy"] {
-  const paid = rows.filter((r) => r.source.startsWith("remeasure/") && r.tried);
+  // Outcome "sent" only (normalizeRemeasure writes its rawReason as "sent/http <status>"): the payment was sent.
+  // "unknown" and "unknown_after_sign" are tried too, but whether money left is not on record, so they do not count.
+  const paid = rows.filter((r) => r.source.startsWith("remeasure/") && r.tried && r.rawReason.startsWith("sent/"));
   const purchases: Partial<Record<Chain, number>> = {};
   for (const r of paid) purchases[r.chain] = (purchases[r.chain] ?? 0) + 1;
   return { days: [...new Set(paid.map((r) => r.at.slice(0, 10)))].sort(), purchases };

@@ -577,6 +577,7 @@ const rm = (chain: "solana" | "tempo", host: string, payTo: string, at: string, 
     url: `https://${host}/x`,
     payTo,
     at,
+    rawReason: "sent/http 200",
     ...(refused ? { tried: false, settled: null, delivered: false, category: "not_payable" as const, rawReason: "no_solana_accept", tx: null } : {}),
   });
 
@@ -600,6 +601,9 @@ test("rebuy on seller pages: what the paid rows in data/remeasure/ say, per sell
     att({ chain: "solana", source: "solana/census", host: "refused.example", url: "https://refused.example/x", payTo: "REF", at: DAY1 }),
     rm("solana", "refused.example", "REF", R29, true),
     rm("solana", "refused.example", "REF", R30, true),
+    // An outcome not on record (unknown after send): tried, but not counted as bought again.
+    att({ chain: "tempo", source: "tempo/ledger", host: "unk.example", url: "https://unk.example/x", payTo: "0xUNK", at: DAY1 }),
+    { ...rm("tempo", "unk.example", "0xUNK", R30), settled: null, delivered: false, category: "unconfirmed_server_error" as const, rawReason: "unknown", tx: null },
   ];
   const report = rebuyReport("2026-10-01", attempts);
   const main = report.groups.find((g) => g.id === "main")!;
@@ -610,13 +614,15 @@ test("rebuy on seller pages: what the paid rows in data/remeasure/ say, per sell
   assert.deepEqual(by("m.example").rebuy.days, ["2026-09-30"]);
   assert.deepEqual(by("gap.example").rebuy, { days: ["2026-09-29", "2026-10-01"], purchases: { solana: 3 } });
   assert.deepEqual(by("refused.example").rebuy, { days: [], purchases: {} });
+  assert.equal(by("unk.example").tried, 2, "the unknown row is a try");
+  assert.deepEqual(by("unk.example").rebuy, { days: [], purchases: {} }, "but not bought again");
   const pages = renderSite(report);
   const page = (k: string) => pages.get(`seller/${k}.html`)!;
   assert.ok(page("a.shared.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1), at the same price and to the same payTo."));
   assert.ok(page("k.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1)"));
   assert.ok(page("m.example").includes("vet402 bought this seller again on 1 UTC day since 2026-09-29 (Tempo 1)"));
   assert.ok(page("gap.example").includes("vet402 bought this seller again on 2 UTC days since 2026-09-29 (Solana 3), at the same price and to the same payTo."));
-  for (const k of ["b.shared.example", "refused.example"]) {
+  for (const k of ["b.shared.example", "refused.example", "unk.example"]) {
     assert.ok(!/(buys|bought) (this seller )?again/.test(page(k)), `${k}: no rebuy sentence`);
     assert.ok(page(k).includes("It costs the seller nothing"), `${k}: the rest of the line stays`);
   }
@@ -639,4 +645,17 @@ test("README.md: no fixed counts from a report (the daily publish commits only d
   const notified = JSON.parse(readFileSync(new URL("../data/records/notified.json", import.meta.url), "utf8")) as { sellers: { seller: string }[] };
   for (const { seller } of notified.sellers) assert.ok(readme.includes(`\`${seller}\``), `README.md names told seller ${seller}`);
   assert.ok(!/empty for now/i.test(readme));
+});
+
+test("rebuy counts in site/rank.json equal the rows with outcome sent in data/remeasure/ (unknown and refused left out)", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../data/manifest.json", import.meta.url), "utf8")) as { files: { label: string; path: string }[] };
+  const want: Record<string, number> = {};
+  for (const f of manifest.files.filter((x) => /^remeasure\/(solana|tempo)-\d{4}-\d{2}-\d{2}$/.test(x.label))) {
+    const rows = (JSON.parse(readFileSync(new URL(`../data/${f.path}`, import.meta.url), "utf8")) as { rows: { chain: string; outcome: string }[] }).rows;
+    for (const r of rows) if (r.outcome === "sent") want[r.chain] = (want[r.chain] ?? 0) + 1;
+  }
+  const pub = JSON.parse(readFileSync(new URL("../site/rank.json", import.meta.url), "utf8")) as { groups: { id: string; ranking: { rebuy: { purchases: Record<string, number> } }[] }[] };
+  const got: Record<string, number> = {};
+  for (const s of pub.groups.find((g) => g.id === "main")!.ranking) for (const [c, n] of Object.entries(s.rebuy.purchases)) got[c] = (got[c] ?? 0) + n;
+  assert.deepEqual(got, want);
 });
