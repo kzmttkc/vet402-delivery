@@ -8,6 +8,7 @@ import { tempo as tempoChain } from "viem/chains";
 import { Challenge, Credential } from "mppx";
 import { tempo } from "mppx/client";
 import { PAYER_ADDRESS, TEMPO_MAINNET_CHAIN_ID, TEMPO_RPC_URL, USDC_E, normAddr } from "./constants.js";
+import { accessSigner, parseAccessKeyFile } from "./access-key.js";
 
 /** First block of the census (2026-09-28). Every USDC.e outflow of the payer after it is counted. */
 export const CENSUS_START_BLOCK = 41_600_000n;
@@ -121,7 +122,11 @@ export interface Signer {
   credentialFor(res: Response, challengeId: string, recipient: string): Promise<{ credential: string; serializedTx: string }>;
 }
 
-/** Load the payer key from a JSON file `{ "privateKey": "0x..." }`. The key is never printed. */
+/**
+ * Load the payer key from a JSON file: the root key `{ "privateKey": "0x..." }`, or the payer's
+ * AccountKeychain access key `{ "kind": "vet402-tempo-access-key", ... }` (src/tempo/access-key.ts), whose
+ * spending limit and expiry the chain enforces. The key is never printed.
+ */
 export function loadSigner(keyFile: string, rpc = TEMPO_RPC_URL): Signer {
   let raw: { privateKey?: string };
   try {
@@ -130,6 +135,8 @@ export function loadSigner(keyFile: string, rpc = TEMPO_RPC_URL): Signer {
     // Fixed message: a JSON.parse error can quote the file's contents, i.e. the key.
     throw new Error(`${keyFile}: unreadable key file (expected JSON {"privateKey":"0x..."})`);
   }
+  const access = parseAccessKeyFile(raw);
+  if (access) return accessSigner(access, http(rpc, { timeout: 15_000, retryCount: 1 }));
   if (!raw.privateKey || !/^0x[0-9a-fA-F]{64}$/.test(raw.privateKey)) throw new Error(`${keyFile}: no privateKey`);
   const account = privateKeyToAccount(raw.privateKey as Hex);
   if (normAddr(account.address) !== normAddr(PAYER_ADDRESS)) throw new Error("key does not belong to the census payer");

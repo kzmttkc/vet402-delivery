@@ -9,8 +9,9 @@
  * Checks: shape (JSON Schema), vet402's EIP-712 signature, that the verdict follows from the recorded
  * checks, Merkle inclusion in the day's root, and (unless --offline) the payment on chain and, once the
  * root is written, the anchor memo (sent by vet402's anchor wallet; a memo from any other wallet is not an
- * anchor). Exit 0 only when every check that could run passed. "RESULT: OK (not yet anchored)" says the
- * day's root is not on chain yet, and the next line says what that leaves unproven.
+ * anchor), and, when the record names one, the same root in vet402's Tempo memo (anchor-tempo). Exit 0 only
+ * when every check that could run passed. "RESULT: OK (not yet anchored)" says the day's root is not on chain
+ * yet, and the next line says what that leaves unproven.
  * RPCs: SOLANA_RPC_URL, BASE_RPC_URL, TEMPO_RPC_URL (public defaults).
  */
 import { readFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import { checkAnchorOnChain, checkPayment, DEFAULT_RPC, findDayAnchors, memoMatc
 import type { Observation } from "../src/receipt/types.js";
 import { VET402_OBSERVER_KEYS } from "../src/receipt/observers.js";
 import { verifyOffline } from "../src/receipt/verify.js";
+import { checkTempoAnchor, TEMPO_ANCHOR_NETWORK, tempoEntry } from "../src/receipt/tempo-anchor.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -123,9 +125,19 @@ if (!process.argv.includes("--offline")) {
   } catch (e) {
     lines.push([false, "anchor", `could not read chain: ${e instanceof Error ? e.message : String(e)}`]);
   }
+  // The same root also written on Tempo (a TIP-20 memo), when the record names it.
+  if (tempoEntry(obs)) {
+    try {
+      const t = await checkTempoAnchor(obs, jsonRpc(DEFAULT_RPC[TEMPO_ANCHOR_NETWORK] ?? ""));
+      if (t) lines.push([t.ok, "anchor-tempo", t.detail]);
+    } catch (e) {
+      lines.push([false, "anchor-tempo", `could not read Tempo: ${e instanceof Error ? e.message : String(e)}`]);
+    }
+  }
 } else {
   lines.push([null, "payment", "skipped (--offline)"]);
   lines.push([null, "anchor", "skipped (--offline)"]);
+  if (tempoEntry(obs)) lines.push([null, "anchor-tempo", "skipped (--offline)"]);
 }
 
 lines.push([null, "response", obs.response.responseHash ? `responseHash ${obs.response.responseHash}: recompute it from the body you hold (${obs.response.responseHashEncoding})` : `responseHash: ${obs.response.responseHashNote ?? "not recorded"}`]);

@@ -509,6 +509,12 @@ const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
 appendFileSync(process.env.FAKE_CALLS!, "anchor-receipts " + a.join(" ") + "\\n");
 if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-sent.json", JSON.stringify({ status: "sent" }, null, 2));
 `,
+  "anchor-receipts-tempo.ts": `import { appendFileSync, writeFileSync } from "node:fs";
+const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
+appendFileSync(process.env.FAKE_CALLS!, "tempo-anchor " + a.join(" ") + "\\n");
+if (process.env.FAKE_TEMPO_FAIL) process.exit(1);
+if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-tempo-sent.json", JSON.stringify({ status: "sent" }, null, 2));
+`,
 };
 
 /** A bare origin, a clone on main that looks like this repository to run.sh, and fake scripts. */
@@ -755,6 +761,60 @@ test("records: with records-enabled, each open day is built, verified, anchored 
   assert.equal(r2.status, 0, logs(sb));
   assert.match(logs(sb), /no closed day with purchases waits for its records/);
   assert.equal(calls(sb).split("\n").filter((l) => l.includes("--send")).length, 3);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: without tempo-anchor-enabled (the default) nothing is written on Tempo", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!calls(sb).includes("tempo-anchor"), calls(sb));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: with tempo-anchor-enabled, each day's root also goes to Tempo with --send, after the Solana anchor and before the last publish", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "tempo-anchor-enabled"), "");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  const lines = calls(sb).split("\n");
+  const tempo = lines.filter((l) => l.startsWith("tempo-anchor"));
+  const keyArg = `--key ${join(sb.dir, "keys", "tempo-anchor.json")}`;
+  assert.deepEqual(tempo, ["2026-09-30", "2026-10-01", "2026-10-02"].map((d) => `tempo-anchor --day ${d} ${keyArg} --send`));
+  for (const d of ["2026-09-30", "2026-10-01", "2026-10-02"]) {
+    const sol = lines.indexOf(`anchor-receipts --day ${d} --send`);
+    const tem = lines.findIndex((l) => l.startsWith(`tempo-anchor --day ${d}`));
+    const pubAfter = lines.findIndex((l, i) => i > tem && l.startsWith("publish-records") && l.includes(`--day ${d}`));
+    assert.ok(sol >= 0 && tem > sol && pubAfter > tem, `${d}: Solana anchor, then Tempo, then publish-records\n${lines.join("\n")}`);
+  }
+  // Done days are not sent to Tempo again.
+  runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:20:00Z") });
+  assert.equal(calls(sb).split("\n").filter((l) => l.startsWith("tempo-anchor")).length, 3);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a failed Tempo anchor is alerted, not retried, and the Solana-anchored records are still published", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "tempo-anchor-enabled"), "");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), FAKE_TEMPO_FAIL: "1" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /anchor-receipts-tempo --day 2026-09-30 --send failed \(not retried; the Solana anchor stands\)/);
+  assert.match(git(sb.origin, "log", "-1", "--format=%s", "main"), /^records: 2026-09-30 delivery records and each day's root, anchored on Solana$/);
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT for a Tempo failure");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records --dry-run with tempo-anchor-enabled: the Tempo anchor is only simulated, on the scratch copy", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "tempo-anchor-enabled"), "");
+  const r = runSh(sb, ["records", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  const tempo = calls(sb).split("\n").filter((l) => l.startsWith("tempo-anchor"));
+  assert.equal(tempo.length, 1);
+  assert.ok(!tempo[0]!.includes("--send") && tempo[0]!.includes("--from"), tempo[0] ?? "");
   rmSync(sb.dir, { recursive: true });
 });
 

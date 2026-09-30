@@ -8,6 +8,8 @@
 #                                            publish-records --day, anchor-receipts --day --send, then one publish.
 #                                            Nothing until the daily-records code is on main; a dry run until
 #                                            ~/.config/vet402-daily/records-enabled exists.
+#                                            With ~/.config/vet402-daily/tempo-anchor-enabled, the same root is also
+#                                            written on Tempo (anchor-receipts-tempo --day --send) after the Solana anchor.
 #   scripts/daily/run.sh board    19:05 JST  watches kzmttkc/vet402-algorand's board workflow from outside: when
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
@@ -40,6 +42,7 @@
 #   VET402_RECEIPTS      signed records, the one place anchor-receipts reads     default ~/vet402-solana-receipt/results/receipts
 #   VET402_ALERTS_FILE   file that gets one line per stop                         required
 #   ~/.config/vet402-daily/records-enabled  present: records sends the anchor; absent: records runs as a dry run
+#   ~/.config/vet402-daily/tempo-anchor-enabled  present: records also writes each root on Tempo; absent (default): Solana only
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
 #   VET402_DAILY_END     first JST day with no am/pm/publish runs                 default 2026-10-09
@@ -545,10 +548,38 @@ record_day() {
   else
     run "anchor $day --send" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --send || { alert "anchor-receipts --day $day --send failed (not retried)" halt; return 1; }
   fi
+  tempo_anchor_day "$day" "$R" "$@"
   run "publish-records $day" in_repo "$TSX" scripts/publish-records.ts --from "$R" --data "$PUB/data" --day "$day" || {
     alert "publish-records --day $day refused after the anchor" halt
     return 1
   }
+}
+
+# tempo_anchor_day <day> <receipts dir> [--from <dir>]: the same root on Tempo too (scripts/anchor-receipts-tempo.ts).
+# Off unless $CONF/tempo-anchor-enabled exists. A failure is alerted but does not stop the records: the Solana
+# anchor stands, the records are published without a Tempo entry, and the day is resumed by hand.
+tempo_anchor_day() {
+  local day="$1" R="$2"
+  shift 2
+  [ -f "$CONF/tempo-anchor-enabled" ] || return 0
+  if [ ! -f "$REPO/scripts/anchor-receipts-tempo.ts" ]; then
+    alert "$CONF/tempo-anchor-enabled is set but scripts/anchor-receipts-tempo.ts is not on $BRANCH; no Tempo anchor for $day"
+    return 0
+  fi
+  if [ -f "$R/$day/anchor-tempo-sent.json" ]; then
+    if grep -q '"status": *"sent"' "$R/$day/anchor-tempo-sent.json"; then
+      log "$day root already on Tempo"
+    else
+      alert "$day anchor-tempo-sent.json is not \"sent\": resume by hand (scripts/anchor-receipts-tempo.ts --day $day --resume)"
+    fi
+  elif [ "$DRY" = 1 ]; then
+    run "anchor $day on Tempo (simulate)" in_repo "$TSX" scripts/anchor-receipts-tempo.ts --day "$day" --key "$KEYS/tempo-anchor.json" "$@" ||
+      alert "Tempo anchor simulation for $day failed (the Solana anchor stands)"
+  else
+    run "anchor $day on Tempo --send" in_repo "$TSX" scripts/anchor-receipts-tempo.ts --day "$day" --key "$KEYS/tempo-anchor.json" --send ||
+      alert "anchor-receipts-tempo --day $day --send failed (not retried; the Solana anchor stands)"
+  fi
+  return 0
 }
 
 # ---------- board (kzmttkc/vet402-algorand) ----------
