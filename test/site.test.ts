@@ -76,7 +76,22 @@ function ownWording(html: string): string {
     .replace(/<h1>[\s\S]*?<\/h1>/, (h) => (h.includes("vet402") || h.includes("How") ? h : " "))
     .replace(/<title>[\s\S]*?<\/title>/, " ")
     .replace(/<meta name="description"[^>]*>/, " ")
-    .replace(/<[^>]+>/g, " ");
+    .replace(/<[^>]+>/g, " ")
+    // URLs and host names are the seller's, not the page's wording (a record's sentence names the resource:
+    // "paid 0.02 USDC on Solana to htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/..."). Prose keeps "us".
+    .replace(/\bhttps?:\/\/[^\s<>"]+/gi, " ")
+    .replace(/\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?::\d+)?(?:\/[^\s<>"]*)?/gi, " ");
+}
+
+/** Wording problems in one page: we/us/our, Japanese, em dash (seller hosts and URLs excluded). */
+function wordingProblems(html: string): string[] {
+  const words = ownWording(html);
+  const out: string[] = [];
+  const m = /.{0,40}\b(we|us|our|ours|ourselves)\b.{0,40}/i.exec(words);
+  if (m) out.push(`we/us/our: ${m[0]}`);
+  if (/[\u3040-\u30ff\u4e00-\u9fff]/.test(words)) out.push("Japanese");
+  if (words.includes("\u2014")) out.push("em dash");
+  return out;
 }
 
 test("site: a seller name with <script> is shown as text on every page", () => {
@@ -280,14 +295,22 @@ test("data/ and site/: no credential-shaped strings besides the two known public
 });
 
 test("site/: the pages' own wording has no we/us/our, no Japanese, no em dash", () => {
-  for (const p of walk(join(ROOT, "site")).filter((x) => x.endsWith(".html"))) {
-    const words = ownWording(readFileSync(p, "utf8"));
-    assert.ok(!/\b(we|us|our|ours|ourselves)\b/i.test(words), `${p}: ${/.{0,40}\b(we|us|our)\b.{0,40}/i.exec(words)?.[0]}`);
-    assert.ok(!/[぀-ヿ一-鿿]/.test(words), `${p}: Japanese`);
-    assert.ok(!words.includes("—"), `${p}: em dash`);
-  }
+  for (const p of walk(join(ROOT, "site")).filter((x) => x.endsWith(".html"))) assert.deepEqual(wordingProblems(readFileSync(p, "utf8")), [], p);
   const readme = readFileSync(join(ROOT, "src", "rank", "README.md"), "utf8");
   assert.ok(!/\b(we|us|our)\b/i.test(readme) && !readme.includes("—"), "src/rank/README.md");
+});
+
+test("wording check: a seller's host or URL with us-east-2 in it is not wording; the word us in a sentence still is", () => {
+  // From the 2026-09-29 record obs_2026-09-29_000335 (a DELIVERED Solana purchase).
+  const record =
+    '<p class="sentence">vet402 paid 0.02 USDC on Solana to htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/graduations/recent and received a response with HTTP 200.</p>' +
+    '<tr><th scope="row">resourceUrl</th><td>https://htrlhl3y49.execute-api.us-east-2.amazonaws.com/v1/graduations/recent</td></tr>';
+  assert.deepEqual(wordingProblems(record), []);
+  assert.deepEqual(wordingProblems("<p>Seller at api.us-west-1.example.com:8443/x?y=1 answered.</p>"), []);
+  for (const bad of ["<p>Tell us if a record is wrong.</p>", "<p>Contact us.</p>", "<p>Our method.</p>", "<p>We paid htrlhl3y49.execute-api.us-east-2.amazonaws.com</p>"])
+    assert.equal(wordingProblems(bad).length, 1, bad);
+  assert.deepEqual(wordingProblems("<p>paid \u2014 then</p>"), ["em dash"]);
+  assert.deepEqual(wordingProblems("<p>\u652f\u6255\u3044</p>"), ["Japanese"]);
 });
 
 test("algorand correction (vet402-algorand 127addc): paid on chain, answered 402, delivered nothing counts on the seller side", () => {
