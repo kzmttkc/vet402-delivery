@@ -168,10 +168,26 @@ export const MONEY_LINE =
  */
 export const REBUY_FIRST_DAY = "2026-09-29";
 export const REBUY_LAST_DAY = "2026-10-08";
-/** Short form, for the site pages. */
-export const REBUY_SHORT = `From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 buys again every day (twice on Solana, once on Tempo) from the Solana and Tempo sellers whose earlier payment settled, at the same price and to the same payTo.`;
-/** Long form, for rank.json and the READMEs. */
-export const REBUY_LINE = `From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 buys again every day from the Solana and Tempo sellers whose earlier payment settled: twice on Solana and once on Tempo (the ledger allows one purchase per recipient per slot per UTC day; payTo and price locked to the earlier payment). The days it ran are the files in data/remeasure/.`;
+/** Whether a report generated at `generatedAt` comes after the window: its rebuy text is then in the past tense. */
+export function rebuyEnded(generatedAt: string): boolean {
+  return generatedAt.slice(0, 10) > REBUY_LAST_DAY;
+}
+const rebuyVerb = (ended: boolean) => (ended ? "bought" : "buys");
+/** Short form, for the first page. */
+export function rebuyShort(ended: boolean): string {
+  return `From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 ${rebuyVerb(ended)} again every day (twice on Solana, once on Tempo) from sellers whose earlier Solana or Tempo payment settled: one seller per payTo, at the same price and to the same payTo.`;
+}
+/** Long form, for rank.json (method.measurement). */
+export function rebuyLine(ended: boolean): string {
+  return `From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 ${rebuyVerb(ended)} again every day from the Solana and Tempo sellers whose earlier payment settled: twice on Solana and once on Tempo (the ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought again; payTo and price locked to the earlier payment). The days it ran are the files in data/remeasure/.`;
+}
+const REBUY_ON: Record<Chain, string | null> = { solana: "twice on Solana", tempo: "once on Tempo", base: null, algorand: null };
+/** One seller's page: only for a seller that has purchases in data/remeasure/ (SellerStats.rebuyChains), else null. */
+export function rebuySeller(chains: readonly Chain[], ended: boolean): string | null {
+  const on = chains.map((c) => REBUY_ON[c]).filter((x): x is string => !!x);
+  if (on.length === 0) return null;
+  return `From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 ${rebuyVerb(ended)} this seller again every day (${on.join(", ")}), at the same price and to the same payTo.`;
+}
 
 /** What "came back with an answer" (delivered) covers, and what it does not. */
 export const DELIVERED_LINE =
@@ -241,7 +257,7 @@ export const METHOD: RankReport["method"] = {
   gradeLower: GRADE_LOWER,
   dUpper: D_UPPER,
   order: "Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.",
-  measurement: `From method v2 on: at most ${MEASURE_MAX_PER_SELLER} purchases per seller in one run, at least ${MEASURE_SPACING_MS / 1000} s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. ${REBUY_LINE} Each seller's record grows day by day. Base sellers have been bought once.`,
+  measurement: `From method v2 on: at most ${MEASURE_MAX_PER_SELLER} purchases per seller in one run, at least ${MEASURE_SPACING_MS / 1000} s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. ${rebuyLine(false)} Each seller's record grows day by day. Base sellers have been bought once.`,
   measureMaxPerSeller: MEASURE_MAX_PER_SELLER,
   measureSpacingMs: MEASURE_SPACING_MS,
   sellerIdentity:
@@ -288,6 +304,11 @@ export function summarizeChains(attempts: readonly Attempt[]): ChainSummary[] {
   });
 }
 
+/** METHOD with its rebuy sentence in the tense for the report's generation time. */
+export function methodAt(generatedAt: string): RankReport["method"] {
+  return rebuyEnded(generatedAt) ? { ...METHOD, measurement: METHOD.measurement.replace(rebuyLine(false), rebuyLine(true)) } : METHOD;
+}
+
 export function buildReport(opts: {
   date: string;
   generatedAt: string;
@@ -302,7 +323,7 @@ export function buildReport(opts: {
     kind: "vet402-seller-rank",
     date: opts.date,
     generatedAt: opts.generatedAt,
-    method: METHOD,
+    method: methodAt(opts.generatedAt),
     inputs: opts.inputs,
     chains: summarizeChains(opts.attempts),
     totals: totalsOf(opts.attempts, aggregate(opts.attempts, opts.excludeHosts), opts.excludeHosts),

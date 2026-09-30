@@ -1,7 +1,7 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-09-30",
-  "generatedAt": "2026-09-30T03:59:39.473Z",
+  "generatedAt": "2026-09-30T04:12:08.428Z",
   "method": {
     "version": "v3",
     "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
@@ -84,7 +84,7 @@
     },
     "dUpper": 0.5,
     "order": "Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.",
-    "measurement": "From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. From 2026-09-29 to 2026-10-08, vet402 buys again every day from the Solana and Tempo sellers whose earlier payment settled: twice on Solana and once on Tempo (the ledger allows one purchase per recipient per slot per UTC day; payTo and price locked to the earlier payment). The days it ran are the files in data/remeasure/. Each seller's record grows day by day. Base sellers have been bought once.",
+    "measurement": "From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. From 2026-09-29 to 2026-10-08, vet402 buys again every day from the Solana and Tempo sellers whose earlier payment settled: twice on Solana and once on Tempo (the ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought again; payTo and price locked to the earlier payment). The days it ran are the files in data/remeasure/. Each seller's record grows day by day. Base sellers have been bought once.",
     "measureMaxPerSeller": 5,
     "measureSpacingMs": 60000,
     "sellerIdentity": "Seller = hostname. When one host fronts several catalog services that each pay their own recipient (a proxy), each service is its own seller: host#service.",
@@ -1548,6 +1548,9 @@
           "payTos": [
             "TW6ntaGzvj63ZgPjszd4FCGmVTGfzv1MAYZbjYcyWhn"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:14:50.439Z",
@@ -1663,6 +1666,9 @@
           "payTos": [
             "8iZbjedTiMYVYGE9PZBHPm7k2KeXRqWAuCpSAxHm7j68"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:48:00.242Z",
@@ -1739,6 +1745,7 @@
           "payTos": [
             "HZ5rN5HmZpu2H16auY5Zt5SuJjCMBG77odVhAVSuhK1x"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:17:17.551Z",
@@ -1873,6 +1880,9 @@
             "0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0",
             "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:14:52.269Z",
@@ -1988,6 +1998,9 @@
           "payTos": [
             "FCFgb8Z63uwim2QpDJW4TGwLqZoENjckwGosLmg26zBS"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:19.714Z",
@@ -2098,6 +2111,9 @@
           "paidButNotDelivered": 4,
           "payTos": [
             "8TDTVWxNCgaZ7H7jnEk5jTaXWjg6fDwCWQMs9u2v7HWh"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -2214,6 +2230,9 @@
           "payTos": [
             "6aCEuwH3PYx99cEmRz45otfxk39uF7ewGhqmvxfXisSG"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:14:56.250Z",
@@ -2329,6 +2348,9 @@
           "payTos": [
             "8FpaqrVv86FESBBn1qYgPNvL8EbTbk7W9ccMPqvNELZb"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:23.592Z",
@@ -2409,6 +2431,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:55:54.160Z",
@@ -2524,6 +2547,9 @@
           "payTos": [
             "6XcSfqJHr9vNW2vbiRaMqUYVm7shDgLepca54wUTDPN5"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:15:00.364Z",
@@ -2628,6 +2654,9 @@
           "payTos": [
             "0x1ee42717b1c370dace197a8850bf41a932f3b5a8"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:55:56.501Z",
@@ -2731,6 +2760,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "5bZdrGYAbHdbVCqw7RVUpxma22kJehaQCHhp4nHuHCyy"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -2847,6 +2879,9 @@
           "payTos": [
             "3gM4YDDPAi7w1di7rHAAaHc5T1tR7NRXzLWzPPN4ZRaM"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:01.125Z",
@@ -2923,6 +2958,7 @@
           "payTos": [
             "5yASLjtNssGXDv6bR9e71WXKxRymDiUzbgkGPqkQNgRn"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:16:33.250Z",
@@ -3037,6 +3073,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "d8X2MdS7QMiMFVWzYMVTeKhm1BVx75GoHskf9ws74nM"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -3153,6 +3192,9 @@
           "payTos": [
             "GgS891nMiEETjBEFw1QQxVcAqsRV34mDYpxh24TrpCiD"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:06.311Z",
@@ -3229,6 +3271,7 @@
           "payTos": [
             "9urRvUx69HqAopg1JGV9P9wR7JdKoztzdkuNyJ8Eo1up"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:41:23.313Z",
@@ -3344,6 +3387,9 @@
           "payTos": [
             "HpZ7TcKzX5GQ1jbFFYB3Npq321g8UrmsnaTKVNicu1Dv"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:28.251Z",
@@ -3420,6 +3466,7 @@
           "payTos": [
             "26SsHut3dRbK9cWUJcrMfkKn3TKXSFMw61zyqm6tgWjK"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:18:06.030Z",
@@ -3534,6 +3581,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "Ezzbt3d3K76pmQpwbeXkggCs5n7Q3JWG3iCmtdKdpMxk"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -3650,6 +3700,9 @@
           "payTos": [
             "Bn7sLNmcL9ru5kt9gNwVn8e8Sx912dBTxiUBNiwjbiY8"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:32.380Z",
@@ -3726,6 +3779,7 @@
           "payTos": [
             "9N5TAHbtp9s8Ksrcn4b9Kig4uTRnevZC13bSsMnMAQ4c"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:19:39.343Z",
@@ -3830,6 +3884,9 @@
           "payTos": [
             "0xb98ef29eb2be19ae646a8fc0248255b90a332dbc"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:34.750Z",
@@ -3906,6 +3963,7 @@
           "payTos": [
             "BdcZbENFdEyEUMqv9pnRMUnn1Yyeyo2dCMbYXbJ3LmaB"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:21:11.903Z",
@@ -4021,6 +4079,9 @@
           "payTos": [
             "cpCDBTacxDtgXpKNCeK4WgtCT2EcGRG3GD9rjQYayTP"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:38.392Z",
@@ -4099,6 +4160,7 @@
           "payTos": [
             "0xef879bfd6c4accb8f795136de90246e1ec245e06"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:17:18.312Z",
@@ -4203,6 +4265,9 @@
           "payTos": [
             "9HkwyUhDMyjbpSpnyu5xuZ9vRaFQeajnJsavhie7XcsT"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:21:15.095Z",
@@ -4306,6 +4371,9 @@
           "payTos": [
             "GEhr9HCFTRDjanMg435frSgCVwVZYpNoPrEkmNBnFHFE"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:41:27.245Z",
@@ -4382,6 +4450,7 @@
           "payTos": [
             "9CAhY1vdaZfrfoto3KLQtRAo1dVWxNn5xAfmc2XbZVsf"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:43:05.120Z",
@@ -4458,6 +4527,7 @@
           "payTos": [
             "u5zcwMcmrn7qAN4zUJzLhpLDQv81qtFDfZR1ohCrMs9"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:49:37.354Z",
@@ -4573,6 +4643,9 @@
           "payTos": [
             "jPt2dffmPi7WEtV8J6UFHJQaatEJVyuSFmz5b4DHFG8"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:27:20.480Z",
@@ -4649,6 +4722,7 @@
           "payTos": [
             "5vM2TYpN4Kk3cDFpgJtrm33F8iB3frU8KaDsMaacVbd2"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:44:38.294Z",
@@ -4763,6 +4837,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "GYyTRmt317JafPHXPnM54Fsvsma5GnS9wm6qGMqaykdS"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -4883,6 +4960,9 @@
           "payTos": [
             "H9PEqUrPuagH87tgBpuNizmxPKFtWhWozU21bq74nL5H"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:41.792Z",
@@ -4998,6 +5078,9 @@
           "payTos": [
             "3Ywxk31SvWKwZBdY6bLvjmn5h4mzWcT3HJ5UZbYXoVy9"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:21:18.866Z",
@@ -5078,6 +5161,7 @@
           "payTos": [
             "0x1ee42717b1c370dace197a8850bf41a932f3b5a8"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:47.085Z",
@@ -5158,6 +5242,7 @@
           "payTos": [
             "0x1ee42717b1c370dace197a8850bf41a932f3b5a8"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:58.349Z",
@@ -5234,6 +5319,7 @@
           "payTos": [
             "2h752kAbb9z1jpdSzqMEYg9JHv6TPJ6T2BfAJMyjLFtZ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:28:52.928Z",
@@ -5349,6 +5435,9 @@
           "payTos": [
             "HwXJGH7FMugPCoLiQnuG1nCUMWhBejMhkjdswNHmLeN8"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:46:23.653Z",
@@ -5425,6 +5514,7 @@
           "payTos": [
             "Cg2HRPURAFKiAJ8XJ3VeRqyZCBtLbcxb9HZn3DW7WusH"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:21:59.265Z",
@@ -5605,6 +5695,9 @@
           "payTos": [
             "53JhuF8bgxvUQ59nDG6kWs4awUQYCS3wswQmUsV5uC7t"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:36:12.997Z",
@@ -5719,6 +5812,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "AHk5DFmmdvPMjf6tZFrMPbHGhEBUDhUmcqmWkYANYthg"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -5835,6 +5931,9 @@
           "payTos": [
             "9wNzkrGAqbv1DSfM5EM12qBPdUUiaV3Vjg4wqu12H8j"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:56.367Z",
@@ -5911,6 +6010,7 @@
           "payTos": [
             "0x4e024e356bd01853654b7b5196f2b85f67cc39ec"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:17:14.109Z",
@@ -6025,6 +6125,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "3tvSUk2R16rrL4eo2diYpMUsBH1wa3tafqJE44x3bVgs"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -6206,6 +6309,9 @@
           "payTos": [
             "9VaDVp1Wb78G4Wm6VuTiMrpESjrUymXefQTHcJGRSTEA"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:28:56.730Z",
@@ -6282,6 +6388,7 @@
           "payTos": [
             "GBQ2FrH49gvKXu1zg7tguoLwaofn5S4NnuMs5JSYQ5GX"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:14.955Z",
@@ -6358,6 +6465,7 @@
           "payTos": [
             "CDXr4aHpS9ZD4s6tKFpgaTu6nPkn43ni3JhkJHGnyfcQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:55:14.448Z",
@@ -6434,6 +6542,7 @@
           "payTos": [
             "AifT6piHJ957oqgeRVLAiAmvm3dJ3rLnD2EVck6Msf7k"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:56:47.527Z",
@@ -6514,6 +6623,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:56:01.091Z",
@@ -6629,6 +6739,9 @@
           "payTos": [
             "FdQ2FmAydXBe87Nm7w4MjksRqTUjahPaqjj7mVshKvNa"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:21:21.145Z",
@@ -6709,6 +6822,7 @@
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:12.121Z",
@@ -6824,6 +6938,9 @@
           "payTos": [
             "8s2VtNV5E1C9XJbfk4WGpMTiSJVPLeB8wcuJYQS5MFQa"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -6913,6 +7030,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "5bZdrGYAbHdbVCqw7RVUpxma22kJehaQCHhp4nHuHCyy"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -7094,6 +7214,9 @@
           "payTos": [
             "5DHhYFTCwYcoUK9nh4omrcm6htGPThcnMHWcK4mCTtPz"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:56:56.033Z",
@@ -7209,6 +7332,9 @@
           "payTos": [
             "yUdt7ThMbP5mvtLtURiwK3wgnhexuFtbKC9LEgb1Q8e"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:36:23.118Z",
@@ -7289,6 +7415,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:17.340Z",
@@ -7369,6 +7496,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:20.853Z",
@@ -7483,6 +7611,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "4JgPtoBWkQyG3QffVJC3bfgk7SCQrz9bx2SAEUTSVqzK"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -7599,6 +7730,9 @@
           "payTos": [
             "6UNbfD8mgSqgFDxxwE29LfgKrBqrZBt4R4L4Resh4yct"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -7714,6 +7848,9 @@
           "payTos": [
             "6nWrWRTqrqpqbu5MsMW8mPDpZjKLwPb9Wf8BdMwNMWzK"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -7823,6 +7960,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:24.509Z",
@@ -7937,6 +8075,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "HuSiSpcUoUEF4hct1MRsGtNGz8EdBiTs7p2WtJGksLSa"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -8053,6 +8194,9 @@
           "payTos": [
             "5HGarauHaGFynzwNBqLkKcQ4LFR4UCXKZE7bJuP6Ew2N"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:21:26.045Z",
@@ -8133,6 +8277,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:29.563Z",
@@ -8288,6 +8433,9 @@
           "payTos": [
             "ASt6xvRyQ7ntERsmcYVMdLqZvz1GEN8Fzexzq62tXrNQ"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:18.095Z",
@@ -8403,6 +8551,9 @@
           "payTos": [
             "4du4AfkjJEwch2zk3shkPJVZfyJHNDnNjEWC6AboaS5Z"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:56:59.660Z",
@@ -8479,6 +8630,7 @@
           "payTos": [
             "3zzUAYvpjqPBmdwqQKUh952LZSqijHHVCFymCtanFP3N"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -8594,6 +8746,9 @@
           "payTos": [
             "5Wxg3V6gcmFmmP6SXmGZQAUZPFYsSwoeN2Qewt5BotWz"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:21:28.617Z",
@@ -8670,6 +8825,7 @@
           "payTos": [
             "5xrtB5SFAb214aC2EmLiyMJGop2EVef1zWBdDpLF7s9y"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:37:55.673Z",
@@ -8750,6 +8906,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:31.925Z",
@@ -8830,6 +8987,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:34.968Z",
@@ -8910,6 +9068,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:38.121Z",
@@ -8986,6 +9145,7 @@
           "payTos": [
             "DFhyvGVvHVksJZofLN9BHon6Pt7tHnYmhJUW2WCDaKtD"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:45.983Z",
@@ -9066,6 +9226,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:21.813Z",
@@ -9146,6 +9307,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:25.572Z",
@@ -9226,6 +9388,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:03:41.917Z",
@@ -9341,6 +9504,9 @@
           "payTos": [
             "9uZrHXS1T7kV1b7MKSS9ognUMTHCTSjP7mmur3yg3dN7"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:57:03.451Z",
@@ -9421,6 +9587,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:31.993Z",
@@ -9536,6 +9703,9 @@
           "payTos": [
             "7kPWiEbDXu33FomKG6mGa7R8HGSfUGFsAoKFZeBERJaH"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:44:41.873Z",
@@ -9616,6 +9786,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:28.606Z",
@@ -9730,6 +9901,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "8WhWE8YgY5QBWyLowEHuaZiWdwDM3SrgDk36xYBNvYNS"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -9847,6 +10021,9 @@
           "payTos": [
             "GEDHYTsufU5HEGmQZzXsR9wygTpnpY1RKFuLiJkPJw3h"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -9956,6 +10133,7 @@
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:37.450Z",
@@ -10059,6 +10237,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "0xc12b5d802da90d14a8b35dec1cfb6fd5ceede60b"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -10164,6 +10345,9 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:42.262Z",
@@ -10244,6 +10428,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:48.283Z",
@@ -10324,6 +10509,9 @@
           "payTos": [
             "6J7dpvZu4f3vYcRd3TY7dpjXZSYCRdLVfXkxtv3Ycz3j"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:57:16.399Z",
@@ -10400,6 +10588,7 @@
           "payTos": [
             "2BTzdCAcCLaNA2SSZ1YjJvTtscNCpUMUEjLY3LyBpNMk"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:23:03.704Z",
@@ -10490,6 +10679,9 @@
           "payTos": [
             "9HkwyUhDMyjbpSpnyu5xuZ9vRaFQeajnJsavhie7XcsT"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -10570,6 +10762,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:51.216Z",
@@ -10684,6 +10877,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "2hAXt3sb2GZrtXx4ae4Ywc7enqrE191nktyL5k2nWSfg"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -10800,6 +10996,9 @@
           "payTos": [
             "8D5DSpGroX5P9v6oGHLUVLFXujp6En1zYdf5KTTQ5N8V"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:57:21.866Z",
@@ -10914,6 +11113,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "GFpLvocNdEjnSsLH3VJQL6wGcjGxTbUBrj6fqN3Qe1Gs"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -11030,6 +11232,9 @@
           "payTos": [
             "7Cd8FJ6hCKKTphtj2oDNQrevkMc4CcHCuLNWkw38so6Q"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:57:28.779Z",
@@ -11110,6 +11315,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:54.471Z",
@@ -11188,6 +11394,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:57.776Z",
@@ -11303,6 +11510,9 @@
           "payTos": [
             "7Ny8us7f1wBkNJZ2tYKWPBQhQsLxJ18xot8jxCNd9YGG"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -11417,6 +11627,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "6nZQJcTRWm6VQwa7Tg1JBUGjNznviS9fExUHb53TB3GG"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -11543,6 +11756,9 @@
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:00.715Z",
@@ -11658,6 +11874,9 @@
           "payTos": [
             "3MZVk97x9SeRxbYpc3jhzRfU2fyA3emYutnqfn9kNfYX"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:23:13.196Z",
@@ -11734,6 +11953,7 @@
           "payTos": [
             "FehC2Hu4ocQnxNWhpePQNV4kwPA2v6oHaaLnuXJXUwtn"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:23:31.108Z",
@@ -11848,6 +12068,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "C3i8EA7yh6EwUevYhTMKZpdTURgt5z9FAE5wNY7Lea4t"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -11964,6 +12187,9 @@
           "payTos": [
             "GjGfjN7uaDuieHMgBA1bxPEF9zSb33LEukrknnAXwdWv"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:23:16.679Z",
@@ -12079,6 +12305,9 @@
           "payTos": [
             "GLu63pRCYrp4BJu5P5ciYKxgeZFW9c8TJ8jWzK3TB9AR"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T06:52:30.661Z",
@@ -12159,6 +12388,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:06.331Z",
@@ -12239,6 +12469,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:09.289Z",
@@ -12354,6 +12585,9 @@
           "payTos": [
             "9qCyPu7sLjnwgcbHYY76eqvtjsrdDxis9nn1sjD8CyJo"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:38:09.228Z",
@@ -12430,6 +12664,7 @@
           "payTos": [
             "Bj6xBpGcQavz8Uqr4Kofz6dTPpgLxCEXqJhkKQzF5EXg"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:25:02.831Z",
@@ -12544,6 +12779,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "HZJnshSNsvXQkASWjpP8AndJqtUv4cFoACwPcH5tyU73"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -12660,6 +12898,9 @@
           "payTos": [
             "46vMcwuC4sK11sB3gkLhyA7J7GEwfkhn5rFyDtihBwqe"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:23:18.898Z",
@@ -12740,6 +12981,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:12.117Z",
@@ -12873,6 +13115,9 @@
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:15.105Z",
@@ -12988,6 +13233,9 @@
           "payTos": [
             "7G73PLhKvAPBGTzG5ESAE4coE7QrVeTTKfhTxQZbyGgC"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:57:39.888Z",
@@ -13087,6 +13335,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0x0477aec8513f73adfe6e3c813650b25a28cba54a"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -13192,6 +13443,9 @@
           "payTos": [
             "0x09cbbb451ca48ed511c7fc07ed921d539cde1227"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:28.211Z",
@@ -13296,6 +13550,9 @@
           "payTos": [
             "0x3078368e0740fa5f8d9b900ea428c946a1006cb7"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:35.480Z",
@@ -13395,6 +13652,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0xdefada13f790cf39168691b391cfa0b6f1f5c267"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -13500,6 +13760,9 @@
           "payTos": [
             "0x9f7556c65392e5cbcb342010618c2b407e64a8ea"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:43.470Z",
@@ -13578,6 +13841,7 @@
           "payTos": [
             "0x99028bfd259985a90f529bca081504ab737240c6"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:48.421Z",
@@ -13678,6 +13942,9 @@
           "payTos": [
             "0xa136b6919a7b3c45c2c793b069ce6e3441aec32a"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:52.913Z",
@@ -13756,6 +14023,7 @@
           "payTos": [
             "0x9f7556c65392e5cbcb342010618c2b407e64a8ea"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:56.909Z",
@@ -13855,6 +14123,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0x12e8de0712aebe6579a9e16dee2ae9ffcc4e7dc2"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -13956,6 +14227,9 @@
           "payTos": [
             "0x92cec8dd87ebcb21cffbc2d0ad134c2d6eb895e0"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:03.471Z",
@@ -14056,6 +14330,9 @@
           "payTos": [
             "0x99028bfd259985a90f529bca081504ab737240c6"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:07.322Z",
@@ -14155,6 +14432,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0x6bab1d63b3b51a88c7f87402db2803b05f0ae9e9"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -14260,6 +14540,9 @@
           "payTos": [
             "0xca82340a657df005743ff5eb2474729ae80924b9"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:16.233Z",
@@ -14364,6 +14647,9 @@
           "payTos": [
             "0x24a5ec14de5dbf0ed1e27784d63d22dc9451998f"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:19.793Z",
@@ -14463,6 +14749,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0xbe44f1397349bb9bbe97f7c404cce8dc0a09d283"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -14564,6 +14853,9 @@
           "payTos": [
             "0x28fcd44ad4757e868c9cc9af9f48f38b6a9e4272"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:27.994Z",
@@ -14664,6 +14956,9 @@
           "payTos": [
             "0xa049ebf67b048ebcd76db2063ff68e500ce96a94"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:32.578Z",
@@ -14763,6 +15058,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0xefcd28bb1bf3a80c26c7195af15c47ff3b815669"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -14868,6 +15166,9 @@
           "payTos": [
             "0x1a93ed3b59ead051de453aec3bf16957f4a2266f"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:40.261Z",
@@ -14971,6 +15272,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "0x67cd43fcfce8ab2d6477a1f6bf8dff67aa5e86e1"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -15076,6 +15380,9 @@
           "payTos": [
             "0x1b1ccaab3d71b8ba017103ae8d511fa9ad3d3a5e"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:06:54.302Z",
@@ -15175,6 +15482,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0x19a09691d0a9c4fb80cc40694704a15858c6a454"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -15280,6 +15590,9 @@
           "payTos": [
             "0xca37de138574432b96f92b0cd9826dadfd1cf443"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:07:07.033Z",
@@ -15379,6 +15692,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0x9edc06e69fbf71b191510ca9446fe09caa95668d"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -15484,6 +15800,9 @@
           "payTos": [
             "0x8ee7c76fcb175dd0f9e7fc240f6828ecb226e90c"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:07:17.716Z",
@@ -15587,6 +15906,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "0x059a69c76cea4d2b319cc05021a093ab3fd9bafb"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -15692,6 +16014,9 @@
           "payTos": [
             "0x1563cde0042d17f53b23d91fd9b73ace9da26a09"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:07:27.401Z",
@@ -15770,6 +16095,7 @@
           "payTos": [
             "0x1563cde0042d17f53b23d91fd9b73ace9da26a09"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:07:32.115Z",
@@ -15873,6 +16199,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "0xdd51ae794f2cbbc69ef791be8aa4476d6d48c7ce"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -15978,6 +16307,9 @@
           "payTos": [
             "0xbb06ad903e615cc1a50421b60d70e47b11a5677f"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:07:41.166Z",
@@ -16082,6 +16414,9 @@
           "payTos": [
             "0x8e4a08ac4a195fa8bfd9d4573d4859a9c9882145"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:24.112Z",
@@ -16181,6 +16516,9 @@
           "paidButNotDelivered": 3,
           "payTos": [
             "0xac9ad2609466fb92c69640fa2b9ee7b22a76e8fe"
+          ],
+          "rebuyChains": [
+            "tempo"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -16339,6 +16677,9 @@
           "payTos": [
             "0x7d2d55da17aa98130e90054e4011b6727416ad83"
           ],
+          "rebuyChains": [
+            "tempo"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:34.352Z",
@@ -16415,6 +16756,7 @@
           "payTos": [
             "PFhAMHQ6xPADiH63sjpC28RfyVChoXqgHFjbX1tkU6R"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:59:12.285Z",
@@ -16529,6 +16871,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "8FVeybWnB4dYrxTuPK7WzFZNAiEcFVaDLFnKpRwVGr5s"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -16645,6 +16990,9 @@
           "payTos": [
             "DqSMReqFwS3SqfghkM22gaXnYaX73t357cpLEmbHP6Vh"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:23:24.471Z",
@@ -16760,6 +17108,9 @@
           "payTos": [
             "7Ac8jXKrYTAPynkM3QtfjECGDevYjMjPF6VfbiVaHPox"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:23:26.376Z",
@@ -16836,6 +17187,7 @@
           "payTos": [
             "Akjhnpms294ZiQEWdpZEaHVGx5Ft457bfG3cczAt43kc"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:30:34.572Z",
@@ -16951,6 +17303,9 @@
           "payTos": [
             "985iFjbnGQ3dJcwXnfRCMSrH4Jnc3kW1N6msR64B5KX1"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:21.984Z",
@@ -17031,6 +17386,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:20.134Z",
@@ -17107,6 +17463,7 @@
           "payTos": [
             "6zzSGTDLmHcxSYttWczBvcdMVGyDVPBzQdzBpHehDaER"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:10:48.006Z",
@@ -17183,6 +17540,7 @@
           "payTos": [
             "GqSs5L9aPWGJwyRQe35YKQaWMDPh3R1dMqfSEPhSgkM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:25:00.145Z",
@@ -17259,6 +17617,7 @@
           "payTos": [
             "DMrJUdvmorbEXx8pA4R8yZ9kPfH3pUanCGxoG5AoPuTC"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:00:46.507Z",
@@ -17373,6 +17732,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "2s11RMxZBjoFh8NJvZwA8LUKcaTRx2fHGUSSvQsM7Lib"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -17493,6 +17855,9 @@
           "payTos": [
             "35tCuyL3E7M88jfhTeEaRxhrbuKFyQLWgxJQyf5QcLLe"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:25.128Z",
@@ -17612,6 +17977,9 @@
           "payTos": [
             "AytHnvc6bZx1ALTy7b5Px7hcavoSYszG9aeKvDcZ8R1u"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:25:27.750Z",
@@ -17692,6 +18060,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:41.249Z",
@@ -17807,6 +18176,9 @@
           "payTos": [
             "76xzzgua9K8985GqGMwB946zTFtHvjTd9MfGoTYfys3d"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:25:48.113Z",
@@ -17885,6 +18257,7 @@
           "payTos": [
             "0x24facafeb49b4e3facf0b3e69604a2f4640c9bf2"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:17:15.380Z",
@@ -17999,6 +18372,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "8XhngTRitTcUJMiaDJ6azw8GRSiFPpwhnmV3HYQLHUpL"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -18115,6 +18491,9 @@
           "payTos": [
             "CBYMYxfMGdA98qkzrYqTzTiQhP3H2scU95EB4ZxoRxuM"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:25:07.233Z",
@@ -18229,6 +18608,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "FgcKNzsBXSEHGNZNWetPsjXiBZk1WFoU6sF2zVsnzXfa"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -18345,6 +18727,9 @@
           "payTos": [
             "3nmeVj5m9Uq2hSTfsVsn3tJMHRJQNMKR1AjzyUJbrSgw"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:28.475Z",
@@ -18421,6 +18806,7 @@
           "payTos": [
             "CHHWRYyo8exGvcLGn3AxzHEZseLZDTnq3FaYkzZVQDQr"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:02:26.464Z",
@@ -18497,6 +18883,7 @@
           "payTos": [
             "8ce9pCUe913hpaP4oheeMPJt2uRkWAq5FsuNU6zSvTkw"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:20:27.561Z",
@@ -18577,6 +18964,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:51.578Z",
@@ -18688,6 +19076,9 @@
           "payTos": [
             "9246XrsAEKH6hAyEQe5PvdpUL1p5Ktj9c7ySnwQn6ois"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:02:29.710Z",
@@ -18766,6 +19157,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:08:54.669Z",
@@ -18881,6 +19273,9 @@
           "payTos": [
             "FXfSAjZ6dErUkKg9C4wC4tz7xbV48M4F6mLMbrkEaPJx"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:25:10.319Z",
@@ -18957,6 +19352,7 @@
           "payTos": [
             "GBfJMhGiGJeWDcve1G673hEp8DLmMFomvSEHMzRfmcJu"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:27:24.321Z",
@@ -19072,6 +19468,9 @@
           "payTos": [
             "7LSjfrJf8fNsB8VA9u7N3WEn25smQLpob3SvyUvXacy7"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:27:28.486Z",
@@ -19152,6 +19551,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:03.231Z",
@@ -19266,6 +19666,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "CTKigV78yuErumvqm7Qor8j1hMK2oxNxdhwpVrAKV85d"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -19401,6 +19804,9 @@
             "0xdd350976b8cffc65938c0464d39a2c78be079bd0",
             "DGxcPrAHL9YM3hW7iXuHFJmr87Zr6AMA4jCYHBpuvMgE"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:28:26.946Z",
@@ -19479,6 +19885,7 @@
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:09.624Z",
@@ -19594,6 +20001,9 @@
           "payTos": [
             "J28Fii2VFnJcavvaeEfsKc628htk3mnrZKubD7WsGStW"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:14.346Z",
@@ -19672,6 +20082,7 @@
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:14.611Z",
@@ -19750,6 +20161,7 @@
           "payTos": [
             "0x060b0fb0be9d90557577b3aee480711067149ff0"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:20.099Z",
@@ -19826,6 +20238,7 @@
           "payTos": [
             "D6GAZpvvLe8aUi9qZEDTXPERHpP3pwAgaeucp9ib1fW"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:12:20.506Z",
@@ -19904,6 +20317,7 @@
           "payTos": [
             "0xdb5aa553feeb2c3e3d03e8360b36fb0f7e480671"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:09:23.077Z",
@@ -19980,6 +20394,7 @@
           "payTos": [
             "8EgACpZ16XWEt7YjJPsh1ZheVRZUGmmwQ8nJdmA1o5w4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:13:52.670Z",
@@ -20056,6 +20471,7 @@
           "payTos": [
             "6u5LMGQC2qk9peNibahmRWxGVXrBypk8nhTCcqtiuqMY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:47:56.126Z",
@@ -20171,6 +20587,9 @@
           "payTos": [
             "4uLqY8BnJuA7CFxRork2FnNMu2u9NsJquF8Cc6V5B5jB"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:44:46.905Z",
@@ -20247,6 +20666,7 @@
           "payTos": [
             "2147pBT4LxoszjvLeGRxyVzpRnMi986VH3FAoprSs8Ez"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:29:59.559Z",
@@ -20323,6 +20743,7 @@
           "payTos": [
             "4ofUMGcRHsfr6LMY6AuaRSQpqyKsvibSbXmieQL4i8Dc"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:03.074Z",
@@ -20399,6 +20820,7 @@
           "payTos": [
             "EjwKsavtpL4MeboquZgFerQy6voUbKqJv5TyukEH8vPN"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:31:32.746Z",
@@ -20513,6 +20935,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "CVWxHvN9MdWRGN6mEfDtUjmoypMtkTJX4mBRrhmhzKk2"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -20629,6 +21054,9 @@
           "payTos": [
             "F1AbWuXJcBT9arW9wc6Xr2vom5NBtngWsz6Ht16jRBLM"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:35.435Z",
@@ -20705,6 +21133,7 @@
           "payTos": [
             "MgSxRMwW39uG1ehqW6nuKvHzJsq9A3wG2cgV3i8ctAz"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:15:24.979Z",
@@ -20781,6 +21210,7 @@
           "payTos": [
             "7zBC8YJQAFszUV6qF2HPAR4kZtY1jsQivjY2tvFE8qCR"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:39:41.802Z",
@@ -20895,6 +21325,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "FSnwAPTNNSxqnR8MtuNrtwLkyYusZ4hncp684HxYpdLb"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -21011,6 +21444,9 @@
           "payTos": [
             "5HK2dGaaquDWFnYWaWhMzMYtbcDsqeq5biJ2PMtX1tkN"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:04:05.698Z",
@@ -21089,6 +21525,7 @@
           "payTos": [
             "0x538aa4800ae2bd8e90556899514376ab96113a8e"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:17:16.729Z",
@@ -21165,6 +21602,7 @@
           "payTos": [
             "2VS2kvhZU5doNpweAQ34wxwXqPdVvEdR35K92CzsEoH1"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:32:08.947Z",
@@ -21267,6 +21705,7 @@
           "payTos": [
             "86BziewkBJ56rwYyivpNzQ3GyhKLfwPky17geqEuFGZr"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:26:42.162Z",
@@ -21370,6 +21809,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "vz9No3Xm1EfPcuF56bWc7zV4r1k9TRs9UuDckGCocvv"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -21486,6 +21928,9 @@
           "payTos": [
             "226DYoWb2e6uYxDkFp7vK8jZhzzh2VNvHH6DgbDsNueC"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:31:41.463Z",
@@ -21564,6 +22009,7 @@
           "payTos": [
             "0xf9d1d63f362bbf1ee08ab9acb36fe74afc48d5f1"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:17:22.388Z",
@@ -21640,6 +22086,7 @@
           "payTos": [
             "AAqqPjkD7SJk64t1wvgUcBNpqWXnQwCDjfAhQksEDpFu"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:05:38.109Z",
@@ -21754,6 +22201,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "FCxZZhEJpWqe1iCUuXVgy47JS9WFwGb1gBUC6Tngdh5Z"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -21870,6 +22320,9 @@
           "payTos": [
             "GJ1fu5pi1WaMHWy9nR1Fh67FEtrWXKrY2Ud6fdGbq33b"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:51:38.493Z",
@@ -21972,6 +22425,7 @@
           "payTos": [
             "5dBE1vqMVJCbxpBv9kw9nQJguUhYXk5mRGVfsxEF9cc4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:34:12.611Z",
@@ -22086,6 +22540,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "HJHeNjURYf3Lwp5iTnfSt8ktn3oGGTV3A8atJHLn281K"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -22202,6 +22659,9 @@
           "payTos": [
             "4yWGiWHTBofLtjjKW7i6E9aD9i5rbrWbWGBJm23hwg2v"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:39:49.999Z",
@@ -22317,6 +22777,9 @@
           "payTos": [
             "ATWJ82T8nRdQwZnaysB68N5EpaSvLRsQP4h6eWmaJBH9"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:34:15.779Z",
@@ -22393,6 +22856,7 @@
           "payTos": [
             "4JVizZAF12UxgMF1Fi1nqcrfBhuuCpHiRM7o9FFfeGdc"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:53:11.061Z",
@@ -22469,6 +22933,7 @@
           "payTos": [
             "32HB1su4wEwq12iPWpi4yeFLYunFwvFmQhrLNCs1WXoP"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:07:10.634Z",
@@ -22584,6 +23049,9 @@
           "payTos": [
             "CtbPTTFMRfULUMz7DjPDRCKXVSBEcAEXeTUq4n7fSFuf"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:15:38.562Z",
@@ -22662,6 +23130,7 @@
           "payTos": [
             "0x6c0752c09e7f6fa6526fcdf40e456a159ebb5621"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:16:46.753Z",
@@ -22777,6 +23246,9 @@
           "payTos": [
             "4a8o45skRPcyjAdyR8yES215Swvh8uTpZD6KLarhxCJ7"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:34:21.457Z",
@@ -22853,6 +23325,7 @@
           "payTos": [
             "CwFB2s4sNi6KoCakopkffNsxLEUzPNmUe23o5frbJ92V"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:35:54.195Z",
@@ -22968,6 +23441,9 @@
           "payTos": [
             "Bd2xS189uhhnxUeBeVF3JFXrg8zQgrvqZtpqh8hgkCEQ"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:35:58.944Z",
@@ -23044,6 +23520,7 @@
           "payTos": [
             "AL9qAUU4KSz4sFvGNbdxXDjjPbqTLvx221TSm2nFVwni"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:46:19.498Z",
@@ -23158,6 +23635,9 @@
           "paidButNotDelivered": 0,
           "payTos": [
             "Gzehfseq1k9AcHFSoV7qHmDGQx92nLMw78XXdqVWQQWa"
+          ],
+          "rebuyChains": [
+            "solana"
           ],
           "payToChanged": false,
           "payToChanges": [],
@@ -23274,6 +23754,9 @@
           "payTos": [
             "9fqXniDAn8hNMYC5C9waGv5u126bkwjU6qGgAoQeoWyo"
           ],
+          "rebuyChains": [
+            "solana"
+          ],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T07:36:06.338Z",
@@ -23350,6 +23833,7 @@
           "payTos": [
             "2snXE93VcwUASLErE29mBoikHb36W6Y7q3r2heYuxzuE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T08:33:41.619Z",
@@ -23641,6 +24125,7 @@
           "payTos": [
             "VTOEM6527WMLHWPTKRBQNQLO5XWGFJC5Z6T7E25TFBKMWP5NFPDP73ZD4U"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:42:05.293Z",
@@ -23922,6 +24407,7 @@
           "payTos": [
             "KGIEWEWNIZWZB4DVGVFW4FAPL3DON6HT5WFHWMDH42SNAYWVPRQ7YBP6EM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:32:38.607Z",
@@ -24104,6 +24590,7 @@
           "payTos": [
             "ZVZV3J2VQNLTH6MNLOL5IHZECJQVXVSVAK3NNJA6FD7LLNZ5NRHQAIL2J4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:35:08.434Z",
@@ -24291,6 +24778,7 @@
             "C7IIHG7SPLPZ5H7ZT6HW3UV2OQMQQE6Y2HBNGZXSLRJULE42BEE2OY2XIE",
             "W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:32:09.042Z",
@@ -24469,6 +24957,7 @@
           "payTos": [
             "LYIVIUSN3FAFIC2NUN6UYU2VN764U6YTCPTIX2O6EWYYU5WHAJHYMVTZM4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:51.117Z",
@@ -24651,6 +25140,7 @@
           "payTos": [
             "6XP7MJKMEPSCZ46RPB42FFRQGF7U5ACXLCXNCXWAVJUSP5J7U3ZFWBRIFQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:44:59.189Z",
@@ -24829,6 +25319,7 @@
           "payTos": [
             "K5HIZPOUUUBQ5WJ6I3DT6NGIQUMALYJYSVVBY7CXA3BYBWY6225DNNBDSA"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:47.024Z",
@@ -25146,6 +25637,7 @@
           "payTos": [
             "IYNQCLXJUQFCQLAQYN4YOUYVHKIRHNIPP3HKBTEJC5666FJDZKY5AFEJUI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:32:52.484Z",
@@ -25330,6 +25822,7 @@
           "payTos": [
             "G3YVTPURK6VFSM5CXEH7QFTZXLCXBJL6UMAIUUYJO4P2XF3MHQ4FUHYYB4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:41:16.649Z",
@@ -25508,6 +26001,7 @@
           "payTos": [
             "NAPHTASVPDGRYORRYM237OSPA26R2TRRG4XFRRFK7K5H64H6HIIIZZIIXY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:33.397Z",
@@ -25690,6 +26184,7 @@
           "payTos": [
             "6CAXBY2AHBOSZ5ODKPGPRLG444OZG2OG7CYJ7MWFNA3GYNTNWW6K5R346A"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:00.419Z",
@@ -25868,6 +26363,7 @@
           "payTos": [
             "JEFVXVSK7ZFXBEVQYU54XLGI555Z2VP5NLXWTC4XA2XWHUWHKTFVGVA6ZY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:05.918Z",
@@ -26046,6 +26542,7 @@
           "payTos": [
             "QWOWU2E6BB76HEQRRMXWZ2MU4HAQIYZWEPP2W7Y377ZRDIW7ZKD4MMMEPM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:48:24.042Z",
@@ -26224,6 +26721,7 @@
           "payTos": [
             "2URXEDGOHVIZYKUPRQGTCFOXJMVRZYUZLLOVX3KWYMB76CAZNOUBYSRM2Q"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:36:15.386Z",
@@ -26442,6 +26940,7 @@
           "payTos": [
             "UWC5Y6N5YWP3MKE2ABBZ42HQGJGRBOOVBUL4WCJFCKSBT5FY4CREDTDKZY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:42:30.023Z",
@@ -26620,6 +27119,7 @@
           "payTos": [
             "F2ZYO2DDPQXOACUYBYQIHMQRAB3TJFZVCNUD3OU3CR5OOJUKFZOF5EYVJ4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:35:06.942Z",
@@ -26803,6 +27303,7 @@
             "CZLL2VSHUW7NB64AY6K3QSYR2GFS3YECTKV3HM5LKPYKOAJZ2MVAKO6KFM",
             "LN745UCDQNFIBDY6JFW7FNK333MADQZQVQFMCVR3GXXUTB52O2NYPZN3YY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:42.862Z",
@@ -26981,6 +27482,7 @@
           "payTos": [
             "2VIU2N25S2TRAJ54ZTUY5CSFADU6Y5KEMKAWTRWR2ODNTPULNGHBKWEPTQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:35:19.277Z",
@@ -27159,6 +27661,7 @@
           "payTos": [
             "2VIU2N25S2TRAJ54ZTUY5CSFADU6Y5KEMKAWTRWR2ODNTPULNGHBKWEPTQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:25.207Z",
@@ -27379,6 +27882,7 @@
           "payTos": [
             "3Y2V6ODUVUGM4TXOEXY65YLMKMVLG4PB3GSOXDCJDE4X5YQA5JA3P2FHAQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:35:03.640Z",
@@ -27557,6 +28061,7 @@
           "payTos": [
             "UEET5PA753P26B6LVUSXUKUYDVM33YLE6ETZWPLJDHJXQDKNYOUZPFKCSU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T05:00:32.693Z",
@@ -27776,6 +28281,7 @@
           "payTos": [
             "NMVLONWVRZUTUSHOVJLPQZTKII4RNCHA33R5HRRWHBCHGMU4BLIKIJAVA4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:27.941Z",
@@ -27994,6 +28500,7 @@
           "payTos": [
             "UTWS33TM7IT7NINJSFWS5KVGL73G4ERJMYDKHF7KE4WDXHYO4L7V2PNMRE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:36.783Z",
@@ -28265,6 +28772,7 @@
           "payTos": [
             "LXPC4GQPYH2EZQX2QDYMHCP2I7MXIZMVRPIYTQ3D7R7HXJ4SIHCSYLF5YA"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:58.634Z",
@@ -28352,6 +28860,7 @@
           "payTos": [
             "N2JSJZCSORMYGYO2NSIYRUEMBFRHEOMYODVXV2MXYYHB5H2JVUGG6NJ4NQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:40:44.934Z",
@@ -28468,6 +28977,7 @@
           "payTos": [
             "MAGKDEWY5IZ6MBYLKGLHN4UWFM2BYCJ5R62C5AU6JASOY2HAS6XP5SHRII"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:53:55.600Z",
@@ -28606,6 +29116,7 @@
           "payTos": [
             "BRSMWTNWFRW26LU7FQ7CG2KY65P5HTCBXX6QAOIEM35NESQFGWM4KWEYDU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:47:34.264Z",
@@ -28696,6 +29207,7 @@
           "payTos": [
             "T2I3FKDS5YRUG26ZK3YVHCK45G2OLNCTGWXIYF6J6M75KZB4Q33UWNRMPQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:48:29.459Z",
@@ -28788,6 +29300,7 @@
           "payTos": [
             "KSAVOYTVNB7A6NKCM4W2WBOOGFHWH2SEGR5T6OGB7THCAT5E36LDFEBTII"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:32:47.558Z",
@@ -28963,6 +29476,7 @@
           "payTos": [
             "X4O2W7XDNXAMPWAURGGL4VDJMZTCO2EDOH7NPWBKFBKOTJQVPUYR5FRAMI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:32:05.095Z",
@@ -29089,6 +29603,7 @@
           "payTos": [
             "ROO3X2KFNJVXIT2ZA6MFYOV7FRRZNVH2WIPO6TDWFVNEHVMQGFT6O4KFLA"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:55:41.625Z",
@@ -29345,6 +29860,7 @@
           "payTos": [
             "R3CUFK5EMFJSHV5TEXMBJOCASYHORZ2F7QCPPVCRWRWVDL5WNLSDOIEHBU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:22.314Z",
@@ -29481,6 +29997,7 @@
           "payTos": [
             "HFHI5MF4C55AYUSQ2JD2AFYMUHWBNSE3SGU6N2YZ5ET5FUZD5YHZHXSWXU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:22.175Z",
@@ -29574,6 +30091,7 @@
           "payTos": [
             "36AZ3YZGHLUFFVU4STAQGSQMRB2W3TK5VVTKZVN6L2LH7NRCK7X27TMEJM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:38.715Z",
@@ -29711,6 +30229,7 @@
             "PFHYLVHX77ANNQVF67LK6EVYB34D5VDIUOWLOL5SX367M366DBLOQQAOCA",
             "UKVN5G2BYZPHMYFBW6C2574F6AZ3F2ACQLBLZJI62RPXBXHDHL62R3Q344"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:30.590Z",
@@ -29845,6 +30364,7 @@
           "payTos": [
             "6L4N4U43DXFDGAAPCSFDJQHBIRQO37W3EX7MHKIHX5DQOAQOME6QWXD57M"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:31.180Z",
@@ -29983,6 +30503,7 @@
           "payTos": [
             "X4O2W7XDNXAMPWAURGGL4VDJMZTCO2EDOH7NPWBKFBKOTJQVPUYR5FRAMI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:32:04.398Z",
@@ -30154,6 +30675,7 @@
           "payTos": [
             "V7XWYKY3WBKWRONX5NTHFNK77A7O3IS7XEMIUJQM6ZLZRWYVNT763I333Y"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:32.658Z",
@@ -30241,6 +30763,7 @@
           "payTos": [
             "DSIIJ6SCGMZ2DYATK7I7GROSUT7INIIZJUE4Q7RSOSUR7PCNUYCX3XIKBI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:00.398Z",
@@ -30353,6 +30876,7 @@
           "payTos": [
             "F22UWM4HD45QKDLNGT66CR6XJEANNRXUF2WKBF42VV333INY3O3YJMF55U"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:03.349Z",
@@ -30527,6 +31051,7 @@
           "payTos": [
             "DZUL7JAPQUVT2YDXG4KTOCOS2BAY33MMYSUWWKJPGFWDS3SGR5TUIUDYNE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:39.477Z",
@@ -30660,6 +31185,7 @@
           "payTos": [
             "3Q3TISRNDGY5KPZKF4DJI6DF3Z6OAJT7OB6UJ6HV7DE4NQONWKIKX4NNHI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:08.780Z",
@@ -30775,6 +31301,7 @@
           "payTos": [
             "MDBJMM6RJ4TM7W5FITZ3MWJTGTHMC4SKQJWRWI2JCQUKIR5LA7BPIUTMMM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T05:00:10.761Z",
@@ -30865,6 +31392,7 @@
           "payTos": [
             "YL63PQ3U4SHJXPBXJZJPNWKLUZ2DYQSJZ36OLWXGF7FOHWPYN4BELUOUPM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:44.851Z",
@@ -31025,6 +31553,7 @@
           "payTos": [
             "OCFUOE44KV6OQ43XWLDKNRBPSMIMPB6QETX3JXU5J36VKUK6ON5G4FSEMM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:29.817Z",
@@ -31181,6 +31710,7 @@
           "payTos": [
             "3QAJXJVG2Z4IPEKC53SYVHL7P5ILE3CT2T3BW6VPJ5WCOY7M7QDJHELWNY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:43:42.057Z",
@@ -31357,6 +31887,7 @@
             "IQ5SGZDKKOXUKNNX4JH5MXZTVUWZM5SXGD5LIG7FXASOAVFZ2QBMJLSFII",
             "XJCCGGJ6FL6CFYNXCTO6Q5YQ7E2OIYVRX2G3BVZUF4JOL36HSJRPLYHW5E"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:40.847Z",
@@ -31513,6 +32044,7 @@
           "payTos": [
             "GGQONOVC3OCAFO3ROR5TPFUKWDPXIN5TDKRT7QPUVGZWEMLIYBWHBPMZGU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:56:36.423Z",
@@ -31603,6 +32135,7 @@
           "payTos": [
             "QSNLPPXO64ONBD76E2DLZW6XER5GUV4YPQYHDFJUO2N3IO4RYBL5HRU6EY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:44:01.272Z",
@@ -31712,6 +32245,7 @@
           "payTos": [
             "GBRO5EM4JM57PDPS4A533V7JZNWFWB7S6IRT5UZNQYPPUN7XEEGJLEHW6I"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:36:18.867Z",
@@ -31799,6 +32333,7 @@
           "payTos": [
             "OXESK3LFOPIKWMK655PIE4ZVP35KKVAALCOIRIJP6X2SSDU3UBRZMGCCGE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:39:39.962Z",
@@ -31911,6 +32446,7 @@
           "payTos": [
             "N2BHBOQEI5TQQKFKHDRDUACAZE6E55X6VO2U67IQAYBRRLB7LSMO6YRQSM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:34:50.429Z",
@@ -31989,6 +32525,7 @@
           "payTos": [
             "E64BQIOXKTT4BVMIFY2S5WX337FT6MLF66UPZEUPDYAKT4QIFOXXQCR24Q"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:56:38.453Z",
@@ -32093,6 +32630,7 @@
           "payTos": [
             "ZDBEB4LRD6XQRRJGA77UZ5JQOUV2DBKPVF3BOB3MWXT74UX3PPSQYV4QUI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:36:24.119Z",
@@ -32183,6 +32721,7 @@
           "payTos": [
             "PJOXFIBKVKGYGMCW3346P5N4OATMODZYM3VQOXDAEUTIGAOGRYGTIO3NME"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:44:51.172Z",
@@ -32309,6 +32848,7 @@
           "payTos": [
             "IBT3GDU2Q4KBMSANMIM4CILEMGP7ABN7XKTJHD2XRLVIB2FHJ2FCSNQGZ4"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:44:46.962Z",
@@ -32399,6 +32939,7 @@
           "payTos": [
             "2PWGUKE4VWUXXZ3IPPX2W4FUTVXAW3HQLBO2GZJZFX4UXWFNSUMWEGSSXE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:40:31.181Z",
@@ -32489,6 +33030,7 @@
           "payTos": [
             "UDCHQAUAOXG2VF4XDCX7CVBAPFU4IPF7GNKUFCOFODLCWDGIQVEXLT6ZGY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:16.661Z",
@@ -32627,6 +33169,7 @@
           "payTos": [
             "E2F2LT2INE75DBOYHQXTCTOP2PAP5MHAXQRXTTCCXFKHQTVG36DJONBQZE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:40:31.246Z",
@@ -32742,6 +33285,7 @@
           "payTos": [
             "4OEOVSKSZGG5QGIQ5UUSBAOF3AKR5PP5YZ2K2FKP2SIGEYK3NG4CO6MN4M"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:40:32.939Z",
@@ -32832,6 +33376,7 @@
           "payTos": [
             "2U3QYTQOHP4SMDUGWNFLNFQPRK2DFTZPFV7P76GV6ENXITYVXOMRAGDVEE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:50:03.545Z",
@@ -32922,6 +33467,7 @@
           "payTos": [
             "LGT47RVH6STHJF5PWU3BX2S5D4M5UN2TFXOESL34KDFRXMEYDCDVQWCM6M"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:37:57.436Z",
@@ -33012,6 +33558,7 @@
           "payTos": [
             "XFVBA5GJAXJBRWLERVOTZH57NEGPCOP276U4N2E2LCMYWVVESQQPAPBODQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:52:13.986Z",
@@ -33121,6 +33668,7 @@
           "payTos": [
             "UTI7PAASILRDA3ISHY5M7J7LNRX2AIVQJWI7ZKCCGKVLMFD3VPR5PWSZ4I"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T05:00:38.773Z",
@@ -33241,6 +33789,7 @@
           "payTos": [
             "TVXYBRI6H5M5RIPQEHS5ZZOXR7RS3FUVYKIJ3DTV6C6F5ULLQEZM47OKRM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:25.405Z",
@@ -33331,6 +33880,7 @@
           "payTos": [
             "LN745UCDQNFIBDY6JFW7FNK333MADQZQVQFMCVR3GXXUTB52O2NYPZN3YY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:42.414Z",
@@ -33435,6 +33985,7 @@
           "payTos": [
             "FL7U7GHUZB2R6RACPGY5UFD2K47CP2IL4RQWX7LKYE5QSFGXVJCDGPRLBE"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:50:39.457Z",
@@ -33561,6 +34112,7 @@
           "payTos": [
             "PYVM5MTQWQD3RAJWE6E6DGTMNL4NP5SWLXCPMUS7GV4POAEMUPWI52F3ZA"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:36.651Z",
@@ -33654,6 +34206,7 @@
           "payTos": [
             "EQPLN32HPLPGBCNPOZUL6BL34CTNQGT3VAAMNAJWSIZGQ5CUNXOHB634XY"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:50:09.314Z",
@@ -33743,6 +34296,7 @@
           "payTos": [
             "X4BGQO53SBYIPXGE22E3C4BXJZKYKUYG3PZQVDBNUIVB64D6K7MEVGGCSM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:57:00.677Z",
@@ -33852,6 +34406,7 @@
           "payTos": [
             "X4BGQO53SBYIPXGE22E3C4BXJZKYKUYG3PZQVDBNUIVB64D6K7MEVGGCSM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:52:17.611Z",
@@ -33939,6 +34494,7 @@
           "payTos": [
             "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:57:06.151Z",
@@ -34029,6 +34585,7 @@
           "payTos": [
             "2LDR3ULZ4IPJUHEPPFF2KMAAX4DB3OEK6QVW7H7EHLGN4X35L3GGMNLYFU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:46:38.872Z",
@@ -34107,6 +34664,7 @@
           "payTos": [
             "3XFFLNEAJSRDYAFDJQLXV5NFMBHGVXVHHDHPIQZU7EDOD6FRFWPDLU25PM"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-28T01:27:09.182Z",
@@ -34197,6 +34755,7 @@
           "payTos": [
             "NE3HBSH4MZLCJ3G5UPYBTIHGRCQ5M7K5N2ROWCBK6EQFR62FEROLBVQTTQ"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:57:19.686Z",
@@ -34284,6 +34843,7 @@
           "payTos": [
             "X4O22L6VU7UUUB5QNHHNMGZIQMG44MF4TVMMKOLXJLAUXHUQT3JLG5CZCI"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:47:06.570Z",
@@ -34456,6 +35016,7 @@
           "payTos": [
             "5GKJCOCBF6NDII6RCTP2CDOTTJ4ACHE3QYJYHQOLI23E254BDUBTZKY6GA"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:36:32.944Z",
@@ -34549,6 +35110,7 @@
           "payTos": [
             "DIIISCOGT3OTYBKUBVJNW7YOC36N3UAXOK4QTWW46PGBWE24YXFMAX5YDU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:47:28.992Z",
@@ -34636,6 +35198,7 @@
           "payTos": [
             "CXFBDEPZS4A3E5KCZCT4FE2SGRAOXR4PHUP3Z5434BVCRYPLHDTUMTNSRU"
           ],
+          "rebuyChains": [],
           "payToChanged": false,
           "payToChanges": [],
           "firstAt": "2026-09-27T04:47:04.159Z",

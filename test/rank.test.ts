@@ -14,7 +14,7 @@ import {
   normalizeTempoLedger,
   parseTempoRunLog,
 } from "../src/rank/normalize.js";
-import { buildReport, REBUY_FIRST_DAY, REBUY_LAST_DAY, REBUY_LINE, REBUY_SHORT } from "../src/rank/report.js";
+import { buildReport, REBUY_FIRST_DAY, REBUY_LAST_DAY, rebuyEnded, rebuyLine, rebuySeller, rebuyShort } from "../src/rank/report.js";
 import { decideVerdict } from "../src/receipt/build.js";
 import { aggregate, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
@@ -553,9 +553,70 @@ test("rebuy copy: the last day is the day before run.sh's default VET402_DAILY_E
   assert.ok(REBUY_FIRST_DAY < REBUY_LAST_DAY);
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const rankReadme = readFileSync(new URL("../src/rank/README.md", import.meta.url), "utf8");
-  for (const [name, text] of [["README.md", readme], ["src/rank/README.md", rankReadme], ["REBUY_LINE", REBUY_LINE], ["REBUY_SHORT", REBUY_SHORT]] as const) {
+  const texts: [string, string][] = [["README.md", readme], ["src/rank/README.md", rankReadme]];
+  for (const ended of [false, true]) texts.push([`rebuyLine(${ended})`, rebuyLine(ended)], [`rebuyShort(${ended})`, rebuyShort(ended)], [`rebuySeller(${ended})`, rebuySeller(["solana", "tempo"], ended)!]);
+  for (const [name, text] of texts) {
     assert.ok(!/once a day|about once|two slots a day/i.test(text), name);
   }
-  assert.ok(readme.includes(`From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}`), "README.md names the window");
-  assert.ok(REBUY_LINE.includes("twice on Solana and once on Tempo"));
+  assert.ok(readme.includes(`${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}`), "README.md names the window");
+  assert.ok(rebuyLine(false).includes("twice on Solana and once on Tempo"));
+});
+
+const rebuyReport = (generatedAt: string, attempts: Attempt[]) =>
+  buildReport({ date: generatedAt.slice(0, 10), generatedAt, attempts, excludeHosts: [], cdp: null, mercator: null, inputs: [] });
+
+test("rebuy on seller pages: only sellers with rows in data/remeasure/, not every seller whose payTo is shared with one", () => {
+  // Two Tempo sellers behind one payTo (as the Locus hosts): only one of them is in the remeasure data.
+  const attempts = [
+    att({ chain: "tempo", source: "tempo/ledger", host: "a.shared.example", url: "https://a.shared.example/x", payTo: "0xSHARED", at: DAY1 }),
+    att({ chain: "tempo", source: "tempo/ledger", host: "b.shared.example", url: "https://b.shared.example/x", payTo: "0xSHARED", at: DAY1 }),
+    att({ chain: "tempo", source: "remeasure/tempo-2026-09-30", host: "a.shared.example", url: "https://a.shared.example/x", payTo: "0xSHARED", at: DAY2 }),
+    att({ chain: "solana", source: "solana/census", host: "sol.example", url: "https://sol.example/x", payTo: "SOLPAY", at: DAY1 }),
+    att({ chain: "solana", source: "remeasure/solana-2026-09-30", host: "sol.example", url: "https://sol.example/x", payTo: "SOLPAY", at: DAY2 }),
+    att({ chain: "solana", source: "solana/census", host: "once.example", url: "https://once.example/x", payTo: "ONCE", at: DAY1 }),
+  ];
+  const report = rebuyReport("2026-09-30T04:00:00.000Z", attempts);
+  const main = report.groups.find((g) => g.id === "main")!;
+  const by = (k: string) => main.ranking.find((s) => s.key === k)!;
+  assert.deepEqual(by("a.shared.example").rebuyChains, ["tempo"]);
+  assert.deepEqual(by("b.shared.example").rebuyChains, []);
+  assert.deepEqual(by("sol.example").rebuyChains, ["solana"]);
+  const pages = renderSite(report);
+  const page = (k: string) => pages.get(`seller/${k}.html`)!;
+  assert.ok(page("a.shared.example").includes("vet402 buys this seller again every day (once on Tempo), at the same price and to the same payTo."));
+  assert.ok(page("sol.example").includes("vet402 buys this seller again every day (twice on Solana), at the same price and to the same payTo."));
+  for (const k of ["b.shared.example", "once.example"]) {
+    assert.ok(!/buys (this seller )?again|bought (this seller )?again/.test(page(k)), `${k}: no rebuy sentence`);
+    assert.ok(page(k).includes("It costs the seller nothing"), `${k}: the rest of the line stays`);
+  }
+});
+
+test("rebuy tense: present through the last day, past in a report generated after it (index, seller page, rank.json)", () => {
+  assert.equal(rebuyEnded(`${REBUY_LAST_DAY}T23:59:59.999Z`), false);
+  assert.equal(rebuyEnded("2026-10-09T00:00:00.000Z"), true);
+  const attempts = [
+    att({ chain: "tempo", source: "tempo/ledger", host: "a.example", url: "https://a.example/x", at: DAY1 }),
+    att({ chain: "tempo", source: "remeasure/tempo-2026-09-30", host: "a.example", url: "https://a.example/x", at: DAY2 }),
+  ];
+  for (const [at, verb] of [["2026-10-08T13:30:00.000Z", "buys"], ["2026-10-09T01:00:00.000Z", "bought"]] as const) {
+    const report = rebuyReport(at, attempts);
+    const pages = renderSite(report);
+    const window = `From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 ${verb} again every day`;
+    assert.ok(report.method.measurement.includes(`${window} from the Solana and Tempo sellers`), `rank.json ${at}`);
+    assert.ok(pages.get("index.html")!.includes(`${window} (twice on Solana, once on Tempo)`), `index ${at}`);
+    assert.ok(pages.get("seller/a.example.html")!.includes(`From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}, vet402 ${verb} this seller again every day (once on Tempo)`), `seller page ${at}`);
+    const other = verb === "buys" ? "bought" : "buys";
+    assert.ok(!report.method.measurement.includes(`vet402 ${other} again`), `rank.json ${at} has one tense`);
+  }
+});
+
+test("README.md: no fixed counts from a report (the daily publish commits only data/ and site/); every told seller is named", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.ok(!/\d[\d,]* payments settled/.test(readme), "no 'N payments settled'");
+  assert.ok(!/\d[\d,]* came back with an answer/.test(readme), "no 'N came back with an answer'");
+  assert.ok(!/numbers above are from the report of/i.test(readme), "no 'numbers above are from the report of'");
+  assert.ok(readme.includes("`site/rank.json` (`totals`)"), "points to the live totals");
+  const notified = JSON.parse(readFileSync(new URL("../data/records/notified.json", import.meta.url), "utf8")) as { sellers: { seller: string }[] };
+  for (const { seller } of notified.sellers) assert.ok(readme.includes(`\`${seller}\``), `README.md names told seller ${seller}`);
+  assert.ok(!/empty for now/i.test(readme));
 });

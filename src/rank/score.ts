@@ -175,6 +175,8 @@ export interface SellerStats {
   /** Tried rows that settled on-chain (tx) and still did not deliver. */
   paidButNotDelivered: number;
   payTos: string[];
+  /** Chains on which this seller has rows in the remeasure inputs (data/remeasure/): it is bought again there. */
+  rebuyChains: Chain[];
   payToChanged: boolean;
   payToChanges: PayToChange[];
   firstAt: string;
@@ -332,6 +334,7 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
       }),
       paidButNotDelivered: tried.filter((r) => !r.delivered && r.settled === true && r.tx !== null).length,
       payTos,
+      rebuyChains: [...new Set(rows.filter((r) => r.source.startsWith("remeasure/")).map((r) => r.chain))].sort(),
       payToChanged: changes.length > 0,
       payToChanges: changes,
       firstAt: first.at,

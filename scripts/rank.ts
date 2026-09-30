@@ -10,6 +10,8 @@
  *   npm run rank -- --data data --offline   # only the published copies in data/ (data/manifest.json), no network
  *
  * --out <dir> writes rank-<date>.json and rank-<date>/ there instead of results/.
+ * --generated-at <ISO time> sets generatedAt (default now), so a published report can be rebuilt exactly:
+ * the rebuy sentence turns to the past tense in reports generated after its last day.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -82,6 +84,8 @@ const manifest = dataDir ? (JSON.parse(readFileSync(join(dataDir, "manifest.json
 const offline = args.includes("--offline") || dataDir !== null;
 const date = argValue("--date") ?? manifest?.date ?? new Date().toISOString().slice(0, 10);
 if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`bad --date ${date}`);
+const generatedAt = argValue("--generated-at") ?? new Date().toISOString();
+if (!Number.isFinite(Date.parse(generatedAt)) || new Date(Date.parse(generatedAt)).toISOString() !== generatedAt) throw new Error(`bad --generated-at ${generatedAt}`);
 const outDir = argValue("--out") ? resolve(argValue("--out")!) : join(ROOT, "results");
 
 const inputs: InputRecord[] = [];
@@ -183,7 +187,7 @@ async function main(): Promise<void> {
 
   const report = buildReport({
     date,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     attempts,
     excludeHosts: OWN_HOSTS,
     cdp,

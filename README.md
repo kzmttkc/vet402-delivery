@@ -2,7 +2,7 @@
 
 Before an AI agent pays for an API, vet402 has already bought it with its own money and shows what came back, with the payment on chain.
 
-On Solana, Tempo and Base, from 2026-09-28 to 2026-09-29 (UTC): 443 purchases from 220 sellers. 391 payments settled; 334 came back with an answer. In 57 cases the payment settled and nothing usable came back.
+On Solana, Tempo and Base since 2026-09-28 (UTC). The current counts (purchases, sellers, payments settled, answers that came back, and payments that settled with nothing usable back) are at the top of the site and in `site/rank.json` (`totals`).
 
 - **See the results:** https://kzmttkc.github.io/vet402-delivery/ (Solana, Tempo and Base first; Algorand on its own page)
 - **Check one record yourself, no account and no payment:** from a clone of this repository, `npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000001.json`
@@ -18,9 +18,9 @@ How vet402 pays for this: Grades come only from vet402's own purchases. vet402 a
 
 Where Solana comes in: vet402 pays Solana sellers in USDC on Solana, and writes the Merkle root of each day's signed delivery records into one Solana memo, so a record of that day cannot be added or dropped later without the root changing.
 
-The numbers above are from the report of 2026-09-29 (`site/rank.json`). The site is rebuilt from `data/` on every push to main, so it shows the purchases whose results have been committed to `data/`, not ones still waiting to be copied there.
+This README carries no counts: the daily publish commits only `data/` and `site/`, so counts written here would fall behind. The site is rebuilt from `data/` on every push to main, so it shows the purchases whose results have been committed to `data/`, not ones still waiting to be copied there.
 
-This repository is the multi-chain part of vet402. It buys the sellers it can on **Solana** (from the PayAI, CDP Bazaar and Pay.sh catalogs) and **Tempo** (from Tempo's Mercator directory), and on **Base** the sellers registered in ERC-8004 (8 purchases from 8 sellers on 2026-09-28, each bought once). From 2026-09-29 to 2026-10-08 it buys again every day from the Solana and Tempo sellers whose earlier payment settled (twice on Solana, once on Tempo), keeps every result with its payment, and grades sellers by what was actually delivered, not by how popular a listing is.
+This repository is the multi-chain part of vet402. It buys the sellers it can on **Solana** (from the PayAI, CDP Bazaar and Pay.sh catalogs) and **Tempo** (from Tempo's Mercator directory), and on **Base** the sellers registered in ERC-8004 (8 purchases from 8 sellers on 2026-09-28, each bought once). Remeasure window: 2026-09-29 to 2026-10-08 (UTC days), every day, twice on Solana and once on Tempo, one seller per payTo among the Solana and Tempo sellers whose earlier payment settled. It keeps every result with its payment, and grades sellers by what was actually delivered, not by how popular a listing is.
 
 ## What is here
 
@@ -34,7 +34,7 @@ This repository is the multi-chain part of vet402. It buys the sellers it can on
 | Public site | Static pages (Solana, Tempo and Base results first, an Algorand page, one page per seller, the method) and `rank.json`, built from the inputs in `data/` and served by GitHub Pages | `scripts/build-site.ts`, `site/`, `data/` |
 | First-buyer mode | Buys once, for life, from each Solana seller (payTo) that no one has paid yet, and publishes whether it settled and delivered, or why it cannot be paid | `scripts/first-buyer.ts`, `src/first-buyer/` |
 | Delivery records | One signed record per purchase (x402-observation/v0): what vet402 paid, on which chain, and what came back, with a Merkle proof into a daily root that is written into a Solana memo | `src/receipt/`, `scripts/build-receipts.ts`, `scripts/publish-records.ts`, `scripts/anchor-receipts.ts`, `data/records/`, `site/records/` |
-| Remeasure | Buys again every day from 2026-09-29 to 2026-10-08, twice on Solana and once on Tempo, from sellers vet402 already paid (payment settled), so the ranking gets purchases on more than one day | `scripts/remeasure.ts`, `src/remeasure/` |
+| Remeasure | Buys again from sellers vet402 already paid (payment settled), one seller per payTo, so the ranking gets purchases on more than one day. Window: 2026-09-29 to 2026-10-08 (UTC days), every day, twice on Solana and once on Tempo | `scripts/remeasure.ts`, `src/remeasure/` |
 | Solana feedback | Writes the outcome of a paid Solana purchase to the 8004-solana reputation registry (the Solana port of ERC-8004), from the wallet that paid, with the published delivery record as the feedback file | `scripts/solana-feedback.ts`, `src/solana-feedback/` |
 
 ## Money safety
@@ -78,7 +78,7 @@ Each purchase can become a record signed by vet402's observation key (listed in 
 
 What is published (`data/records/`, served at https://kzmttkc.github.io/vet402-delivery/records/):
 - DELIVERED records are published.
-- NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure. They are published only after vet402 has told that seller, and only for the sellers listed in `data/records/notified.json`. A seller is the ranking's seller: the host, or `host#service` when one host fronts several services that each pay their own recipient. An entry matches only that exact seller, so listing a bare host never publishes the failures of another service behind the same host. That list is empty for now, so none of them are published. The daily root still covers them, so no record can be added or dropped later without changing the root.
+- NOT_DELIVERED, MISMATCH and UNCLEAR records name a seller next to a failure. They are published only after vet402 has told that seller, and only for the sellers listed in `data/records/notified.json`. A seller is the ranking's seller: the host, or `host#service` when one host fronts several services that each pay their own recipient. An entry matches only that exact seller, so listing a bare host never publishes the failures of another service behind the same host. On 2026-09-30 it listed one seller, `api.xona-agent.com`, told in issue xona-labs/creative-ai-agent#1, and that seller's 3 NOT_DELIVERED records of 2026-09-28 and 2026-09-29 were published the same day. The counts per day are in `data/records/index.json`. The daily root still covers them, so no record can be added or dropped later without changing the root.
 - `scripts/build-site.ts` stops if `data/records/` holds a record this policy does not allow, a record that does not verify, or a file that `data/records/index.json` does not list.
 
 Check a published record, with no account and no payment:
@@ -129,7 +129,7 @@ npm run receipts:anchor -- --day 2026-09-28 --resume --send   # only if the line
 
 The ranking gives a rank number only after 10 counted purchases on 2 or more UTC days. Remeasure buys again only from sellers vet402 already paid, so each seller's record grows day by day. It never buys from a new seller.
 
-From 2026-09-29 to 2026-10-08, vet402 buys again every day: twice on Solana and once on Tempo (the ledger allows one purchase per recipient per slot per UTC day). The runs of 2026-09-29 were started by hand; from 2026-09-30 the daily runner below starts them. The days it ran are the files in data/remeasure/.
+Remeasure window: 2026-09-29 to 2026-10-08 (UTC days), every day, twice on Solana and once on Tempo. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo (on Tempo many services do), one of them is bought again and the others are not; only a seller with rows in data/remeasure/ has the rebuy sentence on its page. The runs of 2026-09-29 were started by hand; from 2026-09-30 the daily runner below starts them. The days it ran are the files in data/remeasure/. The site states the window in the present tense until 2026-10-08 and in the past tense in any report generated after it.
 
 - Who: the settled purchases in `data/` (Solana census and gate1 results, the Tempo ledger). The payTo and price are locked to that earlier payment. A live 402 that names another payTo is not paid and is recorded as `pay_to_changed`; a higher price is not paid either.
 - How many: one purchase per payTo per run (`--per-payto` up to 5), at least 60 s apart for the same payTo. A payTo with several resources gets them in a fixed order, cheapest first, so the same resource adds up.

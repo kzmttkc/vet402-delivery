@@ -2,7 +2,7 @@
  * The public site (site/) and its inputs (data/):
  *  - seller-controlled strings are escaped on every page
  *  - a rank number only goes to sellers with MIN_COUNTED counted purchases on MIN_DAYS days
- *  - npm run rank -- --data data reproduces site/rank.json (apart from generatedAt)
+ *  - npm run rank -- --data data --generated-at <published> reproduces site/rank.json exactly
  *  - data/ and site/ hold no secrets
  *  - the pages' own wording: no we/us/our, no Japanese, no em dash
  */
@@ -240,11 +240,11 @@ test("data/: every file matches the manifest sha256, and rank --data reproduces 
   }
   const out = mkdtempSync(join(tmpdir(), "vet402-rank-"));
   try {
-    execFileSync(process.execPath, ["--import", "tsx", join(ROOT, "scripts", "rank.ts"), "--data", join(ROOT, "data"), "--offline", "--out", out], { cwd: ROOT, stdio: "pipe" });
-    const fresh = JSON.parse(readFileSync(join(out, `rank-${manifest.date}.json`), "utf8")) as RankReport;
     const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
-    const strip = (r: RankReport) => ({ ...r, generatedAt: "" });
-    assert.deepEqual(strip(fresh), strip(pub));
+    // Rebuilt at the published generatedAt: the wording that depends on it (rebuy tense) is then the same.
+    execFileSync(process.execPath, ["--import", "tsx", join(ROOT, "scripts", "rank.ts"), "--data", join(ROOT, "data"), "--offline", "--out", out, "--generated-at", pub.generatedAt], { cwd: ROOT, stdio: "pipe" });
+    const fresh = JSON.parse(readFileSync(join(out, `rank-${manifest.date}.json`), "utf8")) as RankReport;
+    assert.deepEqual(fresh, pub);
     for (const i of fresh.inputs) assert.ok(i.location.startsWith("data/"), `${i.label} read from data/`);
     const pages = renderPublicSite(fresh, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))) });
     for (const [rel, html] of pages) assert.equal(html, readFileSync(join(ROOT, "site", rel), "utf8"), `site/${rel} is up to date`);
