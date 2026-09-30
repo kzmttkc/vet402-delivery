@@ -64,8 +64,9 @@ pub mod observation_roots {
     }
 
     /// Checks that `fields` describe a record inside the day's root. On success the
-    /// result (verdict, sequence, digest) is returned through set_return_data, so a
-    /// calling program reads it with `observation_roots::cpi::verify(...)?.get()`.
+    /// result (verdict, sequence, digest) is returned through set_return_data. A calling
+    /// program reads it with `observation_roots::verify_cpi(...)`, which checks the program
+    /// id and where the return data came from (Anchor's `Return::get` checks neither).
     /// A record that is not in the root fails the instruction.
     pub fn verify(ctx: Context<Verify>, day: u32, fields: ObservationFields, proof: Vec<[u8; 32]>) -> Result<VerifyResult> {
         require!(proof.len() <= MAX_PROOF_LEN, RootsError::ProofTooLong);

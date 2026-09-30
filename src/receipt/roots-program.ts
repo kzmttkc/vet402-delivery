@@ -14,10 +14,16 @@ import { VERDICTS, type Observation, type VerdictCode } from "./types.js";
 /** Devnet deployment. Mainnet has no deployment yet. */
 export const ROOTS_PROGRAM_DEVNET = "58HtYvvBLCQisVNQyiSgFi9go6JY7CGpbiqhzqJDtknf";
 export const GATE_EXAMPLE_PROGRAM_DEVNET = "BTVeASLyz5HvRz1eKChUgBj6hFbn89orEyGuTUW2yrUH";
+export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+/**
+ * The one observation-roots program a signing path may call, by the cluster's genesis hash. A cluster
+ * that is not listed (mainnet, today) has no deployment, and nothing is signed for it.
+ */
+export const ROOTS_PROGRAM_BY_GENESIS: Readonly<Record<string, string>> = { [DEVNET_GENESIS]: ROOTS_PROGRAM_DEVNET };
 export const BPF_LOADER_UPGRADEABLE = "BPFLoaderUpgradeab1e11111111111111111111111";
 export const SYSTEM_PROGRAM = "11111111111111111111111111111111";
 
-/** Bytes of a DayRoot account (8 discriminator + 101 data). */
+/** Bytes of a DayRoot account (8 discriminator + 93 data). */
 export const DAY_ROOT_ACCOUNT_BYTES = 8 + 4 + 32 + 4 + 8 + 8 + 20 + 8 + 8 + 1;
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest();
@@ -129,7 +135,7 @@ export function fieldsFromObservation(obs: Observation, hashed: readonly StringF
  * The smallest encoding: every string longer than 32 bytes travels as its hash, except the fields in
  * `keepRaw` (the ones the calling program compares). Same digest either way.
  */
-export function compactFields(obs: Observation, keepRaw: readonly StringFieldName[] = ["payTo", "transaction"]): ObservationFields {
+export function compactFields(obs: Observation, keepRaw: readonly StringFieldName[] = ["network", "payTo", "transaction"]): ObservationFields {
   const m = observationMessage(obs);
   const long = STRING_FIELDS.filter((k) => !keepRaw.includes(k) && Buffer.byteLength(m[k] as string) > 32);
   return fieldsFromObservation(obs, long);
@@ -246,17 +252,18 @@ export async function verifyIx(a: { program: string; day: string; fields: Observ
   };
 }
 
-/** The example caller: passes only when the record for (payTo, transaction) is DELIVERED. */
+/** The example caller: passes only when the record for (network, payTo, transaction) is DELIVERED. */
 export async function requireDeliveredIx(a: {
   gate: string;
   program: string;
+  network: string;
   payTo: string;
   transaction: string;
   day: string;
   fields: ObservationFields;
   proof: readonly string[];
 }): Promise<Instruction> {
-  const w = new Writer().fixed(ixDiscriminator("require_delivered"), 8).string(a.payTo).string(a.transaction).u32(dayNumber(a.day));
+  const w = new Writer().fixed(ixDiscriminator("require_delivered"), 8).string(a.network).string(a.payTo).string(a.transaction).u32(dayNumber(a.day));
   encodeFields(w, a.fields);
   writeProof(w, a.proof);
   return {

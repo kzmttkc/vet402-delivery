@@ -5,12 +5,13 @@
  *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --send           # sign and send once
  *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --resume         # read the chain after an interrupted send
  *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --resume --send  # ... and send again if it is safe
- *   VET402_ROOTS_PROGRAM=<id> npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --post-root          # simulate post_root
- *   VET402_ROOTS_PROGRAM=<id> npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --post-root --send   # write it
+ *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --post-root          # simulate post_root
+ *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --post-root --send   # write it
  *
  * --post-root (off by default) copies an already anchored day's root into the observation-roots program
  * (src/receipt/roots-post.ts), after checking the day's memo on chain. The memo stays the primary record.
- * VET402_ROOTS_RPC selects the cluster of the program (default SOLANA_RPC_URL).
+ * VET402_ROOTS_RPC selects the cluster (default SOLANA_RPC_URL); the program is the one pinned for that
+ * cluster's genesis in ROOTS_PROGRAM_BY_GENESIS, and a cluster without one (mainnet, today) is refused.
  *
  * Records are read from ~/vet402-solana-receipt/results/receipts, the one place the signed records are
  * built. --from <dir> reads elsewhere for a simulation; --send and --resume refuse any other folder
@@ -33,6 +34,7 @@ import { PAYER_ADDRESS } from "../src/constants.js";
 import { dayRoot, plan, readDay, resume, send, type AnchorDeps } from "../src/receipt/anchor-run.js";
 import { checkAnchorOnChain } from "../src/receipt/chain.js";
 import { planPostRoot, postRootArgsFromRecord, sendPostRoot, type PostRootDeps } from "../src/receipt/roots-post.js";
+import { ROOTS_PROGRAM_BY_GENESIS } from "../src/receipt/roots-program.js";
 import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
 import { RM_PROD_DIR } from "../src/remeasure/constants.js";
 
@@ -88,9 +90,13 @@ const deps: AnchorDeps = {
 if (args.includes("--post-root")) {
   // Off unless asked for: mirror the day's memo into the observation-roots program.
   // Only a day whose memo is already on chain qualifies; the memo stays the primary record.
-  const program = process.env.VET402_ROOTS_PROGRAM;
+  // The program is pinned per cluster (src/receipt/roots-program.ts), never taken from the environment:
+  // the key that signs here is vet402's anchor wallet.
+  const rootsRpc = jsonRpc(process.env.VET402_ROOTS_RPC ?? process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com");
+  const genesis = (await rootsRpc("getGenesisHash", [])) as string;
+  const program = ROOTS_PROGRAM_BY_GENESIS[genesis];
   if (!program) {
-    console.error("--post-root needs VET402_ROOTS_PROGRAM (the observation-roots program id on this cluster)");
+    console.error(`not posting: no observation-roots deployment is pinned for the cluster with genesis ${genesis}`);
     process.exit(2);
   }
   const obs = readDay(deps);
@@ -105,7 +111,7 @@ if (args.includes("--post-root")) {
     process.exit(2);
   }
   const rootsDeps: PostRootDeps = {
-    rpc: jsonRpc(process.env.VET402_ROOTS_RPC ?? process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com"),
+    rpc: rootsRpc,
     program,
     feePayer: PAYER_ADDRESS,
     loadSigner: deps.loadSigner,

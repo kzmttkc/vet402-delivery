@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
+import { AccountRole, address, generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
 import { keccak256, stringToBytes, type Hex } from "viem";
 import { jsonRpc, type Rpc } from "../../src/chain.js";
 import { observationDigest } from "../../src/receipt/eip712.js";
@@ -30,6 +30,7 @@ import {
   postRootIx,
   requireDeliveredIx,
   ROOTS_PROGRAM_DEVNET as ROOTS,
+  SYSTEM_PROGRAM,
   verifyIx,
   type ObservationFields,
   type StringFieldName,
@@ -155,6 +156,21 @@ describe("post_root", () => {
   });
 
   test("posts the real 2026-09-28 and 2026-09-29 roots through the anchor module (roots-post.ts)", async () => {
+    // Someone sends lamports to the 2026-09-29 PDA first: the post must still go through.
+    const data = new Uint8Array(12);
+    new DataView(data.buffer).setUint32(0, 2, true);
+    new DataView(data.buffer).setBigUint64(4, 1_000_000n, true);
+    const pre = await sendIxs(rpc, stranger, [
+      {
+        programAddress: address(SYSTEM_PROGRAM),
+        accounts: [
+          { address: stranger.address, role: AccountRole.WRITABLE_SIGNER },
+          { address: await dayRootPda(ROOTS, "2026-09-29"), role: AccountRole.WRITABLE },
+        ],
+        data,
+      },
+    ]);
+    assert.equal(pre.err, null);
     for (const day of DAYS) {
       const a = postRootArgsFromRecord(records[day][0]!);
       const deps = { rpc, program: ROOTS, feePayer: poster.address, loadSigner: async () => poster, pollMs: 400 };
@@ -251,11 +267,12 @@ describe("verify", () => {
 });
 
 describe("delivery-gate-example (CPI)", () => {
-  const gate = async (o: Observation, over: { payTo?: string; transaction?: string; fields?: ObservationFields } = {}) =>
+  const gate = async (o: Observation, over: { network?: string; payTo?: string; transaction?: string; fields?: ObservationFields } = {}) =>
     simulateIxs(rpc, poster.address, [
       await requireDeliveredIx({
         gate: GATE,
         program: ROOTS,
+        network: over.network ?? o.payment.network,
         payTo: over.payTo ?? o.payment.payTo,
         transaction: over.transaction ?? o.payment.transaction,
         day: o.anchor!.day,
@@ -285,7 +302,7 @@ describe("delivery-gate-example (CPI)", () => {
   test("a landed gate transaction", async () => {
     const o = records["2026-09-28"].find((x) => x.verdict.code === "DELIVERED")!;
     const r = await sendIxs(rpc, poster, [
-      await requireDeliveredIx({ gate: GATE, program: ROOTS, payTo: o.payment.payTo, transaction: o.payment.transaction, day: o.anchor!.day, fields: fieldsFromObservation(o), proof: o.anchor!.proof }),
+      await requireDeliveredIx({ gate: GATE, program: ROOTS, network: o.payment.network, payTo: o.payment.payTo, transaction: o.payment.transaction, day: o.anchor!.day, fields: fieldsFromObservation(o), proof: o.anchor!.proof }),
     ]);
     assert.equal(r.err, null, r.logs.join("\n"));
   });
@@ -297,6 +314,7 @@ describe("delivery-gate-example (CPI)", () => {
     const o = records["2026-09-29"].find((x) => x.verdict.code === "DELIVERED")!;
     assert.equal(customError((await gate(o, { payTo: "11111111111111111111111111111111" })).err), G.OtherPurchase);
     assert.equal(customError((await gate(o, { transaction: "x" })).err), G.OtherPurchase);
+    assert.equal(customError((await gate(o, { network: "eip155:8453" })).err), G.OtherPurchase);
     const nd = records["2026-09-29"].find((x) => x.verdict.code === "NOT_DELIVERED")!;
     assert.equal(customError((await gate(nd, { fields: { ...fieldsFromObservation(nd), verdict: "DELIVERED" } })).err), E.NotInRoot);
   });

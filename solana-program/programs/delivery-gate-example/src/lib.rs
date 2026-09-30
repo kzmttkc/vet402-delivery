@@ -13,10 +13,11 @@ declare_id!("BTVeASLyz5HvRz1eKChUgBj6hFbn89orEyGuTUW2yrUH");
 pub mod delivery_gate_example {
     use super::*;
 
-    /// Proceeds only when the record for (`pay_to`, `transaction`) is in the day's root
-    /// and its verdict is DELIVERED.
+    /// Proceeds only when the record for (`network`, `pay_to`, `transaction`) is in the
+    /// day's root and its verdict is DELIVERED.
     pub fn require_delivered(
         ctx: Context<RequireDelivered>,
+        network: String,
         pay_to: String,
         transaction: String,
         day: u32,
@@ -24,7 +25,10 @@ pub mod delivery_gate_example {
         proof: Vec<[u8; 32]>,
     ) -> Result<()> {
         // The record must be about the purchase this program cares about.
-        require!(fields.pay_to.is(&pay_to) && fields.transaction.is(&transaction), GateError::OtherPurchase);
+        require!(
+            fields.network.is(&network) && fields.pay_to.is(&pay_to) && fields.transaction.is(&transaction),
+            GateError::OtherPurchase
+        );
 
         let cpi = CpiContext::new(
             ctx.accounts.observation_roots.to_account_info(),

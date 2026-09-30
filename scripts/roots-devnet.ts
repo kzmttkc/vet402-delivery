@@ -16,6 +16,7 @@ import { jsonRpc } from "../src/chain.js";
 import {
   configPda,
   decodeVerifyResult,
+  DEVNET_GENESIS,
   fieldsFromObservation,
   GATE_EXAMPLE_PROGRAM_DEVNET,
   initializeIx,
@@ -28,7 +29,6 @@ import { postRootArgsFromRecord, sendPostRoot } from "../src/receipt/roots-post.
 import { customError, sendIxs, simulateIxs } from "../src/receipt/roots-tx.js";
 import type { Observation } from "../src/receipt/types.js";
 
-const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DAYS = ["2026-09-28", "2026-09-29"];
 const rpc = jsonRpc(process.env.DEVNET_RPC ?? "https://api.devnet.solana.com");
@@ -116,11 +116,11 @@ if (step === "verify" || step === "all") {
     if (gateDeployed) {
       const o = recs.find((x) => x.verdict.code === "DELIVERED")!;
       const g = await sendIxs(rpc, poster, [
-        await requireDeliveredIx({ gate: GATE_EXAMPLE_PROGRAM_DEVNET, program: ROOTS_PROGRAM_DEVNET, payTo: o.payment.payTo, transaction: o.payment.transaction, day, fields: fieldsFromObservation(o), proof: o.anchor!.proof }),
+        await requireDeliveredIx({ gate: GATE_EXAMPLE_PROGRAM_DEVNET, program: ROOTS_PROGRAM_DEVNET, network: o.payment.network, payTo: o.payment.payTo, transaction: o.payment.transaction, day, fields: fieldsFromObservation(o), proof: o.anchor!.proof }),
       ]);
       const nd = recs.find((x) => x.verdict.code === "NOT_DELIVERED")!;
       const gn = await simulateIxs(rpc, poster.address, [
-        await requireDeliveredIx({ gate: GATE_EXAMPLE_PROGRAM_DEVNET, program: ROOTS_PROGRAM_DEVNET, payTo: nd.payment.payTo, transaction: nd.payment.transaction, day, fields: fieldsFromObservation(nd), proof: nd.anchor!.proof }),
+        await requireDeliveredIx({ gate: GATE_EXAMPLE_PROGRAM_DEVNET, program: ROOTS_PROGRAM_DEVNET, network: nd.payment.network, payTo: nd.payment.payTo, transaction: nd.payment.transaction, day, fields: fieldsFromObservation(nd), proof: nd.anchor!.proof }),
       ]);
       entry.gate = { delivered: { record: o.id, err: g.err, tx: g.signature, conditionMet: g.logs.some((l) => l.includes("condition met")) }, notDeliveredError: customError(gn.err) };
     }

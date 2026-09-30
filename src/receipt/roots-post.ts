@@ -99,6 +99,15 @@ export async function assertPostRootOnly(messageBytes: Parameters<ReturnType<typ
   if (m.instructions.length !== 1) fail(`${m.instructions.length} instructions`);
   const ix = m.instructions[0]!;
   if (m.staticAccounts[ix.programAddressIndex] !== d.program) fail("instruction is not to the roots program");
+  // The instruction's accounts, in order: config, day PDA, authority, system program.
+  const order = (ix.accountIndices ?? []).map((i) => m.staticAccounts[i]);
+  if (order.join() !== [want[2], want[1], want[0], want[3]].join()) fail(`instruction accounts ${order.join(",")}`);
+  // Writable: only the fee payer and the day PDA.
+  const n = m.staticAccounts.length;
+  const writable = m.staticAccounts.filter(
+    (_, i) => i < m.header.numSignerAccounts - m.header.numReadonlySignerAccounts || (i >= m.header.numSignerAccounts && i < n - m.header.numReadonlyNonSignerAccounts),
+  );
+  if ([...writable].sort().join() !== [want[0], want[1]].sort().join()) fail(`writable accounts ${writable.join(",")}`);
   const data = encodePostRootArgs(a);
   const got: ArrayLike<number> = ix.data ?? new Uint8Array();
   if (got.length !== data.length || data.some((b, i) => b !== got[i])) fail("instruction data differs");
@@ -127,7 +136,10 @@ export async function planPostRoot(d: PostRootDeps, a: PostRootArgs): Promise<Po
 
   const pda = await dayRootPda(d.program, a.day);
   const existing = await account(d.rpc, pda);
-  if (existing) {
+  // Lamports sent to the PDA address before the post leave it a system-owned, empty account. The
+  // program's `init` still creates the day there (it only tops the rent up), so that is "not posted".
+  const prefunded = existing !== null && existing.owner === SYSTEM_PROGRAM && b64(existing.data[0]).length === 0;
+  if (existing && !prefunded) {
     if (existing.owner !== d.program) throw new Error(`${pda} exists and is not owned by the program`);
     const r = decodeDayRoot(b64(existing.data[0]));
     if (!sameRoot(r, a)) throw new Error(`${a.day} already holds a different root on chain (${r.root}); stop and look`);
