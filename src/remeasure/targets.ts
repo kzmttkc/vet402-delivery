@@ -32,7 +32,8 @@ export interface Target {
   /** Where the lock came from, e.g. "solana/census-2026-09-28". */
   from: string;
   solana?: { lock: SolanaPlanEntry["lock"] };
-  tempo?: { plan: TempoPlanEntry; feeReserveAtomic: string };
+  /** censusDelivered: the settled census purchase of this request came back 2xx (the ledger's `delivered`). */
+  tempo?: { plan: TempoPlanEntry; feeReserveAtomic: string; censusDelivered?: boolean };
 }
 
 function usdcToAtomic(v: string | null): string | null {
@@ -142,6 +143,7 @@ export function tempoFromLedger(ledger: unknown, plan: unknown, from: string): T
       tempo: {
         plan: { ...p, lockedRecipient: payTo, lockedAmount: amount, sponsored: feeReserve === "0" },
         feeReserveAtomic: feeReserve,
+        censusDelivered: e.delivered === true,
       },
     });
   }

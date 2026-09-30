@@ -19,6 +19,7 @@ import { OWN_HOSTS } from "../src/constants.js";
 import { cdpByHost } from "../src/rank/compare.js";
 import { renderSite } from "../src/rank/html.js";
 import {
+  annotateTempoInput,
   mercatorBestRanks,
   normalizeAlgorand,
   normalizeBase,
@@ -174,6 +175,8 @@ async function main(): Promise<void> {
     const path = join(INPUTS.remeasureDir, `${label.slice("remeasure/".length)}.json`);
     attempts.push(...normalizeRemeasure(JSON.parse(readLocal(label, path)), label));
   }
+  // Tempo rows written before 2026-10-01 carry no input check: judge the request each sent, from the plan.
+  attempts.splice(0, attempts.length, ...annotateTempoInput(attempts, plan, "tempo/plan"));
 
   const cdp = cdpByHost(await fetchCdpItems());
   const mercator = mercatorBestRanks(plan, "tempo/plan");

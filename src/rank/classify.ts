@@ -117,16 +117,40 @@ export const FAULT_RULES: readonly FaultRule[] = [
   },
 ];
 
+/**
+ * Not yet in FAULT_RULES (the published method): a paid 4xx (not 402) where the request vet402 sent was its own
+ * mistake (Attempt.inputProblem, src/tempo/answer.ts): a placeholder from the catalog in place of an input
+ * (`{"ip":"string"}`), a parameter the catalog marks required left out, or no cataloged input while the seller's
+ * answer says the input was wrong. Anything else stays paid_then_4xx (can't tell).
+ * FAULT_RULES_NEXT is FAULT_RULES with this rule just before paid_then_4xx. Publishing it means: FAULT_RULES
+ * takes this list, src/rank/README.md gets the row, and site/ is built again (test/site.test.ts).
+ */
+export const PAID_THEN_4XX_VET402_INPUT: FaultRule = {
+  id: "paid_then_4xx_vet402_input",
+  fault: "vet402_or_facilitator",
+  when: "vet402's payment settled, then the seller answered 4xx other than 402, and the request vet402 sent was wrong: a placeholder from the catalog in place of a value (such as \"string\"), a parameter the catalog marks required left out, or no input while the seller's answer says the input was wrong.",
+  match: (a, t) => {
+    const s = status(a, t);
+    return a.settled === true && s !== null && s >= 400 && s <= 499 && s !== 402 && (a.inputProblem ?? null) !== null;
+  },
+};
+
+export const FAULT_RULES_NEXT: readonly FaultRule[] = (() => {
+  const i = FAULT_RULES.findIndex((r) => r.id === "paid_then_4xx");
+  if (i < 0) throw new Error("FAULT_RULES has no paid_then_4xx");
+  return [...FAULT_RULES.slice(0, i), PAID_THEN_4XX_VET402_INPUT, ...FAULT_RULES.slice(i)];
+})();
+
 export interface Classification {
   fault: Fault;
   rule: string;
 }
 
 /** Classify a tried, not-delivered attempt. Delivered or not-tried rows are a caller error. */
-export function classifyFailure(a: Attempt): Classification {
+export function classifyFailure(a: Attempt, rules: readonly FaultRule[] = FAULT_RULES): Classification {
   if (!a.tried || a.delivered) throw new Error(`classifyFailure: only tried, not delivered rows (${a.category})`);
   const text = `${a.rawReason} ${a.detail ?? ""}`;
-  for (const r of FAULT_RULES) if (r.match(a, text)) return { fault: r.fault, rule: r.id };
+  for (const r of rules) if (r.match(a, text)) return { fault: r.fault, rule: r.id };
   throw new Error("unreachable: FAULT_RULES ends with a catch-all");
 }
 

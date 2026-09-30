@@ -16,6 +16,7 @@ import type { FetchLike } from "./mercator.js";
 import type { PlanEntry } from "./census.js";
 import { refuseUrl, requestInit } from "./probe.js";
 import { checkSignedTransfer } from "./txcheck.js";
+import { bodyShape, type BodyShape } from "./answer.js";
 import type { SettlementCheck, Signer } from "./chain.js";
 
 export interface PayDeps {
@@ -60,6 +61,8 @@ export interface PayOutcome {
   feePaid?: string | null;
   bodySha256?: string | null;
   bodyBytes?: number | null;
+  /** The paid answer's shape, never its text (./answer.ts). Record only: nothing in this file reads it. */
+  answer?: BodyShape | null;
   contentType?: string | null;
   latencyMs?: number | null;
   detail?: string;
@@ -209,6 +212,7 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
       bodyBytes: buf ? buf.length : null,
       contentType: res.headers.get("content-type"),
       latencyMs,
+      answer: shapeOrNull(buf, res.status),
       ...(problem ? { detail: problem } : {}),
     };
   } catch (e) {
@@ -310,6 +314,15 @@ function problemOf(buf: Buffer): string | null {
     const p = JSON.parse(buf.toString("utf8")) as { type?: unknown; detail?: unknown; title?: unknown };
     const parts = [p.type, p.detail ?? p.title].filter((x) => typeof x === "string") as string[];
     return parts.length ? `paid 402: ${parts.join(" — ").slice(0, 300)}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** bodyShape that cannot throw: after the ledger is written, a failure here must not turn the outcome into "unknown". */
+function shapeOrNull(buf: Buffer | null, status: number): BodyShape | null {
+  try {
+    return bodyShape(buf, status);
   } catch {
     return null;
   }

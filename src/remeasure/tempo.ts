@@ -29,6 +29,7 @@ import type { FetchLike } from "../tempo/mercator.js";
 import { CENSUS_START_BLOCK, publicClient, usdcOutflowSinceStart } from "../tempo/chain.js";
 import { assertDayLedgersPresent, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
 import type { PlanEntry } from "../tempo/census.js";
+import { checkInput, type InputCheck } from "../tempo/answer.js";
 import { RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
 import { budgetKey } from "./budget.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
@@ -111,9 +112,32 @@ export function liveChainView(owner: string = PAYER_ADDRESS): TempoChainView {
 
 const MISMATCH = /recipient\s+(0x[0-9a-fA-F]{40})\s*!=/;
 
+/** The request a Tempo target sends, judged against the catalog example it was built from (src/tempo/answer.ts). */
+export function targetInput(s: Slot): InputCheck | null {
+  const req = s.target.tempo?.plan.request;
+  if (!req) return null;
+  try {
+    return checkInput(req);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A slot whose request carries a placeholder (`{"ip":"string"}`, `"<from x/y>"`, a `*` path) and whose census
+ * purchase of the same request did not deliver is not bought again: vet402 already knows the seller cannot answer
+ * it, and another failure would say nothing about the seller. Recorded as refused, `placeholder_input` (vet402's
+ * own skip, never the seller's). A placeholder the seller did answer (a search for "string") is still bought.
+ * Checked before payOne; payOne is unchanged.
+ */
+function placeholderRefusal(s: Slot, input: InputCheck | null): { refused: "placeholder_input"; detail: string } | null {
+  if (!input || input.placeholders.length === 0 || s.target.tempo?.censusDelivered === true) return null;
+  return { refused: "placeholder_input", detail: `placeholders: ${input.placeholders.join(", ")}` };
+}
+
 export function tempoRow(
   s: Slot,
-  o: Pick<PayOutcome, "result" | "refusal" | "httpStatus" | "txHash" | "settled" | "delivered" | "bodyBytes" | "detail">,
+  o: Pick<PayOutcome, "result" | "httpStatus" | "txHash" | "settled" | "delivered" | "bodyBytes" | "detail" | "answer"> & { refusal?: { refused: string; detail: string } },
   at: string,
   extra: { key: string; livePayTo: string | null; amountAtomic: string | null; would?: boolean },
 ): RemeasureRow {
@@ -141,6 +165,8 @@ export function tempoRow(
     priceUsdc: atomicToUnits(extra.amountAtomic ?? t.amountAtomic),
     slot: s.slot,
     key: extra.key,
+    input: targetInput(s),
+    answer: sent ? (o.answer ?? null) : null,
   };
 }
 
@@ -210,6 +236,8 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
     attempt: async (s): Promise<AttemptResult> => {
       const at = now().toISOString();
       const entry = entryFor(s, deps.date);
+      const skip = placeholderRefusal(s, targetInput(s));
+      if (skip) return { row: tempoRow(s, { result: "refused", refusal: skip }, at, { key: entry.serviceId, livePayTo: null, amountAtomic: null }), stop: null };
       const o = await payOne(entry, { ...pay, ledger: deps.ledger, chainSpent });
       const row = tempoRow(s, o, at, { key: entry.serviceId, livePayTo: null, amountAtomic: o.result === "refused" ? null : paidAmount(deps.ledger, entry.serviceId) });
       return { row, stop: stopReason(o) };
@@ -240,6 +268,8 @@ export async function dryRunTempo(
     attempt: async (s): Promise<AttemptResult> => {
       const entry = entryFor(s, deps.date);
       const key = entry.serviceId;
+      const skip = placeholderRefusal(s, targetInput(s));
+      if (skip) return { row: tempoRow(s, { result: "refused", refusal: skip }, now().toISOString(), { key, livePayTo: null, amountAtomic: null }), stop: null };
       const k = `${entry.request.method} ${entry.request.url} ${entry.request.body ?? ""}`;
       let p = probes.get(k);
       if (!p) {

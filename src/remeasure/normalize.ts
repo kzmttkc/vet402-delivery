@@ -6,6 +6,7 @@
  * Each row keeps its own time, so a remeasure day is a different UTC day for the rank's MIN_DAYS.
  */
 import { TRIED_CATEGORIES, type Attempt, type ReasonCategory } from "../rank/types.js";
+import { inputProblem } from "../tempo/answer.js";
 import type { RemeasureRow, ResultFile } from "./results.js";
 
 /** Not buyable right now: the seller's side of "not tried". */
@@ -42,6 +43,8 @@ const VET402_SKIPPED = new Set([
   "tx_check_failed",
   "chain_spend_exceeds_ledger",
   "insufficient_balance",
+  // Tempo, from 2026-10-01: the catalog example held a placeholder, so vet402 did not buy (src/remeasure/tempo.ts).
+  "placeholder_input",
 ]);
 
 function refusalCategory(reason: string, where: string): ReasonCategory {
@@ -70,8 +73,12 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
         // payOne already judged the body: delivered = 2xx and text.trim() not empty.
         category = r.delivered === true ? "delivered" : is2xx(r.httpStatus) ? "settled_empty_body" : "settled_error_status";
       } else {
-        bodyChecked = r.bodyBytes !== null;
-        category = !is2xx(r.httpStatus) ? "settled_error_status" : r.bodyBytes === 0 ? "settled_empty_body" : "delivered";
+        // Rows from 2026-10-01 carry the answer's shape: the same test as Solana (text.trim() not empty).
+        // Earlier rows have the body length only.
+        const ans = r.answer ?? null;
+        bodyChecked = ans !== null || r.bodyBytes !== null;
+        const empty = ans ? !ans.nonEmpty : r.bodyBytes === 0;
+        category = !is2xx(r.httpStatus) ? "settled_error_status" : empty ? "settled_empty_body" : "delivered";
       }
     } else if (settled === false) category = "not_settled";
     else category = "unconfirmed_server_error";
@@ -105,9 +112,11 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
     tx: r.tx,
     priceUsdc: r.priceUsdc,
     httpStatus: r.httpStatus,
-    declaredMatch: null,
+    declaredMatch: category === "delivered" ? (r.answer?.declaredMatch ?? null) : null,
     bodyChecked,
     feedbackTx: null,
+    // Rows without `input` (before 2026-10-01) get it from the census plan in scripts/rank.ts (annotateTempoInput).
+    ...(r.chain === "tempo" && r.input ? { inputProblem: inputProblem(r.input, r.answer) } : {}),
   };
 }
 

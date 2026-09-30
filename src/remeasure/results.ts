@@ -5,6 +5,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import type { BodyShape, InputCheck } from "../tempo/answer.js";
 import type { RemeasureChain } from "./constants.js";
 import { RM_NOTE, RM_PROD_DIR, REMEASURE_CHAINS } from "./constants.js";
 
@@ -40,6 +41,10 @@ export interface RemeasureRow {
   slot: number;
   /** Ledger key of this purchase, `<date>|<payTo>|<slot>` on both chains (one per payTo and slot per UTC day). */
   key: string;
+  /** Tempo, rows written from 2026-10-01: the request vet402 sent, judged against the catalog example (src/tempo/answer.ts). */
+  input?: InputCheck | null;
+  /** Tempo, rows written from 2026-10-01: the paid answer's shape, never its text. null when nothing was sent or no answer came back. */
+  answer?: BodyShape | null;
 }
 
 export interface RunInfo {

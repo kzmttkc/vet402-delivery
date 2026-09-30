@@ -9,6 +9,8 @@
  * matched what the seller declared is kept apart in `declaredMatch` and never changes delivery.
  */
 import { TRIED_CATEGORIES, type Attempt, type Chain, type ReasonCategory } from "./types.js";
+import { checkInput, inputProblem } from "../tempo/answer.js";
+import type { PlannedRequest } from "../tempo/mercator.js";
 
 type Obj = Record<string, unknown>;
 
@@ -391,6 +393,27 @@ export function tempoPlanUrls(json: unknown, source: string): Map<string, string
     m.set(str(pe, "serviceId", where), str(obj(pe.request, `${where}.request`), "url", `${where}.request`));
   }
   return m;
+}
+
+/**
+ * Tempo attempts from files written before 2026-10-01 carry no `input`: judge the request each one sent, from the
+ * census plan (the census and remeasure both send the plan's request as is). An attempt that already has
+ * `inputProblem` (a remeasure row with `input`) is kept as it is. Only `inputProblem` is added; nothing else changes.
+ */
+export function annotateTempoInput(attempts: readonly Attempt[], plan: unknown, source: string): Attempt[] {
+  const root = obj(plan, source);
+  const bySvc = new Map<string, PlannedRequest>();
+  for (const [i, p] of arr(root.plan, `${source}.plan`).entries()) {
+    const pe = obj(p, `${source}.plan[${i}]`);
+    const req = obj(pe.request, `${source}.plan[${i}].request`) as unknown as PlannedRequest;
+    bySvc.set(str(pe, "serviceId", `${source}.plan[${i}]`), req);
+  }
+  return attempts.map((a) => {
+    if (a.chain !== "tempo" || a.inputProblem !== undefined || a.service === null) return a;
+    const req = bySvc.get(a.service);
+    if (!req || req.url !== a.url) return a;
+    return { ...a, inputProblem: inputProblem(checkInput(req), null) };
+  });
 }
 
 /** serviceId -> Mercator best rank (1 = first) from the Tempo census plan. */

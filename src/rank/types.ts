@@ -5,6 +5,8 @@
  * Nothing a seller reports about itself (call counts, payer counts, reviews) enters this schema.
  */
 
+import type { InputProblem } from "../tempo/answer.js";
+
 export type Chain = "algorand" | "solana" | "tempo" | "base";
 
 /**
@@ -73,4 +75,9 @@ export interface Attempt {
   bodyChecked: boolean;
   /** ERC-8004 feedback tx vet402 wrote for this purchase (Base only). */
   feedbackTx: string | null;
+  /**
+   * Tempo only: why the request vet402 sent was vet402's own mistake (src/tempo/answer.ts inputProblem), null when
+   * it cannot be told, absent when not checked. Read by FAULT_RULES_NEXT in ./classify.ts.
+   */
+  inputProblem?: InputProblem | null;
 }
