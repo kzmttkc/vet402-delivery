@@ -15,7 +15,7 @@ const URL0 = process.env.PROXY_BUY_TEST_PG_URL;
 const skip = !URL0;
 const pool = URL0 ? new pg.Pool({ connectionString: URL0, max: 40 }) : null;
 const sql = pool ? pgSql(pool) : null;
-const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter";
+const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter, pb_alert";
 
 async function fresh(): Promise<Store> {
   await pool!.query(`drop table if exists ${TABLES}`);

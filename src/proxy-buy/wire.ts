@@ -21,7 +21,7 @@ import { loadAllowlist, type Allowlist } from "./allowlist.js";
 import type { ProxyConfig, SolanaConfig, TempoConfig } from "./config.js";
 import { CUSTOMER_CONFIRM_TIMEOUT_MS } from "./constants.js";
 import { migrate, pgSql, type Sql } from "./db.js";
-import { MAX_TX_VERSION, rawMessageHash, solanaTxFate, type TempoReads } from "./fate.js";
+import { ctxSlot, MAX_TX_VERSION, rawMessageHash, solanaTxFate, type Ctx, type TempoReads } from "./fate.js";
 import { createProxyBuy, type ProxyBuy } from "./handler.js";
 import { sendSolanaRefund, sendTempoRefund } from "./refund.js";
 import type { SolanaSide } from "./solana.js";
@@ -123,11 +123,21 @@ export async function solanaSide(c: SolanaConfig, own: string[]): Promise<Solana
     confirmCustomer: (tx, authority, amount, messageHash) => confirmSolanaTransfer(rpc, tx, authority, c.receive, amount, { messageHash }),
     fate: (f) => solanaTxFate(rpc, f),
     slot: async () => Number(await rpc("getSlot", [{ commitment: "confirmed" }])),
-    heightBound: async () => {
-      const r = (await rpc("getLatestBlockhash", [{ commitment: "processed" }])) as { value: { blockhash: string; lastValidBlockHeight: number | string } };
+    heightBound: async (blockhash) => {
+      const v = (await rpc("isBlockhashValid", [blockhash, { commitment: "processed" }])) as Ctx<boolean>;
+      if (!v || v.value !== true) return { known: false };
+      // The newest blockhash of a state at least as recent as the one that knew this one: its height is not lower.
+      const at = ctxSlot(v);
+      const r = (await rpc("getLatestBlockhash", [{ commitment: "processed", ...(at !== undefined ? { minContextSlot: at } : {}) }])) as {
+        value: { lastValidBlockHeight: number | string };
+      };
       const h = Number(r.value.lastValidBlockHeight);
       if (!Number.isSafeInteger(h)) throw new Error("no last valid block height");
-      return { blockhash: r.value.blockhash, lastValidBlockHeight: h };
+      return { known: true, lastValidBlockHeight: h };
+    },
+    anchor: async (account) => {
+      const s = (await rpc("getSignaturesForAddress", [account, { limit: 1, commitment: "confirmed" }])) as { signature: string }[];
+      return s[0]?.signature ?? null;
     },
     refund: (to, amount, beforeSend, opts) => serial.run(() => sendSolanaRefund({ rpc, signer }, to, amount, beforeSend, opts)),
   };

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Copy to ~/Library/LaunchAgents/ and bootstrap (README: Daily runner). Every 15 minutes; reads only, pays nothing. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vet402.daily.proxy-alerts</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>mkdir -p ~/Library/Logs/vet402-daily &amp;&amp; exec ~/.config/vet402-daily/launch.sh proxy-alerts &gt;&gt;~/Library/Logs/vet402-daily/launchd.log 2&gt;&amp;1</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

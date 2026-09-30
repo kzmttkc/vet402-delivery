@@ -4,7 +4,7 @@
 # missing or not executable it writes one line to the alert file named in ~/.config/vet402-daily/env and shows
 # a notification, so a missing checkout is not a silent skip.
 #
-#   ~/.config/vet402-daily/launch.sh am|pm|records|board
+#   ~/.config/vet402-daily/launch.sh am|pm|records|board|proxy-alerts
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 : "${HOME:=$(cd ~ && pwd)}"
 CONF="$HOME/.config/vet402-daily"

@@ -90,7 +90,7 @@ test("zz3-S1: 1100 fresh signatures inside the window -> 'pending' capped at the
 
 test("zz3-S1: signatures after the blockhash expired are skipped unread; below minSlot the search stops; the deadline stops it", async () => {
   const mine = decodeSolanaTx(await transferTx(proxyPayer, SELLER, SELLER, 10_000n))!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 500, expiredSlot: 800, lastValidBlockHeight: 100 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 500, expiredSlot: 800, lastValidBlockHeight: 100, anchor: "old0" };
   // 1100 signatures landed after expiry (slot > 800), then 3 in the window, then history before minSlot
   const sigs = [
     ...Array.from({ length: 1100 }, (_, i) => ({ signature: `late${i}`, slot: 900 })),
@@ -127,6 +127,7 @@ test("zz3-S2: a refund to an off-curve owner (a program-owned vault) is built, c
   const sent: string[] = [];
   const rpc: Rpc = async (method, params) => {
     if (method === "getLatestBlockhash") return { context: { slot: 5 }, value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 10 } };
+    if (method === "getSignaturesForAddress") return [];
     if (method === "getAccountInfo") return { value: null };
     if (method === "sendTransaction") {
       sent.push(String((params as unknown[])[0]));

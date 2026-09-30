@@ -26,10 +26,13 @@ test("zz2-premise solana: a listed signature whose transaction the RPC does not 
   const rpc = async (m: string) => {
     if (m === "getSignaturesForAddress") return [{ signature: "LANDEDSIG" }, { signature: "other" }];
     if (m === "getTransaction") return null; // node behind: the transaction DID land, it is in the list
-    if (m === "isBlockhashValid") return { value: false };
+    if (m === "getSlot") return 5000;
+    if (m === "getEpochInfo") return { absoluteSlot: 5000, blockHeight: 10_000 };
+    if (m === "getFirstAvailableBlock") return 0;
     throw new Error("unexpected " + m);
   };
-  assert.deepEqual(await solanaTxFate(rpc as never, { messageHash: d.messageHash, blockhash: d.blockhash, account: "acct" }), { fate: "pending" });
+  const q = { messageHash: d.messageHash, blockhash: d.blockhash, account: "acct", minSlot: 0, lastValidBlockHeight: 1, anchor: null, expiredSlot: 5000 };
+  assert.deepEqual(await solanaTxFate(rpc as never, q), { fate: "pending", capped: "unreadable_tx:not_served", expiredSlot: 5000 });
 });
 
 test("zz2-premise tempo: a receipt read error (RPC 503) is not 'no receipt' -> pending", async () => {

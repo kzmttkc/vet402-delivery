@@ -63,7 +63,9 @@ export interface PurchaseRecord {
     | "customer_payment_unconfirmed"
     | "duplicate_customer_tx"
     | "answer_too_large"
-    | "no_charge";
+    | "no_charge"
+    /** closed by a person (scripts/proxy-buy-resolve.ts); the reason says what they found */
+    | "settled_by_hand";
   reason: string | null;
   /** "none": no refund is owed (the seller was paid and did not deliver, or the answer was delivered). */
   refund: "none" | RefundRecord;
@@ -128,6 +130,17 @@ export interface RefundRow {
 }
 const REFUND_ROW = `purchase_id, chain, to_char(day, 'YYYY-MM-DD') as day, to_addr, amount::text as amount, status, attempt, tx, facts,
   fee_paid::text as fee_paid, reason, failures, updated_at::text as updated_at, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD') as updated_day`;
+
+export interface AlertRow {
+  key: string;
+  purchase_id: string;
+  chain: string;
+  reason: string;
+  count: number;
+  note: string | null;
+  first_at: string;
+  last_at: string;
+}
 
 export class Store {
   constructor(readonly sql: Sql) {}
@@ -504,6 +517,41 @@ export class Store {
       [OPEN_STATES, iso(new Date(now.getTime() - staleMs)), o.agent ? o.agent.toLowerCase() : null, o.host ? o.host.toLowerCase() : null],
     );
     return Number(r.rows[0]?.n ?? 0);
+  }
+
+  /** An ALERT seen now: kept under `key` (one per purchase and kind), first and last time, how often; reopened if it was resolved. */
+  async alertSeen(a: { key: string; purchaseId: string; chain: string; reason: string; now: Date }): Promise<void> {
+    await this.sql.query(
+      `insert into pb_alert (key, purchase_id, chain, reason, first_at, last_at, count) values ($1, $2, $3, $4, $5, $5, 1)
+       on conflict (key) do update set reason = $4, last_at = $5, count = pb_alert.count + 1, resolved_at = null`,
+      [a.key, a.purchaseId, a.chain, a.reason.slice(0, 500), iso(a.now)],
+    );
+  }
+
+  /** The open alerts of `purchaseId` other than `keep` no longer hold: resolved (optionally with a note). */
+  async alertsResolve(purchaseId: string, keep: string[], now: Date, note?: string): Promise<number> {
+    const r = await this.sql.query(
+      `update pb_alert set resolved_at = $3, note = coalesce($4, note) where purchase_id = $1 and resolved_at is null and not (key = any($2)) returning key`,
+      [purchaseId, keep, iso(now), note ?? null],
+    );
+    return r.rows.length;
+  }
+
+  /** Open alerts, oldest first. */
+  async openAlerts(limit = 200): Promise<AlertRow[]> {
+    const r = await this.sql.query<AlertRow>(
+      `select key, purchase_id, chain, reason, count, note,
+         to_char(first_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as first_at,
+         to_char(last_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_at
+       from pb_alert where resolved_at is null order by first_at, key limit $1`,
+      [limit],
+    );
+    return r.rows;
+  }
+
+  /** A person's note on the open alerts of `purchaseId`. */
+  async alertNote(purchaseId: string, note: string): Promise<void> {
+    await this.sql.query(`update pb_alert set note = $2 where purchase_id = $1 and resolved_at is null`, [purchaseId, note.slice(0, 500)]);
   }
 
   /** Purchases that hold reservations on `chain` (admitted or open). */

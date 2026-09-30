@@ -33,6 +33,8 @@ export interface ReconcileContext extends Common {
   sellerOpenLimit?: number;
   /** Read the payer wallets and report what would refuse new purchases (default true; the request gate skips it). */
   walletCheck?: boolean;
+  /** Keep ALERTs in pb_alert and resolve the ones gone (default true). */
+  recordAlerts?: boolean;
 }
 
 export interface ReconcileAction {
@@ -133,7 +135,7 @@ const waiting = (what: string, f: Fate) =>
  */
 async function walletAlerts(ctx: ReconcileContext): Promise<ReconcileAction[]> {
   const out: ReconcileAction[] = [];
-  const say = (chain: string, action: string) => out.push({ id: "wallet", chain, state: "wallet", action });
+  const say = (chain: string, action: string) => out.push({ id: `wallet:${chain}`, chain, state: "wallet", action });
   if (ctx.solana) {
     try {
       const bal = await ctx.solana.pay.readBalances();
@@ -167,13 +169,20 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
   const out: ReconcileAction[] = [];
   const budget = { reads: ctx.maxTxReads ?? RECONCILE_MAX_TX_READS };
   await store.pruneCounters(new Date(ctx.now().getTime() - 2 * 86_400_000)).catch(() => undefined);
-  if (ctx.walletCheck !== false) out.push(...(await walletAlerts(ctx)));
+  /** Everything looked at this run (purchase ids, `wallet:<chain>`): its ALERTs are kept, the ones gone are resolved. */
+  const looked = new Map<string, string>();
+  if (ctx.walletCheck !== false) {
+    out.push(...(await walletAlerts(ctx)));
+    if (ctx.solana) looked.set("wallet:solana", "solana");
+    if (ctx.tempo) looked.set("wallet:tempo", "tempo");
+  }
   const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50);
   let exhausted = false;
   for (const row of rows) {
     if (Date.now() >= ctx.deadline || exhausted) break;
     const note = (action: string) => out.push({ id: row.id, chain: row.chain, state: row.state, action });
     const run: Run = { budget, exhausted: false, capped: false, nextAt: null };
+    looked.set(row.id, row.chain);
     let last = "";
     try {
       await one(ctx, run, row, (a) => {
@@ -190,7 +199,7 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
     await store.touch(row.id, next).catch(() => undefined);
     // Still open long after it started: a human looks.
     const age = ctx.now().getTime() - Date.parse(row.created_at);
-    if (!/^(closed|released)/.test(last) && age > OPEN_ALERT_MS && !last.startsWith("ALERT")) {
+    if (age > OPEN_ALERT_MS && !last.startsWith("ALERT") && (await store.get(row.id).catch(() => null))?.state !== "done" && !/^released/.test(last)) {
       note(`ALERT open for ${Math.floor(age / 60_000)} minutes (${row.state}): needs a human if it does not close`);
     }
   }
@@ -200,6 +209,7 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
     for (const row of await store.sellerOpen(ctx.sellerOpenLimit ?? 10)) {
       if (Date.now() >= ctx.deadline) break;
       const run: Run = { budget, exhausted: false, capped: false, nextAt: null };
+      looked.set(row.id, row.chain);
       const seller = obj(row.facts.seller);
       const f: Fate = seller ? await txFate(ctx, run, row, seller, { key: "seller" }) : { fate: "dead" };
       const note = (action: string) => out.push({ id: row.id, chain: row.chain, state: row.state, action });
@@ -224,7 +234,31 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
       note(`seller payment seen: ${f.fate}`);
     }
   }
+  if (ctx.recordAlerts !== false) await keepAlerts(ctx, out, looked).catch(() => undefined);
   return out;
+}
+
+/** One kind of ALERT per purchase: the text with its numbers taken out (minutes, amounts change between runs). */
+export const alertKey = (id: string, action: string) => `${id}:${action.replace(/\d+/g, "#").slice(0, 160)}`;
+
+/**
+ * ALERTs go to pb_alert as well as to the log: one row per purchase and kind, with when it was first and last seen.
+ * An open alert of something looked at this run that did not say it again is resolved. The Mac's runner reads the
+ * open ones through api/alerts.ts.
+ */
+async function keepAlerts(ctx: ReconcileContext, out: ReconcileAction[], looked: Map<string, string>): Promise<void> {
+  const now = ctx.now();
+  for (const [id, chain] of looked) {
+    const keys: string[] = [];
+    for (const a of out) {
+      if (a.id !== id || !a.action.startsWith("ALERT")) continue;
+      const key = alertKey(id, a.action);
+      if (keys.includes(key)) continue;
+      keys.push(key);
+      await ctx.store.alertSeen({ key, purchaseId: id, chain, reason: a.action, now });
+    }
+    await ctx.store.alertsResolve(id, keys, now);
+  }
 }
 
 async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: string) => void): Promise<void> {

@@ -71,7 +71,7 @@ test("zz6-R1: a transaction landing a few blocks past the recorded last valid he
     if (method === "getTransaction") return { meta: { err: null }, transaction: [(params as [string])[0] === "MINE" ? tx : tx.replace(/A/g, "B"), "base64"] };
     throw new Error(method);
   };
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: RECEIVE_ATA, minSlot: 990, lastValidBlockHeight: 100 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: RECEIVE_ATA, minSlot: 990, lastValidBlockHeight: 100, anchor: "old" };
   // bound 100, real last includable height 103: at finalized height 101 nothing is recorded yet
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending" });
   cur.landed = true; // lands at height 102
@@ -96,7 +96,7 @@ test("zz6-S1: the seller lands vet402's payment a few blocks past the recorded h
     return c;
   };
   r.side.slot = async () => 990;
-  r.side.heightBound = async () => ({ blockhash: "x", lastValidBlockHeight: 100 });
+  r.side.heightBound = async () => ({ known: true as const, lastValidBlockHeight: 100 });
   let height = 99;
   let landed = false;
   const rpc: Rpc = async (method, params) => {
@@ -161,7 +161,7 @@ test("zz6-R2: a v1 transaction on the account is read (maxSupportedTransactionVe
   try {
     assert.equal(MAX_TX_VERSION, 1);
     const rpc = jsonRpc(srv.url);
-    const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 990, lastValidBlockHeight: 100 };
+    const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 990, lastValidBlockHeight: 100, anchor: "old" };
     assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending", expiredSlot: 2000 });
     assert.deepEqual(await solanaTxFate(rpc, { ...q, expiredSlot: 2000 }), { fate: "dead" });
     refuseAll = true;
@@ -187,7 +187,7 @@ test("zz6-M2: 'dead' needs the node's history to reach the window's start", asyn
     if (method === "getSignaturesForAddress") return [];
     throw new Error(method);
   };
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 990, lastValidBlockHeight: 100, expiredSlot: 8000 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 990, lastValidBlockHeight: 100, expiredSlot: 8000, anchor: null };
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending", capped: "history_pruned", expiredSlot: 8000 });
   const { minSlot: _m, ...noMin } = q;
   assert.deepEqual(await solanaTxFate(rpc, noMin), { fate: "pending", capped: "no_min_slot", expiredSlot: 8000 });

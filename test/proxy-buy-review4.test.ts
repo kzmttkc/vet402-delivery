@@ -63,7 +63,7 @@ async function chainRpc(o: { mineTx: string | null; mineSlot: number; later: num
 test("zz4-R1: a landed seller payment behind 250 later signatures is found; one that never landed is 'dead' on the second look", async () => {
   const tx = await transferTx(proxyPayer, SELLER_FAC, SELLER, 10_000n);
   const mine = decodeSolanaTx(tx)!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100, anchor: "old0" };
   // first look right after expiry (slot 1100): the window's upper end is kept
   const first = await chainRpc({ mineTx: null, mineSlot: 0, later: 5, laterFrom: 1090, slotNow: 1100, valid: false });
   assert.deepEqual(await solanaTxFate(first.rpc, q), { fate: "pending", expiredSlot: 1100 });
@@ -82,7 +82,7 @@ test("zz4-R1: a landed seller payment behind 250 later signatures is found; one 
 test("zz4-R2: getSlot from a node behind -> the landed payment is still found (the window ends at the slot of the answer that said 'expired')", async () => {
   const tx = await transferTx(proxyPayer, SELLER_FAC, SELLER, 10_000n);
   const mine = decodeSolanaTx(tx)!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100, anchor: "old0" };
   const r = await chainRpc({ mineTx: tx, mineSlot: 1150, later: 0, laterFrom: 0, slotNow: 1160, valid: false, laggingSlot: 1140 });
   assert.deepEqual(await solanaTxFate(r.rpc, q), { fate: "landed", tx: "MINE" });
   assert.deepEqual(r.minContext, [1160], "the finalized signatures are asked for an answer that has the whole window");
@@ -92,7 +92,7 @@ test("zz4-R2: getSlot from a node behind -> the landed payment is still found (t
   assert.deepEqual(await solanaTxFate(none.rpc, { ...q, expiredSlot: 1160 }), { fate: "dead" });
 });
 
-test("zz4-R2: a refund (vet402 paid its fee) is looked up by its signature over the whole history, not searched", async () => {
+test("zz4-R2: a refund (vet402 paid its fee) is looked up by its signature over the whole history; not found goes on to the search", async () => {
   let status: { err: unknown; confirmationStatus: string } | null = null;
   const slot = 500;
   const calls: string[] = [];
@@ -102,14 +102,17 @@ test("zz4-R2: a refund (vet402 paid its fee) is looked up by its signature over 
     if (method === "getSignatureStatuses") return { context: { slot }, value: [status] };
     if (method === "getEpochInfo") return { absoluteSlot: slot, blockHeight: 1000 };
     if (method === "getFirstAvailableBlock") return 0;
+    if (method === "getSignaturesForAddress") return [{ signature: "BEFORE", slot: 390 }];
     throw new Error(method);
   };
-  const q = { signature: "REFUNDSIG", messageHash: "m", blockhash: "b", account: PAYER_ATA, minSlot: 400, lastValidBlockHeight: 100 };
+  const q = { signature: "REFUNDSIG", messageHash: "m", blockhash: "b", account: PAYER_ATA, minSlot: 400, lastValidBlockHeight: 100, anchor: "BEFORE" };
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending", expiredSlot: 500 });
   assert.deepEqual(await solanaTxFate(rpc, { ...q, expiredSlot: 500 }), { fate: "dead" });
+  assert.ok(calls.includes("getSignaturesForAddress"), "a status of null is not taken as absence");
   status = { err: null, confirmationStatus: "confirmed" };
+  calls.length = 0;
   assert.deepEqual(await solanaTxFate(rpc, { ...q, expiredSlot: 500 }), { fate: "landed", tx: "REFUNDSIG" });
-  assert.ok(!calls.includes("getSignaturesForAddress") && !calls.includes("getTransaction"));
+  assert.ok(!calls.includes("getSignaturesForAddress") && !calls.includes("getTransaction"), "found by its signature: no search");
 });
 
 test("zz4-R1: one reconcile run reads at most its budget of transactions", async () => {
@@ -148,6 +151,7 @@ test("zz4-R3: a refund waiting for account creations is not a failure; it is tri
       return { context: { slot: 100 }, value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 200 } };
     }
     if (method === "getAccountInfo") return { value: null }; // the agent closed its USDC account
+    if (method === "getSignaturesForAddress") return [];
     if (method === "sendTransaction") {
       sends++;
       return "sig";

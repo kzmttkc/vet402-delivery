@@ -45,13 +45,22 @@ export interface SolanaTxFacts {
 const SYSTEM_PROGRAM = "11111111111111111111111111111111";
 
 /**
- * sha256 hex of a wire transaction's message bytes (everything after its signatures), read without decoding the
- * message: the same for any message version, so a transaction of a version the decoder does not know is still
- * told apart from vet402's own.
+ * sha256 hex of a wire transaction's message bytes, read without decoding the message, so a transaction of a
+ * version the decoder does not know is still told apart from vet402's own:
+ *   legacy and v0: signatures first (a short-vector count, then 64 bytes each), the message after them;
+ *   v1 and later (first byte 0x80 or above): the message first (its second byte is the number of required
+ *   signatures), the signatures after it, 64 bytes each.
  */
 export function rawMessageHash(txBase64: string): string | null {
   try {
     const b = Buffer.from(txBase64, "base64");
+    if (b.length > 0 && b[0]! >= 0x80) {
+      const sigs = b[1];
+      if (sigs === undefined || sigs === 0) return null;
+      const end = b.length - 64 * sigs;
+      if (end <= 2) return null;
+      return createHash("sha256").update(b.subarray(0, end)).digest("hex");
+    }
     let n = 0;
     let shift = 0;
     let i = 0;
@@ -142,6 +151,11 @@ export interface SolanaFateQuery {
   expiredSlot?: number;
   /** A signature above that slot, as far as an earlier look paged: the next look starts below it. */
   cursor?: string;
+  /**
+   * The newest signature on `account` read before the transaction was handed over (null: the account had none).
+   * The walk must reach it before "dead": a listing that skips part of the history then never proves anything.
+   */
+  anchor?: string | null;
   /** The transaction's own signature, when vet402 paid its fee (a refund): looked up directly, no search. */
   signature?: string;
   pageSize?: number;
@@ -153,13 +167,13 @@ export interface SolanaFateQuery {
   budget?: { reads: number };
 }
 
-type Ctx<T> = { context?: { slot?: number }; value: T } | null;
-const ctxSlot = (r: Ctx<unknown>): number | undefined => (typeof r?.context?.slot === "number" ? r.context.slot : undefined);
+export type Ctx<T> = { context?: { slot?: number }; value: T } | null;
+export const ctxSlot = (r: Ctx<unknown>): number | undefined => (typeof r?.context?.slot === "number" ? r.context.slot : undefined);
 
 /**
  * The fate of a Solana transaction vet402 handed over, decided in this order:
  *   1. A transaction whose signature vet402 knows (it paid the fee: a refund) is looked up directly
- *      (getSignatureStatuses over the whole history).
+ *      (getSignatureStatuses over the whole history); found decides, not found goes on to the search.
  *   2. Expired or not is read from the finalized chain (getEpochInfo, finalized: block height and slot of one
  *      bank): expired once the finalized block height is past `lastValidBlockHeight` + EXPIRY_MARGIN_BLOCKS.
  *      isBlockhashValid is not used: it also says false for a blockhash the node does not know yet.
@@ -200,9 +214,17 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
      * The walk reached the window's end: complete unless a transaction in it could not be read. After expiry that
      * is what keeps it from "dead", so the reason goes out (capped, reported); before, it is "pending" anyway.
      */
-    const done = (u: string | null): { hit: null; complete: boolean } => {
-      if (u && maxSlot !== null) capped = `unreadable_tx:${u}`;
-      return { hit: null, complete: !u };
+    const done = (u: string | null, atAnchor: boolean): { hit: null; complete: boolean } => {
+      if (u) {
+        if (maxSlot !== null) capped = `unreadable_tx:${u}`;
+        return { hit: null, complete: false };
+      }
+      // Stopped without meeting the anchor recorded before the hand-over: part of the history was not listed.
+      if (!atAnchor && typeof f.anchor === "string") {
+        if (maxSlot !== null) capped = "anchor_not_reached";
+        return { hit: null, complete: false };
+      }
+      return { hit: null, complete: true };
     };
     let unreadable: string | null = null;
     let before: string | undefined = maxSlot !== null ? cursor : undefined;
@@ -224,8 +246,10 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
           continue;
         }
         above = false;
-        if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return done(unreadable);
-        if (f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return done(unreadable);
+        // Older than the hand-over: the walk is over. With an anchor, only reaching it proves nothing was skipped.
+        if (typeof f.anchor === "string" && s.signature === f.anchor) return done(unreadable, true);
+        if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return done(unreadable, false);
+        if (f.minSlot === undefined && f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return done(unreadable, false);
         if (reads >= maxReads) {
           capped = "tx_reads";
           return { hit: null, complete: false };
@@ -259,7 +283,7 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
         }
         if (h === f.messageHash) return { hit: t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature }, complete: true };
       }
-      if (sigs.length < pageSize) return done(unreadable);
+      if (sigs.length < pageSize) return done(unreadable, false);
       before = sigs[sigs.length - 1]!.signature;
     }
     capped = capped ?? "pages";
@@ -268,13 +292,13 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
   try {
     const now = Number(await rpc("getSlot", [{ commitment: "confirmed" }]));
     if (!Number.isSafeInteger(now)) return pending();
-    let statusSlot: number | undefined;
     if (f.signature) {
+      // Found: decided. Not found proves nothing (a node answers null when its long-term storage fails): the
+      // search below decides then, as for any other transaction.
       const st = (await rpc("getSignatureStatuses", [[f.signature], { searchTransactionHistory: true }])) as Ctx<({ err: unknown; confirmationStatus?: string | null } | null)[]>;
       const v = st?.value?.[0] ?? null;
       if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) return v.err ? { fate: "failed", tx: f.signature } : { fate: "landed", tx: f.signature };
       if (v) return pending(); // processed only: not settled either way yet
-      statusSlot = ctxSlot(st);
     }
     const fin = (await rpc("getEpochInfo", [{ commitment: "finalized" }])) as { absoluteSlot?: number; blockHeight?: number } | null;
     const expired =
@@ -284,7 +308,6 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
       fin.blockHeight > f.lastValidBlockHeight + EXPIRY_MARGIN_BLOCKS;
     if (!expired) {
       if (f.lastValidBlockHeight === undefined) capped = "no_last_valid_height";
-      if (f.signature) return pending();
       const r = await find(null, { commitment: "confirmed", minContextSlot: now });
       return r.hit ?? pending();
     }
@@ -296,6 +319,10 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
         capped = "no_min_slot";
         return false;
       }
+      if (f.anchor === undefined) {
+        capped = "no_anchor";
+        return false;
+      }
       const first = Number(await rpc("getFirstAvailableBlock", []));
       if (!Number.isSafeInteger(first) || first > f.minSlot) {
         capped = "history_pruned";
@@ -303,16 +330,13 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
       }
       return true;
     };
-    if (f.signature) {
-      // Not in the whole history, asked of a node that has the window: it never landed.
-      if (!(recorded && statusSlot !== undefined && statusSlot >= expiredSlot)) return pending();
-      return (await historyCovers()) ? { fate: "dead" } : pending();
-    }
     const r = await find(expiredSlot, { commitment: "finalized", minContextSlot: expiredSlot });
     if (r.hit) return r.hit;
     if (!(r.complete && recorded)) return pending();
     return (await historyCovers()) ? { fate: "dead" } : pending();
-  } catch {
+  } catch (e) {
+    // An RPC that fails (rate limit, outage, a wrong URL) is said, not only waited on: a fixed reason, no message.
+    capped = capped ?? (/429|too many requests/i.test(String((e as Error)?.message ?? "")) ? "rpc_rate_limited" : "rpc_error");
     return pending();
   }
 }

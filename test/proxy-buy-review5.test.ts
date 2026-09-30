@@ -60,7 +60,7 @@ test("zz5-Z1: the seller answers 500 and lands vet402's payment late -> found, n
     return c;
   };
   r.side.slot = async () => 990;
-  r.side.heightBound = async () => ({ blockhash: "x", lastValidBlockHeight: 100 });
+  r.side.heightBound = async () => ({ known: true as const, lastValidBlockHeight: 100 });
   let height = 80;
   let landed = false;
   const rpc: Rpc = async (method) => {
@@ -173,6 +173,8 @@ test("zz5-Z3: production solanaSide hands mayCreateAccount through: a refund to 
   const srv = await localRpc((m) => {
     if (m === "getLatestBlockhash") return { context: { slot: 100 }, value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 200 } };
     if (m === "getAccountInfo") return { context: { slot: 100 }, value: null }; // the agent's USDC account does not exist
+    if (m === "getSignaturesForAddress") return [];
+    if (m === "isBlockhashValid") return { context: { slot: 100 }, value: true };
     if (m === "sendTransaction") {
       sends++;
       return "x";
@@ -193,8 +195,9 @@ test("zz5-Z3: production solanaSide hands mayCreateAccount through: a refund to 
     assert.equal(out.status, "unknown");
     assert.equal(facts[0]!.lastValidBlockHeight, 200, "the refund keeps its own last valid block height");
     assert.equal(typeof facts[0]!.signature, "string");
+    assert.equal(facts[0]!.anchor, null, "the payer's USDC account had no signature before the refund");
     // and the height bound reads the newest blockhash
-    assert.deepEqual(await side.heightBound!(), { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 200 });
+    assert.deepEqual(await side.heightBound!("11111111111111111111111111111111"), { known: true, lastValidBlockHeight: 200 });
     assert.ok(jsonRpc);
   } finally {
     srv.close();
@@ -225,7 +228,7 @@ test("zz5-Z4: 10,500 newer signatures above the window: the next look starts whe
     if (method === "getSlot") return 9000;
     throw new Error(method);
   };
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100, expiredSlot: 1160 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100, expiredSlot: 1160, anchor: "old0" };
   const first = await solanaTxFate(rpc, q);
   assert.deepEqual(first, { fate: "pending", capped: "pages", expiredSlot: 1160, cursor: "later9999" });
   assert.equal(calls.getTransaction ?? 0, 0, "nothing above the window is read");

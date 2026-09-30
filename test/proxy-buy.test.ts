@@ -556,7 +556,7 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     if (method === "getSlot") return 600;
     throw new Error(method);
   };
-  const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE, minSlot: 0, lastValidBlockHeight: 150 };
+  const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE, minSlot: 0, lastValidBlockHeight: 150, anchor: null };
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending" });
   height = 150 + EXPIRY_MARGIN_BLOCKS; // not past the margin yet
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending" });
@@ -570,7 +570,7 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
   // without a last valid height, never dead
   const { lastValidBlockHeight: _drop, ...noHeight } = f;
   assert.deepEqual(await solanaTxFate(rpc, noHeight), { fate: "pending", capped: "no_last_valid_height" });
-  assert.deepEqual(await solanaTxFate(async () => { throw new Error("https://rpc/KEY"); }, f), { fate: "pending" });
+  assert.deepEqual(await solanaTxFate(async () => { throw new Error("https://rpc/KEY"); }, f), { fate: "pending", capped: "rpc_error" });
   // a full page of other signatures: not finding it proves nothing, so never "dead" (no refund on a guess)
   const busy = async (method: string) => {
     if (method === "getSignaturesForAddress") return [{ signature: "X1", slot: 50 }, { signature: "X2", slot: 50 }];
@@ -607,6 +607,7 @@ test("solana refund: one USDC transfer to the signer's account, facts written be
   let accountExists = true;
   const rpc = async (method: string, params: unknown[]) => {
     if (method === "getLatestBlockhash") return { context: { slot: 777 }, value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 10 } };
+    if (method === "getSignaturesForAddress") return [{ signature: "PAYERLAST", slot: 770 }];
     if (method === "getAccountInfo") return { value: accountExists ? { lamports: 2_039_280 } : null };
     if (method === "sendTransaction") {
       sent.push(String(params[0]));

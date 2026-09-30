@@ -138,11 +138,16 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
   const dst = await usdcAta(to);
   let lifetime: { blockhash: Blockhash; lastValidBlockHeight: bigint };
   let minSlot: number | undefined;
+  let anchor: string | null;
   let create: boolean;
   try {
     const r = (await d.rpc("getLatestBlockhash", [{ commitment: "confirmed" }])) as { context?: { slot?: number }; value: { blockhash: string; lastValidBlockHeight: number | string } };
     lifetime = { blockhash: r.value.blockhash as Blockhash, lastValidBlockHeight: BigInt(r.value.lastValidBlockHeight) };
     minSlot = typeof r.context?.slot === "number" ? r.context.slot : undefined;
+    // The newest signature on the payer's USDC account before sending: the search that could prove this refund
+    // dead must reach it.
+    const last = (await d.rpc("getSignaturesForAddress", [src, { limit: 1, commitment: "confirmed" }])) as { signature: string }[];
+    anchor = last[0]?.signature ?? null;
     const acct = (await d.rpc("getAccountInfo", [dst, { encoding: "base64", commitment: "confirmed" }])) as { value: unknown } | null;
     if (!acct || !("value" in acct)) throw new Error("no answer");
     create = acct.value === null;
@@ -171,7 +176,7 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
   if (await checkSolanaRefundTx(b64, { payer, to, amount })) return { status: "failed", reason: "refund_tx_check_failed", tx: null, permanent: true };
   const facts = decodeSolanaTx(b64);
   const since = Math.floor(Date.now() / 1000) - 120;
-  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", signature: sig, messageHash: facts?.messageHash, blockhash: lifetime.blockhash, lastValidBlockHeight: Number(lifetime.lastValidBlockHeight), account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
+  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", signature: sig, messageHash: facts?.messageHash, blockhash: lifetime.blockhash, lastValidBlockHeight: Number(lifetime.lastValidBlockHeight), anchor, account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
     return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
   }
 

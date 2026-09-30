@@ -237,6 +237,7 @@ export async function solRig(
     staleMs?: number;
     /** The spacing of request-triggered reconcile turns (default 0: every paid request). */
     reconcileGateMs?: number;
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ): Promise<SolRig> {
   const wrap = o.wrapSeller ?? ((f: typeof fetch) => f);
@@ -323,6 +324,7 @@ export async function solRig(
     requestBudgetMs: o.budgetMs ?? 2_000,
     pollMs: 20,
     reconcileGateMs: o.reconcileGateMs ?? 0,
+    ...(o.sleep ? { sleep: o.sleep } : {}),
     ...(o.staleMs !== undefined ? { staleMs: o.staleMs } : {}),
   });
   const rec = (x: { staleMs?: number; now?: Date; walletCheck?: boolean } = {}) =>

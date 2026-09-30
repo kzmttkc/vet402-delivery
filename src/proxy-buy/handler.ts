@@ -62,7 +62,7 @@ export interface ProxyBuy {
   handle(req: Request): Promise<Response>;
 }
 
-/** Vercel's function limit is 300 s (Hobby); a request stops waiting on chains well before it. */
+/** vercel.json gives api/buy.ts a maxDuration of 300 s; a request stops waiting on chains well before it. */
 export const DEFAULT_REQUEST_BUDGET_MS = 240_000;
 export const DEFAULT_STALE_MS = 330_000;
 

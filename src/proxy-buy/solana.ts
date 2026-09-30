@@ -59,10 +59,13 @@ export interface SolanaSide {
   /** The confirmed slot (a lower bound for where a transaction handed over after this read can land). */
   slot?: () => Promise<number>;
   /**
-   * The newest blockhash (processed) and its last valid block height: an upper bound for the last valid block height
-   * of any transaction signed before this read (exact when it is the same blockhash).
+   * Whether vet402's RPC node knows `blockhash` as valid (processed), and if so an upper bound for its last valid block
+   * height: the newest blockhash's, read from a state at least as recent as the one that knew it. `known: false`: the
+   * node does not know it (too new for it, or too old): its expiry cannot be bounded, so nothing goes ahead.
    */
-  heightBound?: () => Promise<{ blockhash: string; lastValidBlockHeight: number }>;
+  heightBound?: (blockhash: string) => Promise<{ known: false } | { known: true; lastValidBlockHeight: number }>;
+  /** The newest signature on `account` (null: none): read before a hand-over, the walk that proves "dead" must reach it. */
+  anchor?: (account: string) => Promise<string | null>;
   /** Send `amount` USDC from the proxy payer to `to` (refund.ts sendSolanaRefund). */
   refund: RefundSender;
 }
@@ -201,21 +204,18 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   // The agent's transaction needs the facilitator's signature as fee payer: it cannot land before vet402 settles it.
   const agentMinSlot = await slotOrNone(side);
-  // The agent signed before this read: its transaction's last valid block height is at most this one's.
-  let agentHeight: number | undefined;
-  if (side.heightBound) {
-    try {
-      agentHeight = (await side.heightBound()).lastValidBlockHeight;
-    } catch {
-      return noCharge(503, "ledger_unreadable", "the chain could not be read; nothing was charged");
-    }
+  let handOver: { lastValidBlockHeight?: number; anchor?: string | null };
+  try {
+    handOver = await handOverFacts(ctx, agentTx.blockhash, side.receiveAta);
+  } catch (e) {
+    return noCharge(503, "blockhash_not_known", (e as Error).message === UNKNOWN_BLOCKHASH ? "vet402's RPC node does not know the payment's blockhash (too new or too old for it); nothing was charged, sign again in a few seconds" : "the chain could not be read; nothing was charged");
   }
-  const agentFacts: SolanaTxFacts & { account: string; since: number; minSlot?: number; lastValidBlockHeight?: number; expiredSlot?: number; cursor?: string } = {
+  const agentFacts: SolanaTxFacts & { account: string; since: number; minSlot?: number; lastValidBlockHeight?: number; anchor?: string | null; expiredSlot?: number; cursor?: string } = {
     ...agentTx,
     account: side.receiveAta,
     since,
     ...(agentMinSlot !== undefined ? { minSlot: agentMinSlot } : {}),
-    ...(agentHeight !== undefined ? { lastValidBlockHeight: agentHeight } : {}),
+    ...handOver,
   };
   if (!(await store.claim({ id, chain: "solana", target, sellerHost: offer.known.host, agent: authority, sellerAmount: seller, feeReserve: 0n, total, facts: { agent: agentFacts }, now }))) {
     return noCharge(409, "duplicate_payment", "this signed transaction was already used or is being used now");
@@ -336,9 +336,9 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
           const f = decodeSolanaTx(created.txBase64);
           if (!f) throw new Error("seller payment not decodable");
           if (f.durableNonce) throw new Error("seller payment uses a durable nonce");
-          // Read after signing: its last valid block height bounds the one of the blockhash the client took.
-          const bound = side.heightBound ? await side.heightBound() : null;
-          const facts = { ...f, ...(minSlot !== undefined ? { minSlot } : {}), ...(bound ? { lastValidBlockHeight: bound.lastValidBlockHeight } : {}) };
+          // The blockhash the client signed with must be one vet402's node knows (else nothing is handed over), and
+          // the anchor is read before the hand-over.
+          const facts = { ...f, ...(minSlot !== undefined ? { minSlot } : {}), ...(await handOverFacts(ctx, f.blockhash, side.payerAta)) };
           if (!(await store.move(id, ["in_progress"], "in_progress", { facts: { seller: { ...facts, account: side.payerAta, since } }, now: ctx.now() }))) throw new Error("purchase moved");
           got.sellerTx = facts;
           return created;
@@ -428,6 +428,32 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     body: bytes!,
     headers: { ...headers, "content-type": answer.contentType ?? "application/octet-stream", "x-content-type-options": "nosniff", "content-security-policy": "sandbox; default-src 'none'" },
   };
+}
+
+const UNKNOWN_BLOCKHASH = "blockhash not known to vet402's RPC node";
+
+/**
+ * What must be on record before a transaction is handed over: an upper bound of its last valid block height (the
+ * node must know its blockhash; a blockhash too new for the node gets a few short tries) and the anchor of the
+ * account it is searched on. Throws when either cannot be read: nothing is handed over then.
+ */
+async function handOverFacts(ctx: SolanaContext, blockhash: string, account: string): Promise<{ lastValidBlockHeight?: number; anchor?: string | null }> {
+  const side = ctx.side;
+  const out: { lastValidBlockHeight?: number; anchor?: string | null } = {};
+  if (side.heightBound) {
+    const sleep = ctx.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    for (let i = 0; ; i++) {
+      const b = await side.heightBound(blockhash);
+      if (b.known) {
+        out.lastValidBlockHeight = b.lastValidBlockHeight;
+        break;
+      }
+      if (i >= 2) throw new Error(UNKNOWN_BLOCKHASH);
+      await sleep(1_000);
+    }
+  }
+  if (side.anchor) out.anchor = await side.anchor(account);
+  return out;
 }
 
 /** The confirmed slot, or undefined when it cannot be read (the search then relies on `since` alone). */

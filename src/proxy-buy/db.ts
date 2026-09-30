@@ -98,6 +98,18 @@ alter table pb_refund add column if not exists failures integer not null default
 alter table pb_purchase add column if not exists spent bigint not null default 0;
 alter table pb_purchase add column if not exists seller_open boolean not null default false;
 create index if not exists pb_purchase_seller_open_idx on pb_purchase (seller_open) where seller_open;
+create table if not exists pb_alert (
+  key text primary key,
+  purchase_id text not null,
+  chain text not null,
+  reason text not null,
+  first_at timestamptz not null,
+  last_at timestamptz not null,
+  count integer not null default 1,
+  resolved_at timestamptz,
+  note text
+);
+create index if not exists pb_alert_open_idx on pb_alert (purchase_id) where resolved_at is null;
 create index if not exists pb_counter_at_idx on pb_counter (at);
 `;
 

@@ -14,6 +14,10 @@
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
 #                                            The workflow itself buys once per UTC day, so a later run only checks.
+#   scripts/daily/run.sh proxy-alerts  every 15 min  reads the open proxy-buy ALERTs (api/alerts.ts, with the cron
+#                                            secret) and writes each new one, or one still open a day later, to the
+#                                            alert file with a notification (scripts/daily/proxy-alerts.ts). Its own
+#                                            lock, so it never waits on or blocks a paying run; pays nothing.
 #   scripts/daily/run.sh publish  by hand   publish today's results again without paying (after a stop that a
 #                                            person has resolved, for example a new allow-list entry)
 #   add --dry-run (or VET402_DAILY_DRY=1): remeasure --dry-run only, the anchor only simulated, records built in a
@@ -48,6 +52,9 @@
 #   VET402_DAILY_END     first JST day with no am/pm/publish runs                 default 2026-10-09
 #   VET402_RECORDS_END   first JST day with no records runs                       default 2026-10-10
 #   VET402_BOARD_END     first JST day with no board runs                         default 2026-10-31
+#   VET402_PROXY_ALERTS_URL     https://<host>/api/alerts (unset: proxy-alerts reads nothing)
+#   VET402_PROXY_CRON_SECRET    the deployment's CRON_SECRET (never printed)
+#   VET402_PROXY_ALERTS_END     first JST day with no proxy-alerts runs                default 2026-12-31
 #   VET402_DAILY_NOTIFY  0 turns the macOS notification off
 #   VET402_DAILY_NOW     epoch seconds to use as now (tests)
 
@@ -70,14 +77,15 @@ main() {
   for a in "$@"; do
     case "$a" in
       --dry-run) DRY=1 ;;
-      *) echo "usage: run.sh am|pm|records|board|publish [--dry-run]" >&2; return 2 ;;
+      *) echo "usage: run.sh am|pm|records|board|proxy-alerts|publish [--dry-run]" >&2; return 2 ;;
     esac
   done
   case "$MODE" in
     am | pm | publish) LANE=pay ;;
     records) LANE=records ;;
     board) LANE=board ;;
-    *) echo "usage: run.sh am|pm|records|board|publish [--dry-run]" >&2; return 2 ;;
+    proxy-alerts) LANE=proxyalerts ;;
+    *) echo "usage: run.sh am|pm|records|board|proxy-alerts|publish [--dry-run]" >&2; return 2 ;;
   esac
 
   CONF="$HOME/.config/vet402-daily"
@@ -101,6 +109,7 @@ main() {
   END_DAY="${VET402_DAILY_END:-2026-10-09}"
   [ "$MODE" = records ] && END_DAY="${VET402_RECORDS_END:-2026-10-10}"
   [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-2026-10-31}"
+  [ "$MODE" = proxy-alerts ] && END_DAY="${VET402_PROXY_ALERTS_END:-2026-12-31}"
   NOW="${VET402_DAILY_NOW:-$(/bin/date +%s)}"
   GIT=/usr/bin/git
   NODE=/opt/homebrew/bin/node
@@ -131,6 +140,8 @@ main() {
 
   # One run at a time. lockf holds a kernel lock for the child's whole life; a crash releases it.
   local LOCK="$STATE/run.lock"
+  # proxy-alerts only reads: its own lock, so it never waits on a paying run nor makes one wait.
+  [ "$MODE" = proxy-alerts ] && LOCK="$STATE/proxy-alerts.lock"
   if [ "${VET402_DAILY_LOCKED:-}" != "$LOCK" ]; then
     log "start $MODE$([ "$DRY" = 1 ] && echo ' (dry run)')"
     local args=("$MODE")
@@ -138,7 +149,12 @@ main() {
     VET402_DAILY_LOCKED="$LOCK" VET402_DAILY_NOW="$NOW" VET402_DAILY_DRY="$DRY" /usr/bin/lockf -k -t 0 "$LOCK" /bin/bash "$SELF" "${args[@]}"
     local rc=$?
     if [ $rc -eq 75 ]; then
-      alert "another daily run holds $LOCK; this $MODE run did nothing"
+      if [ "$MODE" = proxy-alerts ]; then
+        log "the previous proxy-alerts run still holds $LOCK: this one did nothing"
+        rc=0
+      else
+        alert "another daily run holds $LOCK; this $MODE run did nothing"
+      fi
     fi
     log "end $MODE rc=$rc"
     return $rc
@@ -157,6 +173,7 @@ main() {
     pm) pay_lane 2 "solana" || rc=$? ;;
     records) records_lane || rc=$? ;;
     board) board_lane || rc=$? ;;
+    proxy-alerts) proxy_alerts_lane || rc=$? ;;
   esac
   # Fail loud: a stop that did not say why still says that it stopped.
   if [ $rc -ne 0 ] && [ "$ALERTED" = 0 ]; then
@@ -579,6 +596,36 @@ tempo_anchor_day() {
     run "anchor $day on Tempo --send" in_repo "$TSX" scripts/anchor-receipts-tempo.ts --day "$day" --key "$KEYS/tempo-anchor.json" --send ||
       alert "anchor-receipts-tempo --day $day --send failed (not retried; the Solana anchor stands)"
   fi
+  return 0
+}
+
+# ---------- proxy-alerts (the deployed proxy buy's open ALERTs) ----------
+
+proxy_alerts_lane() {
+  if [ -z "${VET402_PROXY_ALERTS_URL:-}" ] || [ -z "${VET402_PROXY_CRON_SECRET:-}" ]; then
+    log "proxy-alerts: VET402_PROXY_ALERTS_URL or VET402_PROXY_CRON_SECRET is not set: nothing to read"
+    return 0
+  fi
+  if [ ! -f "$REPO/scripts/daily/proxy-alerts.ts" ]; then
+    log "proxy-alerts: scripts/daily/proxy-alerts.ts is not in $REPO yet: nothing to read"
+    return 0
+  fi
+  local out n=0 line when
+  out="$(in_repo "$TSX" scripts/daily/proxy-alerts.ts --state "$STATE/proxy-alerts.json")" || {
+    alert "proxy-alerts: the reader stopped (see the log); open proxy-buy alerts were not checked"
+    return 1
+  }
+  when="$(TZ=Asia/Tokyo /bin/date '+%Y-%m-%d %H:%M')"
+  mkdir -p "$(dirname "$ALERTS")"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    printf '\n%s\n' "## ⚠️ [$when] $line" >>"$ALERTS"
+    n=$((n + 1))
+  done <<<"$out"
+  if [ "$n" -gt 0 ]; then
+    notify "proxy buy: $n alert line(s) written to $(basename "$ALERTS")"
+  fi
+  log "proxy-alerts: $n line(s) written"
   return 0
 }
 
