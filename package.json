@@ -26,7 +26,10 @@
     "check-before-paying": "node packages/check/bin/vet402-check.mjs",
     "proxy-buy": "tsx scripts/proxy-buy-serve.ts",
     "proxy-buy:reconcile": "tsx scripts/proxy-buy-reconcile.ts",
-    "proxy-buy:resolve": "tsx scripts/proxy-buy-resolve.ts"
+    "proxy-buy:resolve": "tsx scripts/proxy-buy-resolve.ts",
+    "program:build": "cargo-build-sbf --manifest-path solana-program/programs/observation-roots/Cargo.toml && cargo-build-sbf --manifest-path solana-program/programs/delivery-gate-example/Cargo.toml",
+    "program:test": "node --import tsx --test solana-program/tests/*.test.ts",
+    "program:devnet": "tsx scripts/roots-devnet.ts"
   },
   "bin": {
     "vet402-check": "packages/check/bin/vet402-check.mjs"

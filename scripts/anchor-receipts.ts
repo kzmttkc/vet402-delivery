@@ -5,6 +5,12 @@
  *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --send           # sign and send once
  *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --resume         # read the chain after an interrupted send
  *   npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --resume --send  # ... and send again if it is safe
+ *   VET402_ROOTS_PROGRAM=<id> npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --post-root          # simulate post_root
+ *   VET402_ROOTS_PROGRAM=<id> npx tsx scripts/anchor-receipts.ts --day 2026-09-28 --post-root --send   # write it
+ *
+ * --post-root (off by default) copies an already anchored day's root into the observation-roots program
+ * (src/receipt/roots-post.ts), after checking the day's memo on chain. The memo stays the primary record.
+ * VET402_ROOTS_RPC selects the cluster of the program (default SOLANA_RPC_URL).
  *
  * Records are read from ~/vet402-solana-receipt/results/receipts, the one place the signed records are
  * built. --from <dir> reads elsewhere for a simulation; --send and --resume refuse any other folder
@@ -24,7 +30,9 @@ import { fileURLToPath } from "node:url";
 import { loadPayer } from "../src/client.js";
 import { jsonRpc } from "../src/chain.js";
 import { PAYER_ADDRESS } from "../src/constants.js";
-import { plan, resume, send, type AnchorDeps } from "../src/receipt/anchor-run.js";
+import { dayRoot, plan, readDay, resume, send, type AnchorDeps } from "../src/receipt/anchor-run.js";
+import { checkAnchorOnChain } from "../src/receipt/chain.js";
+import { planPostRoot, postRootArgsFromRecord, sendPostRoot, type PostRootDeps } from "../src/receipt/roots-post.js";
 import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
 import { RM_PROD_DIR } from "../src/remeasure/constants.js";
 
@@ -77,7 +85,42 @@ const deps: AnchorDeps = {
   log: (l) => console.log(l),
 };
 
-if (doResume) {
+if (args.includes("--post-root")) {
+  // Off unless asked for: mirror the day's memo into the observation-roots program.
+  // Only a day whose memo is already on chain qualifies; the memo stays the primary record.
+  const program = process.env.VET402_ROOTS_PROGRAM;
+  if (!program) {
+    console.error("--post-root needs VET402_ROOTS_PROGRAM (the observation-roots program id on this cluster)");
+    process.exit(2);
+  }
+  const obs = readDay(deps);
+  dayRoot(deps, obs, { allowAnchored: true }); // the records on disk still give the root they carry
+  if (obs.some((o) => o.anchor?.status !== "anchored")) {
+    console.error(`not posting: ${day} is not fully anchored by memo yet (run --send first)`);
+    process.exit(2);
+  }
+  const memo = await checkAnchorOnChain(obs[0]!, () => deps.rpc);
+  if (!memo?.ok) {
+    console.error(`not posting: the memo for ${day} does not check on chain: ${memo?.detail}`);
+    process.exit(2);
+  }
+  const rootsDeps: PostRootDeps = {
+    rpc: jsonRpc(process.env.VET402_ROOTS_RPC ?? process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com"),
+    program,
+    feePayer: PAYER_ADDRESS,
+    loadSigner: deps.loadSigner,
+    log: deps.log,
+  };
+  const a = postRootArgsFromRecord(obs[0]!);
+  if (doSend) {
+    console.log(JSON.stringify(await sendPostRoot(rootsDeps, a), null, 2));
+  } else {
+    const p = await planPostRoot(rootsDeps, a);
+    const { tx: _tx, ...shown } = p as typeof p & { tx?: unknown };
+    console.log(JSON.stringify(shown, null, 2));
+    console.log("simulate only: nothing was signed or sent (pass --post-root --send to write it)");
+  }
+} else if (doResume) {
   console.log(JSON.stringify(await resume(deps, { send: doSend }), null, 2));
 } else if (doSend) {
   console.log(JSON.stringify(await send(deps), null, 2));

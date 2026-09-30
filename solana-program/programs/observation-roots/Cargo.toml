@@ -1,0 +1,25 @@
+[package]
+name = "observation-roots"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Daily Merkle roots of x402-observation records, readable by other programs through CPI"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "observation_roots"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "=0.32.2"
+solana-keccak-hasher = "=2.2.1"
