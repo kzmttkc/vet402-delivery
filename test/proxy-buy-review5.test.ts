@@ -44,7 +44,7 @@ test("zz5-Z0: a blockhash the node does not know yet is not 'expired'; the payme
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending" }, "not expired: no window end is recorded");
   Object.assign(cur, { slot: 1100, height: 95 });
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending" });
-  // the seller lands it at 1195 (height 99); the finalized height passes 100 at slot 1300
+  // the seller lands it at 1195 (height 99); the finalized height is past 100 by slot 1300
   Object.assign(cur, { slot: 1300, height: 101, listed: true });
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "landed", tx: "MINE" });
   assert.ok(reads >= 1);
@@ -220,7 +220,8 @@ test("zz5-Z4: 10,500 newer signatures above the window: the next look starts whe
       return sigs.slice(start, start + p.limit);
     }
     if (method === "getTransaction") return { meta: { err: null }, transaction: [foreign, "base64"] };
-    if (method === "getEpochInfo") return { absoluteSlot: 9000, blockHeight: 200 };
+    if (method === "getEpochInfo") return { absoluteSlot: 9000, blockHeight: 1000 };
+    if (method === "getFirstAvailableBlock") return 0;
     if (method === "getSlot") return 9000;
     throw new Error(method);
   };

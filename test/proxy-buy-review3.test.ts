@@ -71,7 +71,8 @@ async function floodRpc(o: { sigs: { signature: string; slot?: number; blockTime
       return o.sigs.slice(start, start + p.limit);
     }
     if (method === "getTransaction") return { meta: { err: null }, transaction: [foreign, "base64"] };
-    if (method === "getEpochInfo") return { absoluteSlot: o.slotNow, blockHeight: o.valid ? 50 : 200 }; // last valid height 100
+    if (method === "getEpochInfo") return { absoluteSlot: o.slotNow, blockHeight: o.valid ? 50 : 1000 }; // last valid height 100 (+300 margin)
+    if (method === "getFirstAvailableBlock") return 0;
     if (method === "getSlot") return o.slotNow;
     throw new Error(method);
   };

@@ -204,7 +204,14 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
       const f: Fate = seller ? await txFate(ctx, run, row, seller, { key: "seller" }) : { fate: "dead" };
       const note = (action: string) => out.push({ id: row.id, chain: row.chain, state: row.state, action });
       if (f.fate === "pending") {
-        note(waiting("a delivered purchase's seller payment is not seen on chain yet", f));
+        // Long unseen, or a search that cannot finish: a human looks (with the reason when there is one).
+        const age = ctx.now().getTime() - Date.parse(row.updated_at);
+        const what = "a delivered purchase's seller payment is not seen on chain yet";
+        note(
+          f.capped || age <= OPEN_ALERT_MS
+            ? waiting(what, f)
+            : `ALERT waiting: ${what}; closed ${Math.floor(age / 60_000)} minutes ago (it holds back the wallet floor until seen)`,
+        );
         if (run.exhausted) break;
         continue;
       }

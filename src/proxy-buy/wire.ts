@@ -21,7 +21,7 @@ import { loadAllowlist, type Allowlist } from "./allowlist.js";
 import type { ProxyConfig, SolanaConfig, TempoConfig } from "./config.js";
 import { CUSTOMER_CONFIRM_TIMEOUT_MS } from "./constants.js";
 import { migrate, pgSql, type Sql } from "./db.js";
-import { decodeSolanaTx, solanaTxFate, type TempoReads } from "./fate.js";
+import { MAX_TX_VERSION, rawMessageHash, solanaTxFate, type TempoReads } from "./fate.js";
 import { createProxyBuy, type ProxyBuy } from "./handler.js";
 import { sendSolanaRefund, sendTempoRefund } from "./refund.js";
 import type { SolanaSide } from "./solana.js";
@@ -56,14 +56,14 @@ export async function confirmSolanaTransfer(
   type Bal = { owner?: string; mint: string; uiTokenAmount: { amount: string } };
   for (;;) {
     try {
-      const t = (await rpc("getTransaction", [tx, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
+      const t = (await rpc("getTransaction", [tx, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: MAX_TX_VERSION }])) as {
         meta: { err: unknown; preTokenBalances?: Bal[]; postTokenBalances?: Bal[] } | null;
         transaction?: [string, string];
       } | null;
       if (t && t.meta) {
         if (o.messageHash !== undefined) {
-          const d = t.transaction ? decodeSolanaTx(t.transaction[0]) : null;
-          if (!d || d.messageHash !== o.messageHash) return { ok: false, detail: "customer_tx_not_the_signed_payment", definite: false };
+          const h = t.transaction ? rawMessageHash(t.transaction[0]) : null;
+          if (h !== o.messageHash) return { ok: false, detail: "customer_tx_not_the_signed_payment", definite: false };
         }
         if (t.meta.err !== null && t.meta.err !== undefined) return { ok: false, detail: "customer_tx_failed_on_chain", definite: true };
         const delta = new Map<string, bigint>();

@@ -186,6 +186,8 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   const agentTx = decodeSolanaTx(String((payload.payload as { transaction?: unknown }).transaction ?? ""));
   if (!agentTx || !agentTx.authority || agentTx.amount !== req.amount) return noCharge(400, "malformed_payment", "the payment is not one USDC transfer of the total");
+  // A durable-nonce transaction has no blockhash expiry: if it is not settled now, it could land at any later time.
+  if (agentTx.durableNonce) return noCharge(400, "durable_nonce_refused", "a payment signed with a durable nonce never expires; sign with a recent blockhash");
   const authority = agentTx.authority;
 
   const id = solanaPaymentKey(payload);
@@ -333,6 +335,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
           const created = await side.pay.createPayment(pr, accept);
           const f = decodeSolanaTx(created.txBase64);
           if (!f) throw new Error("seller payment not decodable");
+          if (f.durableNonce) throw new Error("seller payment uses a durable nonce");
           // Read after signing: its last valid block height bounds the one of the blockhash the client took.
           const bound = side.heightBound ? await side.heightBound() : null;
           const facts = { ...f, ...(minSlot !== undefined ? { minSlot } : {}), ...(bound ? { lastValidBlockHeight: bound.lastValidBlockHeight } : {}) };

@@ -38,6 +38,36 @@ export interface SolanaTxFacts {
   /** The TransferChecked authority (the account whose tokens moved) and amount, when there is exactly one. */
   authority: string | null;
   amount: string | null;
+  /** It advances a durable nonce (System AdvanceNonceAccount): it has no blockhash expiry at all. */
+  durableNonce: boolean;
+}
+
+const SYSTEM_PROGRAM = "11111111111111111111111111111111";
+
+/**
+ * sha256 hex of a wire transaction's message bytes (everything after its signatures), read without decoding the
+ * message: the same for any message version, so a transaction of a version the decoder does not know is still
+ * told apart from vet402's own.
+ */
+export function rawMessageHash(txBase64: string): string | null {
+  try {
+    const b = Buffer.from(txBase64, "base64");
+    let n = 0;
+    let shift = 0;
+    let i = 0;
+    for (;;) {
+      const byte = b[i++];
+      if (byte === undefined || i > 3) return null;
+      n |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) break;
+      shift += 7;
+    }
+    const start = i + 64 * n;
+    if (start >= b.length) return null;
+    return createHash("sha256").update(b.subarray(start)).digest("hex");
+  } catch {
+    return null;
+  }
 }
 
 export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
@@ -49,7 +79,10 @@ export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
     let authority: string | null = null;
     let amount: string | null = null;
     let transfers = 0;
+    let durableNonce = false;
     for (const ix of msg.instructions) {
+      const d0 = ix.data ?? new Uint8Array();
+      if (keys[ix.programAddressIndex] === SYSTEM_PROGRAM && d0.length >= 4 && d0[0] === 4 && d0[1] === 0 && d0[2] === 0 && d0[3] === 0) durableNonce = true;
       if (keys[ix.programAddressIndex] !== TOKEN_PROGRAM) continue;
       const data = ix.data ?? new Uint8Array();
       const accts = (ix.accountIndices ?? []).map((i) => keys[i]);
@@ -68,6 +101,7 @@ export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
       feePayer: keys[0] ?? "",
       authority: transfers === 1 ? authority : null,
       amount: transfers === 1 ? amount : null,
+      durableNonce,
     };
   } catch {
     return null;
@@ -76,6 +110,16 @@ export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
 
 /** Most getTransaction reads one Solana fate call makes; past it the answer is "pending" with `capped`. */
 export const SOLANA_FATE_MAX_TX_READS = 200;
+
+/**
+ * Blocks past the recorded last valid block height before a transaction counts as expired. The recorded height can
+ * be a few blocks below the real one (a bound read on another RPC node, and inclusion one block past the height
+ * getLatestBlockhash names), so the margin is wide: about two minutes of blocks. Waiting costs little.
+ */
+export const EXPIRY_MARGIN_BLOCKS = 300;
+
+/** The newest transaction version getTransaction is asked to return (a lower one makes the RPC refuse newer ones). */
+export const MAX_TX_VERSION = 1;
 
 export interface SolanaFateQuery {
   messageHash: string;
@@ -86,13 +130,14 @@ export interface SolanaFateQuery {
   /** The confirmed slot read before the transaction was handed over: it cannot have landed below it. */
   minSlot?: number;
   /**
-   * The last block height at which the transaction can be included (its blockhash's lastValidBlockHeight, or an
-   * upper bound of it). Without it the transaction is never called "dead".
+   * The last valid block height recorded for the transaction (its blockhash's, or a value read next to it that can
+   * be a few blocks off). Without it the transaction is never called "dead".
    */
   lastValidBlockHeight?: number;
   /**
-   * The finalized slot of the first answer whose finalized block height was past `lastValidBlockHeight` (returned in
-   * a "pending" answer; the caller keeps it). Every block the transaction could be in is at or below it.
+   * The finalized slot of the first answer whose finalized block height was past `lastValidBlockHeight` +
+   * EXPIRY_MARGIN_BLOCKS (returned in a "pending" answer; the caller keeps it). Every block the transaction could
+   * be in is below it.
    */
   expiredSlot?: number;
   /** A signature above that slot, as far as an earlier look paged: the next look starts below it. */
@@ -116,14 +161,17 @@ const ctxSlot = (r: Ctx<unknown>): number | undefined => (typeof r?.context?.slo
  *   1. A transaction whose signature vet402 knows (it paid the fee: a refund) is looked up directly
  *      (getSignatureStatuses over the whole history).
  *   2. Expired or not is read from the finalized chain (getEpochInfo, finalized: block height and slot of one
- *      bank): expired once the finalized block height is past `lastValidBlockHeight`. isBlockhashValid is not used:
- *      it also says false for a blockhash the node does not know yet.
+ *      bank): expired once the finalized block height is past `lastValidBlockHeight` + EXPIRY_MARGIN_BLOCKS.
+ *      isBlockhashValid is not used: it also says false for a blockhash the node does not know yet.
  *   3. Not expired: searched by its message hash among `account`'s signatures (confirmed, at least as recent as the
  *      slot read first); "landed"/"failed" if found, else "pending".
  *   4. Expired: every block it could be in is finalized and at or below the finalized slot of the first answer that
  *      said so (kept by the caller as `expiredSlot`). The finalized signatures up to that slot are searched; those
  *      above it are skipped unread, and how far that went is kept (`cursor`), so the next look starts there.
- *      Not found in the whole window, on a look after the one that recorded `expiredSlot`: "dead".
+ *      Not found in the whole window, on a look after the one that recorded `expiredSlot`, from a node whose
+ *      history (getFirstAvailableBlock) reaches `minSlot`: "dead". Any transaction version is read
+ *      (MAX_TX_VERSION) and compared by the hash of its raw message bytes; one that cannot be read is never taken
+ *      for another's: the answer stays "pending" with the reason in `capped`.
  * Anything left unread (a listed transaction the RPC does not serve yet, more history than `maxPages`, more than
  * `maxTxReads` reads, the run's read budget, the deadline, a read error) leaves the answer at "pending" (no refund
  * on a guess); `capped` says why, and the reconciler reports it (ALERT).
@@ -148,7 +196,15 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
    * With `maxSlot`, signatures above it are skipped, and the page walk starts below `cursor` and moves it on.
    */
   const find = async (maxSlot: number | null, opts: { commitment: string; minContextSlot: number }): Promise<{ hit: Fate | null; complete: boolean }> => {
-    let unreadable = false;
+    /**
+     * The walk reached the window's end: complete unless a transaction in it could not be read. After expiry that
+     * is what keeps it from "dead", so the reason goes out (capped, reported); before, it is "pending" anyway.
+     */
+    const done = (u: string | null): { hit: null; complete: boolean } => {
+      if (u && maxSlot !== null) capped = `unreadable_tx:${u}`;
+      return { hit: null, complete: !u };
+    };
+    let unreadable: string | null = null;
     let before: string | undefined = maxSlot !== null ? cursor : undefined;
     let above = maxSlot !== null; // still walking the signatures above the window
     for (let page = 0; page < maxPages; page++) {
@@ -168,8 +224,8 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
           continue;
         }
         above = false;
-        if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return { hit: null, complete: !unreadable };
-        if (f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return { hit: null, complete: !unreadable };
+        if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return done(unreadable);
+        if (f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return done(unreadable);
         if (reads >= maxReads) {
           capped = "tx_reads";
           return { hit: null, complete: false };
@@ -184,18 +240,26 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
         }
         reads++;
         if (f.budget) f.budget.reads--;
-        const t = (await rpc("getTransaction", [s.signature, { encoding: "base64", commitment: opts.commitment, maxSupportedTransactionVersion: 0 }])) as {
-          meta: { err: unknown } | null;
-          transaction: [string, string];
-        } | null;
-        if (!t) {
-          unreadable = true; // listed but not served: it may be the one
+        let t: { meta: { err: unknown } | null; transaction: [string, string] } | null;
+        try {
+          t = (await rpc("getTransaction", [s.signature, { encoding: "base64", commitment: opts.commitment, maxSupportedTransactionVersion: MAX_TX_VERSION }])) as typeof t;
+        } catch (e) {
+          // It may be the one: never taken for "not vet402's". The reason goes to the ALERT.
+          unreadable = /version/i.test(String((e as Error)?.message ?? "")) ? "unsupported_version" : "read_error";
           continue;
         }
-        const d = decodeSolanaTx(t.transaction[0]);
-        if (d && d.messageHash === f.messageHash) return { hit: t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature }, complete: true };
+        if (!t) {
+          unreadable = unreadable ?? "not_served"; // listed but not served: it may be the one
+          continue;
+        }
+        const h = rawMessageHash(t.transaction?.[0] ?? "");
+        if (h === null) {
+          unreadable = "undecodable";
+          continue;
+        }
+        if (h === f.messageHash) return { hit: t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature }, complete: true };
       }
-      if (sigs.length < pageSize) return { hit: null, complete: !unreadable };
+      if (sigs.length < pageSize) return done(unreadable);
       before = sigs[sigs.length - 1]!.signature;
     }
     capped = capped ?? "pages";
@@ -213,7 +277,11 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
       statusSlot = ctxSlot(st);
     }
     const fin = (await rpc("getEpochInfo", [{ commitment: "finalized" }])) as { absoluteSlot?: number; blockHeight?: number } | null;
-    const expired = f.lastValidBlockHeight !== undefined && typeof fin?.blockHeight === "number" && typeof fin.absoluteSlot === "number" && fin.blockHeight > f.lastValidBlockHeight;
+    const expired =
+      f.lastValidBlockHeight !== undefined &&
+      typeof fin?.blockHeight === "number" &&
+      typeof fin.absoluteSlot === "number" &&
+      fin.blockHeight > f.lastValidBlockHeight + EXPIRY_MARGIN_BLOCKS;
     if (!expired) {
       if (f.lastValidBlockHeight === undefined) capped = "no_last_valid_height";
       if (f.signature) return pending();
@@ -222,13 +290,28 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
     }
     const recorded = expiredSlot !== undefined;
     if (expiredSlot === undefined) expiredSlot = fin!.absoluteSlot!;
+    /** "Dead" also needs the node's history to reach the window's start: a pruned ledger answers "not found". */
+    const historyCovers = async (): Promise<boolean> => {
+      if (f.minSlot === undefined) {
+        capped = "no_min_slot";
+        return false;
+      }
+      const first = Number(await rpc("getFirstAvailableBlock", []));
+      if (!Number.isSafeInteger(first) || first > f.minSlot) {
+        capped = "history_pruned";
+        return false;
+      }
+      return true;
+    };
     if (f.signature) {
       // Not in the whole history, asked of a node that has the window: it never landed.
-      return recorded && statusSlot !== undefined && statusSlot >= expiredSlot ? { fate: "dead" } : pending();
+      if (!(recorded && statusSlot !== undefined && statusSlot >= expiredSlot)) return pending();
+      return (await historyCovers()) ? { fate: "dead" } : pending();
     }
     const r = await find(expiredSlot, { commitment: "finalized", minContextSlot: expiredSlot });
     if (r.hit) return r.hit;
-    return r.complete && recorded ? { fate: "dead" } : pending();
+    if (!(r.complete && recorded)) return pending();
+    return (await historyCovers()) ? { fate: "dead" } : pending();
   } catch {
     return pending();
   }

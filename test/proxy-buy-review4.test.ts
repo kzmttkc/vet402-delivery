@@ -26,7 +26,7 @@ import { agent, agentPaysSolana, allowlist, PAYER_ATA, paidReq, proxyPayer, RECE
 
 /**
  * A chain seen through one RPC: `later` signatures after the landing (newest first), then vet402's (if it landed),
- * then history. The finalized bank is at `slotNow` (block height past the last valid height 100 unless `valid`);
+ * then history. The finalized bank is at `slotNow` (block height past the last valid height 100 and its margin unless `valid`);
  * getSlot may come from a node behind it.
  */
 async function chainRpc(o: { mineTx: string | null; mineSlot: number; later: number; laterFrom: number; slotNow: number; valid: boolean; laggingSlot?: number }) {
@@ -52,7 +52,8 @@ async function chainRpc(o: { mineTx: string | null; mineSlot: number; later: num
       const sig = (params as [string])[0];
       return { meta: { err: null }, transaction: [sig === "MINE" ? o.mineTx : foreign, "base64"] };
     }
-    if (method === "getEpochInfo") return { absoluteSlot: o.slotNow, blockHeight: o.valid ? 50 : 200 };
+    if (method === "getEpochInfo") return { absoluteSlot: o.slotNow, blockHeight: o.valid ? 50 : 1000 };
+    if (method === "getFirstAvailableBlock") return 0;
     if (method === "getSlot") return o.laggingSlot ?? o.slotNow;
     throw new Error(method);
   };
@@ -99,10 +100,11 @@ test("zz4-R2: a refund (vet402 paid its fee) is looked up by its signature over 
     calls.push(method);
     if (method === "getSlot") return slot;
     if (method === "getSignatureStatuses") return { context: { slot }, value: [status] };
-    if (method === "getEpochInfo") return { absoluteSlot: slot, blockHeight: 200 };
+    if (method === "getEpochInfo") return { absoluteSlot: slot, blockHeight: 1000 };
+    if (method === "getFirstAvailableBlock") return 0;
     throw new Error(method);
   };
-  const q = { signature: "REFUNDSIG", messageHash: "m", blockhash: "b", account: PAYER_ATA, lastValidBlockHeight: 100 };
+  const q = { signature: "REFUNDSIG", messageHash: "m", blockhash: "b", account: PAYER_ATA, minSlot: 400, lastValidBlockHeight: 100 };
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending", expiredSlot: 500 });
   assert.deepEqual(await solanaTxFate(rpc, { ...q, expiredSlot: 500 }), { fate: "dead" });
   status = { err: null, confirmationStatus: "confirmed" };

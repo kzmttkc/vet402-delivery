@@ -17,7 +17,7 @@ import { SOLANA_MAINNET, USDC_MINT } from "../src/constants.js";
 import { USDC_E } from "../src/tempo/constants.js";
 import { loadAllowlist, makeAllowlist } from "../src/proxy-buy/allowlist.js";
 import { configFromEnv, describeConfig } from "../src/proxy-buy/config.js";
-import { decodeSolanaTx, decodeTempoTx, solanaTxFate, tempoTxFate } from "../src/proxy-buy/fate.js";
+import { decodeSolanaTx, decodeTempoTx, EXPIRY_MARGIN_BLOCKS, solanaTxFate, tempoTxFate } from "../src/proxy-buy/fate.js";
 import { quote, QUOTE_MAX_BODY_BYTES, readTextCapped } from "../src/proxy-buy/quote.js";
 import { redact, refusalReason } from "../src/proxy-buy/reasons.js";
 import { checkSolanaRefundTx, sendSolanaRefund, sendTempoRefund } from "../src/proxy-buy/refund.js";
@@ -552,13 +552,16 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     if (method === "getSignaturesForAddress") return landed ? [{ signature: "S1", slot: 90 }] : [];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [txb, "base64"] };
     if (method === "getEpochInfo") return { absoluteSlot: 500, blockHeight: height };
+    if (method === "getFirstAvailableBlock") return 0;
     if (method === "getSlot") return 600;
     throw new Error(method);
   };
-  const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE, lastValidBlockHeight: 150 };
+  const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE, minSlot: 0, lastValidBlockHeight: 150 };
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending" });
-  height = 151;
-  // the first answer past the last valid height only records the window's end; "dead" needs a later look
+  height = 150 + EXPIRY_MARGIN_BLOCKS; // not past the margin yet
+  assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending" });
+  height = 151 + EXPIRY_MARGIN_BLOCKS;
+  // the first answer past the last valid height + the margin only records the window's end; "dead" needs a later look
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending", expiredSlot: 500 });
   assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 500 }), { fate: "dead" });
   landed = true;
@@ -573,6 +576,7 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     if (method === "getSignaturesForAddress") return [{ signature: "X1", slot: 50 }, { signature: "X2", slot: 50 }];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [await transferTx(agent, VET_FAC, SELLER, 1n), "base64"] };
     if (method === "getEpochInfo") return { absoluteSlot: 200, blockHeight: 999 };
+    if (method === "getFirstAvailableBlock") return 0;
     if (method === "getSlot") return 200;
     throw new Error(method);
   };
