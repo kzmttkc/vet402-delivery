@@ -16,7 +16,9 @@ export function bearerMatches(header: string | null, secret: string | undefined)
   return timingSafeEqual(a, b);
 }
 
-export async function alertsResponse(req: Request, store: Store, secret: string | undefined): Promise<Response> {
+export async function alertsResponse(req: Request, store: Store, secret: string | undefined, cronSecret?: string): Promise<Response> {
+  // The read-only secret must not be the cron's: a copy on the operator's machine could then start the reconciler.
+  if (secret && cronSecret && secret === cronSecret) return new Response("misconfigured: VET402_PROXY_ALERTS_SECRET equals CRON_SECRET", { status: 503 });
   if (!bearerMatches(req.headers.get("authorization"), secret)) return new Response("forbidden", { status: 403 });
   const rows = await store.openAlerts(500);
   const alerts = rows.map((r) => ({ key: r.key, purchaseId: r.purchase_id, chain: r.chain, reason: r.reason, firstAt: r.first_at, lastAt: r.last_at, count: r.count, note: r.note }));

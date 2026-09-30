@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { migrate, pgSql } from "../src/proxy-buy/db.js";
 import { reconcile } from "../src/proxy-buy/reconcile.js";
+import { settleByHand } from "../src/proxy-buy/resolve.js";
 import { Store } from "../src/proxy-buy/store.js";
 import { agentPaysSolana, PAYER_ATA, paidReq, solRig } from "./proxy-buy-fakes.js";
 
@@ -15,7 +16,7 @@ const URL0 = process.env.PROXY_BUY_TEST_PG_URL;
 const skip = !URL0;
 const pool = URL0 ? new pg.Pool({ connectionString: URL0, max: 40 }) : null;
 const sql = pool ? pgSql(pool) : null;
-const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter, pb_alert";
+const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter, pb_alert, pb_state";
 
 async function fresh(): Promise<Store> {
   await pool!.query(`drop table if exists ${TABLES}`);
@@ -224,4 +225,32 @@ test("pg (fourth review): a floor raise leaves out a closed purchase's seller pa
   await claim(s, "B");
   assert.deepEqual(await admitAt("B", 1_000_000n, t(3600)), { ok: true });
   assert.equal((await s.wallet("solana"))!.floor, 900_000n - 105_000n);
+});
+
+// Ninth review: settling by hand racing the reconciler's new refund attempt, on real connections.
+test("pg (ninth review): settle by hand vs a new refund attempt at once, 20 rounds -> one wins, never both", { skip }, async () => {
+  for (let round = 0; round < 20; round++) {
+    const s = await fresh();
+    const id = `r${round}`;
+    await claim(s, id);
+    await s.admit(id, { chain: "solana", payer: "P", day, caps: { cap: 5_000_000n, maxCount: 100, refundCap: 5_000_000n }, need: 105_000n, balance: 1_000_000n, now });
+    await s.move(id, ["admitted"], "settling", { now });
+    const rec = { id, chain: "solana", at: now.toISOString(), target: "", seller: { host: "", payTo: "", priceAtomic: "100000" }, feeAtomic: "5000", totalAtomic: "105000", customer: { tx: "C" + id, payer: "A", confirmed: true }, sellerPayment: null, answer: null, outcome: "in_progress", reason: null, refund: "none" };
+    await s.useCustomerTx(id, "solana", "C" + id, { facts: {}, record: rec as never, now });
+    await s.move(id, ["in_progress"], "refund_pending", { now });
+    await s.refundClaim(id, { chain: "solana", day, to: "A", amount: 105_000n, maxRefund: 105_000n, now });
+    await s.refundSending(id, ["pending"], { tx: "R1", facts: {}, now });
+    await s.refundSet(id, ["sending"], "dead", { tx: "R1", now });
+    const at = new Date(now.getTime() + 3_600_000);
+    const [settled, took] = await Promise.all([
+      settleByHand(s, id, { reason: "by hand", spent: 105_000n, refundTx: "HAND", now: at }),
+      s.refundSending(id, ["pending", "dead", "failed"], { tx: "R2", facts: {}, now: at }),
+    ]);
+    assert.notEqual(settled.ok && took, true, `round ${round}: both won`);
+    assert.ok(settled.ok || took, `round ${round}: neither won`);
+    const rf = (await s.getRefund(id))!;
+    const st = (await s.get(id))!.state;
+    if (settled.ok) assert.deepEqual([st, rf.status, rf.tx], ["done", "sent", "HAND"]);
+    else assert.deepEqual([st, rf.status, rf.tx], ["refund_pending", "sending", "R2"]);
+  }
 });

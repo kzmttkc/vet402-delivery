@@ -126,11 +126,14 @@ export interface RefundRow {
   /** Attempts that failed before sending. */
   failures: number;
   updated_at: string;
+  /** updated_at as ISO (UTC). */
+  updated_iso: string;
   /** The UTC day of updated_at. */
   updated_day: string;
 }
 const REFUND_ROW = `purchase_id, chain, to_char(day, 'YYYY-MM-DD') as day, to_addr, amount::text as amount, status, attempt, tx, facts,
-  fee_paid::text as fee_paid, reason, failures, updated_at::text as updated_at, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD') as updated_day`;
+  fee_paid::text as fee_paid, reason, failures, updated_at::text as updated_at,
+  to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.FF6"Z"') as updated_iso, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD') as updated_day`;
 
 export interface AlertRow {
   key: string;

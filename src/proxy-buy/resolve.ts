@@ -12,7 +12,7 @@
  *   note           a reason on its open alerts, nothing else
  */
 import type { PurchaseRecord, PurchaseState, Store } from "./store.js";
-import { OPEN_STATES } from "./store.js";
+import { OPEN_STATES, Store as StoreClass } from "./store.js";
 
 /** A purchase that changed more recently than this is not closed by hand (a request or the reconciler may be on it). */
 export const SETTLE_QUIET_MS = 10 * 60_000;
@@ -56,6 +56,8 @@ export async function settleByHand(
   if (rf && (rf.status === "sending" || rf.status === "unknown")) {
     return { ok: false, detail: `a refund transaction (${rf.tx ?? "?"}) was sent and can still land; recheck until the reconciler decides it` };
   }
+  if (rf && rf.status === "sent") return { ok: false, detail: `the refund was sent (${rf.tx ?? "?"}); the reconciler closes the purchase` };
+  if (rf && o.now.getTime() - Date.parse(rf.updated_iso) < SETTLE_QUIET_MS) return { ok: false, detail: "the refund changed less than 10 minutes ago; wait, or recheck first" };
   const base = (row.record ?? {}) as PurchaseRecord;
   const record: PurchaseRecord = {
     ...base,
@@ -67,12 +69,26 @@ export async function settleByHand(
       ? { status: "sent", to: typeof row.facts.refundTo === "string" ? row.facts.refundTo : null, amountAtomic: row.total, tx: o.refundTx, reason: "sent by hand" }
       : (base.refund ?? "none"),
   };
-  if (!(await store.finish(id, OPEN_STATES, { record, spent: o.spent, updatedAt: row.updated_at, now: o.now }))) return { ok: false, detail: "the purchase moved meanwhile; look again" };
-  // The refund row follows: sent by hand, or closed with the purchase (never left open with nobody to decide it).
-  if (o.refundTx) {
-    await store.sql.query(`update pb_refund set status = 'sent', tx = $2, reason = $3, updated_at = $4 where purchase_id = $1 and status <> 'sent'`, [id, o.refundTx, note, o.now.toISOString()]);
-  } else {
-    await store.sql.query(`update pb_refund set status = 'closed', reason = $2, updated_at = $3 where purchase_id = $1 and status not in ('sent', 'closed')`, [id, note, o.now.toISOString()]);
+  // One transaction: the refund row only as it was read (status and attempt, and never one being sent), then the
+  // purchase only as it was read. A reconciler that took the refund meanwhile (a new attempt, sending) wins: nothing
+  // here changes, and nothing is sent twice.
+  class Moved extends Error {}
+  try {
+    await store.sql.tx(async (q) => {
+      if (rf) {
+        const u = await q.query(
+          `update pb_refund set status = $2, tx = coalesce($3, tx), reason = $4, updated_at = $5
+           where purchase_id = $1 and status = $6 and attempt = $7 and status not in ('sending', 'unknown', 'sent', 'closed') returning purchase_id`,
+          [id, o.refundTx ? "sent" : "closed", o.refundTx ?? null, note, o.now.toISOString(), rf.status, rf.attempt],
+        );
+        if (u.rows.length !== 1) throw new Moved("the refund moved meanwhile (the reconciler may be sending one); look again");
+      }
+      const inTx = new StoreClass(q);
+      if (!(await inTx.finish(id, OPEN_STATES, { record, spent: o.spent, updatedAt: row.updated_at, now: o.now }))) throw new Moved("the purchase moved meanwhile; look again");
+    });
+  } catch (e) {
+    if (e instanceof Moved) return { ok: false, detail: e.message };
+    throw e;
   }
   await store.alertsResolve(id, [], o.now, note);
   return { ok: true, detail: "closed; its reservations went back" };

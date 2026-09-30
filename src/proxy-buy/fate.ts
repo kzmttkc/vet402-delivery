@@ -263,9 +263,11 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
         }
         above = false;
         if (past !== undefined) {
-          // Past the anchor, down to the lookback time: the anchor itself may be the transaction.
-          if (typeof s.blockTime === "number" && s.blockTime < past) return done(unreadable, seenAnchor || f.anchor === null);
+          // Always walk to the anchor; past it (it may itself be the transaction), down to the lookback time. The
+          // time only ends the walk once the anchor was met: on a quiet account the anchor is older than that.
           if (typeof f.anchor === "string" && s.signature === f.anchor) seenAnchor = true;
+          const anchorMet = seenAnchor || typeof f.anchor !== "string";
+          if (anchorMet && typeof s.blockTime === "number" && s.blockTime < past) return done(unreadable, true);
         } else {
           // Older than the hand-over: the walk is over. With an anchor, reaching it shows the listing reached back
           // to before the hand-over (it cannot show that nothing in between was left out).

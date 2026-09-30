@@ -11,13 +11,14 @@ import { openDatabase } from "../src/proxy-buy/wire.js";
 
 export async function GET(request: Request): Promise<Response> {
   const secret = process.env.VET402_PROXY_ALERTS_SECRET;
+  if (secret && secret === process.env.CRON_SECRET) return new Response("misconfigured: VET402_PROXY_ALERTS_SECRET equals CRON_SECRET", { status: 503 });
   if (!bearerMatches(request.headers.get("authorization"), secret)) return new Response("forbidden", { status: 403 });
   try {
     const cfg = configFromEnv(process.env);
     if (!cfg.databaseUrl) throw new Error("DATABASE_URL is not set");
     const sql = openDatabase(cfg.databaseUrl);
     await migrate(sql);
-    return await alertsResponse(request, new Store(sql), secret);
+    return await alertsResponse(request, new Store(sql), secret, process.env.CRON_SECRET);
   } catch (e) {
     console.error(`proxy buy alerts: ${redact(String((e as Error).message ?? e), 300)}`);
     return new Response(JSON.stringify({ error: "internal_error" }), { status: 500, headers: { "content-type": "application/json" } });
