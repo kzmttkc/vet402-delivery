@@ -53,7 +53,7 @@
 #   VET402_RECORDS_END   first JST day with no records runs                       default 2026-10-10
 #   VET402_BOARD_END     first JST day with no board runs                         default 2026-10-31
 #   VET402_PROXY_ALERTS_URL     https://<host>/api/alerts (unset: proxy-alerts reads nothing)
-#   VET402_PROXY_CRON_SECRET    the deployment's CRON_SECRET (never printed)
+#   VET402_PROXY_ALERTS_SECRET  the deployment's read-only alerts secret, not the cron's (never printed)
 #   VET402_PROXY_ALERTS_END     first JST day with no proxy-alerts runs                default 2026-12-31
 #   VET402_DAILY_NOTIFY  0 turns the macOS notification off
 #   VET402_DAILY_NOW     epoch seconds to use as now (tests)
@@ -135,6 +135,13 @@ main() {
 
   if [[ "$JST_DAY" > "$END_DAY" || "$JST_DAY" == "$END_DAY" ]]; then
     log "JST $JST_DAY is on or after $END_DAY: nothing runs"
+    # proxy-alerts is a watch: its end is said once, not only logged.
+    if [ "$MODE" = proxy-alerts ] && [ ! -f "$STATE/proxy-alerts-ended" ]; then
+      mkdir -p "$STATE"
+      printf '%s\n' "$JST_DAY" >"$STATE/proxy-alerts-ended"
+      ALERTED=0
+      alert "proxy-alerts ended on $END_DAY (VET402_PROXY_ALERTS_END): the deployed proxy buy's alerts are no longer read"
+    fi
     return 0
   fi
 
@@ -601,15 +608,28 @@ tempo_anchor_day() {
 
 # ---------- proxy-alerts (the deployed proxy buy's open ALERTs) ----------
 
+# once_alert <stamp> <message>: an alert the first time only (until the stamp is removed); a watch that cannot
+# watch says so instead of stopping quietly, without a line every 15 minutes.
+once_alert() {
+  if [ ! -f "$STATE/$1" ]; then
+    /bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$STATE/$1"
+    alert "$2"
+  else
+    log "$2 (said before; remove $STATE/$1 to hear it again)"
+  fi
+}
+
 proxy_alerts_lane() {
-  if [ -z "${VET402_PROXY_ALERTS_URL:-}" ] || [ -z "${VET402_PROXY_CRON_SECRET:-}" ]; then
-    log "proxy-alerts: VET402_PROXY_ALERTS_URL or VET402_PROXY_CRON_SECRET is not set: nothing to read"
+  if [ -z "${VET402_PROXY_ALERTS_URL:-}" ] || [ -z "${VET402_PROXY_ALERTS_SECRET:-}" ]; then
+    once_alert proxy-alerts-unconfigured "proxy-alerts: VET402_PROXY_ALERTS_URL or VET402_PROXY_ALERTS_SECRET is not set in the env file: the deployed proxy buy's alerts are not read"
     return 0
   fi
+  rm -f "$STATE/proxy-alerts-unconfigured"
   if [ ! -f "$REPO/scripts/daily/proxy-alerts.ts" ]; then
-    log "proxy-alerts: scripts/daily/proxy-alerts.ts is not in $REPO yet: nothing to read"
+    once_alert proxy-alerts-missing "proxy-alerts: scripts/daily/proxy-alerts.ts is not in $REPO: the deployed proxy buy's alerts are not read"
     return 0
   fi
+  rm -f "$STATE/proxy-alerts-missing"
   local out n=0 line when
   out="$(in_repo "$TSX" scripts/daily/proxy-alerts.ts --state "$STATE/proxy-alerts.json")" || {
     alert "proxy-alerts: the reader stopped (see the log); open proxy-buy alerts were not checked"

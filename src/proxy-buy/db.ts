@@ -8,7 +8,8 @@
  *     clause under the row lock, so concurrent reservations cannot both pass);
  *   - one refund per purchase: pb_refund primary key (purchase id); a new attempt only from status "dead";
  *   - one purchase per seller payment or refund found on chain: pb_chain_tx primary key (chain, tx);
- *   - request limits and daily counters (per-client quotes, refund account creations): pb_counter.
+ *   - request limits and daily counters (per-client quotes, refund account creations): pb_counter;
+ *   - ALERTs the reconciler said, open until they no longer hold: pb_alert; when it last ran in full: pb_state.
  *
  * Amounts are bigint columns, read back as text (drivers differ in how they return bigint).
  */
@@ -110,6 +111,10 @@ create table if not exists pb_alert (
   note text
 );
 create index if not exists pb_alert_open_idx on pb_alert (purchase_id) where resolved_at is null;
+create table if not exists pb_state (
+  key text primary key,
+  at timestamptz not null
+);
 create index if not exists pb_counter_at_idx on pb_counter (at);
 `;
 

@@ -7,11 +7,15 @@
  *                  allow new attempts, optionally to another address. Safe: a stuck refund has no transaction that
  *                  can still land.
  *   settleByHand   close an open purchase with what a person found out (for example a refund sent by hand), and
- *                  give its reservations back; or mark a closed purchase's seller payment as seen
+ *                  give its reservations back; or mark a closed purchase's seller payment as seen. Refused while a
+ *                  sent refund can still land (sending, unknown) and for a purchase changed in the last 10 minutes.
  *   note           a reason on its open alerts, nothing else
  */
 import type { PurchaseRecord, PurchaseState, Store } from "./store.js";
 import { OPEN_STATES } from "./store.js";
+
+/** A purchase that changed more recently than this is not closed by hand (a request or the reconciler may be on it). */
+export const SETTLE_QUIET_MS = 10 * 60_000;
 
 export async function recheck(store: Store, id: string): Promise<boolean> {
   const r = await store.sql.query(`update pb_purchase set checked_at = null where id = $1 and state <> 'done' returning id`, [id]);
@@ -47,6 +51,11 @@ export async function settleByHand(
     return { ok: true, detail: "the seller payment is marked as seen; it no longer holds back the wallet floor" };
   }
   if (!(OPEN_STATES as PurchaseState[]).includes(row.state)) return { ok: false, detail: `the purchase is ${row.state}: nothing was charged, the reconciler releases it` };
+  if (o.now.getTime() - Date.parse(row.updated_at) < SETTLE_QUIET_MS) return { ok: false, detail: "the purchase changed less than 10 minutes ago; wait, or recheck first" };
+  const rf = await store.getRefund(id);
+  if (rf && (rf.status === "sending" || rf.status === "unknown")) {
+    return { ok: false, detail: `a refund transaction (${rf.tx ?? "?"}) was sent and can still land; recheck until the reconciler decides it` };
+  }
   const base = (row.record ?? {}) as PurchaseRecord;
   const record: PurchaseRecord = {
     ...base,
@@ -59,8 +68,11 @@ export async function settleByHand(
       : (base.refund ?? "none"),
   };
   if (!(await store.finish(id, OPEN_STATES, { record, spent: o.spent, updatedAt: row.updated_at, now: o.now }))) return { ok: false, detail: "the purchase moved meanwhile; look again" };
+  // The refund row follows: sent by hand, or closed with the purchase (never left open with nobody to decide it).
   if (o.refundTx) {
     await store.sql.query(`update pb_refund set status = 'sent', tx = $2, reason = $3, updated_at = $4 where purchase_id = $1 and status <> 'sent'`, [id, o.refundTx, note, o.now.toISOString()]);
+  } else {
+    await store.sql.query(`update pb_refund set status = 'closed', reason = $2, updated_at = $3 where purchase_id = $1 and status not in ('sent', 'closed')`, [id, note, o.now.toISOString()]);
   }
   await store.alertsResolve(id, [], o.now, note);
   return { ok: true, detail: "closed; its reservations went back" };

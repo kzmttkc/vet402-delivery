@@ -116,7 +116,8 @@ export interface RefundRow {
   day: string;
   to_addr: string;
   amount: string;
-  status: "pending" | "sending" | "sent" | "dead" | "failed" | "unknown" | "stuck";
+  /** "closed": the purchase was closed by hand with no refund sent (scripts/proxy-buy-resolve.ts settle). */
+  status: "pending" | "sending" | "sent" | "dead" | "failed" | "unknown" | "stuck" | "closed";
   attempt: number;
   tx: string | null;
   facts: Record<string, unknown>;
@@ -552,6 +553,17 @@ export class Store {
   /** A person's note on the open alerts of `purchaseId`. */
   async alertNote(purchaseId: string, note: string): Promise<void> {
     await this.sql.query(`update pb_alert set note = $2 where purchase_id = $1 and resolved_at is null`, [purchaseId, note.slice(0, 500)]);
+  }
+
+  /** Something ran now (for example the full reconcile run). */
+  async markRan(key: string, now: Date): Promise<void> {
+    await this.sql.query(`insert into pb_state (key, at) values ($1, $2) on conflict (key) do update set at = $2`, [key, iso(now)]);
+  }
+
+  /** When it last ran (ISO), or null. */
+  async lastRan(key: string): Promise<string | null> {
+    const r = await this.sql.query<{ at: string }>(`select to_char(at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as at from pb_state where key = $1`, [key]);
+    return r.rows[0]?.at ?? null;
   }
 
   /** Purchases that hold reservations on `chain` (admitted or open). */

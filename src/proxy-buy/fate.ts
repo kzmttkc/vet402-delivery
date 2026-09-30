@@ -127,6 +127,14 @@ export const SOLANA_FATE_MAX_TX_READS = 200;
  */
 export const EXPIRY_MARGIN_BLOCKS = 300;
 
+/**
+ * How far back the agent's payment is searched from the moment vet402 took it: a transaction with a blockhash vet402's
+ * node knew as valid then cannot have landed much more than 151 blocks (about a minute) earlier. Ten minutes.
+ */
+export const AGENT_LOOKBACK_SECONDS = 600;
+/** The same reach in slots, for the history check (about 20 minutes of slots). */
+export const AGENT_LOOKBACK_SLOTS = 3_000;
+
 /** The newest transaction version getTransaction is asked to return (a lower one makes the RPC refuse newer ones). */
 export const MAX_TX_VERSION = 1;
 
@@ -156,6 +164,12 @@ export interface SolanaFateQuery {
    * The walk must reach it before "dead": a listing that skips part of the history then never proves anything.
    */
   anchor?: string | null;
+  /**
+   * Unix seconds: walk on past the anchor down to transactions older than this, and read the anchor too. For the
+   * agent's payment, which the agent may have settled itself before vet402 read the anchor and `minSlot`: the
+   * search then reaches back to before the payment's blockhash could exist (AGENT_LOOKBACK_SECONDS).
+   */
+  pastAnchorUntil?: number;
   /** The transaction's own signature, when vet402 paid its fee (a refund): looked up directly, no search. */
   signature?: string;
   pageSize?: number;
@@ -227,6 +241,8 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
       return { hit: null, complete: true };
     };
     let unreadable: string | null = null;
+    let seenAnchor = false;
+    const past = f.pastAnchorUntil;
     let before: string | undefined = maxSlot !== null ? cursor : undefined;
     let above = maxSlot !== null; // still walking the signatures above the window
     for (let page = 0; page < maxPages; page++) {
@@ -246,10 +262,17 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
           continue;
         }
         above = false;
-        // Older than the hand-over: the walk is over. With an anchor, only reaching it proves nothing was skipped.
-        if (typeof f.anchor === "string" && s.signature === f.anchor) return done(unreadable, true);
-        if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return done(unreadable, false);
-        if (f.minSlot === undefined && f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return done(unreadable, false);
+        if (past !== undefined) {
+          // Past the anchor, down to the lookback time: the anchor itself may be the transaction.
+          if (typeof s.blockTime === "number" && s.blockTime < past) return done(unreadable, seenAnchor || f.anchor === null);
+          if (typeof f.anchor === "string" && s.signature === f.anchor) seenAnchor = true;
+        } else {
+          // Older than the hand-over: the walk is over. With an anchor, reaching it shows the listing reached back
+          // to before the hand-over (it cannot show that nothing in between was left out).
+          if (typeof f.anchor === "string" && s.signature === f.anchor) return done(unreadable, true);
+          if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return done(unreadable, false);
+          if (f.minSlot === undefined && f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return done(unreadable, false);
+        }
         if (reads >= maxReads) {
           capped = "tx_reads";
           return { hit: null, complete: false };
@@ -283,7 +306,7 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
         }
         if (h === f.messageHash) return { hit: t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature }, complete: true };
       }
-      if (sigs.length < pageSize) return done(unreadable, false);
+      if (sigs.length < pageSize) return done(unreadable, seenAnchor);
       before = sigs[sigs.length - 1]!.signature;
     }
     capped = capped ?? "pages";
@@ -324,7 +347,8 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
         return false;
       }
       const first = Number(await rpc("getFirstAvailableBlock", []));
-      if (!Number.isSafeInteger(first) || first > f.minSlot) {
+      const lowest = f.pastAnchorUntil !== undefined ? Math.max(0, f.minSlot - AGENT_LOOKBACK_SLOTS) : f.minSlot;
+      if (!Number.isSafeInteger(first) || first > lowest) {
         capped = "history_pruned";
         return false;
       }

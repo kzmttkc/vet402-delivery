@@ -1,17 +1,17 @@
 /**
- * The open proxy-buy ALERTs (src/proxy-buy/alerts.ts), read by the operator's runner (scripts/daily/run.sh
- * proxy-alerts). Only with Authorization: Bearer $CRON_SECRET.
+ * The open proxy-buy ALERTs and the reconciler's last full run (src/proxy-buy/alerts.ts), read by the operator's
+ * runner (scripts/daily/run.sh proxy-alerts). Only with Authorization: Bearer $VET402_PROXY_ALERTS_SECRET.
  */
 import { configFromEnv } from "../src/proxy-buy/config.js";
-import { alertsResponse } from "../src/proxy-buy/alerts.js";
+import { alertsResponse, bearerMatches } from "../src/proxy-buy/alerts.js";
 import { migrate } from "../src/proxy-buy/db.js";
 import { redact } from "../src/proxy-buy/reasons.js";
 import { Store } from "../src/proxy-buy/store.js";
 import { openDatabase } from "../src/proxy-buy/wire.js";
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return new Response("forbidden", { status: 403 });
+  const secret = process.env.VET402_PROXY_ALERTS_SECRET;
+  if (!bearerMatches(request.headers.get("authorization"), secret)) return new Response("forbidden", { status: 403 });
   try {
     const cfg = configFromEnv(process.env);
     if (!cfg.databaseUrl) throw new Error("DATABASE_URL is not set");

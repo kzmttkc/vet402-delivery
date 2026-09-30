@@ -25,7 +25,7 @@ import { alertKey } from "../src/proxy-buy/reconcile.js";
 import { note, recheck, reopenRefund, settleByHand } from "../src/proxy-buy/resolve.js";
 import { Store } from "../src/proxy-buy/store.js";
 import { solanaSide } from "../src/proxy-buy/wire.js";
-import { toReport, type ProxyAlert } from "../scripts/daily/proxy-alerts.js";
+import { itemsFor, toReport, type ProxyAlert } from "../scripts/daily/proxy-alerts.js";
 import { agent, agentPaysSolana, paidReq, PAYER_ATA, proxyPayer, RECEIVE, RECEIVE_ATA, SELLER, SELLER_FAC, solRig, testSql, transferTx, VET_FAC } from "./proxy-buy-fakes.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -180,7 +180,7 @@ test("zz7-D/L1: an RPC error is 'pending' with a reason; with a minSlot, an old 
   assert.deepEqual(await solanaTxFate(rpc, { messageHash: mine.messageHash, blockhash: mine.blockhash, account: RECEIVE_ATA, minSlot: 1000, since: nowS() - 120, lastValidBlockHeight: 100 }), { fate: "landed", tx: "MINE" });
 });
 
-test("zz7-M3: ALERTs are kept in pb_alert, resolved when gone, and served only with the cron secret", async () => {
+test("zz7-M3: ALERTs are kept in pb_alert, resolved when gone, and served only with the read-only alerts secret", async () => {
   const r = await solRig({ seller: { paidStatus: 500 }, sellerSettles: false, budgetMs: 300 });
   r.chain.blockhashValid = true;
   const a = await agentPaysSolana(r.buy);
@@ -193,10 +193,10 @@ test("zz7-M3: ALERTs are kept in pb_alert, resolved when gone, and served only w
   assert.equal(open[0]!.key, alertKey(alert.id, alert.action));
   assert.match(open[0]!.reason, /rpc_rate_limited/);
   // served with the secret only
-  assert.equal((await alertsResponse(new Request("https://x/api/alerts"), r.store, "S3CRET")).status, 403);
-  assert.equal((await alertsResponse(new Request("https://x/api/alerts", { headers: { authorization: "Bearer nope" } }), r.store, "S3CRET")).status, 403);
+  assert.equal((await alertsResponse(new Request("https://x/api/alerts"), r.store, "S3CRET-read-only-0123")).status, 403);
+  assert.equal((await alertsResponse(new Request("https://x/api/alerts", { headers: { authorization: "Bearer nope" } }), r.store, "S3CRET-read-only-0123")).status, 403);
   assert.equal((await alertsResponse(new Request("https://x/api/alerts"), r.store, undefined)).status, 403);
-  const ok = await alertsResponse(new Request("https://x/api/alerts", { headers: { authorization: "Bearer S3CRET" } }), r.store, "S3CRET");
+  const ok = await alertsResponse(new Request("https://x/api/alerts", { headers: { authorization: "Bearer S3CRET-read-only-0123" } }), r.store, "S3CRET-read-only-0123");
   const served = (await ok.json()) as { alerts: ProxyAlert[] };
   assert.equal(served.alerts.length, 1);
   assert.equal(served.alerts[0]!.purchaseId, alert.id);
@@ -239,7 +239,7 @@ test("zz7-M3: the resolve tools: recheck, reopen a stuck refund, settle by hand,
   const id2 = bb.record.split("/").at(-1)!;
   assert.equal(await recheck(r2.store, id2), true);
   const floorBefore = (await r2.store.wallet("solana"))!.floor;
-  const s = await settleByHand(r2.store, id2, { reason: "refunded by hand from the payer", spent: 15_000n, refundTx: "MANUAL", now: new Date() });
+  const s = await settleByHand(r2.store, id2, { reason: "refunded by hand from the payer", spent: 15_000n, refundTx: "MANUAL", now: new Date(Date.now() + 11 * 60_000) });
   assert.equal(s.ok, true, s.detail);
   const rec = (await r2.store.getRecord(id2))!;
   assert.equal(rec.outcome, "settled_by_hand");
@@ -252,14 +252,19 @@ test("zz7-M3: the resolve tools: recheck, reopen a stuck refund, settle by hand,
 test("zz7-M3: the runner's report: new alerts once, again after a day, forgotten once resolved", () => {
   const a: ProxyAlert = { key: "k1", purchaseId: "p1", chain: "solana", reason: "ALERT refund stuck", firstAt: "2026-10-01T00:00:00Z", lastAt: "2026-10-01T00:00:00Z", count: 1 };
   const t0 = new Date("2026-10-01T00:05:00Z");
-  const one = toReport([a], { reported: {} }, t0);
+  const items = (at: Date, alerts: ProxyAlert[]) => itemsFor({ alerts, reconcilerLastRunAt: new Date(at.getTime() - 60_000).toISOString() }, at);
+  const one = toReport(items(t0, [a]), { reported: {} }, t0);
   assert.equal(one.lines.length, 1);
   assert.match(one.lines[0]!, /^\[vet402_proxy_buy\] solana p1: ALERT refund stuck/);
-  assert.equal(toReport([a], one.state, new Date(t0.getTime() + 15 * 60_000)).lines.length, 0);
-  assert.equal(toReport([a], one.state, new Date(t0.getTime() + 25 * 3_600_000)).lines.length, 1);
-  const gone = toReport([], one.state, new Date(t0.getTime() + 60_000));
+  const t1 = new Date(t0.getTime() + 15 * 60_000);
+  assert.equal(toReport(items(t1, [a]), one.state, t1).lines.length, 0);
+  const t2 = new Date(t0.getTime() + 25 * 3_600_000);
+  assert.equal(toReport(items(t2, [a]), one.state, t2).lines.length, 1);
+  const t3 = new Date(t0.getTime() + 60_000);
+  const gone = toReport(items(t3, []), one.state, t3);
   assert.deepEqual(gone.state.reported, {});
-  assert.equal(toReport([a], gone.state, new Date(t0.getTime() + 120_000)).lines.length, 1);
+  const t4 = new Date(t0.getTime() + 120_000);
+  assert.equal(toReport(items(t4, [a]), gone.state, t4).lines.length, 1);
 });
 
 function runSh(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
@@ -283,11 +288,11 @@ test("zz7-M3: run.sh proxy-alerts writes new open alerts to the alert file once,
       return res.end("forbidden");
     }
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ alerts }));
+    res.end(JSON.stringify({ alerts, reconcilerLastRunAt: new Date().toISOString() }));
   });
   await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
   const url = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/alerts`;
-  writeFileSync(join(home, ".config", "vet402-daily", "env"), `VET402_ALERTS_FILE=${alertsFile}\nVET402_PROXY_ALERTS_URL=${url}\nVET402_PROXY_CRON_SECRET=TOPSECRET\n`);
+  writeFileSync(join(home, ".config", "vet402-daily", "env"), `VET402_ALERTS_FILE=${alertsFile}\nVET402_PROXY_ALERTS_URL=${url}\nVET402_PROXY_ALERTS_SECRET=TOPSECRET\n`);
   const env = {
     PATH: "/usr/bin:/bin",
     HOME: home,

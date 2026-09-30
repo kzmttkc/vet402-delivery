@@ -4,6 +4,7 @@
  * Only Vercel Cron's own call is accepted: Authorization: Bearer $CRON_SECRET.
  */
 import { join } from "node:path";
+import { bearerMatches } from "../src/proxy-buy/alerts.js";
 import { configFromEnv } from "../src/proxy-buy/config.js";
 import { DEFAULT_STALE_MS } from "../src/proxy-buy/handler.js";
 import { reconcile } from "../src/proxy-buy/reconcile.js";
@@ -11,8 +12,7 @@ import { redact } from "../src/proxy-buy/reasons.js";
 import { buildProxyBuy, dayCaps } from "../src/proxy-buy/wire.js";
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return new Response("forbidden", { status: 403 });
+  if (!bearerMatches(request.headers.get("authorization"), process.env.CRON_SECRET)) return new Response("forbidden", { status: 403 });
   try {
     const cfg = configFromEnv(process.env);
     const built = await buildProxyBuy(cfg, { dataDir: join(process.cwd(), "data") });

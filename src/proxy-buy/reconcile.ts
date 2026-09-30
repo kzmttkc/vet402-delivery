@@ -98,6 +98,8 @@ async function txFate(ctx: ReconcileContext, run: Run, row: PurchaseRow, f: Fact
       ...(typeof f.expiredSlot === "number" ? { expiredSlot: f.expiredSlot } : {}),
       ...(typeof f.lastValidBlockHeight === "number" ? { lastValidBlockHeight: f.lastValidBlockHeight } : {}),
       ...(str(f.cursor) ? { cursor: str(f.cursor)! } : {}),
+      ...(typeof f.pastAnchorUntil === "number" ? { pastAnchorUntil: f.pastAnchorUntil } : {}),
+      ...(typeof f.anchor === "string" || f.anchor === null ? { anchor: f.anchor as string | null } : {}),
       ...(str(f.signature) ? { signature: str(f.signature)! } : {}),
       deadline: ctx.deadline,
       budget: run.budget,
@@ -194,6 +196,8 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
       note(`error, will retry: ${redact(String((e as Error).message ?? e), 120)}`);
     }
     exhausted = run.exhausted;
+    // A look this run could not finish (its read budget ran out) says nothing about the alerts: they stay as they are.
+    if (run.exhausted) looked.delete(row.id);
     // Looked at: to the back of the queue; a search cut short is looked at again only after a while.
     const next = run.capped ? new Date(ctx.now().getTime() + CAPPED_RECHECK_MS) : (run.nextAt ?? ctx.now());
     await store.touch(row.id, next).catch(() => undefined);
@@ -222,7 +226,10 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
             ? waiting(what, f)
             : `ALERT waiting: ${what}; closed ${Math.floor(age / 60_000)} minutes ago (it holds back the wallet floor until seen)`,
         );
-        if (run.exhausted) break;
+        if (run.exhausted) {
+          looked.delete(row.id);
+          break;
+        }
         continue;
       }
       const rec = row.record ? { ...row.record, sellerPayment: f.fate === "landed" ? { tx: f.tx, settled: true } : { tx: null, settled: false } } : null;
@@ -235,8 +242,14 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
     }
   }
   if (ctx.recordAlerts !== false) await keepAlerts(ctx, out, looked).catch(() => undefined);
+  // A full run (the cron's, the script's; not a request's short turn): the runner on the operator's machine reports
+  // when this gets old (the cron stopped).
+  if (ctx.walletCheck !== false) await store.markRan(RECONCILE_RAN_KEY, ctx.now()).catch(() => undefined);
   return out;
 }
+
+/** pb_state key of the last full reconcile run. */
+export const RECONCILE_RAN_KEY = "reconcile";
 
 /** One kind of ALERT per purchase: the text with its numbers taken out (minutes, amounts change between runs). */
 export const alertKey = (id: string, action: string) => `${id}:${action.replace(/\d+/g, "#").slice(0, 160)}`;

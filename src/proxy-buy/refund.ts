@@ -146,7 +146,7 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
     minSlot = typeof r.context?.slot === "number" ? r.context.slot : undefined;
     // The newest signature on the payer's USDC account before sending: the search that could prove this refund
     // dead must reach it.
-    const last = (await d.rpc("getSignaturesForAddress", [src, { limit: 1, commitment: "confirmed" }])) as { signature: string }[];
+    const last = (await d.rpc("getSignaturesForAddress", [src, { limit: 1, commitment: "confirmed", ...(minSlot !== undefined ? { minContextSlot: minSlot } : {}) }])) as { signature: string }[];
     anchor = last[0]?.signature ?? null;
     const acct = (await d.rpc("getAccountInfo", [dst, { encoding: "base64", commitment: "confirmed" }])) as { value: unknown } | null;
     if (!acct || !("value" in acct)) throw new Error("no answer");

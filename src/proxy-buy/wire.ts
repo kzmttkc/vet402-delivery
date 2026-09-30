@@ -135,8 +135,8 @@ export async function solanaSide(c: SolanaConfig, own: string[]): Promise<Solana
       if (!Number.isSafeInteger(h)) throw new Error("no last valid block height");
       return { known: true, lastValidBlockHeight: h };
     },
-    anchor: async (account) => {
-      const s = (await rpc("getSignaturesForAddress", [account, { limit: 1, commitment: "confirmed" }])) as { signature: string }[];
+    anchor: async (account, minContextSlot) => {
+      const s = (await rpc("getSignaturesForAddress", [account, { limit: 1, commitment: "confirmed", ...(minContextSlot !== undefined ? { minContextSlot } : {}) }])) as { signature: string }[];
       return s[0]?.signature ?? null;
     },
     refund: (to, amount, beforeSend, opts) => serial.run(() => sendSolanaRefund({ rpc, signer }, to, amount, beforeSend, opts)),
