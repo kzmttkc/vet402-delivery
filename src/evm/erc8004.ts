@@ -43,6 +43,14 @@ export const CHAINS = {
 } as const;
 export type ChainKey = keyof typeof CHAINS;
 
+/** Chains the feedback writer (src/evm/rep-run.ts) serves. Same addresses; getVersion() = "2.0.0" on both registries of each (read 2026-09-30). */
+export const REP_REGISTRIES = {
+  base: CHAINS.base,
+  tempo: { chainId: 4217, caip2: "eip155:4217", ...ERC8004_MAINNET },
+  robinhood: { chainId: 4663, caip2: "eip155:4663", ...ERC8004_MAINNET },
+  arbitrum: { chainId: 42161, caip2: "eip155:42161", ...ERC8004_MAINNET },
+} as const;
+
 /** Base USDC (Circle). Used to read the Transfer log of the purchase tx. */
 export const BASE_USDC = getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
 
