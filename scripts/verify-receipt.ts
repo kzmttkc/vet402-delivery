@@ -1,7 +1,7 @@
 /**
  * Re-check an x402-observation record without trusting vet402. No account, no payment.
  *
- *   npx tsx scripts/verify-receipt.ts <record.json | https URL> [--signer 0x...] [--did <did.json path or https URL>] [--offline]
+ *   npx tsx scripts/verify-receipt.ts <record.json | https URL> [--signer 0x...] [--did <did.json path or https URL>] [--index <path|url>] [--offline]
  *
  * A published record can be checked straight from the site:
  *   npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/records/<id>.json
@@ -9,18 +9,21 @@
  * Checks: shape (JSON Schema), vet402's EIP-712 signature, that the verdict follows from the recorded
  * checks, Merkle inclusion in the day's root, and (unless --offline) the payment on chain and, once the
  * root is written, the anchor memo (sent by vet402's anchor wallet; a memo from any other wallet is not an
- * anchor), and, when the record names one, the same root in vet402's Tempo memo (anchor-tempo). Exit 0 only
+ * anchor), and, when the records index names one for the day (days[].tempoAnchor), the same root in
+ * vet402's Tempo memo (anchor-tempo). The index is --index, else data/records/index.json next to a local
+ * record (<records>/<day>/<id>.json), else the published one for a record read over https. Exit 0 only
  * when every check that could run passed. "RESULT: OK (not yet anchored)" says the day's root is not on chain
  * yet, and the next line says what that leaves unproven.
  * RPCs: SOLANA_RPC_URL, BASE_RPC_URL, TEMPO_RPC_URL (public defaults).
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { jsonRpc } from "../src/chain.js";
 import { checkAnchorOnChain, checkPayment, DEFAULT_RPC, findDayAnchors, memoMatches } from "../src/receipt/chain.js";
 import type { Observation } from "../src/receipt/types.js";
 import { VET402_OBSERVER_KEYS } from "../src/receipt/observers.js";
 import { verifyOffline } from "../src/receipt/verify.js";
-import { checkTempoAnchor, TEMPO_ANCHOR_NETWORK, tempoEntry } from "../src/receipt/tempo-anchor.js";
+import { dirname, join } from "node:path";
+import { checkTempoDayAnchor, TEMPO_ANCHOR_NETWORK, tempoAnchorFromIndex } from "../src/receipt/tempo-anchor.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -28,11 +31,38 @@ function arg(name: string): string | undefined {
 }
 const file = process.argv[2];
 if (!file || file.startsWith("--")) {
-  console.error("usage: verify-receipt.ts <record.json | https URL> [--signer 0x...] [--did <path|url>] [--offline]");
+  console.error("usage: verify-receipt.ts <record.json | https URL> [--signer 0x...] [--did <path|url>] [--index <path|url>] [--offline]");
   process.exit(2);
 }
 /** A record is a few KB; anything far larger is not a record. */
 const MAX_RECORD_BYTES = 1_000_000;
+/** The published records index (the same file packages/check reads). */
+const PUBLIC_RECORDS_INDEX = "https://raw.githubusercontent.com/kzmttkc/vet402-delivery/main/data/records/index.json";
+const MAX_INDEX_BYTES = 20_000_000;
+
+/** Where the records index is: --index, else next to a local record, else the published one for an https record. null = none known. */
+function indexSource(src: string): string | null {
+  const given = arg("--index");
+  if (given) return given;
+  if (/^https?:\/\//i.test(src)) return /^https:\/\//i.test(src) ? PUBLIC_RECORDS_INDEX : null;
+  // Next to a local record only a records index counts (a build folder has other index files).
+  const p = join(dirname(src), "..", "index.json");
+  try {
+    return existsSync(p) && (JSON.parse(readFileSync(p, "utf8")) as { kind?: unknown }).kind === "vet402-observation-records" ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readIndex(src: string): Promise<unknown> {
+  if (/^http:\/\//i.test(src) && !/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//i.test(src)) throw new Error("use https");
+  if (!/^https?:\/\//i.test(src)) return JSON.parse(readFileSync(src, "utf8"));
+  const res = await fetch(src, { signal: AbortSignal.timeout(15_000), redirect: "follow", headers: { accept: "application/json" } });
+  if (!res.ok) throw new Error(`${src} -> HTTP ${res.status}`);
+  const text = await res.text();
+  if (text.length > MAX_INDEX_BYTES) throw new Error(`${src}: ${text.length} bytes is not a records index`);
+  return JSON.parse(text);
+}
 
 async function readRecord(src: string): Promise<string> {
   const loopback = /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//i.test(src); // a local copy of the site
@@ -125,19 +155,31 @@ if (!process.argv.includes("--offline")) {
   } catch (e) {
     lines.push([false, "anchor", `could not read chain: ${e instanceof Error ? e.message : String(e)}`]);
   }
-  // The same root also written on Tempo (a TIP-20 memo), when the record names it.
-  if (tempoEntry(obs)) {
+  // The same root also written on Tempo (a TIP-20 memo), when the records index names it for the day.
+  const idxSrc = obs.anchor ? indexSource(file) : null;
+  if (idxSrc) {
+    let idx: unknown = null;
     try {
-      const t = await checkTempoAnchor(obs, jsonRpc(DEFAULT_RPC[TEMPO_ANCHOR_NETWORK] ?? ""));
-      if (t) lines.push([t.ok, "anchor-tempo", t.detail]);
+      idx = await readIndex(idxSrc);
     } catch (e) {
-      lines.push([false, "anchor-tempo", `could not read Tempo: ${e instanceof Error ? e.message : String(e)}`]);
+      lines.push([null, "anchor-tempo", `records index ${idxSrc} not read (${e instanceof Error ? e.message : String(e)}); Tempo not checked`]);
+    }
+    if (idx !== null) {
+      const t = tempoAnchorFromIndex(idx, obs);
+      if (t.problem) lines.push([false, "anchor-tempo", `${idxSrc}: ${t.problem}`]);
+      else if (t.entry) {
+        try {
+          const c = await checkTempoDayAnchor(t.entry, { day: obs.anchor!.day, root: obs.anchor!.root }, jsonRpc(DEFAULT_RPC[TEMPO_ANCHOR_NETWORK] ?? ""));
+          lines.push([c.ok, "anchor-tempo", c.detail]);
+        } catch (e) {
+          lines.push([false, "anchor-tempo", `could not read Tempo: ${e instanceof Error ? e.message : String(e)}`]);
+        }
+      }
     }
   }
 } else {
   lines.push([null, "payment", "skipped (--offline)"]);
   lines.push([null, "anchor", "skipped (--offline)"]);
-  if (tempoEntry(obs)) lines.push([null, "anchor-tempo", "skipped (--offline)"]);
 }
 
 lines.push([null, "response", obs.response.responseHash ? `responseHash ${obs.response.responseHash}: recompute it from the body you hold (${obs.response.responseHashEncoding})` : `responseHash: ${obs.response.responseHashNote ?? "not recorded"}`]);

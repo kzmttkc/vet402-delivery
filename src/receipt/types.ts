@@ -123,17 +123,6 @@ export interface Anchor {
   /** The signing address in force for this root, so later key rotation cannot rewrite history. */
   observerAddress: string;
   anchoredAt: string | null;
-  /** The same root written on another chain as well (absent = only on `network`). Unsigned, like the rest of the anchor. */
-  alsoAnchored?: AlsoAnchored[];
-}
-
-/** One more place the day's root is written: on Tempo, the memo of a TIP-20 transferWithMemo. */
-export interface AlsoAnchored {
-  /** CAIP-2. */
-  network: string;
-  method: "tip20-transferWithMemo";
-  tx: string;
-  anchoredAt: string;
 }
 
 export interface Correction {

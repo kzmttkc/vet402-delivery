@@ -198,6 +198,12 @@ launchctl list | grep com.vet402.daily
 
 The plists start `~/.config/vet402-daily/launch.sh`, which lives outside the checkout: if `run.sh` is missing it still writes the alert line and the notification. The records job sends anchors only after `touch ~/.config/vet402-daily/records-enabled`, once a person has run `run.sh records` by hand and read its log.
 
+### Tempo anchor and the Tempo access key (off by default)
+
+- The records job also writes each day's root on Tempo only after `touch ~/.config/vet402-daily/tempo-anchor-enabled`: one TIP-20 `transferWithMemo` of 0.000001 USDC.e from the Tempo anchor key (`VET402_TEMPO_ANCHOR_SENDERS` in `src/receipt/observers.ts`) to the observation key's address, with the root as the memo (`scripts/anchor-receipts-tempo.ts`). The signed records are not changed: `records:publish` puts the tx, the memo and the block in `data/records/index.json` (`days[].tempoAnchor`), and `verify-receipt` checks the Tempo memo when the index names one.
+- **Fund the Tempo anchor key from any address except the Tempo payer (`PAYER_ADDRESS` in `src/tempo/constants.ts`).** USDC.e that leaves the payer outside a purchase ledger stops every Tempo purchase run (`chain_spend_exceeds_ledger`, `src/tempo/key-ledgers.ts`). About 0.10 USDC.e covers the access key registration and the anchors to 2026-10-09.
+- Tempo purchases can sign with an AccountKeychain access key instead of the payer's root key (`src/tempo/access-key.ts`): 1.00 USDC.e per 24 hours on chain, calls only to USDC.e `transfer` and `transferWithMemo`, expiry 2026-10-09 23:59:59 UTC. `npx tsx scripts/tempo-access-key.ts` simulates the registration, `--status` reads the key back (limit, expiry, allowed calls), `--send` registers it with the anchor key paying the fee. Then `VET402_EVM_KEY_FILE=~/vet402-solana/.keys/tempo-access.json` in `~/.config/vet402-daily/env` switches the purchases to it. Before each signature the key's state and allowed calls are read from the chain, and a key that does not match is not used.
+
 ### What the secret gate stops, and what it cannot
 
 It reads each string as written and after undoing JSON escapes (`\u0074`, `\x74`), HTML character references (`&#116;`), percent-encoding (twice), base64 and hex of text, zero-width characters, and JSON inside strings.

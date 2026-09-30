@@ -4,6 +4,9 @@
  * memo stays the anchor of record (it names the day, the count and the sequence range); the Tempo memo
  * holds the same root, so a reader can check the root on a second chain.
  *
+ * The signed records are never rewritten for it: the Tempo tx goes into the records index
+ * (data/records/index.json, days[].tempoAnchor), and a record's bytes, sha256 and schema stay as they are.
+ *
  * TIP-20 memo: https://tempo.xyz/developers/docs/guide/payments/transfer-memos (32-byte memo, emitted in
  * the indexed `TransferWithMemo` event). Fees in USDC.e: fee = ceil(base_fee * gas_used / 10^12)
  * (https://tempo.xyz/developers/docs/protocol/fees/spec-fee).
@@ -15,7 +18,7 @@ import { Abis, Transaction } from "viem/tempo";
 import type { Rpc } from "../chain.js";
 import { TEMPO_MAINNET_CAIP2, TEMPO_MAINNET_CHAIN_ID, USDC_E, normAddr } from "../tempo/constants.js";
 import { VET402_TEMPO_ANCHOR_RECIPIENT, VET402_TEMPO_ANCHOR_SENDERS } from "./observers.js";
-import type { AlsoAnchored, Observation } from "./types.js";
+
 
 export const TEMPO_ANCHOR_NETWORK = TEMPO_MAINNET_CAIP2;
 export const TEMPO_ANCHOR_METHOD = "tip20-transferWithMemo" as const;
@@ -105,6 +108,7 @@ export interface TempoAnchorRead {
   root: string | null;
   sender: string | null;
   blockTime: number | null;
+  block: number | null;
 }
 
 /**
@@ -113,7 +117,7 @@ export interface TempoAnchorRead {
  * Returns the memo (the root) and the block time.
  */
 export async function readTempoAnchorTx(rpc: Rpc, tx: string, senders: readonly string[] = VET402_TEMPO_ANCHOR_SENDERS, recipient: string = VET402_TEMPO_ANCHOR_RECIPIENT): Promise<TempoAnchorRead> {
-  const none = { root: null, sender: null, blockTime: null };
+  const none = { root: null, sender: null, blockTime: null, block: null };
   if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) return { ok: false, detail: `${tx} is not a Tempo tx hash`, ...none };
   const r = (await rpc("eth_getTransactionReceipt", [tx])) as { status: string; from: string; logs: RpcLog[]; blockNumber: string } | null;
   if (!r) return { ok: false, detail: "Tempo anchor transaction not found", ...none };
@@ -130,34 +134,76 @@ export async function readTempoAnchorTx(rpc: Rpc, tx: string, senders: readonly 
   );
   if (memos.length !== 1) return { ok: false, detail: `${memos.length} anchor memos in the transaction (expected 1)`, ...none, sender: r.from };
   const block = (await rpc("eth_getBlockByNumber", [r.blockNumber, false])) as { timestamp: string } | null;
-  return { ok: true, detail: `memo from ${r.from}`, root: memos[0]!.topics[3]!.toLowerCase(), sender: r.from, blockTime: block ? Number(BigInt(block.timestamp)) : null };
+  return {
+    ok: true,
+    detail: `memo from ${r.from}`,
+    root: memos[0]!.topics[3]!.toLowerCase(),
+    sender: r.from,
+    blockTime: block ? Number(BigInt(block.timestamp)) : null,
+    block: Number(BigInt(r.blockNumber)),
+  };
 }
 
-/** The Tempo entry of a record's anchor, if any. */
-export function tempoEntry(o: Observation): AlsoAnchored | null {
-  return o.anchor?.alsoAnchored?.find((a) => a.network === TEMPO_ANCHOR_NETWORK) ?? null;
+/** A day's Tempo anchor as the records index names it (data/records/index.json, days[].tempoAnchor). */
+export interface TempoDayAnchor {
+  tx: string;
+  /** The 32-byte memo: the day's root. */
+  memo: string;
+  block: number;
+}
+
+/** Shape problems of an index entry's tempoAnchor for a day whose root is `root`; empty = well formed. */
+export function tempoDayAnchorShape(a: unknown, root: string): string[] {
+  const out: string[] = [];
+  if (typeof a !== "object" || a === null) return ["tempoAnchor is not an object"];
+  const t = a as Record<string, unknown>;
+  const extra = Object.keys(t).filter((k) => !["tx", "memo", "block"].includes(k));
+  if (extra.length) out.push(`tempoAnchor has unknown fields ${extra.join(", ")}`);
+  if (typeof t.tx !== "string" || !/^0x[0-9a-f]{64}$/.test(t.tx)) out.push("tempoAnchor.tx is not a lowercase 32-byte hash");
+  if (typeof t.memo !== "string" || t.memo !== root.toLowerCase()) out.push(`tempoAnchor.memo is not the day's root ${root}`);
+  if (typeof t.block !== "number" || !Number.isSafeInteger(t.block) || t.block <= 0) out.push("tempoAnchor.block is not a block number");
+  return out;
 }
 
 /**
- * The Tempo half of a record's anchor, as verify-receipt checks it: the tx is vet402's Tempo anchor, its
- * memo is the record's root, and it was written after the root's UTC day ended. null = the record names
- * no Tempo anchor.
+ * A day's Tempo anchor, as verify-receipt checks it: the tx is vet402's Tempo anchor (sent by the anchor
+ * key to the anchor recipient), its memo is the index's memo and the record's root, it is in the named
+ * block, and it was written after the root's UTC day ended.
  */
-export async function checkTempoAnchor(
-  o: Observation,
+export async function checkTempoDayAnchor(
+  a: TempoDayAnchor,
+  day: { day: string; root: string },
   rpc: Rpc,
   senders: readonly string[] = VET402_TEMPO_ANCHOR_SENDERS,
   recipient: string = VET402_TEMPO_ANCHOR_RECIPIENT,
-): Promise<{ ok: boolean; detail: string } | null> {
-  const e = tempoEntry(o);
-  if (!e || !o.anchor) return null;
-  if (e.method !== TEMPO_ANCHOR_METHOD) return { ok: false, detail: `Tempo anchor method ${e.method} is not ${TEMPO_ANCHOR_METHOD}` };
-  const t = await readTempoAnchorTx(rpc, e.tx, senders, recipient);
+): Promise<{ ok: boolean; detail: string }> {
+  const shape = tempoDayAnchorShape(a, day.root);
+  if (shape.length) return { ok: false, detail: shape.join("; ") };
+  const t = await readTempoAnchorTx(rpc, a.tx, senders, recipient);
   if (!t.ok) return { ok: false, detail: t.detail };
-  if (t.root !== o.anchor.root.toLowerCase()) return { ok: false, detail: `Tempo memo ${t.root} is not the record's root ${o.anchor.root}` };
-  const dayEnd = Date.parse(`${o.anchor.day}T00:00:00Z`) / 1000 + 86_400;
-  if (t.blockTime === null || t.blockTime < dayEnd) return { ok: false, detail: `Tempo memo written at ${t.blockTime}, before ${o.anchor.day} ended` };
-  return { ok: true, detail: `Tempo memo from vet402's anchor key ${t.sender} holds root ${t.root} (tx ${e.tx})` };
+  if (t.root !== day.root.toLowerCase()) return { ok: false, detail: `Tempo memo ${t.root} is not the record's root ${day.root}` };
+  if (t.block !== a.block) return { ok: false, detail: `Tempo anchor is in block ${t.block}, the index says ${a.block}` };
+  const dayEnd = Date.parse(`${day.day}T00:00:00Z`) / 1000 + 86_400;
+  if (t.blockTime === null || t.blockTime < dayEnd) return { ok: false, detail: `Tempo memo written at ${t.blockTime}, before ${day.day} ended` };
+  return { ok: true, detail: `Tempo memo from vet402's anchor key ${t.sender} holds root ${t.root} (tx ${a.tx}, block ${t.block})` };
+}
+
+/**
+ * The Tempo anchor a records index names for the record's day. `entry` null = the index names none.
+ * `problem` = the index is not a records index, or names another root for the day, or a malformed entry.
+ */
+export function tempoAnchorFromIndex(index: unknown, record: { anchor: { day: string; root: string } | null }): { entry: TempoDayAnchor | null; problem: string | null } {
+  const idx = index as { kind?: unknown; days?: unknown };
+  if (typeof idx !== "object" || idx === null || idx.kind !== "vet402-observation-records" || !Array.isArray(idx.days)) return { entry: null, problem: "not a vet402 records index" };
+  const a = record.anchor;
+  if (!a) return { entry: null, problem: null };
+  const d = (idx.days as { day?: unknown; root?: unknown; tempoAnchor?: unknown }[]).find((x) => x?.day === a.day);
+  if (!d) return { entry: null, problem: null };
+  if (typeof d.root !== "string" || d.root.toLowerCase() !== a.root.toLowerCase()) return { entry: null, problem: `the index names root ${String(d.root)} for ${a.day}, the record ${a.root}` };
+  if (d.tempoAnchor === undefined) return { entry: null, problem: null };
+  const bad = tempoDayAnchorShape(d.tempoAnchor, a.root);
+  if (bad.length) return { entry: null, problem: bad.join("; ") };
+  return { entry: d.tempoAnchor as TempoDayAnchor, problem: null };
 }
 
 /** Anchor transactions from `sender` to the recipient whose memo is `root`, from `fromBlock` to the head. */

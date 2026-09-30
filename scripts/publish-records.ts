@@ -20,6 +20,8 @@
  *  - its payment tx is a purchase in the ranking inputs (data/), and for DELIVERED the ranking also
  *    counts it as delivered, so the record and the ranking never disagree
  * Anything else in <out>/<day>/ is removed, so a record taken off the list leaves the site.
+ * When <from>/<day>/anchor-tempo-sent.json is "sent", the day's line in index.json also names the Tempo
+ * anchor (days[].tempoAnchor: tx, memo, block). The records are copied as they are.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -40,6 +42,7 @@ import {
   publicRecordProblems,
   publishedObserverKey,
   sha256Hex,
+  tempoAnchorOfDay,
   type DayEntry,
   type NotifiedFile,
   type RecordEntry,
@@ -213,6 +216,8 @@ for (const day of days) {
   if (dayInfo) {
     if (files.length !== dayInfo.inRoot) throw new Error(`${day}: ${files.length} records on disk, the root covers ${dayInfo.inRoot}`);
     dayInfo.published = published;
+    const tempo = tempoAnchorOfDay(join(from, day), dayInfo.root);
+    if (tempo) dayInfo.tempoAnchor = tempo;
     dayEntries.push(dayInfo);
   }
 }

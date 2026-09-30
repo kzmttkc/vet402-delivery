@@ -16,6 +16,10 @@
  * Without --send nothing is signed or sent. With --send the anchor key (.keys/tempo-anchor.json, mode 600,
  * must be vet402's Tempo anchor key in src/receipt/observers.ts) signs one transferWithMemo; above
  * MAX_TEMPO_ANCHOR_FEE_ATOMIC nothing is signed. RPC: TEMPO_RPC_URL.
+ *
+ * Fund the anchor key with USDC.e from any address but the payer (src/tempo/constants.ts PAYER_ADDRESS):
+ * USDC.e leaving the payer outside a purchase ledger stops every Tempo purchase run
+ * (chain_spend_exceeds_ledger, src/tempo/key-ledgers.ts).
  */
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -29,7 +33,7 @@ import { plan, resume, send, type TempoAnchorDeps } from "../src/receipt/anchor-
 import { VET402_TEMPO_ANCHOR_SENDERS } from "../src/receipt/observers.js";
 import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
 import { RM_PROD_DIR } from "../src/remeasure/constants.js";
-import { TEMPO_RPC_URL } from "../src/tempo/constants.js";
+import { PAYER_ADDRESS, TEMPO_RPC_URL } from "../src/tempo/constants.js";
 /** The same folder as scripts/anchor-receipts.ts DEFAULT_RECEIPTS_DIR (not imported: that script runs on import). */
 const DEFAULT_RECEIPTS_DIR = join(homedir(), "vet402-solana-receipt", "results", "receipts");
 
@@ -114,5 +118,6 @@ if (doResume) {
   const p = await plan(deps);
   console.log(JSON.stringify(p.plan, null, 2));
   console.log("simulate only: nothing was signed or sent (pass --send to write the root on Tempo)");
+  console.log(`funding: send USDC.e to the anchor key ${p.plan.sender} from any address but the payer ${PAYER_ADDRESS} (a transfer out of the payer stops every Tempo purchase run)`);
   process.exit(p.plan.simulation.ok ? 0 : 1);
 }

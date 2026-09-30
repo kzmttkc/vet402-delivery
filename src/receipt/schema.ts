@@ -61,6 +61,13 @@ function check(v: unknown, s: Schema, root: Schema, path: string, errs: string[]
   }
 }
 
+/** Validate against another copy of the schema (tests: a published older version). Same checker, same keywords. */
+export function validateAgainst(schema: Schema, v: unknown): string[] {
+  const errs: string[] = [];
+  check(v, schema, schema, "$", errs);
+  return errs;
+}
+
 export function validateObservation(v: unknown): string[] {
   const errs: string[] = [];
   check(v, OBSERVATION_SCHEMA, OBSERVATION_SCHEMA, "$", errs);

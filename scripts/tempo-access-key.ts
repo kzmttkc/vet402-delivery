@@ -3,13 +3,14 @@
  *
  *   npx tsx scripts/tempo-access-key.ts --keygen     # create .keys/tempo-access.json (prints the key id only)
  *   npx tsx scripts/tempo-access-key.ts              # plan: eth_call + eth_estimateGas of authorizeKey from the payer. Signs nothing.
- *   npx tsx scripts/tempo-access-key.ts --status     # the key's state on chain (getKey, remaining limit)
+ *   npx tsx scripts/tempo-access-key.ts --status     # the key's state on chain (getKey, remaining limit, getAllowedCalls)
  *   npx tsx scripts/tempo-access-key.ts --send       # the payer's root key signs authorizeKey once; the Tempo anchor key pays the fee
  *
  * The fee is paid by the Tempo anchor key (.keys/tempo-anchor.json), not by the payer: every USDC.e that
  * leaves the payer must be in a purchase ledger (src/tempo/key-ledgers.ts), and a fee the ledgers do not
  * know would stop every Tempo purchase run with chain_spend_exceeds_ledger. --send checks the payer's
- * USDC.e balance before and after and fails loudly if it moved.
+ * USDC.e balance before and after and fails loudly if it moved. Fund the anchor key from any address but
+ * the payer (a transfer out of the payer is outflow the ledgers do not know, with the same effect).
  *
  * Do not run --send while a Tempo purchase run is in progress: both use the payer's nonce.
  *
@@ -36,6 +37,7 @@ import {
   MAX_AUTHORIZE_FEE_ATOMIC,
   readAccessKeyFile,
   readKeyState,
+  scopeProblem,
   TEMPO_ACCESS_KEY_ID,
 } from "../src/tempo/access-key.js";
 import { PAYER_ADDRESS, TEMPO_MAINNET_CHAIN_ID, TEMPO_RPC_URL, USDC_E, normAddr } from "../src/tempo/constants.js";
@@ -80,8 +82,25 @@ if (chainId !== TEMPO_MAINNET_CHAIN_ID) {
 
 if (args.includes("--status")) {
   const s = await readKeyState(client as never, PAYER_ADDRESS, keyId);
-  console.log(JSON.stringify({ ...s, account: PAYER_ADDRESS, keyId, expiry: s.expiry.toString(), expiresAt: s.registered ? iso(s.expiry) : null, remaining: s.remaining.toString(), periodEnd: s.periodEnd.toString(), periodEndsAt: s.periodEnd > 0n ? iso(s.periodEnd) : null }, null, 2));
-  process.exit(0);
+  const scope = s.registered ? scopeProblem(s.allowedCalls) : null;
+  console.log(
+    JSON.stringify(
+      {
+        ...s,
+        account: PAYER_ADDRESS,
+        keyId,
+        expiry: s.expiry.toString(),
+        expiresAt: s.registered ? iso(s.expiry) : null,
+        remaining: s.remaining.toString(),
+        periodEnd: s.periodEnd.toString(),
+        periodEndsAt: s.periodEnd > 0n ? iso(s.periodEnd) : null,
+        allowedCallsCheck: s.registered ? (scope ?? "ok: USDC.e transfer and transferWithMemo only") : "not registered",
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(scope ? 1 : 0);
 }
 
 // ---------- plan: nothing is signed ----------
@@ -119,6 +138,7 @@ const plan = {
   maxFeeAtomic: MAX_AUTHORIZE_FEE_ATOMIC.toString(),
   feePayer,
   feePayerBalanceAtomic: feePayerBal.toString(),
+  feePayerFunding: `fund ${feePayer} from any address but the payer ${PAYER_ADDRESS}: USDC.e leaving the payer outside a purchase ledger stops every Tempo purchase run`,
   payerBalanceAtomic: payerBal.toString(),
 };
 console.log(JSON.stringify(plan, null, 2));
@@ -135,7 +155,7 @@ const refuse = (why: string): never => {
 if (state.registered) refuse(`${keyId} is already authorized`);
 if (err !== null || gasLimit === null || feeBound === null) refuse(`simulation failed: ${err}`);
 if (feeBound! > MAX_AUTHORIZE_FEE_ATOMIC) refuse(`fee bound ${feeBound} > ${MAX_AUTHORIZE_FEE_ATOMIC}`);
-if (feePayerBal < feeBound!) refuse(`the fee payer ${feePayer} holds ${feePayerBal}, needs ${feeBound}`);
+if (feePayerBal < feeBound!) refuse(`the fee payer ${feePayer} holds ${feePayerBal}, needs ${feeBound}; fund it from any address but the payer ${PAYER_ADDRESS}`);
 const ak = readAccessKeyFile(accessFile);
 if (normAddr(accessKeyIdOf(ak)) !== normAddr(keyId)) refuse(`${accessFile} holds another key than ${keyId}`);
 
@@ -180,7 +200,12 @@ console.log(`sent ${String(sent)} (computed ${hash})`);
 const receipt = await client.waitForTransactionReceipt({ hash: String(sent) as Hex, timeout: 120_000 });
 const after = await usdc(PAYER_ADDRESS);
 const s = await readKeyState(client as never, PAYER_ADDRESS, keyId);
-console.log(JSON.stringify({ tx: receipt.transactionHash, status: receipt.status, registered: s.registered, expiresAt: iso(s.expiry), remaining: s.remaining.toString(), periodEndsAt: iso(s.periodEnd), payerBalanceBefore: before.toString(), payerBalanceAfter: after.toString() }, null, 2));
+const scope = scopeProblem(s.allowedCalls);
+console.log(JSON.stringify({ tx: receipt.transactionHash, status: receipt.status, registered: s.registered, expiresAt: iso(s.expiry), remaining: s.remaining.toString(), periodEndsAt: iso(s.periodEnd), allowedCallsCheck: scope ?? "ok: USDC.e transfer and transferWithMemo only", payerBalanceBefore: before.toString(), payerBalanceAfter: after.toString() }, null, 2));
+if (scope) {
+  console.error(`the key's call scope read back from the chain is not the one authorized: ${scope}. Revoke it before use.`);
+  process.exit(1);
+}
 if (after !== before) {
   console.error(`the payer's USDC.e moved (${before} -> ${after}): the Tempo purchase ledgers do not account for it; purchases will stop until a person looks`);
   process.exit(1);

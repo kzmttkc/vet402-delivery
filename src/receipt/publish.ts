@@ -11,6 +11,8 @@
  *
  * data/records/ layout:
  *   index.json            the list of published records, each with its sha256, and one line per daily root
+ *                         (with days[].tempoAnchor when the root is also written on Tempo; the records
+ *                         themselves are never rewritten for it)
  *   notified.json         sellers told about their records, so their negative records may be published
  *   <day>/<id>.json       the signed record, byte for byte as vet402 wrote it
  */
@@ -18,6 +20,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VET402_OBSERVER_KEYS } from "./observers.js";
+import { tempoDayAnchorShape, type TempoDayAnchor } from "./tempo-anchor.js";
 import { verifyOffline } from "./verify.js";
 import { UNSIGNED_FIELDS, VERDICTS, type Observation, type VerdictCode } from "./types.js";
 
@@ -60,6 +63,8 @@ export interface DayEntry {
   sequenceRange: [number, number];
   observerAddress: string;
   anchor: { status: "pending" | "anchored"; network: string; tx: string | null };
+  /** The same root in a Tempo TIP-20 memo (src/receipt/tempo-anchor.ts). Absent = Solana only. */
+  tempoAnchor?: TempoDayAnchor;
 }
 
 export interface RecordIndex {
@@ -198,6 +203,7 @@ export async function loadPublishedRecords(dir: string): Promise<LoadedRecords> 
   for (const d of index.days) {
     const n = index.records.filter((r) => r.day === d.day).length;
     if (n !== d.published) problems.push(`day ${d.day}: published ${d.published}, index lists ${n}`);
+    if (d.tempoAnchor !== undefined) for (const x of tempoDayAnchorShape(d.tempoAnchor, d.root)) problems.push(`day ${d.day}: ${x}`);
   }
   for (const f of walk(dir)) if (!listed.has(f)) problems.push(`${f}: not listed in index.json`);
   if (problems.length) throw new Error(`data/records refused:\n  ${problems.join("\n  ")}`);
@@ -209,6 +215,22 @@ function walk(dir: string, prefix = ""): string[] {
     const rel = prefix ? `${prefix}/${d.name}` : d.name;
     return d.isDirectory() ? walk(dir, rel) : [rel];
   });
+}
+
+/**
+ * The day's Tempo anchor for the records index, from <dayDir>/anchor-tempo-sent.json once it is "sent"
+ * (scripts/anchor-receipts-tempo.ts). null = no Tempo anchor for the day, or not landed yet. Throws when
+ * the file is "sent" but names another root or is malformed.
+ */
+export function tempoAnchorOfDay(dayDir: string, root: string): TempoDayAnchor | null {
+  const p = join(dayDir, "anchor-tempo-sent.json");
+  if (!existsSync(p)) return null;
+  const f = JSON.parse(readFileSync(p, "utf8")) as { status?: unknown; tx?: unknown; memo?: unknown; block?: unknown };
+  if (f.status !== "sent") return null;
+  const a = { tx: String(f.tx).toLowerCase(), memo: String(f.memo).toLowerCase(), block: f.block as number };
+  const bad = tempoDayAnchorShape(a, root);
+  if (bad.length) throw new Error(`${p}: ${bad.join("; ")}`);
+  return a;
 }
 
 /** After the memo is confirmed: the same record with its (unsigned) anchor marked as written. */

@@ -5,15 +5,19 @@
  *  plan    recompute the day's root from every record on disk and check it against each record's own
  *          anchor (dayRoot), build the one transferWithMemo call, eth_call and eth_estimateGas it from
  *          the anchor key on mainnet, bound the fee. Signs nothing.
- *  send    (--send) refuse when <day>/anchor-tempo-sent.json exists, when a record already names a Tempo
- *          anchor, or when the anchor key's memo history on chain already holds this root; refuse a fee
- *          bound over MAX_TEMPO_ANCHOR_FEE_ATOMIC; sign; decode the signed transaction and refuse anything
- *          but the anchor; write anchor-tempo-sent.json ("sending", with the signed bytes and the nonce)
- *          before sending; send once; wait for the receipt; mark the records.
- *  resume  (--resume) for a file left at "sending": landed -> mark the records. Not landed and the nonce
+ *  send    (--send) refuse when <day>/anchor-tempo-sent.json exists, or when the anchor key's memo
+ *          history on chain already holds this root; refuse a fee bound over MAX_TEMPO_ANCHOR_FEE_ATOMIC;
+ *          sign; decode the signed transaction and refuse anything but the anchor; write
+ *          anchor-tempo-sent.json ("sending", with the signed bytes and the nonce) before sending; send
+ *          once; wait for the receipt; check it as a verifier would; set the file to "sent" with the tx,
+ *          the memo and the block.
+ *  resume  (--resume) for a file left at "sending": landed -> set "sent". Not landed and the nonce
  *          still unused -> with --send, rebroadcast the same signed bytes (same nonce, so at most one
  *          transaction of the day can land); without, wait. Reverted -> archive the file (with --send,
  *          send afresh; the duplicate check runs again).
+ *
+ * The signed records are never touched: publish-records copies tx, memo and block from the "sent" file
+ * into data/records/index.json (days[].tempoAnchor).
  *
  * The anchor key is not the payer: its USDC.e never passes through the Tempo purchase ledgers. The only
  * USDC.e that leaves it per day is 1 atomic unit (to vet402's observer address) and the network fee.
@@ -28,7 +32,7 @@ import { VET402_TEMPO_ANCHOR_RECIPIENT, VET402_TEMPO_ANCHOR_SENDERS } from "./ob
 import {
   anchorCall,
   anchorTxProblem,
-  checkTempoAnchor,
+  checkTempoDayAnchor,
   findTempoAnchors,
   maxFeeAtomic,
   MAX_TEMPO_ANCHOR_FEE_ATOMIC,
@@ -37,7 +41,7 @@ import {
   TEMPO_ANCHOR_METHOD,
   TEMPO_ANCHOR_NETWORK,
   TEMPO_BASE_FEE_CAP,
-  tempoEntry,
+  type TempoDayAnchor,
 } from "./tempo-anchor.js";
 import type { Observation } from "./types.js";
 
@@ -86,6 +90,9 @@ export interface TempoSentFile {
   raw: string;
   at: string;
   anchoredAt?: string;
+  /** Set with "sent": the memo read back from the chain (the root) and the block it is in. */
+  memo?: string;
+  block?: number;
 }
 
 export interface TempoAnchorPlan {
@@ -122,14 +129,10 @@ function errText(e: unknown): string {
   return String(x?.shortMessage ?? x?.message ?? e).split("\n")[0]!.slice(0, 300);
 }
 
-/** The root as the records on disk give it; refuses a day that already names a Tempo anchor unless `allowTempo`. */
-export function tempoDayRoot(d: TempoAnchorDeps, opts: { allowTempo?: boolean } = {}): { obs: Observation[]; root: string; seq: [number, number] } {
+/** The root recomputed from the records on disk and checked against each record's own anchor (dayRoot). */
+export function tempoDayRoot(d: TempoAnchorDeps): { obs: Observation[]; root: string; seq: [number, number] } {
   const obs = readDay(asAnchorDeps(d));
   const r = dayRoot(asAnchorDeps(d), obs, { allowAnchored: true });
-  if (!opts.allowTempo) {
-    const named = obs.find((o) => tempoEntry(o));
-    if (named) throw new Error(`${named.id}: ${d.day} already names a Tempo anchor (${tempoEntry(named)!.tx})`);
-  }
   return { obs, root: r.root.toLowerCase(), seq: r.seq };
 }
 
@@ -198,7 +201,7 @@ export async function send(d: TempoAnchorDeps): Promise<{ status: "sent"; tx: st
   if (!p.plan.simulation.ok || !p.tx) throw new Error(`simulation failed (${p.plan.simulation.err}); not sending`);
   const bound = BigInt(p.plan.feeBoundAtomic!);
   if (bound > MAX_TEMPO_ANCHOR_FEE_ATOMIC) throw new Error(`fee bound ${bound} is over ${MAX_TEMPO_ANCHOR_FEE_ATOMIC}; not sending`);
-  if (BigInt(p.plan.senderBalanceAtomic) < TEMPO_ANCHOR_AMOUNT + bound) throw new Error(`anchor key holds ${p.plan.senderBalanceAtomic} atomic USDC.e, needs ${TEMPO_ANCHOR_AMOUNT + bound}; not sending`);
+  if (BigInt(p.plan.senderBalanceAtomic) < TEMPO_ANCHOR_AMOUNT + bound) throw new Error(`anchor key holds ${p.plan.senderBalanceAtomic} atomic USDC.e, needs ${TEMPO_ANCHOR_AMOUNT + bound}; not sending (fund it from any address but the payer)`);
   await assertNoTempoMemo(d, p.plan.root);
   const signer = await d.loadSigner();
   if (normAddr(signer.address) !== normAddr(d.sender)) throw new Error(`key ${signer.address} is not the anchor key ${d.sender}`);
@@ -232,29 +235,19 @@ async function waitFor(d: TempoAnchorDeps, tx: string): Promise<"landed" | "reve
   return "pending";
 }
 
-/** The memo landed: check it as a verifier would, name it in every record's anchor, set "sent". Returns the tx. */
+/** The memo landed: check it as a verifier would and set the file to "sent" with tx, memo and block. The records are not touched. Returns the tx. */
 async function finalize(d: TempoAnchorDeps, file: TempoSentFile, tx = file.tx): Promise<string> {
-  const { obs, root } = tempoDayRoot(d, { allowTempo: true });
+  const { root } = tempoDayRoot(d);
   if (root !== file.root.toLowerCase()) throw new Error(`the records' root ${root} is not the root sent (${file.root})`);
   const t = await readTempoAnchorTx(d.rpc, tx, sendersOf(d), recipientOf(d));
-  if (!t.ok || t.root !== root) throw new Error(`Tempo transaction ${tx} is not vet402's anchor of ${root}: ${t.ok ? `memo ${t.root}` : t.detail}`);
+  if (!t.ok || t.root !== root || t.block === null) throw new Error(`Tempo transaction ${tx} is not vet402's anchor of ${root}: ${t.ok ? `memo ${t.root}` : t.detail}`);
+  const entry: TempoDayAnchor = { tx: tx.toLowerCase(), memo: t.root, block: t.block };
+  const check = await checkTempoDayAnchor(entry, { day: d.day, root }, d.rpc, sendersOf(d), recipientOf(d));
+  if (!check.ok) throw new Error(`Tempo transaction ${tx} does not check as vet402's anchor for ${d.day}: ${check.detail}`);
   const anchoredAt = new Date((t.blockTime ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
-  const marked = obs.map((o) => {
-    const a = o.anchor!;
-    const have = tempoEntry(o);
-    if (have) {
-      if (have.tx.toLowerCase() !== tx.toLowerCase()) throw new Error(`${o.id}: already names Tempo anchor ${have.tx}, not ${tx}`);
-      return o; // an earlier finalize got this far
-    }
-    const others = (a.alsoAnchored ?? []).filter((x) => x.network !== TEMPO_ANCHOR_NETWORK);
-    return { ...o, anchor: { ...a, alsoAnchored: [...others, { network: TEMPO_ANCHOR_NETWORK, method: TEMPO_ANCHOR_METHOD, tx, anchoredAt }] } };
-  });
-  const check = await checkTempoAnchor(marked[0]!, d.rpc, sendersOf(d), recipientOf(d));
-  if (!check?.ok) throw new Error(`Tempo transaction ${tx} does not check as vet402's anchor for ${d.day}: ${check?.detail}`);
-  for (const o of marked) writeFileSync(join(d.dayDir, `${o.id}.json`), `${JSON.stringify(o, null, 2)}\n`);
-  writeFileSync(sentPath(d), `${JSON.stringify({ ...file, tx, status: "sent", anchoredAt } satisfies TempoSentFile, null, 2)}\n`);
-  d.log?.(`root of ${d.day} also written on Tempo in ${tx} (${check.detail}); ${marked.length} records name it`);
-  return tx;
+  writeFileSync(sentPath(d), `${JSON.stringify({ ...file, tx: entry.tx, status: "sent", anchoredAt, memo: entry.memo, block: entry.block } satisfies TempoSentFile, null, 2)}\n`);
+  d.log?.(`root of ${d.day} also written on Tempo in ${tx} (${check.detail}); publish-records puts it in the records index`);
+  return entry.tx;
 }
 
 function archive(d: TempoAnchorDeps, why: string): string {
@@ -268,7 +261,7 @@ export type TempoResumeResult = { status: "sent"; tx: string } | { status: "wait
 export async function resume(d: TempoAnchorDeps, opts: { send: boolean }): Promise<TempoResumeResult> {
   if (!existsSync(sentPath(d))) {
     // No local trace, but the memo may be on chain (the duplicate check stopped a send): record it.
-    const { root } = tempoDayRoot(d, { allowTempo: true });
+    const { root } = tempoDayRoot(d);
     const found = await findTempoAnchors(d.rpc, root, d.sender, undefined, recipientOf(d));
     if (found.length !== 1) throw new Error(`${sentPath(d)} does not exist and ${found.length} vet402 Tempo memos hold ${root}; nothing to resume`);
     const file: TempoSentFile = { day: d.day, root, tx: found[0]!.tx, nonce: -1, status: "sending", raw: "", at: new Date().toISOString() };

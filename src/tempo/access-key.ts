@@ -35,8 +35,12 @@ export const ACCESS_KEY_LIMIT_ATOMIC = RM_TEMPO_MAX_PER_RUN_ATOMIC;
 export const ACCESS_KEY_PERIOD_S = 86_400n;
 /** End of 2026-10-09 UTC. remeasure's last Tempo purchase day is 2026-10-08. */
 export const ACCESS_KEY_EXPIRY = BigInt(Date.parse("2026-10-09T23:59:59Z") / 1000);
-/** The authorization is refused when its network fee could exceed this (atomic USDC.e). About 3.1M gas with the call scope: 0.0019 at the base-fee floor, 0.037 at the cap. */
-export const MAX_AUTHORIZE_FEE_ATOMIC = 50_000n;
+/**
+ * The authorization is refused when its network fee could exceed this (atomic USDC.e, 0.08). About 3.1M gas
+ * with the call scope: 0.0019 at the base-fee floor; the bound signed (estimate x 1.25 at the base-fee cap)
+ * is about 0.046, so the cap leaves room for the estimate to grow.
+ */
+export const MAX_AUTHORIZE_FEE_ATOMIC = 80_000n;
 /** An access key with less time left than this is not used to sign. */
 export const MIN_TIME_LEFT_S = 600n;
 
@@ -123,6 +127,8 @@ export interface KeyState {
   signatureType: number;
   remaining: bigint;
   periodEnd: bigint;
+  /** getAllowedCalls read back: isScoped false = the key may call anything. */
+  allowedCalls: { isScoped: boolean; scopes: { target: string; selectors: string[]; recipients: string[][] }[] };
 }
 
 type Reader = { readContract: (a: { address: Address; abi: unknown; functionName: string; args: unknown[] }) => Promise<unknown> };
@@ -141,7 +147,31 @@ export async function readKeyState(client: Reader, account: string, keyId: strin
     functionName: "getRemainingLimitWithPeriod",
     args: [account, keyId, USDC_E],
   })) as [bigint, bigint];
-  return { registered: k.expiry > 0n, keyId: k.keyId, expiry: k.expiry, enforceLimits: k.enforceLimits, isRevoked: k.isRevoked, signatureType: k.signatureType, remaining, periodEnd };
+  const [isScoped, scopes] = (await client.readContract({ address: ACCOUNT_KEYCHAIN, abi: Abis.accountKeychain, functionName: "getAllowedCalls", args: [account, keyId] })) as [
+    boolean,
+    readonly { target: string; selectorRules: readonly { selector: string; recipients: readonly string[] }[] }[],
+  ];
+  const allowedCalls = {
+    isScoped,
+    scopes: scopes.map((c) => ({ target: c.target, selectors: c.selectorRules.map((r) => r.selector.toLowerCase()), recipients: c.selectorRules.map((r) => [...r.recipients]) })),
+  };
+  return { registered: k.expiry > 0n, keyId: k.keyId, expiry: k.expiry, enforceLimits: k.enforceLimits, isRevoked: k.isRevoked, signatureType: k.signatureType, remaining, periodEnd, allowedCalls };
+}
+
+/** The selectors the access key may call on USDC.e. Anything else read back from the chain is refused. */
+export const ALLOWED_SELECTORS: readonly string[] = [SEL_TRANSFER, SEL_TRANSFER_WITH_MEMO];
+
+/** null = the key can call USDC.e transfer and transferWithMemo and nothing else. Otherwise why not. */
+export function scopeProblem(a: KeyState["allowedCalls"]): string | null {
+  if (!a.isScoped) return "the key may call any contract (not scoped)";
+  if (a.scopes.length === 0) return "the key may call nothing (scoped deny-all: missing, revoked or expired)";
+  for (const c of a.scopes) {
+    if (normAddr(c.target) !== USDC_E) return `the key may call ${c.target}, not only USDC.e`;
+    if (c.selectors.length === 0) return "the USDC.e scope names no function";
+    const other = c.selectors.find((x) => !ALLOWED_SELECTORS.includes(x));
+    if (other) return `the key may call ${other} on USDC.e, not only transfer and transferWithMemo`;
+  }
+  return null;
 }
 
 /** null = the key may sign a payment of `amount` now. Otherwise why not. */
@@ -153,7 +183,7 @@ export function keyProblem(s: KeyState, keyId: string, amount: bigint, nowS: big
   if (!s.enforceLimits) return "access key has no spending limit on chain";
   if (s.expiry <= nowS + MIN_TIME_LEFT_S) return `access key expires at ${s.expiry} (now ${nowS})`;
   if (s.remaining < amount) return `on-chain limit left ${s.remaining} < ${amount} until ${s.periodEnd}`;
-  return null;
+  return scopeProblem(s.allowedCalls);
 }
 
 /**
@@ -203,9 +233,10 @@ export function keychainProblem(serializedTx: string, account: string): string |
 
 /**
  * The purchase signer over an access key file. Before each signature it reads the key's state on chain
- * and refuses when the key is missing, revoked, unlimited, about to expire, or has less than the amount
- * left; after, it refuses a transaction without the keychain signature. Throwing here means payOne
- * records refused_before_sign and the run stops (tx_check_failed) with nothing sent.
+ * and refuses when the key is missing, revoked, unlimited, about to expire, has less than the amount left,
+ * or may call anything but USDC.e transfer and transferWithMemo (getAllowedCalls); after, it refuses a
+ * transaction without the keychain signature. Throwing here means payOne records refused_before_sign and
+ * the run stops (tx_check_failed) with nothing sent.
  */
 export function accessSigner(f: AccessKeyFile, transport: Transport, opts: { keyId?: string; now?: () => Date; read?: Reader } = {}): Signer {
   if (normAddr(f.account) !== normAddr(PAYER_ADDRESS)) throw new Error("access key file is for another account than the payer");

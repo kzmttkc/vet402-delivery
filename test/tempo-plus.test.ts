@@ -6,7 +6,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClient, custom, decodeFunctionData, encodeFunctionData, keccak256, type Hex } from "viem";
@@ -18,17 +19,19 @@ import type { Rpc } from "../src/chain.js";
 import { assemble, type Facts } from "../src/receipt/build.js";
 import { observationDigest, signObservation } from "../src/receipt/eip712.js";
 import { buildTree } from "../src/receipt/merkle.js";
-import { withAnchorTx } from "../src/receipt/publish.js";
-import { validateObservation } from "../src/receipt/schema.js";
+import { tempoAnchorOfDay } from "../src/receipt/publish.js";
+import { validateAgainst } from "../src/receipt/schema.js";
 import { plan, resume, send, type TempoAnchorDeps, type TempoAnchorSigner } from "../src/receipt/anchor-tempo-run.js";
 import {
   anchorCall,
   anchorTxProblem,
-  checkTempoAnchor,
+  checkTempoDayAnchor,
   MAX_TEMPO_ANCHOR_FEE_ATOMIC,
   readTempoAnchorTx,
   TEMPO_ANCHOR_NETWORK,
   TRANSFER_WITH_MEMO_TOPIC,
+  tempoAnchorFromIndex,
+  tempoDayAnchorShape,
 } from "../src/receipt/tempo-anchor.js";
 import { VET402_TEMPO_ANCHOR_RECIPIENT, VET402_TEMPO_ANCHOR_SENDERS } from "../src/receipt/observers.js";
 import type { Observation } from "../src/receipt/types.js";
@@ -236,27 +239,39 @@ test("tempo anchor plan: an unfunded anchor key does not simulate; --simulate-fr
   rmSync(dir, { recursive: true });
 });
 
-test("tempo anchor send: one transferWithMemo, every record names the tx, and the records still verify", async () => {
+const OLD_SCHEMA = JSON.parse(readFileSync(new URL("./fixtures/observation.schema.v0-before-tempo.json", import.meta.url), "utf8")) as Record<string, unknown>;
+const recordBytes = (dayDir: string) => readdirSync(dayDir).filter((f) => f.startsWith("obs_")).sort().map((f) => [f, createHash("sha256").update(readFileSync(join(dayDir, f))).digest("hex")]);
+
+test("tempo anchor send: one transferWithMemo; the records are not touched (same bytes, same sha256, old schema passes); the sent file holds tx, memo, block", async () => {
   const { dir, dayDir, root } = await dayFolder();
+  const before = recordBytes(dayDir);
   const chain = fakeTempo();
   const r = await send(deps(chain, dayDir));
   assert.equal(chain.sent.length, 1);
   assert.equal(anchorTxProblem(chain.sent[0]!, { sender: anchorKey.address, root, recipient: RECIPIENT }), null);
-  const sentFile = JSON.parse(readFileSync(join(dayDir, "anchor-tempo-sent.json"), "utf8")) as { status: string; tx: string };
-  assert.equal(sentFile.status, "sent");
-  assert.equal(sentFile.tx, r.tx);
+  assert.deepEqual(recordBytes(dayDir), before, "no record rewritten");
+  const sentFile = JSON.parse(readFileSync(join(dayDir, "anchor-tempo-sent.json"), "utf8")) as { status: string; tx: string; memo: string; block: number };
+  assert.deepEqual([sentFile.status, sentFile.tx, sentFile.memo, sentFile.block], ["sent", r.tx, root, 0x2800000]);
+  assert.deepEqual(tempoAnchorOfDay(dayDir, root), { tx: r.tx, memo: root, block: 0x2800000 });
   for (const o of readObs(dayDir)) {
-    assert.deepEqual(o.anchor!.alsoAnchored, [{ network: TEMPO_ANCHOR_NETWORK, method: "tip20-transferWithMemo", tx: r.tx, anchoredAt: new Date(AFTER_DAY * 1000).toISOString() }]);
-    assert.equal(o.anchor!.tx, "5olana", "the Solana anchor is kept");
+    assert.deepEqual(validateAgainst(OLD_SCHEMA, o), [], "the schema before the Tempo anchor accepts the record");
+    assert.ok(!("alsoAnchored" in o.anchor!));
     const off = await verifyOffline(o, { expectedSigner: observer.address });
     assert.ok(off.schema.ok && off.signature.ok && off.merkle.ok, JSON.stringify(off));
-    assert.equal((await checkTempoAnchor(o, chain.rpc, SENDERS, RECIPIENT))?.ok, true);
   }
+  assert.equal((await checkTempoDayAnchor({ tx: r.tx, memo: root, block: 0x2800000 }, { day: DAY, root }, chain.rpc, SENDERS, RECIPIENT)).ok, true);
   // Twice: refused before anything is signed.
   const n = signs;
   await assert.rejects(send(deps(chain, dayDir)), /exists/);
   assert.equal(signs, n);
   rmSync(dir, { recursive: true });
+});
+
+test("tempo anchor: the schema is the v0 published before the Tempo anchor, byte for byte", () => {
+  const now = readFileSync(new URL("../src/receipt/observation.schema.json", import.meta.url));
+  const old = readFileSync(new URL("./fixtures/observation.schema.v0-before-tempo.json", import.meta.url));
+  assert.equal(createHash("sha256").update(now).digest("hex"), createHash("sha256").update(old).digest("hex"));
+  assert.equal(createHash("sha256").update(old).digest("hex"), "1f3973c4d1190ca56fd24c22b91f82cb36bc5e9baab9c761eb831f2b6bad846e");
 });
 
 test("tempo anchor send: refused when a Tempo memo already holds the root (no local file); --resume records it", async () => {
@@ -269,7 +284,7 @@ test("tempo anchor send: refused when a Tempo memo already holds the root (no lo
   assert.equal(signs, n);
   const r = await resume(deps(chain, dayDir), { send: false });
   assert.deepEqual(r, { status: "sent", tx });
-  assert.equal(readObs(dayDir)[0]!.anchor!.alsoAnchored![0]!.tx, tx);
+  assert.equal(tempoAnchorOfDay(dayDir, root)!.tx, tx);
   rmSync(dir, { recursive: true });
 });
 
@@ -323,36 +338,48 @@ test("tempo anchor: the signed-tx check refuses anything but the anchor", async 
   assert.match(anchorTxProblem(await sign({ chainId: 42431 }), exp)!, /chainId/);
 });
 
-test("tempo anchor read: another sender's memo, a memo written before the day ended, or another root is not vet402's anchor", async () => {
-  const { dir, dayDir, root } = await dayFolder();
+test("tempo anchor read: another sender's memo, a memo written before the day ended, another root or another block is not vet402's anchor", async () => {
+  const { dir, root } = await dayFolder();
   const chain = fakeTempo();
   const raw = await anchorKey.signTransaction({ type: "tempo", chainId: 4217, calls: [anchorCall(root, RECIPIENT)], nonce: 0, gas: 600_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 0n, feeToken: USDC_E } as never, { serializer: Transaction.serialize as never });
+  const day = { day: DAY, root };
   const stranger = privateKeyToAccount(generatePrivateKey()).address;
   const bad = chain.land(raw, stranger, root);
   assert.match((await readTempoAnchorTx(chain.rpc, bad, SENDERS, RECIPIENT)).detail, /not by vet402's Tempo anchor key/);
-  const o = readObs(dayDir)[0]!;
-  const withTx = (tx: string): Observation => ({ ...o, anchor: { ...o.anchor!, alsoAnchored: [{ network: TEMPO_ANCHOR_NETWORK, method: "tip20-transferWithMemo", tx, anchoredAt: "x" }] } });
-  assert.equal((await checkTempoAnchor(withTx(bad), chain.rpc, SENDERS, RECIPIENT))?.ok, false);
+  assert.equal((await checkTempoDayAnchor({ tx: bad, memo: root, block: 0x2800000 }, day, chain.rpc, SENDERS, RECIPIENT)).ok, false);
   const early = fakeTempo({ blockTime: AFTER_DAY - 3600 });
   const t2 = early.land(raw, anchorKey.address, root);
-  assert.match((await checkTempoAnchor(withTx(t2), early.rpc, SENDERS, RECIPIENT))!.detail, /before 2026-09-29 ended/);
+  assert.match((await checkTempoDayAnchor({ tx: t2, memo: root, block: 0x2800000 }, day, early.rpc, SENDERS, RECIPIENT)).detail, /before 2026-09-29 ended/);
   const t3 = chain.land(`${raw}00`, anchorKey.address, `0x${"99".repeat(32)}`);
-  assert.match((await checkTempoAnchor(withTx(t3), chain.rpc, SENDERS, RECIPIENT))!.detail, /is not the record's root/);
-  assert.equal(await checkTempoAnchor(o, chain.rpc, SENDERS, RECIPIENT), null, "no Tempo entry: nothing to check");
+  assert.match((await checkTempoDayAnchor({ tx: t3, memo: root, block: 0x2800000 }, day, chain.rpc, SENDERS, RECIPIENT)).detail, /is not the record's root/);
+  const t4 = chain.land(`${raw}01`, anchorKey.address, root);
+  assert.match((await checkTempoDayAnchor({ tx: t4, memo: root, block: 7 }, day, chain.rpc, SENDERS, RECIPIENT)).detail, /block 41943040, the index says 7/);
+  assert.equal((await checkTempoDayAnchor({ tx: t4, memo: root, block: 0x2800000 }, day, chain.rpc, SENDERS, RECIPIENT)).ok, true);
   rmSync(dir, { recursive: true });
 });
 
-test("tempo anchor schema: alsoAnchored is optional and its shape is fixed; the Solana marking keeps it", async () => {
-  const { dir, dayDir } = await dayFolder();
-  const o = readObs(dayDir)[0]!;
-  assert.deepEqual(validateObservation(o), []);
-  const entry = { network: TEMPO_ANCHOR_NETWORK, method: "tip20-transferWithMemo" as const, tx: `0x${"12".repeat(32)}`, anchoredAt: "2026-09-30T00:10:00.000Z" };
-  const withT = { ...o, anchor: { ...o.anchor!, alsoAnchored: [entry] } };
-  assert.deepEqual(validateObservation(withT), []);
-  assert.ok(validateObservation({ ...o, anchor: { ...o.anchor!, alsoAnchored: [{ ...entry, method: "other" }] } }).length > 0);
-  assert.ok(validateObservation({ ...o, anchor: { ...o.anchor!, alsoAnchored: [{ ...entry, extra: 1 }] } }).length > 0);
-  const pending = { ...withT, anchor: { ...withT.anchor, status: "pending" as const, tx: null, anchoredAt: null } };
-  assert.deepEqual(withAnchorTx(pending, "sig", "2026-09-30T00:06:00.000Z").anchor!.alsoAnchored, [entry]);
+test("tempo anchor index: days[].tempoAnchor is read for the record's day; another root or a bad entry fails; none means nothing to check", () => {
+  const root = `0x${"ab".repeat(32)}`;
+  const rec = { anchor: { day: DAY, root } };
+  const entry = { tx: `0x${"12".repeat(32)}`, memo: root, block: 42 };
+  const idx = (days: unknown[]) => ({ kind: "vet402-observation-records", version: 0, days, records: [] });
+  assert.deepEqual(tempoAnchorFromIndex(idx([{ day: DAY, root, tempoAnchor: entry }]), rec), { entry, problem: null });
+  assert.deepEqual(tempoAnchorFromIndex(idx([{ day: DAY, root }]), rec), { entry: null, problem: null });
+  assert.deepEqual(tempoAnchorFromIndex(idx([{ day: "2026-09-28", root: "0x00", tempoAnchor: entry }]), rec), { entry: null, problem: null });
+  assert.match(tempoAnchorFromIndex(idx([{ day: DAY, root: `0x${"cd".repeat(32)}`, tempoAnchor: entry }]), rec).problem!, /names root/);
+  assert.match(tempoAnchorFromIndex(idx([{ day: DAY, root, tempoAnchor: { ...entry, memo: `0x${"cd".repeat(32)}` } }]), rec).problem!, /memo is not the day's root/);
+  assert.match(tempoAnchorFromIndex(idx([{ day: DAY, root, tempoAnchor: { ...entry, extra: 1 } }]), rec).problem!, /unknown fields extra/);
+  assert.match(tempoAnchorFromIndex({ kind: "other" }, rec).problem!, /not a vet402 records index/);
+  assert.deepEqual(tempoDayAnchorShape(entry, root), []);
+});
+
+test("tempo anchor index: a sent file that is not \"sent\" names nothing; one for another root is refused", async () => {
+  const { dir, dayDir, root } = await dayFolder();
+  assert.equal(tempoAnchorOfDay(dayDir, root), null);
+  writeFileSync(join(dayDir, "anchor-tempo-sent.json"), JSON.stringify({ status: "sending", tx: `0x${"12".repeat(32)}` }));
+  assert.equal(tempoAnchorOfDay(dayDir, root), null);
+  writeFileSync(join(dayDir, "anchor-tempo-sent.json"), JSON.stringify({ status: "sent", tx: `0x${"12".repeat(32)}`, memo: `0x${"cd".repeat(32)}`, block: 5 }));
+  assert.throws(() => tempoAnchorOfDay(dayDir, root), /memo is not the day's root/);
   rmSync(dir, { recursive: true });
 });
 
@@ -472,7 +499,18 @@ test("access key: authorizeKey calldata carries one USDC.e limit of 1.00 per day
   assert.throws(() => authorizeKeyData(TEMPO_ACCESS_KEY_ID, two), /one USDC.e limit only/);
 });
 
-const state = (over: Partial<KeyState> = {}): KeyState => ({ registered: true, keyId: TEMPO_ACCESS_KEY_ID, expiry: ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: false, signatureType: 0, remaining: 1_000_000n, periodEnd: 1790800000n, ...over });
+const USDC_SCOPE = { isScoped: true, scopes: [{ target: USDC_E, selectors: ["0xa9059cbb", "0x95777d59"], recipients: [[], []] }] };
+const state = (over: Partial<KeyState> = {}): KeyState => ({ registered: true, keyId: TEMPO_ACCESS_KEY_ID, expiry: ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: false, signatureType: 0, remaining: 1_000_000n, periodEnd: 1790800000n, allowedCalls: USDC_SCOPE, ...over });
+/** getAllowedCalls as the precompile returns it (selectors as bytes4). */
+const onChainScope = (targets: { target: string; selectors: string[] }[], isScoped = true) => [isScoped, targets.map((t) => ({ target: t.target, selectorRules: t.selectors.map((x) => ({ selector: x, recipients: [] })) }))];
+const fakeKeyReader = (keyId: string, remaining: bigint, scope: unknown = onChainScope([{ target: USDC_E, selectors: ["0xa9059cbb", "0x95777d59"] }]), reads: string[] = []) => ({
+  readContract: async (a: { functionName: string }) => {
+    reads.push(a.functionName);
+    if (a.functionName === "getKey") return { signatureType: 0, keyId, expiry: ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: false };
+    if (a.functionName === "getAllowedCalls") return scope;
+    return [remaining, 1790800000n];
+  },
+});
 const NOW = BigInt(Date.parse("2026-10-01T01:17:00Z") / 1000);
 
 test("access key: the key's on-chain state must allow the payment before anything is signed", () => {
@@ -483,6 +521,13 @@ test("access key: the key's on-chain state must allow the payment before anythin
   assert.match(keyProblem(state({ expiry: NOW + 60n }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /expires/);
   assert.match(keyProblem(state({ remaining: 5999n }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /limit left 5999/);
   assert.match(keyProblem(state({ keyId: "0x1111111111111111111111111111111111111111" }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /getKey returned/);
+  // getAllowedCalls read back: only USDC.e transfer and transferWithMemo.
+  const other = "0x2222222222222222222222222222222222222222";
+  assert.match(keyProblem(state({ allowedCalls: { isScoped: false, scopes: [] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /not scoped/);
+  assert.match(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /deny-all/);
+  assert.match(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [...USDC_SCOPE.scopes, { target: other, selectors: ["0xa9059cbb"], recipients: [[]] }] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /may call 0x2222/);
+  assert.match(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [{ target: USDC_E, selectors: ["0xa9059cbb", "0x095ea7b3"], recipients: [[], []] }] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /may call 0x095ea7b3 on USDC.e/);
+  assert.equal(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [{ target: USDC_E, selectors: ["0xa9059cbb"], recipients: [[]] }] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW), null, "a subset is fine");
 });
 
 function accessFileFor(pk: Hex) {
@@ -494,7 +539,7 @@ test("access key signer: signs the approved transfer through a keychain envelope
   const keyId = accessKeyIdOf(f);
   const { transport } = countingRpc();
   const reads: string[] = [];
-  const read = { readContract: async (a: { functionName: string }) => (reads.push(a.functionName), a.functionName === "getKey" ? { signatureType: 0, keyId, expiry: ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: false } : [1_000_000n, 1790800000n]) };
+  const read = fakeKeyReader(keyId, 1_000_000n, undefined, reads);
   const s = accessSigner(f, transport, { keyId, read, now: () => new Date("2026-10-01T01:17:00Z") });
   assert.equal(s.address.toLowerCase(), PAYER_ADDRESS.toLowerCase());
   for (const md of [{ chainId: 4217 }, { chainId: 4217, feePayer: true }]) {
@@ -502,16 +547,17 @@ test("access key signer: signs the approved transfer through a keychain envelope
     assert.equal(checkSignedTransfer(out.serializedTx, { payer: PAYER_ADDRESS, recipient: SELLER, amount: 6000n, sponsored: "feePayer" in md }), null);
     assert.equal(keychainProblem(out.serializedTx, PAYER_ADDRESS), null);
   }
-  assert.deepEqual(reads.slice(0, 2), ["getKey", "getRemainingLimitWithPeriod"]);
+  assert.deepEqual(reads.slice(0, 3), ["getKey", "getRemainingLimitWithPeriod", "getAllowedCalls"]);
 });
 
 test("access key signer: a key the chain does not allow signs nothing; a key other than the registered one is refused at load", async () => {
   const f = accessFileFor(generatePrivateKey());
   const keyId = accessKeyIdOf(f);
   const { transport, seen } = countingRpc();
-  const read = { readContract: async (a: { functionName: string }) => (a.functionName === "getKey" ? { signatureType: 0, keyId, expiry: ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: false } : [100n, 1790800000n]) };
-  const s = accessSigner(f, transport, { keyId, read, now: () => new Date("2026-10-01T01:17:00Z") });
+  const s = accessSigner(f, transport, { keyId, read: fakeKeyReader(keyId, 100n), now: () => new Date("2026-10-01T01:17:00Z") });
   await assert.rejects(s.credentialFor(challenge402(), "abc", SELLER), /limit left 100 < 6000/);
+  const wide = accessSigner(f, transport, { keyId, read: fakeKeyReader(keyId, 1_000_000n, onChainScope([{ target: USDC_E, selectors: ["0xa9059cbb"] }], false)), now: () => new Date("2026-10-01T01:17:00Z") });
+  await assert.rejects(wide.credentialFor(challenge402(), "abc", SELLER), /not scoped/);
   assert.deepEqual(seen, [], "no RPC for signing");
   assert.throws(() => accessSigner(f, transport), /is not the registered key/);
   assert.throws(() => accessSigner({ ...f, account: "0x1111111111111111111111111111111111111111" }, transport, { keyId }), /another account/);
