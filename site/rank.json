@@ -1,7 +1,7 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-09-29",
-  "generatedAt": "2026-09-30T00:34:46.803Z",
+  "generatedAt": "2026-09-30T00:45:19.400Z",
   "method": {
     "version": "v3",
     "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
@@ -172,7 +172,7 @@
     {
       "label": "tempo/ledger",
       "location": "data/tempo/ledger.json",
-      "sha256": "9fea33ff2fa5657842a298d2729a16e01b271e48c63f3a36da1a87d4da192213",
+      "sha256": "6a8f5c27bcf653e0a33cc8f8e1808b9126ac91a13c3a8130ed8920e99fcb0820",
       "note": "copied from ~/vet402-solana-tempo/results/tempo-ledger.json"
     },
     {
@@ -269,7 +269,7 @@
       ],
       "rows": 110,
       "tried": 108,
-      "settled": 105,
+      "settled": 107,
       "delivered": 65,
       "notTried": {
         "payto_changed": 2
@@ -306,8 +306,8 @@
   "totals": {
     "attempts": 4203,
     "tried": 2799,
-    "settled": 1537,
-    "settledNotDelivered": 65,
+    "settled": 1539,
+    "settledNotDelivered": 67,
     "counted": 1544,
     "delivered": 1472,
     "excluded": {
@@ -318,12 +318,12 @@
       "request_rejected_4xx": 153,
       "subcent_quota": 363,
       "rate_limited_429": 605,
-      "server_error_5xx": 51,
+      "server_error_5xx": 49,
       "timeout": 19,
       "payment_tx_rejected": 13,
       "answer_without_settlement": 13,
       "payment_not_accepted_402": 45,
-      "paid_not_delivered": 12,
+      "paid_not_delivered": 14,
       "settled_not_delivered": 9,
       "paid_then_4xx": 44
     },
@@ -353,8 +353,8 @@
       "totals": {
         "attempts": 544,
         "tried": 443,
-        "settled": 389,
-        "settledNotDelivered": 55,
+        "settled": 391,
+        "settledNotDelivered": 57,
         "counted": 353,
         "delivered": 334,
         "excluded": {
@@ -365,8 +365,8 @@
           "request_rejected_4xx": 13,
           "payment_not_accepted_402": 23,
           "payment_tx_rejected": 11,
-          "server_error_5xx": 6,
-          "paid_not_delivered": 10,
+          "server_error_5xx": 4,
+          "paid_not_delivered": 12,
           "paid_then_4xx": 42,
           "settled_not_delivered": 3,
           "answer_without_settlement": 1
@@ -1196,25 +1196,29 @@
                 "tempo"
               ],
               "failures": {
-                "unconfirmed_server_error": 1
+                "settled_error_status": 1
               },
-              "paidButNotDelivered": 0,
+              "paidButNotDelivered": 1,
               "lastFailure": {
                 "at": "2026-09-28T08:05:15.105Z",
                 "chain": "tempo",
                 "url": "https://modal.mpp.tempo.xyz/sandbox/exec",
-                "category": "unconfirmed_server_error",
+                "category": "settled_error_status",
                 "fault": "seller",
-                "rule": "server_error_5xx",
+                "rule": "paid_not_delivered",
                 "httpStatus": 500,
                 "rawReason": "http 500",
-                "detail": null,
-                "tx": null
+                "detail": "settled on chain (found by the post-run chain check)",
+                "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c"
               },
-              "tx": null
+              "tx": {
+                "chain": "tempo",
+                "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c",
+                "url": "https://modal.mpp.tempo.xyz/sandbox/exec"
+              }
             }
           ],
-          "highButNeverDeliveredDespitePaidTx": 0,
+          "highButNeverDeliveredDespitePaidTx": 1,
           "lowButAlwaysDelivered": [
             {
               "key": "mpp.orthogonal.com#orth-andi",
@@ -9270,7 +9274,7 @@
           "chains": {
             "tempo": {
               "tried": 1,
-              "settled": 0,
+              "settled": 1,
               "counted": 1,
               "delivered": 0,
               "lastAt": "2026-09-28T08:04:37.450Z"
@@ -9278,9 +9282,9 @@
           },
           "tried": 1,
           "counted": 1,
-          "settled": 0,
+          "settled": 1,
           "delivered": 0,
-          "settledRate": 0,
+          "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
           "wilsonUpper": 0.7934567085261071,
@@ -9294,7 +9298,7 @@
             "unknown": 0
           },
           "failuresByRule": {
-            "server_error_5xx": 1
+            "paid_not_delivered": 1
           },
           "declared": {
             "checked": 0,
@@ -9302,43 +9306,48 @@
           },
           "notTried": {},
           "failures": {
-            "unconfirmed_server_error": 1
+            "settled_error_status": 1
           },
           "lastMeasuredAt": "2026-09-28T08:04:37.450Z",
           "last": {
             "at": "2026-09-28T08:04:37.450Z",
             "chain": "tempo",
-            "category": "unconfirmed_server_error",
+            "category": "settled_error_status",
             "rawReason": "http 502",
             "url": "https://goflightlabs.mpp.tempo.xyz/airports-by-filters",
-            "tx": null
+            "tx": "0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": null,
+          "exampleFailedTx": {
+            "chain": "tempo",
+            "tx": "0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec",
+            "url": "https://goflightlabs.mpp.tempo.xyz/airports-by-filters",
+            "category": "settled_error_status"
+          },
           "lastFailure": {
             "at": "2026-09-28T08:04:37.450Z",
             "chain": "tempo",
             "url": "https://goflightlabs.mpp.tempo.xyz/airports-by-filters",
-            "category": "unconfirmed_server_error",
+            "category": "settled_error_status",
             "fault": "seller",
-            "rule": "server_error_5xx",
+            "rule": "paid_not_delivered",
             "httpStatus": 502,
             "rawReason": "http 502",
-            "detail": null,
-            "tx": null
+            "detail": "settled on chain (found by the post-run chain check)",
+            "tx": "0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec"
           },
           "sellerFailures": [
             {
               "at": "2026-09-28T08:04:37.450Z",
               "chain": "tempo",
               "url": "https://goflightlabs.mpp.tempo.xyz/airports-by-filters",
-              "category": "unconfirmed_server_error",
+              "category": "settled_error_status",
               "fault": "seller",
-              "rule": "server_error_5xx",
+              "rule": "paid_not_delivered",
               "httpStatus": 502,
               "rawReason": "http 502",
-              "detail": null,
-              "tx": null
+              "detail": "settled on chain (found by the post-run chain check)",
+              "tx": "0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec"
             }
           ],
           "recent": [
@@ -9348,13 +9357,13 @@
               "url": "https://goflightlabs.mpp.tempo.xyz/airports-by-filters",
               "delivered": false,
               "fault": "seller",
-              "rule": "server_error_5xx",
+              "rule": "paid_not_delivered",
               "httpStatus": 502,
               "declaredMatch": null,
-              "tx": null
+              "tx": "0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec"
             }
           ],
-          "paidButNotDelivered": 0,
+          "paidButNotDelivered": 1,
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
@@ -11978,7 +11987,7 @@
           "chains": {
             "tempo": {
               "tried": 1,
-              "settled": 0,
+              "settled": 1,
               "counted": 1,
               "delivered": 0,
               "lastAt": "2026-09-28T08:05:15.105Z"
@@ -11986,9 +11995,9 @@
           },
           "tried": 1,
           "counted": 1,
-          "settled": 0,
+          "settled": 1,
           "delivered": 0,
-          "settledRate": 0,
+          "settledRate": 1,
           "deliveredRate": 0,
           "wilsonLower": 0,
           "wilsonUpper": 0.7934567085261071,
@@ -12002,7 +12011,7 @@
             "unknown": 0
           },
           "failuresByRule": {
-            "server_error_5xx": 1
+            "paid_not_delivered": 1
           },
           "declared": {
             "checked": 0,
@@ -12010,43 +12019,48 @@
           },
           "notTried": {},
           "failures": {
-            "unconfirmed_server_error": 1
+            "settled_error_status": 1
           },
           "lastMeasuredAt": "2026-09-28T08:05:15.105Z",
           "last": {
             "at": "2026-09-28T08:05:15.105Z",
             "chain": "tempo",
-            "category": "unconfirmed_server_error",
+            "category": "settled_error_status",
             "rawReason": "http 500",
             "url": "https://modal.mpp.tempo.xyz/sandbox/exec",
-            "tx": null
+            "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c"
           },
           "exampleDeliveredTx": null,
-          "exampleFailedTx": null,
+          "exampleFailedTx": {
+            "chain": "tempo",
+            "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c",
+            "url": "https://modal.mpp.tempo.xyz/sandbox/exec",
+            "category": "settled_error_status"
+          },
           "lastFailure": {
             "at": "2026-09-28T08:05:15.105Z",
             "chain": "tempo",
             "url": "https://modal.mpp.tempo.xyz/sandbox/exec",
-            "category": "unconfirmed_server_error",
+            "category": "settled_error_status",
             "fault": "seller",
-            "rule": "server_error_5xx",
+            "rule": "paid_not_delivered",
             "httpStatus": 500,
             "rawReason": "http 500",
-            "detail": null,
-            "tx": null
+            "detail": "settled on chain (found by the post-run chain check)",
+            "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c"
           },
           "sellerFailures": [
             {
               "at": "2026-09-28T08:05:15.105Z",
               "chain": "tempo",
               "url": "https://modal.mpp.tempo.xyz/sandbox/exec",
-              "category": "unconfirmed_server_error",
+              "category": "settled_error_status",
               "fault": "seller",
-              "rule": "server_error_5xx",
+              "rule": "paid_not_delivered",
               "httpStatus": 500,
               "rawReason": "http 500",
-              "detail": null,
-              "tx": null
+              "detail": "settled on chain (found by the post-run chain check)",
+              "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c"
             }
           ],
           "recent": [
@@ -12056,13 +12070,13 @@
               "url": "https://modal.mpp.tempo.xyz/sandbox/exec",
               "delivered": false,
               "fault": "seller",
-              "rule": "server_error_5xx",
+              "rule": "paid_not_delivered",
               "httpStatus": 500,
               "declaredMatch": null,
-              "tx": null
+              "tx": "0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c"
             }
           ],
-          "paidButNotDelivered": 0,
+          "paidButNotDelivered": 1,
           "payTos": [
             "0xca4e835f803cb0b7c428222b3a3b98518d4779fe"
           ],
