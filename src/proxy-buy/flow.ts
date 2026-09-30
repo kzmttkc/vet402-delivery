@@ -89,7 +89,7 @@ export async function refundOwed(
   // Only a sent refund closes the purchase. A refused, failed, unknown or stuck refund keeps it open (refund_pending):
   // the money is still owed, the reconciler keeps at it, and a stuck one is reported for a human.
   if (refund.status === "sent") await c.store.finish(o.id, ["refund_pending"], { record, spent: o.total, now: c.now() });
-  else await c.store.move(o.id, ["refund_pending"], "refund_pending", { record, now: c.now() });
+  else await c.store.setRecord(o.id, ["refund_pending"], record);
   return {
     kind: "json",
     status: 502,

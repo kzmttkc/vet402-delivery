@@ -75,6 +75,21 @@ export async function settleByHand(
   class Moved extends Error {}
   try {
     await store.sql.tx(async (q) => {
+      // The purchase row first (the order the reconciler's refund claim takes too), as it was read.
+      const p = await q.query<{ updated: string }>(
+        `select to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.FF6"Z"') as updated from pb_purchase where id = $1 and state = $2 for update`,
+        [id, row.state],
+      );
+      if (p.rows.length !== 1 || p.rows[0]!.updated !== row.updated_at) throw new Moved("the purchase moved meanwhile; look again");
+      if (!rf) {
+        // No refund row yet: this one takes the purchase's single refund (a reconciler's claim then finds it taken).
+        const ins = await q.query(
+          `insert into pb_refund (purchase_id, chain, day, to_addr, amount, status, tx, reason, updated_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (purchase_id) do nothing returning purchase_id`,
+          [id, row.chain, row.day ?? o.now.toISOString().slice(0, 10), typeof row.facts.refundTo === "string" ? row.facts.refundTo : "", row.total, o.refundTx ? "sent" : "closed", o.refundTx ?? null, note, o.now.toISOString()],
+        );
+        if (ins.rows.length !== 1) throw new Moved("a refund was started meanwhile; look again");
+      }
       if (rf) {
         const u = await q.query(
           `update pb_refund set status = $2, tx = coalesce($3, tx), reason = $4, updated_at = $5

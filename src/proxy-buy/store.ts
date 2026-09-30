@@ -372,6 +372,10 @@ export class Store {
   async refundClaim(id: string, o: { chain: ProxyChain; day: string; to: string; amount: bigint; maxRefund: bigint; now: Date }): Promise<{ ok: true } | Refusal> {
     if (o.amount <= 0n || o.amount > o.maxRefund) return { ok: false, reason: "refund_over_cap", detail: `${o.amount} > ${o.maxRefund}` };
     return this.sql.tx(async (q) => {
+      // The purchase is read again under its row lock: a run that listed it earlier may be acting on an old copy (it
+      // was closed by hand meanwhile). Only a purchase still waiting for its refund gets one.
+      const p = await q.query<{ state: string }>(`select state from pb_purchase where id = $1 for update`, [id]);
+      if (p.rows.length === 1 && p.rows[0]!.state !== "refund_pending") return { ok: false as const, reason: "purchase_moved", detail: `the purchase is ${p.rows[0]!.state}` };
       const r = await q.query(
         `insert into pb_refund (purchase_id, chain, day, to_addr, amount, status, updated_at) values ($1, $2, $3, $4, $5, 'pending', $6)
          on conflict (purchase_id) do nothing returning purchase_id`,
@@ -556,6 +560,15 @@ export class Store {
   /** A person's note on the open alerts of `purchaseId`. */
   async alertNote(purchaseId: string, note: string): Promise<void> {
     await this.sql.query(`update pb_alert set note = $2 where purchase_id = $1 and resolved_at is null`, [purchaseId, note.slice(0, 500)]);
+  }
+
+  /**
+   * A new copy of the record of a purchase still in one of `from`, without moving updated_at: a look that changed
+   * nothing (a refund still refused, still failing) does not make the purchase look recently changed.
+   */
+  async setRecord(id: string, from: PurchaseState[], record: PurchaseRecord): Promise<boolean> {
+    const r = await this.sql.query(`update pb_purchase set record = $3::jsonb where id = $1 and state = any($2) returning id`, [id, from, JSON.stringify(record)]);
+    return r.rows.length === 1;
   }
 
   /** Something ran now (for example the full reconcile run). */

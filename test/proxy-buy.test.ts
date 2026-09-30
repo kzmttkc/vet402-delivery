@@ -708,6 +708,9 @@ test("store: one refund per purchase; the wallet floor rises on a top-up only wh
   assert.equal(await claim("c"), true);
   assert.deepEqual(await s.admit("c", { chain: "tempo", payer: "0xP", day: "2026-10-01", caps: CAPS, need: 15_000n, balance: 500_000n, now }), { ok: true });
   assert.equal((await s.wallet("tempo"))?.floor, 485_000n);
+  // a refund is claimed only for a purchase waiting for one
+  assert.equal((await s.refundClaim("c", { chain: "tempo", day: "2026-10-01", to: "0xA", amount: 13_000n, maxRefund: 105_000n, now })).ok, false);
+  await sql.query(`update pb_purchase set state = 'refund_pending' where id = 'c'`);
   assert.deepEqual(await s.refundClaim("c", { chain: "tempo", day: "2026-10-01", to: "0xA", amount: 13_000n, maxRefund: 105_000n, now }), { ok: true });
   assert.equal((await s.refundClaim("c", { chain: "tempo", day: "2026-10-01", to: "0xA", amount: 13_000n, maxRefund: 105_000n, now })).ok, false);
   assert.equal((await s.refundClaim("d", { chain: "tempo", day: "2026-10-01", to: "0xA", amount: 105_001n, maxRefund: 105_000n, now })).ok, false);

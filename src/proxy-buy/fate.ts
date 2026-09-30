@@ -266,8 +266,12 @@ export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> 
           // Always walk to the anchor; past it (it may itself be the transaction), down to the lookback time. The
           // time only ends the walk once the anchor was met: on a quiet account the anchor is older than that.
           if (typeof f.anchor === "string" && s.signature === f.anchor) seenAnchor = true;
+          // Both the time and the slot must be past the lookback (a node's blockTime is not taken alone).
           const anchorMet = seenAnchor || typeof f.anchor !== "string";
-          if (anchorMet && typeof s.blockTime === "number" && s.blockTime < past) return done(unreadable, true);
+          const lowSlot = f.minSlot !== undefined ? Math.max(0, f.minSlot - AGENT_LOOKBACK_SLOTS) : null;
+          const oldTime = typeof s.blockTime !== "number" || s.blockTime < past;
+          const oldSlot = lowSlot === null || slot === null || slot < lowSlot;
+          if (anchorMet && oldTime && oldSlot && (typeof s.blockTime === "number" || (lowSlot !== null && slot !== null))) return done(unreadable, true);
         } else {
           // Older than the hand-over: the walk is over. With an anchor, reaching it shows the listing reached back
           // to before the hand-over (it cannot show that nothing in between was left out).

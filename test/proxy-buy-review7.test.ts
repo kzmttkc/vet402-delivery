@@ -244,7 +244,8 @@ test("zz7-M3: the resolve tools: recheck, reopen a stuck refund, settle by hand,
   const rec = (await r2.store.getRecord(id2))!;
   assert.equal(rec.outcome, "settled_by_hand");
   assert.match(rec.reason!, /refunded by hand/);
-  assert.equal((await r2.store.getRefund(id2)), null);
+  const rf2 = (await r2.store.getRefund(id2))!;
+  assert.deepEqual([rf2.status, rf2.tx], ["sent", "MANUAL"], "the refund sent by hand takes the purchase's one refund row");
   assert.equal((await r2.store.wallet("solana"))!.floor, floorBefore, "the whole reservation was spent");
   assert.equal(await recheck(r2.store, id2), false, "closed: nothing to look at");
 });

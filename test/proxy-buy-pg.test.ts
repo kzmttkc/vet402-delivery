@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { migrate, pgSql } from "../src/proxy-buy/db.js";
 import { reconcile } from "../src/proxy-buy/reconcile.js";
+import { refundAgent } from "../src/proxy-buy/refund.js";
 import { settleByHand } from "../src/proxy-buy/resolve.js";
 import { Store } from "../src/proxy-buy/store.js";
 import { agentPaysSolana, PAYER_ATA, paidReq, solRig } from "./proxy-buy-fakes.js";
@@ -69,8 +70,10 @@ test("pg: 20 concurrent admits vs the day's refund room -> never more refund roo
   const res = await Promise.all(ids.map((id) => s.admit(id, { chain: "solana", payer: "P", day, caps: { cap: 10_000_000n, maxCount: 100, refundCap: 300_000n }, need: 105_000n, balance: 10_000_000n, now })));
   assert.equal(res.filter((x) => x.ok).length, 2);
   assert.ok((await s.dayRow("solana", day))!.refundReserved <= 300_000n);
-  // one refund per purchase, however many try at once
-  const one = await Promise.all(Array.from({ length: 20 }, () => s.refundClaim(ids[res.findIndex((x) => x.ok)]!, { chain: "solana", day, to: "A", amount: 105_000n, maxRefund: 105_000n, now })));
+  // one refund per purchase, however many try at once (a refund is claimed only for a purchase waiting for it)
+  const owed = ids[res.findIndex((x) => x.ok)]!;
+  await pool!.query(`update pb_purchase set state = 'refund_pending' where id = $1`, [owed]);
+  const one = await Promise.all(Array.from({ length: 20 }, () => s.refundClaim(owed, { chain: "solana", day, to: "A", amount: 105_000n, maxRefund: 105_000n, now })));
   assert.equal(one.filter((x) => x.ok).length, 1);
 });
 
@@ -226,6 +229,46 @@ test("pg (fourth review): a floor raise leaves out a closed purchase's seller pa
   assert.deepEqual(await admitAt("B", 1_000_000n, t(3600)), { ok: true });
   assert.equal((await s.wallet("solana"))!.floor, 900_000n - 105_000n);
 });
+
+// Tenth review: settling by hand racing the reconciler's first refund or its retry, 40 rounds each, real connections.
+for (const kind of ["first refund (no refund row yet)", "retry of a dead refund"] as const) {
+  test(`pg (tenth review): settle by hand vs the reconciler's ${kind}, 40 rounds -> never both`, { skip }, async () => {
+    const s = await fresh();
+    const wide = { cap: 50_000_000n, maxCount: 1000, refundCap: 50_000_000n };
+    const at = new Date(now.getTime() + 3_600_000);
+    let both = 0;
+    let neither = 0;
+    for (let i = 0; i < 40; i++) {
+      const id = `q${i}`;
+      await claim(s, id);
+      await s.admit(id, { chain: "solana", payer: "P", day, caps: wide, need: 105_000n, balance: 500_000_000n, now });
+      await s.move(id, ["admitted"], "settling", { now });
+      const rec = { id, chain: "solana", at: now.toISOString(), target: "", seller: { host: "", payTo: "", priceAtomic: "100000" }, feeAtomic: "5000", totalAtomic: "105000", customer: { tx: "C" + id, payer: "A", confirmed: true }, sellerPayment: null, answer: null, outcome: "in_progress", reason: null, refund: "none" };
+      await s.useCustomerTx(id, "solana", "C" + id, { facts: { refundTo: "A" }, record: rec as never, now });
+      await s.move(id, ["in_progress"], "refund_pending", { now });
+      const retry = kind.startsWith("retry");
+      if (retry) {
+        await s.refundClaim(id, { chain: "solana", day, to: "A", amount: 105_000n, maxRefund: 2_000_000n, now });
+        await s.refundSending(id, ["pending"], { tx: "R1", facts: {}, now });
+        await s.refundSet(id, ["sending"], "dead", { tx: "R1", now });
+      }
+      let sent = false;
+      const send = async (_to: string, _a: bigint, before: (f: { tx: string; facts: Record<string, unknown> }) => Promise<boolean>) => {
+        if (!(await before({ tx: `AUTO_${id}`, facts: {} }))) return { status: "failed" as const, reason: "refund_taken_by_another_attempt", tx: null };
+        sent = true;
+        return { status: "sent" as const, tx: `AUTO_${id}` };
+      };
+      const [st] = await Promise.all([
+        settleByHand(s, id, { reason: "by hand", spent: 105_000n, refundTx: `HAND_${id}`, now: at }),
+        refundAgent(s, send, { id, chain: "solana", day, to: "A", amount: 105_000n, maxRefund: 2_000_000n, now: () => at, ...(retry ? { retry: true } : {}) }),
+      ]);
+      if (st.ok && sent) both++;
+      if (!st.ok && !sent) neither++;
+    }
+    assert.equal(both, 0, "never a refund by hand and an automatic one");
+    assert.equal(neither, 0, "one of them always goes through");
+  });
+}
 
 // Ninth review: settling by hand racing the reconciler's new refund attempt, on real connections.
 test("pg (ninth review): settle by hand vs a new refund attempt at once, 20 rounds -> one wins, never both", { skip }, async () => {

@@ -157,7 +157,13 @@ main() {
     local rc=$?
     if [ $rc -eq 75 ]; then
       if [ "$MODE" = proxy-alerts ]; then
-        log "the previous proxy-alerts run still holds $LOCK: this one did nothing"
+        # Said (once until a run gets through again), not only logged: a reader stuck on its lock reads nothing.
+        if [ ! -f "$STATE/proxy-alerts-locked" ]; then
+          /bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$STATE/proxy-alerts-locked"
+          alert "proxy-alerts: the previous run still holds $LOCK; the deployed proxy buy's alerts were not read this time"
+        else
+          log "the previous proxy-alerts run still holds $LOCK: this one did nothing (said before)"
+        fi
         rc=0
       else
         alert "another daily run holds $LOCK; this $MODE run did nothing"
@@ -630,6 +636,7 @@ proxy_alerts_lane() {
     return 0
   fi
   rm -f "$STATE/proxy-alerts-missing"
+  rm -f "$STATE/proxy-alerts-locked"
   local out n=0 line when
   out="$(in_repo "$TSX" scripts/daily/proxy-alerts.ts --state "$STATE/proxy-alerts.json")" || {
     alert "proxy-alerts: the reader stopped (see the log); open proxy-buy alerts were not checked"
