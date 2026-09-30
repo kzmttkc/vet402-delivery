@@ -121,6 +121,8 @@ export function redactionNote(path: string, redactions: readonly Redaction[]): s
   const tokens = redactions.filter((r) => r.what === "seller-token").map((r) => r.path);
   const parts: string[] = [];
   if (tokens.length) parts.push(`${list(tokens)}: an auth token a seller returned to vet402 is replaced with [redacted]`);
+  const addresses = redactions.filter((r) => r.what === "postal-address").map((r) => r.path);
+  if (addresses.length) parts.push(`${list(addresses)}: a street address (a seller's example input, or an answer that repeats it) is replaced with [redacted]`);
   if (redactions.some((r) => r.what === "local-path")) parts.push("local runner paths are shortened to ~/");
   return `${path} ${parts.join("; ")}`;
 }

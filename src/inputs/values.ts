@@ -69,6 +69,15 @@ export const VALUE_TABLE: Readonly<Record<ParamClass, TableValue>> = {
 };
 
 /**
+ * Classes where vet402 sends its own table value even when the seller documents an example or a default. A
+ * seller's example street address can be someone's home (the default in rentcast.x402.paysponge.com's
+ * /openapi.json for /avm/rent/long-term is a street address of that kind), and the request and the answer about
+ * it are published in data/. The
+ * table value is a company's published headquarters, public already.
+ */
+export const TABLE_ONLY: ReadonlySet<ParamClass> = new Set<ParamClass>(["street_address"]);
+
+/**
  * Inputs vet402 does not make up. A parameter in one of these is left as it is; a request that needs one is not
  * bought again (the target stays as it was, and the existing skip of a placeholder request applies).
  */

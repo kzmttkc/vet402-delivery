@@ -22,6 +22,8 @@ import {
   ownKeyNeedles,
   publicJson,
   redactKnown,
+  POSTAL_ADDRESS_REDACTION,
+  POSTAL_COORD_REDACTION,
   scanFileText,
   SELLER_TOKEN_REDACTION,
   type Finding,
@@ -245,6 +247,82 @@ test("gate: copy redacts a seller token in a body and passes the rest", () => {
   assert.equal(JSON.parse(out).rows[0].detail, `{"auth":{"id_token":"${SELLER_TOKEN_REDACTION}`);
   assert.deepEqual(JSON.parse(r.stdout).redactions, [{ path: "rows[0].detail", what: "seller-token" }]);
   rmSync(dir, { recursive: true });
+});
+
+/**
+ * The shape of 2026-09-30 Solana rows[230] (rentcast.x402.paysponge.com /avm/rent/long-term): the street address
+ * vet402 sent stands in the request URL, and the answer repeats it as an id slug, formattedAddress and
+ * addressLine1, next to the house's coordinates. The address and coordinates here are made up; the real ones
+ * are what the gate is for.
+ */
+const HOME = { line: "100 Sample Ave", full: "100 Sample Ave, Anytown, TX 75001", slug: "100-Sample-Ave,-Anytown,-TX-75001", query: "100+Sample+Ave%2C+Anytown%2C+TX%2C+75001" };
+const addressRow = () => ({
+  host: "rentcast.x402.paysponge.com",
+  requestUrl: `https://rentcast.x402.paysponge.com/avm/rent/long-term?address=${HOME.query}&compCount=5`,
+  detail: `{"rent":1640,"rentRangeLow":1510,"rentRangeHigh":1770,"latitude":29.123456,"longitude":-98.123456,"subjectProperty":{"id":"${HOME.slug}","formattedAddress":"${HOME.full}","addressLine1":"${HOME.line}","addressLine2":null,"city":"Anytown","state":"TX","zipCode":"75001","county":"Bexar","propertyType":"Single Family"}}`.slice(0, 300),
+});
+
+test("gate: a street address in a seller's answer and in the request vet402 sent is redacted in every form (the 2026-09-30 Solana rows[230] shape)", () => {
+  const { value, redactions } = redactKnown({ rows: [addressRow()] });
+  const row = (value as { rows: { requestUrl: string; detail: string }[] }).rows[0]!;
+  const text = publicJson(value);
+  for (const form of [HOME.line, HOME.slug, "Sample+Ave", "29.123456", "-98.123456"]) assert.ok(!text.includes(form), form);
+  assert.equal(row.requestUrl, "https://rentcast.x402.paysponge.com/avm/rent/long-term?address=%5Bredacted%3A+street+address%5D&compCount=5");
+  assert.equal(new URL(row.requestUrl).searchParams.get("address"), POSTAL_ADDRESS_REDACTION);
+  assert.equal(row.detail.split(POSTAL_ADDRESS_REDACTION).length - 1, 3, row.detail);
+  assert.ok(row.detail.includes(`"latitude":"${POSTAL_COORD_REDACTION}","longitude":"${POSTAL_COORD_REDACTION}"`), row.detail);
+  // a city, a state and a ZIP code alone stay
+  assert.ok(row.detail.includes(`"city":"Anytown","state":"TX"`), row.detail);
+  assert.deepEqual(redactions, [
+    { path: "rows[0].requestUrl", what: "postal-address" },
+    { path: "rows[0].detail", what: "postal-address" },
+  ]);
+  // Left in, the address stops the gate as a known shape; no allow entry can let it through.
+  const left = blockingFindings(scanFileText(JSON.stringify({ rows: [addressRow()] }, null, 2), "x.json"), loadAllowList(ALLOW));
+  const addr = left.filter((f) => f.kind === "postal-address");
+  assert.deepEqual([...new Set(addr.map((f) => f.path))].sort(), ["rows[0].detail", "rows[0].requestUrl"]);
+  assert.deepEqual([...new Set(addr.filter((f) => f.known).map((f) => f.path))].sort(), ["rows[0].detail", "rows[0].requestUrl"]);
+  const dir = tmp();
+  writeFileSync(join(dir, "allow.json"), JSON.stringify({ kind: "vet402-secret-gate-allow", allow: [{ sha256: "a".repeat(64), kind: "postal-address", reason: "x" }] }));
+  assert.throws(() => loadAllowList(join(dir, "allow.json")), /can never be allowed/);
+  // The copy step: redacted and written, nothing stops.
+  writeFileSync(join(dir, "in.json"), JSON.stringify({ rows: [addressRow()] }));
+  const r = gateCli("copy", join(dir, "in.json"), join(dir, "out.json"));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(read(join(dir, "out.json")), text);
+  assert.deepEqual(JSON.parse(r.stdout).redactions, redactions);
+  rmSync(dir, { recursive: true });
+});
+
+test("gate: a listed public address, a city, a state or a ZIP code alone, and prose with numbers are not redacted", () => {
+  const keep = [
+    "354 Oyster Point Blvd, South San Francisco, CA 94080",
+    "https://x.example/avm?address=354+Oyster+Point+Blvd%2C+South+San+Francisco%2C+CA+94080",
+    "?q=1600+Pennsylvania+Ave+NW%2C+Washington%2C+DC&limit=1",
+    "Anytown, TX 75001",
+    "https://x402-factory.com/v1/forecast/san-antonio/window",
+    "3 days to run the first way",
+    "Top 10 Dr Pepper flavors",
+    "rows 4 and 192 Main results",
+  ];
+  const doc = { rows: keep.map((detail) => ({ detail })) };
+  const { value, redactions } = redactKnown(doc);
+  assert.deepEqual(value, doc);
+  assert.deepEqual(redactions, []);
+  assert.deepEqual(scanFileText(JSON.stringify(doc), "x.json").filter((f) => f.kind === "postal-address"), []);
+  assert.equal(redactionNote("remeasure/x.json", [{ path: "rows[1].requestUrl", what: "postal-address" }, { path: "rows[1].detail", what: "postal-address" }]), "remeasure/x.json rows[1].requestUrl and rows[1].detail: a street address (a seller's example input, or an answer that repeats it) is replaced with [redacted]");
+});
+
+test("gate: redactKnown changes no published data/ file (the address in the 2026-09-28 Tempo census plan is already redacted)", () => {
+  const walkJson = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkJson(join(d, e.name)) : e.name.endsWith(".json") ? [join(d, e.name)] : []));
+  const files = walkJson(join(ROOT, "data"));
+  assert.ok(files.length > 10);
+  for (const p of files) {
+    const parsed = JSON.parse(read(p));
+    const { value, redactions } = redactKnown(parsed);
+    assert.deepEqual(redactions, [], p);
+    assert.deepEqual(value, parsed, p);
+  }
 });
 
 test("gate: the runner's own key in any encoding stops and can never be allowed", () => {

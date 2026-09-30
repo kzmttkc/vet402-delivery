@@ -19,6 +19,7 @@ import { solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from 
 import { containsPlaceholder } from "../src/inputs/fill.js";
 import { fromBazaar, fromMercator, fromOpenApi, type EndpointSpec } from "../src/inputs/spec.js";
 import { bookKey, type BookEntry, type InputBook } from "../src/inputs/book.js";
+import { redactKnown } from "../src/daily/secret-gate.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -157,5 +158,6 @@ for (const t of need) {
 }
 entries.sort((a, b) => (bookKey(a) < bookKey(b) ? -1 : 1));
 const book: InputBook = { kind: "vet402-input-book", version: 1, createdAt: new Date().toISOString(), entries };
-writeFileSync(OUT, JSON.stringify(book, null, 2) + "\n");
+// A seller's example street address (it can be a home) is not kept in the public repository: fill.ts never sends it.
+writeFileSync(OUT, JSON.stringify(redactKnown(book).value, null, 2) + "\n");
 console.log(`targets ${targets.length}, need a look ${need.length}, with a spec ${entries.filter((e) => e.spec).length}; wrote ${OUT}`);

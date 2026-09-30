@@ -7,7 +7,7 @@
  * is sent and the seller's own document gives concrete defaults, those defaults are sent. Nothing else changes:
  * a concrete value already in the request is kept as it is.
  *
- * Where a value comes from, first match wins:
+ * Where a value comes from, first match wins (a street address always comes from the table, TABLE_ONLY):
  *   enum                  the seller's list of allowed values (first one)
  *   seller_example        the seller's own example or default for this parameter
  *   description_example   an "e.g." value in the seller's description of this parameter
@@ -18,7 +18,7 @@
  * An endpoint that sends a message to someone (SMS, email, a verification code) is never filled.
  */
 import type { EndpointSpec, ParamSpec } from "./spec.js";
-import { CLASS_SHAPE, classify, tableValue, type Unfillable } from "./values.js";
+import { CLASS_SHAPE, classify, TABLE_ONLY, tableValue, type Unfillable } from "./values.js";
 
 export interface FilledParam {
   param: string;
@@ -160,6 +160,11 @@ function valueFor(p: Pick<ParamSpec, "name" | "type" | "description" | "enum" | 
       return { value: obj, rule: `fields(${rules.join(",")})` };
     }
     if (p.type === "object") return { unfillable: c.unfillable ?? "unknown_param" };
+  }
+  // A street address: always the table's public one, never the seller's example (it can be a home).
+  if (c.cls && TABLE_ONLY.has(c.cls)) {
+    const v = typed(tableValue(c.cls, today), p.type);
+    if (v !== undefined) return { value: v, rule: `table:${c.cls}` };
   }
   const first = p.enum.find(concrete);
   if (first !== undefined) return { value: first, rule: "enum" };

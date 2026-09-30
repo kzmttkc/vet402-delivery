@@ -123,15 +123,29 @@ test("fill: what vet402 does not make up fails the whole request; an optional pl
   assert.deepEqual(fillParams({ q: "Tempo blockchain" }, spec([{ name: "q", required: true }]), TODAY), { ok: true, params: { q: "Tempo blockchain" }, filled: [] });
 });
 
-test("fill: nothing sent and nothing required, the seller's own documented defaults are sent", () => {
+test("fill: nothing sent and nothing required, the seller's own documented defaults are sent, except a street address", () => {
+  // A made-up home address stands for the seller's default here; vet402 sends the table's public address instead.
   const doc = { paths: { "/avm/rent/long-term": { get: { summary: "Rent Estimate", parameters: [
-    { in: "query", name: "address", schema: { type: "string", default: "5500 Grand Lake Dr, San Antonio, TX, 78244" } },
+    { in: "query", name: "address", schema: { type: "string", default: "100 Sample Ave, Anytown, TX, 75001" } },
     { in: "query", name: "bedrooms", schema: { type: "number", default: "" } },
     { in: "query", name: "compCount", schema: { type: "integer", default: 5 } },
   ] } } } };
   const s = fromOpenApi(doc, "GET", "/avm/rent/long-term", "seller-openapi:test")!;
   const r = repairSolanaUrl("https://rentcast.x/avm/rent/long-term", s, TODAY);
-  assert.deepEqual(r.ok && [r.changed, r.value], [true, "https://rentcast.x/avm/rent/long-term?address=5500+Grand+Lake+Dr%2C+San+Antonio%2C+TX%2C+78244&compCount=5"]);
+  assert.deepEqual(r.ok && [r.changed, r.value], [true, "https://rentcast.x/avm/rent/long-term?address=354+Oyster+Point+Blvd%2C+South+San+Francisco%2C+CA+94080&compCount=5"]);
+  assert.deepEqual(r.ok && r.filled.find((f) => f.param === "address"), { param: "address", rule: "table:street_address" });
+});
+
+test("fill: a street address never comes from the seller's example, the description or its example answer", () => {
+  const home = "100 Sample Ave, Anytown, TX 75001";
+  const s = spec([{ name: "address", required: true, example: home, description: `Full address, e.g. "${home}"` }]);
+  const r = fillParams({}, { ...s, outputExample: { address: home } }, TODAY);
+  assert.deepEqual(r.ok && [r.params, r.filled], [{ address: "354 Oyster Point Blvd, South San Francisco, CA 94080" }, [{ param: "address", rule: "table:street_address" }]]);
+  // the book's entry for rentcast.x402.paysponge.com /avm/rent/long-term now fills the same public address
+  const book = JSON.parse(readFileSync(join(ROOT, "src", "inputs", "book.json"), "utf8")) as InputBook;
+  const e = book.entries.find((x) => x.url === "https://rentcast.x402.paysponge.com/avm/rent/long-term")!;
+  const u = repairSolanaUrl(e.url, e.spec, TODAY);
+  assert.ok(u.ok && new URL(u.value).searchParams.get("address") === "354 Oyster Point Blvd, South San Francisco, CA 94080", JSON.stringify(u));
 });
 
 // ---------- requests ----------

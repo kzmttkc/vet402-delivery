@@ -4,7 +4,8 @@
  * Two steps:
  *  - redactKnown: a local result file becomes its public copy. Only the known shapes are changed, with the
  *    wording already used in data/ (b673edd, 1f2e295, 1e6e4db): a token a seller put in its response body
- *    (a JWT in `detail` or `first300`) and local runner paths (/Users/<name>/ -> ~/).
+ *    (a JWT in `detail` or `first300`), local runner paths (/Users/<name>/ -> ~/), and a street address in
+ *    any field (a seller's answer, the request vet402 sent) unless PUBLIC_STREET_ADDRESSES names it.
  *  - scan: every file that would be public is read again. One finding the allow list does not name stops the
  *    commit (fail closed).
  *
@@ -14,7 +15,7 @@
  *    signature, bearer, jwt, mnemonic..., any case or separator) is a finding, whatever it looks like; the
  *    only exceptions are fields of vet402's own record format checked against their exact format (OWN_FIELDS)
  *  - JWTs (even a piece of one), Bearer values, local paths, private key blocks, vendor key prefixes, 64-byte
- *    key arrays, and the runner's own keys in any common encoding
+ *    key arrays, the runner's own keys in any common encoding, and street addresses
  *  - any random-looking run of 24 characters or more, unless it is a public id in its exact format (a 32-byte
  *    base58 address, a 64-byte base58 signature, hex of a hash or address, an Algorand address with a valid
  *    checksum or transaction id, an IPFS id, a payment challenge id) or the same value is an address or
@@ -32,6 +33,23 @@ export const SELLER_TOKEN_REDACTION = "[redacted: token the seller issued to vet
 /** Response-body fields where a seller's own token can appear. A JWT anywhere else is not a known shape. */
 export const SELLER_BODY_FIELDS: readonly string[] = ["detail", "first300"];
 
+/** The replacement text for a street address (same form as the token redaction). */
+export const POSTAL_ADDRESS_REDACTION = "[redacted: street address]";
+/** The replacement text for the coordinates a seller gave next to a street address it was asked about. */
+export const POSTAL_COORD_REDACTION = "[redacted: coordinates of a street address]";
+
+/**
+ * Street addresses that are public by design and stay as written: a company's published headquarters or a
+ * public building, never a home. Compared by the street line (number, name, suffix) with case, spaces and
+ * punctuation dropped. Each one says why it is public.
+ */
+export const PUBLIC_STREET_ADDRESSES: readonly { street: string; reason: string }[] = [
+  { street: "354 Oyster Point Blvd", reason: "Stripe's published headquarters (src/inputs/values.ts street_address)" },
+  { street: "1600 Pennsylvania Ave", reason: "the White House, a public building; a seller's own example input in data/algorand/census-2026-09-27.json and -28 (agent402.tools geocode, location-intel)" },
+  { street: "1822 Sunset Blvd", reason: "The Echo, a public music venue in Los Angeles, named as such in a seller's own example input in data/algorand/census-2026-09-27.json and -28 (algo.netintel.dev event-extract)" },
+  { street: "123 Main St, San Francisco", reason: "the made-up 123 Main St form in a seller's own example input in data/algorand/census-2026-09-27.json and -28 (algo.netintel.dev extract/address)" },
+];
+
 export type FindingKind =
   | "jwt"
   | "bearer"
@@ -42,6 +60,7 @@ export type FindingKind =
   | "vendor-key"
   | "key-array"
   | "own-key"
+  | "postal-address"
   | "opaque-40";
 
 export interface Finding {
@@ -66,7 +85,7 @@ export interface AllowEntry {
 
 export interface Redaction {
   path: string;
-  what: "seller-token" | "local-path";
+  what: "seller-token" | "local-path" | "postal-address";
 }
 
 export const sha256Hex = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -78,6 +97,57 @@ export const maskShape = (s: string) => s.replace(/[A-Z]/g, "A").replace(/[a-z]/
 const JWT_FULL_SRC = String.raw`eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]*){0,2}`;
 const LOCAL_PATH_SRC = String.raw`\/Users\/[^/\s"'\\]+\/`;
 
+/**
+ * A US-style street address as written in an answer, a request body, a URL query or an id slug: a house number,
+ * one to four capitalised words (or an ordinal such as 5th), a street suffix, then optionally a unit and
+ * ", City, ST 12345". Separators may be spaces, +, -, _ or %20, commas may be %2C
+ * ("100 Sample Ave, Anytown, TX 75001", "100+Sample+Ave%2C+Anytown", "100-Sample-Ave,-Anytown,-TX-75001").
+ * A city, a state or a ZIP code alone is not an address and stays.
+ */
+const ADDR_SEP = String.raw`(?:[ \t_+-]|%20)+`;
+const ADDR_COMMA = String.raw`(?:[ \t_+-]|%20)*(?:,|%2C)(?:[ \t_+-]|%20)*`;
+const ADDR_WORD = String.raw`(?:[A-Z][A-Za-z'.]*|\d{1,3}(?:st|nd|rd|th))`;
+const STREET_SUFFIXES = [
+  "Street", "St", "Avenue", "Ave", "Boulevard", "Blvd", "Drive", "Dr", "Road", "Rd", "Lane", "Ln", "Court", "Ct", "Way", "Place", "Pl",
+  "Parkway", "Pkwy", "Terrace", "Ter", "Circle", "Cir", "Highway", "Hwy", "Trail", "Trl", "Square", "Sq", "Plaza", "Crescent", "Alley",
+];
+const ADDR_SUFFIX = `(?:${[...STREET_SUFFIXES, ...STREET_SUFFIXES.map((x) => x.toUpperCase())].join("|")})`;
+const ADDR_UNIT = String.raw`(?:(?:${ADDR_COMMA}|${ADDR_SEP})(?:Apt|APT|Unit|UNIT|Suite|STE|Ste|#)\.?(?:${ADDR_SEP})?#?[A-Za-z0-9-]{1,6})?`;
+const ADDR_TAIL = String.raw`(?:${ADDR_COMMA}${ADDR_WORD}(?:${ADDR_SEP}${ADDR_WORD}){0,3}${ADDR_COMMA}[A-Z]{2}(?:${ADDR_COMMA}|${ADDR_SEP})\d{5}(?:-\d{4})?)?`;
+const POSTAL_ADDRESS_SRC = String.raw`(?<![A-Za-z0-9.])\d{1,6}[A-Z]?${ADDR_SEP}${ADDR_WORD}(?:${ADDR_SEP}${ADDR_WORD}){0,3}${ADDR_SEP}${ADDR_SUFFIX}\.?(?![A-Za-z0-9])${ADDR_UNIT}${ADDR_TAIL}`;
+/** Coordinates beside a street address in the same answer ("latitude":29.123456): they point at the same house. */
+const COORD_SRC = String.raw`((?:\\?["'])(?:latitude|longitude|lat|lng|lon)(?:\\?["'])\s*:\s*)-?\d{1,3}\.\d+`;
+
+const streetKey = (s: string) => s.toLowerCase().replace(/%20|%2c/g, " ").replace(/[^a-z0-9]/g, "");
+const PUBLIC_STREET_KEYS = PUBLIC_STREET_ADDRESSES.map((a) => streetKey(a.street));
+/** A matched address that is one of PUBLIC_STREET_ADDRESSES (its street line starts the match). */
+export function isPublicStreetAddress(m: string): boolean {
+  const k = streetKey(m);
+  return PUBLIC_STREET_KEYS.some((p) => k.startsWith(p));
+}
+
+/** The string with each listed public address blanked out (same length), so its parts are not judged as random runs. */
+function blankPublicAddresses(s: string): string {
+  return s.replace(new RegExp(POSTAL_ADDRESS_SRC, "g"), (m) => (isPublicStreetAddress(m) ? " ".repeat(m.length) : m));
+}
+
+/** Street addresses in a string that are not on the public list. */
+export function postalAddresses(s: string): string[] {
+  return [...s.matchAll(new RegExp(POSTAL_ADDRESS_SRC, "g"))].map((m) => m[0]).filter((m) => !isPublicStreetAddress(m));
+}
+
+/** The text with each street address (not on the public list) replaced; in a URL query the replacement is encoded as the query was. */
+export function redactPostalAddresses(s: string): { text: string; count: number } {
+  let count = 0;
+  let text = s.replace(new RegExp(POSTAL_ADDRESS_SRC, "g"), (m) => {
+    if (isPublicStreetAddress(m)) return m;
+    count++;
+    return /%2C|%20|\+/.test(m) ? encodeURIComponent(POSTAL_ADDRESS_REDACTION).replace(/%20/g, "+") : POSTAL_ADDRESS_REDACTION;
+  });
+  if (count > 0) text = text.replace(new RegExp(COORD_SRC, "g"), (_m, pre: string) => `${pre}"${POSTAL_COORD_REDACTION}"`);
+  return { text, count };
+}
+
 function redactString(s: string, key: string | null, path: string, out: Redaction[]): string {
   let v = s;
   if (key !== null && SELLER_BODY_FIELDS.includes(key) && new RegExp(JWT_FULL_SRC).test(v)) {
@@ -87,6 +157,12 @@ function redactString(s: string, key: string | null, path: string, out: Redactio
   if (new RegExp(LOCAL_PATH_SRC).test(v)) {
     v = v.replace(new RegExp(LOCAL_PATH_SRC, "g"), "~/");
     out.push({ path, what: "local-path" });
+  }
+  // A street address anywhere (a seller's answer, the request vet402 sent): no one's home goes public.
+  const addr = redactPostalAddresses(v);
+  if (addr.count > 0) {
+    v = addr.text;
+    out.push({ path, what: "postal-address" });
   }
   return v;
 }
@@ -591,7 +667,8 @@ export function scanText(text: string, file: string, path: string, key: string |
   const challengeField = key !== null && PUBLIC_ID_NAMES.test(key);
   const fileIds = opts.publicIds ?? new Set<string>();
 
-  readings(text).forEach((v, i) => {
+  readings(text).forEach((reading, i) => {
+    let v = reading;
     const original = i === 0;
     for (const m of v.matchAll(PRIVATE_KEY_BLOCK)) add("private-key-block", m[0]);
     for (const m of v.matchAll(KEY_ARRAY)) add("key-array", m[0]);
@@ -619,6 +696,8 @@ export function scanText(text: string, file: string, path: string, key: string |
       }
     }
     for (const m of v.matchAll(LOCAL_PATH)) add("local-path", m[0], original && m[0].startsWith("/Users/"));
+    // A street address stops whatever field it is in; redactKnown replaces the ones written as they are.
+    for (const a of postalAddresses(v)) add("postal-address", a, original);
 
     // Values under names: secret-like names stop whatever the value; public-id names vouch for ids.
     const localIds = new Set<string>();
@@ -647,6 +726,8 @@ export function scanText(text: string, file: string, path: string, key: string |
     for (const m of v.matchAll(HEADER_PAIR)) named(m[1]!.trim(), m[2]!, "secret-field");
     for (const m of v.matchAll(PATH_ID)) localIds.add(m[1]!);
 
+    // A listed public address (PUBLIC_STREET_ADDRESSES) is words and numbers, not a random run, in any encoding.
+    v = blankPublicAddresses(v);
     // base64 runs: judged whole, since their slashes and plus signs split them into short pieces below.
     for (const m of v.matchAll(B64_RUN)) {
       const t = m[0];
@@ -844,7 +925,7 @@ export function loadAllowList(file: string): AllowList {
   const files = j.files ?? [];
   for (const a of allow) {
     if (!/^[0-9a-f]{64}$/.test(a.sha256) || !a.reason?.trim()) throw new Error(`${file}: each entry needs a sha256 and a reason`);
-    if (a.kind === "own-key" || a.kind === "private-key-block" || a.kind === "key-array") throw new Error(`${file}: ${a.kind} can never be allowed`);
+    if (a.kind === "own-key" || a.kind === "private-key-block" || a.kind === "key-array" || a.kind === "postal-address") throw new Error(`${file}: ${a.kind} can never be allowed`);
   }
   for (const f of files) {
     if (!f.path || !/^[0-9a-f]{64}$/.test(f.sha256) || !f.reason?.trim()) throw new Error(`${file}: each file entry needs a path, a sha256 and a reason`);
@@ -855,13 +936,13 @@ export function loadAllowList(file: string): AllowList {
 
 /**
  * Findings that stop a publish. A known shape left in a file (not redacted) always stops; it is fixed by
- * redacting, never by allowing. The runner's own key always stops. Others stop unless the allow list has that
+ * redacting, never by allowing. The runner's own key and a street address always stop. Others stop unless the allow list has that
  * exact value for that kind, or the value comes from a whole file the list allows (the site repeats data/).
  */
 export function blockingFindings(findings: readonly Finding[], allow: readonly AllowEntry[] | AllowList, covered: ReadonlySet<string> = new Set()): Finding[] {
   const entries = Array.isArray(allow) ? allow : (allow as AllowList).allow;
   const ok = new Set(entries.map((a) => `${a.kind}:${a.sha256}`));
-  return findings.filter((f) => f.known || f.kind === "own-key" || !(ok.has(`${f.kind}:${f.sha256}`) || covered.has(`${f.kind}:${f.sha256}`)));
+  return findings.filter((f) => f.known || f.kind === "own-key" || f.kind === "postal-address" || !(ok.has(`${f.kind}:${f.sha256}`) || covered.has(`${f.kind}:${f.sha256}`)));
 }
 
 /**
