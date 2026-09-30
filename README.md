@@ -143,6 +143,47 @@ npm run remeasure -- --chain solana               # dry run (the default): targe
 npm run remeasure -- --chain tempo --dry-run
 ```
 
+## Daily runner (launchd)
+
+`scripts/daily/run.sh` runs the remeasure purchases, the daily records and their publishing in one fixed order, from launchd on the machine that holds the keys. Every step that can stop does stop: the run pays nothing more, writes one line to the alert file and shows a notification. A stop after money could have moved also leaves `HALT-<lane>` in the state folder, and that lane does nothing until a person has looked and removed it.
+
+| Job | Time (JST) | What |
+|---|---|---|
+| `am` | 10:17 | Solana, then Tempo: dry run, pay only within the run cap, the month and the balance (slots already in the spend ledger left out), then publish |
+| `pm` | 22:17 | Solana, the second purchase per payTo, then publish |
+| `records` | 09:05 | every closed UTC day with purchases whose root is not anchored or not published, oldest first, at most 3: build, verify each record, publish-records, anchor (once), publish. A dry run until `~/.config/vet402-daily/records-enabled` exists |
+| `board` | 19:05 | kzmttkc/vet402-algorand: when today's `board/<UTC day>.json` on main has no `completedAt` and no board run is queued or running, starts `board.yml` (`mode=daily`) once |
+| `publish` | by hand | publishes today's results again without paying, after a stop that a person resolved |
+
+Publishing: each result file is copied into `data/` through the secret gate (`scripts/daily/secret-gate.ts`), `data/manifest.json` is updated, rank and site are rebuilt, the tree is scanned again, typecheck and `npm test` run, and one commit with `data/` and `site/` only is checked against the pre-push review gate and pushed. A dry run (`--dry-run`) does the same with a made-up copy of the newest day dated today, and never pushes.
+
+### Setting it up
+
+After the runner is on main:
+
+```bash
+git -C ~/vet402-solana pull --ff-only origin main
+mkdir -p ~/.config/vet402-daily
+printf 'VET402_ALERTS_FILE=%s\n' /path/to/ALERTS.md > ~/.config/vet402-daily/env   # required: without it nothing runs
+cp ~/vet402-solana/scripts/daily/launchd/launch.sh ~/.config/vet402-daily/launch.sh
+env -i HOME="$HOME" PATH=/usr/bin:/bin ~/vet402-solana/scripts/daily/run.sh am --dry-run   # read the log in ~/Library/Logs/vet402-daily/
+cp ~/vet402-solana/scripts/daily/launchd/com.vet402.daily.*.plist ~/Library/LaunchAgents/
+for j in am pm records board; do launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vet402.daily.$j.plist; done
+launchctl list | grep com.vet402.daily
+```
+
+The plists start `~/.config/vet402-daily/launch.sh`, which lives outside the checkout: if `run.sh` is missing it still writes the alert line and the notification. The records job sends anchors only after `touch ~/.config/vet402-daily/records-enabled`, once a person has run `run.sh records` by hand and read its log.
+
+### What the secret gate stops, and what it cannot
+
+It reads each string as written and after undoing JSON escapes, percent-encoding (twice), base64 and hex of text, and JSON inside strings. It stops on: any value (text, number, list or object) under a secret-like name in any case or separator, with names found in JSON, queries, fragments, forms, headers, YAML, HTML attributes and XML tags (names that contain `token`, `secret`, `key`, `passw`, `session`, `cookie`, `credential`, `jwt`, `mnemonic`; names such as `pk`, `priv`, `private`, `seed`, `wif`, `xprv`, `wallet`, `otp`; names ending in `auth` or `signature`); a JWT or a piece of one; Bearer and Basic credentials; `user:password@` in a URL; vendor key prefixes; private key blocks; 64-byte key arrays; the runner's own keys in any common encoding; and random-looking runs of 16 characters or more. A 32-byte base58 value, 64 hex characters or a 64-byte base58 value pass only under a field that says what they are (`tx`, `payTo`, `address`, `signature`, `hash`, `mint` and similar, or the same value under such a field elsewhere in the file). Whole files copied from other public sources are allowed by their exact sha256; any other value is allowed only by its exact sha256 with a reason (`scripts/daily/secret-allow.json`).
+
+Limits (a secret in these shapes gets through; none of them is expected from a seller's response, and a person reads new sellers' bodies when the gate stops on them):
+- a secret under a neutral name that looks like a public id in its exact format and also stands under a public-id field in the same file;
+- a random value shorter than 16 characters under a neutral name, or split into pieces under 16 characters;
+- an all-lowercase value made of short parts joined by `-`, `_` or `.` (it reads like a host name or a slug), or a lowercase label of a host name;
+- a secret in an encoding the gate does not undo (encrypted, compressed, reversed short pieces).
+
 ## Solana feedback (8004-solana)
 
 The 8004-solana registry (program `8oo4dC4JvBLwy5tGgiH3WwK4B9PWxL9Z4XjA2jzkQMbQ`) lets any wallet write feedback to a registered agent. vet402 writes only what it paid for and saw itself.

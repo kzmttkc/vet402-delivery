@@ -111,44 +111,68 @@ export const publicJson = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
 
 // ---------- names ----------
 
-const SECRET_EXACT = new Set(["key", "sid", "pass", "pwd"]);
-const SECRET_SUFFIX = [
-  "apikey", "accesskey", "secretkey", "privatekey", "authkey", "clientkey", "signingkey", "sessionkey", "encryptionkey",
-  "secret", "password", "passwd", "passphrase", "token", "session", "sessionid", "auth", "authorization", "cookie",
-  "credential", "credentials", "signature", "sig", "bearer", "jwt", "mnemonic", "seedphrase",
-];
+/** Names whose value is a secret whatever it looks like, compared without case or separators. */
+const SECRET_EXACT = new Set(["key", "sid", "pass", "pwd", "pk", "priv", "private", "privkey", "seed", "wif", "xprv", "wallet", "otp", "totp", "mfa"]);
+/** Parts that make any name secret wherever they stand in it (token2, tokenValue, secret_value, apiKeyId). */
+const SECRET_PARTS = ["token", "secret", "key", "passw", "passphrase", "credential", "cookie", "session", "bearer", "jwt", "mnemonic", "xprv", "seedphrase"];
+/** Endings that make a name secret (auth, x-authorization, signature, hmac_sig). */
+const SECRET_SUFFIX = ["auth", "authorization", "signature", "sig", "privatekey"];
 
-/** A name whose value is a secret whatever it looks like: any case, any separator (api_key, X-Api-Key, apiKey). */
+/** A name whose value is a secret whatever it looks like: any case, any separator (api_key, X-Api-Key, apiKey, "api key"). */
 export function isSecretName(name: string): boolean {
   const n = name.toLowerCase().replace(/[^a-z0-9]/g, "");
   if (!n) return false;
-  return SECRET_EXACT.has(n) || SECRET_SUFFIX.some((s) => n.endsWith(s));
+  return SECRET_EXACT.has(n) || SECRET_PARTS.some((s) => n.includes(s)) || SECRET_SUFFIX.some((s) => n.endsWith(s));
 }
+
+/**
+ * Names under which public on-chain ids stand (a transaction, a payer, an address, a hash). An id in its exact
+ * format passes only under one of these, or when the same value stands under one of them elsewhere in the file.
+ */
+const PUBLIC_ID_FIELDS = new Set([
+  "tx", "txhash", "txid", "txsig", "transaction", "transactionhash", "transactionid", "signature", "hash", "blockhash",
+  "payto", "expectedpayto", "payer", "feepayer", "address", "from", "to", "recipient", "owner", "mint", "asset",
+  "contract", "account", "destination", "creator", "pubkey", "programid", "settlementtxid", "memo", "root",
+  // vet402's own record fields that hold hashes and ids it computed
+  "sha256", "urlhash", "paramshash", "responsehash", "bodyhash", "digest", "proof", "paytos", "observeraddress", "txs",
+]);
+/** Endings of names that hold an on-chain id (settlementTx, feedbackTx, tokenAddress, blockHash). */
+const PUBLIC_ID_SUFFIX = ["tx", "txhash", "txid", "hash", "address", "payto", "mint", "owner", "recipient"];
+const isPublicIdField = (name: string | null) => {
+  if (name === null) return false;
+  const n = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return PUBLIC_ID_FIELDS.has(n) || PUBLIC_ID_SUFFIX.some((x) => n.endsWith(x));
+};
 
 /**
  * Fields of vet402's own record format that carry secret-like names but hold public values vet402 wrote,
  * each checked against its exact format. A seller's text never reaches these checks: names found inside a
  * string (a response body, a URL) are always secret-field findings.
  */
-const OWN_FIELDS: { path: RegExp; key: string; ok: (v: string) => boolean }[] = [
+const OWN_FIELDS: { path: RegExp; key: string; ok: (v: unknown) => boolean }[] = [
   // remeasure budget / ledger key, wherever vet402's own records carry it: <UTC day>|<payTo>|<slot>
-  { path: /(?:^|\.|\])key$/, key: "key", ok: (v) => /^\d{4}-\d{2}-\d{2}\|(?:[1-9A-HJ-NP-Za-km-z]{32,44}|0x[0-9a-fA-F]{40})\|\d+$/.test(v) },
+  { path: /(?:^|\.|\])key$/, key: "key", ok: (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}\|(?:[1-9A-HJ-NP-Za-km-z]{32,44}|0x[0-9a-fA-F]{40})\|\d+$/.test(v) },
   // Tempo census ledger key: the service slug
-  { path: /^entries\[\d+\]\.key$/, key: "key", ok: (v) => /^[a-z0-9][a-z0-9-]{0,40}$/.test(v) },
+  { path: /^entries\[\d+\]\.key$/, key: "key", ok: (v) => typeof v === "string" && /^[a-z0-9][a-z0-9-]{0,40}$/.test(v) },
   // the ranking's seller key: host, or host#service
-  { path: /^groups\[\d+\]\.(?:ranking|comparisons\[\d+\]\.[A-Za-z]+)\[\d+\]\.key$/, key: "key", ok: (v) => /^[a-z0-9.-]+(?::\d+)?(?:#[A-Za-z0-9._/-]{1,80})?$/.test(v) },
+  { path: /^groups\[\d+\]\.(?:ranking|comparisons\[\d+\]\.[A-Za-z]+)\[\d+\]\.key$/, key: "key", ok: (v) => typeof v === "string" && /^[a-z0-9.-]+(?::\d+)?(?:#[A-Za-z0-9._/-]{1,80})?$/.test(v) },
   // a Solana transaction signature vet402 sent or read back
-  { path: /(?:^|\.)(?:rows|records|attempts)\[\d+\](?:\.[A-Za-z]+)*\.signature$/, key: "signature", ok: (v) => base58Len(v) === 64 },
-  // vet402's EIP-712 signature on its own observation record
-  { path: /^signature\.signature$/, key: "signature", ok: (v) => /^0x[0-9a-f]{130}$/.test(v) },
+  { path: /(?:^|\.)(?:rows|records|attempts)\[\d+\](?:\.[A-Za-z]+)*\.signature$/, key: "signature", ok: (v) => typeof v === "string" && base58Len(v) === 64 },
+  // vet402's EIP-712 signature on its own observation record: the object and its 65-byte hex value
+  { path: /^signature$/, key: "signature", ok: (v) => !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).every((k) => ["format", "scheme", "domain", "signer", "signature", "types", "primaryType"].includes(k)) },
+  { path: /^signature\.signature$/, key: "signature", ok: (v) => typeof v === "string" && /^0x[0-9a-f]{130}$/.test(v) },
   // the x402 memo vet402 put on its own payment (16 random bytes, hex), as sent and as read back
-  { path: /^records\[\d+\](?:\.onChain)?\.memo$/, key: "memo", ok: (v) => /^[0-9a-f]{32}$/.test(v) },
+  { path: /^records\[\d+\](?:\.onChain)?\.memo$/, key: "memo", ok: (v) => typeof v === "string" && /^[0-9a-f]{32}$/.test(v) },
+  // the census judgement's list of the JSON keys a seller's example promised (field names, not secrets)
+  { path: /^records\[\d+\]\.judgement\.(?:exampleKeys|expectedKeys|missingKeys|unseenExampleKeys)(?:\[\d+\])?$/, key: "", ok: (v) => (Array.isArray(v) ? v : [v]).every((x) => typeof x === "string" && /^[A-Za-z0-9_.$-]{1,80}$/.test(x)) },
+  // the token symbols the Tempo census saw in 402 challenges
+  { path: /^tokensSeen(?:\[\d+\])?$/, key: "", ok: (v) => (Array.isArray(v) ? v : [v]).every((x) => typeof x === "string" && /^[A-Za-z0-9.]{1,12}$/.test(x)) },
   // the token symbol a Tempo 402 challenge names (USDC.e)
-  { path: /^rows\[\d+\]\.live\.token$/, key: "token", ok: (v) => /^[A-Za-z0-9.]{1,12}$/.test(v) },
+  { path: /^rows\[\d+\]\.live\.token$/, key: "token", ok: (v) => typeof v === "string" && /^[A-Za-z0-9.]{1,12}$/.test(v) },
 ];
 
-function ownField(path: string, key: string, v: string): boolean {
-  return OWN_FIELDS.some((f) => f.key === key && f.path.test(path) && f.ok(v));
+function ownField(path: string, key: string, v: unknown): boolean {
+  return OWN_FIELDS.some((f) => (f.key === key || f.key === "") && f.path.test(path) && f.ok(v));
 }
 
 // ---------- public ids in their exact formats ----------
@@ -207,38 +231,52 @@ export function isExactPublicId(t: string): boolean {
 }
 
 /**
- * Words, the way people name things: lowercase, Capitalized or camelCase words that each hold a vowel, short
- * acronyms (USDC, API) and numbers. Random letters rarely read as words: a run without a vowel, or case that
- * flips every letter or two, is not one.
+ * Formats that are public ids with no other reading: an EVM address (0x + 40 hex), an Algorand address with
+ * its checksum, an IPFS id. A 32-byte base58 value, 64 hex or 64 base58 bytes can also be a key, so those
+ * need a known field (isPublicIdField) or the same value under one elsewhere in the file.
  */
-export function isWords(t: string): boolean {
-  const toks = t.match(/[A-Z]{2,5}(?![a-z])|[A-Z]?[a-z]+|\d+/g) ?? [];
-  if (toks.join("") !== t || toks.length === 0) return false;
-  for (const [i, x] of toks.entries()) {
-    if (/^\d+$/.test(x) || /^[A-Z]{2,5}$/.test(x)) continue;
-    if (/^[A-Z][a-z]$/.test(x) || (i === 0 && /^[a-z]$/.test(x))) continue; // Tx, Id; x in x402
-    const lower = x.replace(/^[A-Z]/, "");
-    if (lower.length < 2 || (x.length >= 5 && !/[aeiouy]/.test(lower))) return false;
-  }
-  return t.length / toks.length >= 3;
-}
-
-/** A part of a joined string: words, a number, hex, or in an all-lowercase slug any short code. */
-function isPlainPart(p: string, lowerSlug: boolean): boolean {
-  if (p.length >= 20) return false;
-  if (lowerSlug) return /^[a-z0-9]+$/.test(p);
-  return /^(?:\d+|[0-9a-f]+|0x[0-9a-fA-F]+)$/.test(p) || isWords(p);
+function isUnambiguousPublicId(t: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(t) || algorandAddress(t) || IPFS_CID.test(t);
 }
 
 /**
- * Public shapes among long runs: an exact public id, or ids and words joined by separators (eth_0x..., a
- * UUID, x402-weather-v2beta). A random token that happens to hold a - or _ is not split into harmless parts.
+ * Words, the way people name things: lowercase, Capitalized or camelCase words of three letters or more that
+ * each hold a vowel, short acronyms (USDC, API) and numbers. Random letters rarely read as words.
+ */
+export function isWords(t: string): boolean {
+  const toks = t.match(/[A-Z]{2,4}(?![a-z])|[A-Z]?[a-z]+|\d+/g) ?? [];
+  if (toks.join("") !== t || toks.length === 0) return false;
+  for (const [i, x] of toks.entries()) {
+    if (/^\d+$/.test(x) || /^[A-Z]{2,4}$/.test(x)) continue;
+    if (/^[A-Z][a-z]$/.test(x) || (i === 0 && /^[a-z]$/.test(x))) continue; // Tx, Id, Ms; x in x402
+    const w = x.toLowerCase();
+    // A word has vowels among its letters and no long consonant run ("Uxqhbv" is not one).
+    if (x.length < 3 || !/[aeiouy]/.test(w) || /[^aeiouy]{5}/.test(w) || (w.match(/[aeiouy]/g) ?? []).length / w.length < 0.2) return false;
+  }
+  if (toks.filter((x) => /^[A-Z]{2,4}$/.test(x)).length > 2) return false;
+  // Short tokens (Tx, Id, Ms) come one at a time in names, not in a row.
+  if (toks.filter((x) => /^[A-Z][a-z]$/.test(x)).length > 2) return false;
+  return t.length / toks.length >= 3.5;
+}
+
+/** A part of a joined string: words, a number, or in an all-lowercase slug any short code. */
+function isPlainPart(p: string, lowerSlug: boolean): boolean {
+  if (p.length >= 20) return false;
+  // In an all-lowercase slug (a host, a deployment id) a short code is part of a name.
+  if (lowerSlug) return /^[a-z0-9]+$/.test(p) && (p.length <= 12 || /[aeiouy]/.test(p) || /^\d+$/.test(p) || /^[0-9a-f]+$/.test(p));
+  return /^\d+$/.test(p) || isWords(p);
+}
+
+/**
+ * Public shapes among long runs: ids with no other reading, or words joined by separators (a UUID, a host
+ * name, a path, x402-weather-v2beta). A random token that happens to hold - _ . / is not split into harmless parts.
  */
 export function isPublicLongToken(t: string): boolean {
-  if (isExactPublicId(t)) return true;
-  const parts = t.split(/[-_:=+]/).filter(Boolean);
+  if (isUnambiguousPublicId(t)) return true;
+  const parts = t.split(/[-_:=+./]/).filter(Boolean);
   const lower = !/[A-Z]/.test(t);
-  return parts.length > 1 && parts.every((p) => isPlainPart(p, lower) || isExactPublicId(p));
+  if (parts.length > 1 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(t)) return true; // UUID
+  return parts.length > 1 && parts.every((p) => isPlainPart(p, lower));
 }
 
 /** Chain ids in CAIP-2 form: public constants. */
@@ -253,12 +291,14 @@ const NETWORK_IDS = new Set([
 ]);
 
 /**
- * Random-looking: at least 12 distinct characters from at least two of lower, upper, digit. A field name made
- * of words (payableTotalWithFeeReserve) is not; in a value only the field names the scanned files use are.
+ * Random-looking: enough distinct characters from at least two of lower, upper, digit. A field name made of
+ * words (payableTotalWithFeeReserve) is not; in a value a run of letters is judged random unless it is one of
+ * the field names the scanned files use (the site prints them).
  */
-function looksRandom(t: string, allowWords: boolean): boolean {
+function looksRandom(t: string, allowWords = false): boolean {
   if (NETWORK_IDS.has(t) || (allowWords && isWords(t))) return false;
-  return new Set(t).size >= 12 && [/[a-z]/, /[A-Z]/, /[0-9]/].filter((r) => r.test(t)).length >= 2;
+  const distinct = new Set(t.replace(/[-_.:/=+]/g, "")).size;
+  return distinct >= Math.min(12, Math.floor(t.length * 0.6)) && [/[a-z]/, /[A-Z]/, /[0-9]/].filter((r) => r.test(t)).length >= 2;
 }
 
 // ---------- readings of a string ----------
@@ -280,27 +320,34 @@ function percentDecode(s: string): string {
   });
 }
 
-/** Text hidden as base64 (standard or url-safe): decoded when it reads as text. */
-function base64Texts(s: string): string[] {
+const printable = (b: Buffer) => {
+  let n = 0;
+  for (const x of b) if ((x >= 0x20 && x < 0x7f) || x === 0x0a || x === 0x0d || x === 0x09) n++;
+  return b.length > 0 && n / b.length >= 0.95;
+};
+
+/** Text hidden as base64 (standard or url-safe) or as hex: decoded when it reads as text. */
+function encodedTexts(s: string): string[] {
   const out: string[] = [];
-  for (const m of s.matchAll(/[A-Za-z0-9+/_-]{24,}={0,2}/g)) {
+  for (const m of s.matchAll(/[A-Za-z0-9+/_-]{16,}={0,2}/g)) {
     const b = Buffer.from(m[0].replace(/-/g, "+").replace(/_/g, "/"), "base64");
-    if (b.length < 16) continue;
-    let printable = 0;
-    for (const x of b) if ((x >= 0x20 && x < 0x7f) || x === 0x0a || x === 0x0d || x === 0x09) printable++;
-    if (printable / b.length >= 0.95) out.push(b.toString("latin1"));
+    if (b.length >= 12 && printable(b)) out.push(b.toString("latin1"));
+  }
+  for (const m of s.matchAll(/(?:[0-9a-fA-F]{2}){16,}/g)) {
+    const b = Buffer.from(m[0], "hex");
+    if (printable(b)) out.push(b.toString("latin1"));
   }
   return out;
 }
 
-/** The string and every reading of it after undoing escapes, percent-encoding and base64, up to 4 rounds. */
+/** The string and every reading of it after undoing escapes, percent-encoding, base64 and hex, up to 5 rounds. */
 export function readings(s: string): string[] {
   const seen = new Set<string>([s]);
   let frontier = [s];
-  for (let round = 0; round < 4 && frontier.length; round++) {
+  for (let round = 0; round < 5 && frontier.length; round++) {
     const next: string[] = [];
     for (const v of frontier) {
-      for (const w of [jsonUnescape(v), percentDecode(v), ...base64Texts(v)]) {
+      for (const w of [jsonUnescape(v), percentDecode(v), ...encodedTexts(v)]) {
         if (!seen.has(w) && seen.size < 64) {
           seen.add(w);
           next.push(w);
@@ -314,24 +361,34 @@ export function readings(s: string): string[] {
 
 // ---------- detection ----------
 
-const NAME = String.raw`[A-Za-z][A-Za-z0-9_.-]{0,48}`;
-/** "name": "value" (value may be cut off at the end of a 300-character body). */
-const QUOTED_PAIR = new RegExp(`["'](${NAME})["']\\s*:\\s*["']([^"']*)["']?`, "g");
-/** name=value in a query, a form or a cookie. */
-const FORM_PAIR = new RegExp(`(?:^|[?&;,\\s{(])(${NAME})=([^&;#\\s"'<>]+)`, "g");
-/** name: value as in a header line. */
-const HEADER_PAIR = new RegExp(`(?:^|[\\s{,;(])(${NAME})\\s*:\\s*([^\\s"',;{}<>\\[\\]]+)`, "g");
+/** "name": "value", "name": 123, "name": [ ... or { ... (the value may be cut off at the end of a body). */
+const QUOTED_PAIR = /["']([^"'\n]{1,300})["']\s*:\s*(?:["']([^"']*)["']?|([[{][\s\S]{0,160})|(-?\d[\d.eE+-]*))/g;
+/** name=value or name = value in a query, a fragment, a form, a cookie, code or config. */
+const FORM_PAIR = /(?:^|[?&;,#\s{(])([A-Za-z0-9_.%[\]-]{1,300})[ \t]*=[ \t]*(?![="])([^&;#\s"'<>]+)/g;
+/** name="value" as an HTML or XML attribute. */
+const ATTR_PAIR = /([A-Za-z_:][A-Za-z0-9_:.-]{0,300})\s*=\s*(["'])([^"']*)\2/g;
+/** name: value as in a header or YAML line. */
+const HEADER_PAIR = /(?:^|[\s{,;(])([A-Za-z][A-Za-z0-9_ -]{0,300}?)[ \t]*:[ \t]*([^\s"',;{}<>[\]]+)/g;
+/** <name>value</name> */
+const XML_PAIR = /<([A-Za-z_][\w:.-]{0,300})[^>]*>([^<]{1,500})<\/\1>/g;
+/** scheme://user:password@host */
+const URL_USERINFO = /[a-z][a-z0-9+.-]*:\/\/[^/\s:@"']+:([^/\s@"']+)@/gi;
 const JWT_PIECE = /eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]*){0,2}/g;
-const BEARER = /\bbearer\s+([A-Za-z0-9_.~+/=-]{8,})/gi;
+const AUTH_SCHEME = /\b(?:bearer|basic)\s+([A-Za-z0-9_.~+/=-]{8,})/gi;
+/** "Authorization: token <value>" (GitHub style): the scheme word followed by a random-looking value. */
+const TOKEN_SCHEME = /\btoken\s+([A-Za-z0-9_.~+/=-]{20,})/gi;
 const LOCAL_PATH = /(?:\/Users\/|\/home\/)[^\s"'<>\\]*/g;
-const OPAQUE = /[A-Za-z0-9_+=-]{24,}/g;
+const OPAQUE = /[A-Za-z0-9_+=-]{16,}/g;
+/** base64 with its own separators: padding or a plus sign, or several slashes between random parts. */
+const B64_RUN = /[A-Za-z0-9+/]{20,}={0,2}/g;
 const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----/g;
 const VENDOR_KEY =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{8,}|rk_live_[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|re_[A-Za-z0-9]{8,}_[A-Za-z0-9]{16,})/g;
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}|[sprk]k_(?:live|test)_[A-Za-z0-9]{8,}|gh[opsur]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|re_[A-Za-z0-9]{8,}_[A-Za-z0-9]{16,})/g;
 const KEY_ARRAY = /\[\s*(?:\d{1,3}\s*,\s*){31,63}\d{1,3}\s*\]/g;
 /** A 402 payment challenge id is handed to anyone who asks for the resource. */
 const PUBLIC_ID_NAMES = /^(?:challengeId|challenge_id)$/;
-const ADDRESS_FIELDS = /^(?:tx|txHash|txid|signature|payTo|expectedPayTo|payer|feePayer|address|mint|asset|recipient|from|to|wallet|owner)$/;
+/** URL path steps after which an on-chain id stands (/tx/<sig>, /address/<addr>). */
+const PATH_ID = /\/(?:tx|txs|transaction|transactions|address|addresses|account|accounts|token|tokens|mint|block|wallet)\/([A-Za-z0-9]{24,})/gi;
 
 const ownMarker = (v: string) => v === SELLER_TOKEN_REDACTION || v.startsWith(SELLER_TOKEN_REDACTION);
 
@@ -378,40 +435,39 @@ function base58(b: Buffer): string {
 export interface ScanOptions {
   /** The runner's key encodings (ownKeyNeedles): any of them in a public file is a finding. */
   ownKeys?: readonly string[];
-  /** Values under address or transaction fields of the same file: public by the file's own account. */
+  /** Values under public-id fields of the same file: public by the file's own account. */
   publicIds?: ReadonlySet<string>;
   /** Field names (made of words) the scanned JSON files use: the site prints them as text. */
   fieldNames?: ReadonlySet<string>;
 }
 
-/** Scan one string value. `key`/`path`: its JSON field, or null/"" for plain text. */
-export function scanText(text: string, file: string, path: string, key: string | null, out: Finding[], opts: ScanOptions = {}): void {
+type Add = (kind: FindingKind, v: string, known?: boolean) => void;
+
+function finder(file: string, path: string, out: Finding[]): { add: Add; flush: () => void } {
   const found = new Map<string, Finding>();
-  const add = (kind: FindingKind, v: string, known = false) => {
+  const add: Add = (kind, v, known = false) => {
     const h = sha256Hex(v);
     const k = `${kind}:${h}`;
     const prev = found.get(k);
-    if (prev) {
-      prev.known = prev.known || known;
-      return;
-    }
-    found.set(k, { file, path, kind, known, sha256: h, length: v.length, shape: maskShape(v) });
+    if (prev) prev.known = prev.known || known;
+    else found.set(k, { file, path, kind, known, sha256: h, length: v.length, shape: maskShape(v) });
   };
-  const publicIds = opts.publicIds ?? new Set<string>();
-  const bodyField = key !== null && SELLER_BODY_FIELDS.includes(key);
+  return { add, flush: () => out.push(...found.values()) };
+}
 
+/** Scan one string value. `key`/`path`: its JSON field, or null/"" for plain text. */
+export function scanText(text: string, file: string, path: string, key: string | null, out: Finding[], opts: ScanOptions = {}): void {
+  const { add, flush } = finder(file, path, out);
   for (const needle of opts.ownKeys ?? []) if (text.includes(needle)) add("own-key", needle);
   // vet402's own field in its exact format: nothing else to look at.
-  if (key !== null && ownField(path, key, text)) {
-    out.push(...found.values());
-    return;
-  }
+  if (key !== null && ownField(path, key, text)) return flush();
   // A structured field under a secret-like name: always.
   if (key !== null && isSecretName(key) && text !== "" && !ownMarker(text)) add("secret-field", text);
+  const bodyField = key !== null && SELLER_BODY_FIELDS.includes(key);
   const challengeField = key !== null && PUBLIC_ID_NAMES.test(key);
+  const fileIds = opts.publicIds ?? new Set<string>();
 
-  const all = readings(text);
-  all.forEach((v, i) => {
+  readings(text).forEach((v, i) => {
     const original = i === 0;
     for (const m of v.matchAll(PRIVATE_KEY_BLOCK)) add("private-key-block", m[0]);
     for (const m of v.matchAll(KEY_ARRAY)) add("key-array", m[0]);
@@ -423,25 +479,54 @@ export function scanText(text: string, file: string, path: string, key: string |
       if (m.index! > 0 && /[A-Za-z0-9]/.test(v[m.index! - 1]!)) continue; // "eyJ" inside a longer run: left to the random-run check
       add("jwt", m[0], original && bodyField && new RegExp(`^${JWT_FULL_SRC}$`).test(m[0]));
     }
-    for (const m of v.matchAll(BEARER)) if (!ownMarker(m[1]!)) add("bearer", m[1]!);
+    for (const m of v.matchAll(AUTH_SCHEME)) if (!ownMarker(m[1]!)) add("bearer", m[1]!);
+    for (const m of v.matchAll(TOKEN_SCHEME)) if (looksRandom(m[1]!)) add("bearer", m[1]!);
+    for (const m of v.matchAll(URL_USERINFO)) add("url-query-secret", m[1]!);
     for (const m of v.matchAll(LOCAL_PATH)) add("local-path", m[0], original && m[0].startsWith("/Users/"));
-    for (const re of [QUOTED_PAIR, FORM_PAIR, HEADER_PAIR]) {
-      for (const m of v.matchAll(re)) {
-        const [name, value] = [m[1]!, m[2]!];
-        if (!isSecretName(name) || value === "" || ownMarker(value)) continue;
-        // name: value in prose ("the seller key: the host") is a sentence; as a header it holds a token-like value.
-        if (re === HEADER_PAIR && (value.length < 8 || /^[a-z]+$/.test(value) || /^(?:bearer|basic)$/i.test(value))) continue;
-        add(re === FORM_PAIR ? "url-query-secret" : "secret-field", value);
-      }
+
+    // Values under names: secret-like names stop whatever the value; public-id names vouch for ids.
+    const localIds = new Set<string>();
+    const named = (name: string, value: string, kind: FindingKind) => {
+      if (isSecretName(name)) {
+        if (value !== "" && !ownMarker(value)) add(kind, value);
+      } else if (isPublicIdField(name)) localIds.add(value);
+    };
+    for (const m of v.matchAll(QUOTED_PAIR)) named(m[1]!, m[2] ?? m[3] ?? m[4] ?? "", "secret-field");
+    for (const m of v.matchAll(FORM_PAIR)) named(percentDecode(m[1]!), m[2]!, "url-query-secret");
+    for (const m of v.matchAll(ATTR_PAIR)) named(m[1]!, m[3]!, "secret-field");
+    for (const m of v.matchAll(XML_PAIR)) named(m[1]!, m[2]!.trim(), "secret-field");
+    for (const m of v.matchAll(HEADER_PAIR)) {
+      const value = m[2]!;
+      // name: value in prose ("the seller key: the host") is a sentence; as a header it holds a token-like value.
+      if (value.length < 8 || /^[a-z]+$/.test(value) || /^(?:bearer|basic|token)$/i.test(value)) continue;
+      named(m[1]!.trim(), value, "secret-field");
+    }
+    for (const m of v.matchAll(PATH_ID)) localIds.add(m[1]!);
+
+    // base64 runs: judged whole, since their slashes and plus signs split them into short pieces below.
+    for (const m of v.matchAll(B64_RUN)) {
+      const t = m[0];
+      if (!(/[+=]/.test(t) || (t.match(/\//g) ?? []).length >= 1)) continue;
+      const pieces = t.replace(/=+$/, "").split(/[+/]/).filter(Boolean);
+      if (pieces.every((p) => p.length < 3 || /^\d+$/.test(p) || isWords(p) || isPlainPart(p, !/[A-Z]/.test(p)) || isPublicLongToken(p) || localIds.has(p) || fileIds.has(p))) continue;
+      if (!looksRandom(t.replace(/[+/=]/g, ""))) continue;
+      add("opaque-40", t);
     }
     // Random-looking runs. Percent-encoded bytes are separators in the text as written.
     const plain = v.replace(/%[0-9A-Fa-f]{2}/g, "   ");
     for (const m of plain.matchAll(OPAQUE)) {
-      const t = m[0].replace(/^[-_=+]+|[-_=+]+$/g, "");
-      if (t.length < 24 || !looksRandom(t, path.endsWith("(name)"))) continue;
+      const t = m[0].replace(/^[-_=+./]+|[-_=+./]+$/g, "");
+      // A run right before a colon is a name ("ruggerHoldingsPct": ...): judged as a name.
+      const asName = path.endsWith("(name)") || /^\\?["']?\s*:/.test(plain.slice(m.index! + m[0].length));
+      if (t.length < 16 || !looksRandom(t, asName)) continue;
+      // A lowercase label of a host name (www.x402financialdata.com, 2s-3cpr6qm6j-alleyford.vercel.app) names a seller.
+      const pre = plain.slice(Math.max(0, m.index! - 3), m.index!);
+      const post = plain.slice(m.index! + m[0].length, m.index! + m[0].length + 1);
+      if (/^[a-z0-9-]+$/.test(t) && (pre.endsWith("://") || pre.endsWith(".") || post === ".")) continue;
       if (opts.fieldNames?.has(t)) continue;
-      if (publicIds.has(t)) continue;
       if (isPublicLongToken(t)) continue;
+      // An id in its exact format stands for itself only where the file says what it is.
+      if (isExactPublicId(t) && (fileIds.has(t) || localIds.has(t) || (original && m[0].length === v.length && isPublicIdField(key)))) continue;
       const before = plain.slice(Math.max(0, m.index! - 24), m.index!);
       if (/\/ipfs\/$/.test(before)) continue;
       if (/challengeId\\?["']?\s*[:=]\s*\\?["']?$/i.test(before)) continue;
@@ -449,7 +534,7 @@ export function scanText(text: string, file: string, path: string, key: string |
       add("opaque-40", t);
     }
   });
-  out.push(...found.values());
+  flush();
 }
 
 /** Opaque = random-looking: 16+ characters mixing cases or letters and digits without word breaks. */
@@ -465,30 +550,38 @@ function collectNames(value: unknown, into: Set<string>): void {
   if (Array.isArray(value)) value.forEach((v) => collectNames(v, into));
   else if (value && typeof value === "object")
     for (const [k, v] of Object.entries(value)) {
-      if (k.length >= 24 && isWords(k)) into.add(k);
+      if (k.length >= 16 && isWords(k)) into.add(k);
       collectNames(v, into);
     }
 }
 
-/** Values under address and transaction fields anywhere in a parsed file. */
+/** Values under public-id fields anywhere in a parsed file. */
 function collectPublicIds(value: unknown, into: Set<string>): void {
   const walk = (x: unknown, key: string | null) => {
     if (typeof x === "string") {
-      if (key !== null && ADDRESS_FIELDS.test(key) && isExactPublicId(x)) into.add(x);
-    } else if (Array.isArray(x)) x.forEach((v) => walk(v, null));
+      if (isPublicIdField(key) && isExactPublicId(x)) into.add(x);
+    } else if (Array.isArray(x)) x.forEach((v) => walk(v, key));
     else if (x && typeof x === "object") for (const [k, v] of Object.entries(x)) walk(v, k);
   };
   walk(value, null);
 }
 
-/** Scan a parsed JSON value: keys give each string its path and field name. Object keys are scanned too. */
+/**
+ * Scan a parsed JSON value: keys give each string its path and field name. Object keys are scanned too. A
+ * secret-like name over an array, an object or a number is a finding as a whole (and its insides are scanned).
+ */
 export function scanJson(value: unknown, file: string, out: Finding[], opts: ScanOptions = {}): void {
   const ids = new Set<string>(opts.publicIds ?? []);
   collectPublicIds(value, ids);
   const o = { ...opts, publicIds: ids };
   const walk = (x: unknown, key: string | null, path: string) => {
-    if (typeof x === "string") scanText(x, file, path, key, out, o);
-    else if (Array.isArray(x)) x.forEach((v, i) => walk(v, null, `${path}[${i}]`));
+    if (typeof x === "string") return scanText(x, file, path, key, out, o);
+    if (key !== null && x !== null && typeof x !== "boolean" && isSecretName(key) && !ownField(path, key, x)) {
+      const { add, flush } = finder(file, path, out);
+      add("secret-field", JSON.stringify(x));
+      flush();
+    }
+    if (Array.isArray(x)) x.forEach((v, i) => walk(v, key, `${path}[${i}]`));
     else if (x && typeof x === "object")
       for (const [k, v] of Object.entries(x)) {
         const p = path ? `${path}.${k}` : k;
@@ -626,7 +719,22 @@ export function blockingFindings(findings: readonly Finding[], allow: readonly A
  * known shape or the runner's key; the values in them are accepted where the site repeats them.
  */
 export function gateTree(root: string, dirs: readonly string[], allow: AllowList, opts: ScanOptions = {}): { files: number; findings: Finding[]; blocking: Finding[] } {
-  const { files, findings } = scanTree(root, dirs, opts);
+  // The site prints ids that data/ names (a tx, a payTo, a hash): those stand for themselves on the site too.
+  const ids = new Set<string>(opts.publicIds ?? []);
+  const dataDir = join(root, "data");
+  if (existsSync(dataDir)) {
+    for (const f of walkFiles(dataDir).filter((x) => /\.jsonl?$/.test(x))) {
+      const text = readFileSync(f, "utf8");
+      for (const line of f.endsWith(".jsonl") ? text.split("\n") : [text]) {
+        try {
+          if (line.trim()) collectPublicIds(JSON.parse(line), ids);
+        } catch {
+          /* not JSON */
+        }
+      }
+    }
+  }
+  const { files, findings } = scanTree(root, dirs, { ...opts, publicIds: ids });
   const whole = new Map(allow.files.map((f) => [f.path, f.sha256]));
   const allowedFile = new Set<string>();
   for (const [path, sha] of whole) {

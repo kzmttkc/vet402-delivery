@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Copy to ~/Library/LaunchAgents/ and bootstrap (scripts/daily/run.sh has the details). Times are the Mac's local time (JST). -->
+<!-- Copy to ~/Library/LaunchAgents/ and bootstrap (README: Daily runner). Times are the Mac's local time (JST). -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
@@ -9,7 +9,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>mkdir -p ~/Library/Logs/vet402-daily &amp;&amp; exec ~/vet402-solana/scripts/daily/run.sh pm &gt;&gt;~/Library/Logs/vet402-daily/launchd.log 2&gt;&amp;1</string>
+    <string>mkdir -p ~/Library/Logs/vet402-daily &amp;&amp; exec ~/.config/vet402-daily/launch.sh pm &gt;&gt;~/Library/Logs/vet402-daily/launchd.log 2&gt;&amp;1</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>

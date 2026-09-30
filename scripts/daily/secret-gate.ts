@@ -59,7 +59,16 @@ if (cmd === "copy") {
   if (!src || !out) usage("copy needs <result.json> <out>");
   const { value, redactions } = redactKnown(JSON.parse(readFileSync(src, "utf8")));
   const text = publicJson(value);
-  const block = blockingFindings(scanFileText(text, basename(out), scanOpts), allow);
+  // Values from whole files the list allows (copies of other public sources) are accepted here as in the tree.
+  const covered = new Set<string>();
+  for (const f of allow.files) {
+    const abs = join(process.cwd(), f.path);
+    if (!existsSync(abs)) continue;
+    const t = readFileSync(abs, "utf8");
+    if (sha256Hex(t) !== f.sha256) continue;
+    for (const x of scanFileText(t, f.path)) if (!x.known && x.kind !== "own-key") covered.add(`${x.kind}:${x.sha256}`);
+  }
+  const block = blockingFindings(scanFileText(text, basename(out), scanOpts), allow, covered);
   if (block.length) {
     for (const f of block) console.error(`blocked: ${describe(f)}`);
     console.error(`secret gate: ${block.length} finding(s) in the copy of ${basename(src)}; nothing written`);

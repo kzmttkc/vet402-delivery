@@ -12,6 +12,8 @@
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
 #                                            The workflow itself buys once per UTC day, so a later run only checks.
+#   scripts/daily/run.sh publish  by hand   publish today's results again without paying (after a stop that a
+#                                            person has resolved, for example a new allow-list entry)
 #   add --dry-run (or VET402_DAILY_DRY=1): remeasure --dry-run only, the anchor only simulated, records built in a
 #   scratch copy, the data commit made in the publish worktree and checked by the pre-push hook, never pushed.
 #
@@ -63,14 +65,14 @@ main() {
   for a in "$@"; do
     case "$a" in
       --dry-run) DRY=1 ;;
-      *) echo "usage: run.sh am|pm|records|board [--dry-run]" >&2; return 2 ;;
+      *) echo "usage: run.sh am|pm|records|board|publish [--dry-run]" >&2; return 2 ;;
     esac
   done
   case "$MODE" in
-    am | pm) LANE=pay ;;
+    am | pm | publish) LANE=pay ;;
     records) LANE=records ;;
     board) LANE=board ;;
-    *) echo "usage: run.sh am|pm|records|board [--dry-run]" >&2; return 2 ;;
+    *) echo "usage: run.sh am|pm|records|board|publish [--dry-run]" >&2; return 2 ;;
   esac
 
   CONF="$HOME/.config/vet402-daily"
@@ -145,6 +147,7 @@ main() {
   local rc=0
   case "$MODE" in
     am) pay_lane 1 "solana tempo" || rc=$? ;;
+    publish) publish_lane || rc=$? ;;
     pm) pay_lane 2 "solana" || rc=$? ;;
     records) records_lane || rc=$? ;;
     board) board_lane || rc=$? ;;
@@ -324,11 +327,20 @@ remeasure() {
 publish_remeasure() {
   local c src day copied=() redacted=()
   for c in solana tempo; do
-    if [ "$DRY" = 1 ]; then
-      # Nothing was paid: publish the newest existing day again, which must change nothing.
-      src="$(ls "$RMDIR"/"$c"-????-??-??.json 2>/dev/null | sort | tail -1)"
-    else
-      src="$RMDIR/$c-$UTC_DAY.json"
+    src="$RMDIR/$c-$UTC_DAY.json"
+    if [ "$DRY" = 1 ] && [ ! -f "$src" ]; then
+      # Nothing was paid today: a made-up copy of the newest day, dated today, goes through the same publish
+      # (gate, manifest, rank, site, typecheck, tests) so a new day's publish is tried before a real one.
+      local newest
+      newest="$(ls "$RMDIR"/"$c"-????-??-??.json 2>/dev/null | sort | tail -1)"
+      [ -n "$newest" ] || continue
+      mkdir -p "$STATE/sim"
+      local nday
+      nday="$(basename "$newest" .json)"
+      nday="${nday#"$c"-}"
+      sed "s/$nday/$UTC_DAY/g" "$newest" >"$STATE/sim/$c-$UTC_DAY.json"
+      src="$STATE/sim/$c-$UTC_DAY.json"
+      log "dry run: $c has no result for $UTC_DAY; publishing a made-up copy of $nday dated $UTC_DAY"
     fi
     [ -n "$src" ] && [ -f "$src" ] || continue
     day="$(basename "$src" .json)"
@@ -358,6 +370,14 @@ publish_remeasure() {
     return 1
   }
   publish "$msg"
+}
+
+# By hand: publish today's results again, paying nothing.
+publish_lane() {
+  preflight_repo || return 1
+  preflight_pub || return 1
+  gate_tree || return 1
+  publish_remeasure
 }
 
 # ---------- publish (shared): rank, site, gate, checks, one data/ + site/ commit, push, Pages ----------
@@ -432,7 +452,7 @@ wait_pages() {
 
 # ---------- records ----------
 
-# Closed UTC days with remeasure purchases whose root is not anchored yet, oldest first.
+# Closed UTC days with remeasure purchases whose root is not anchored yet, or not published yet, oldest first.
 open_record_days() {
   local f d
   for f in "$RMDIR"/solana-????-??-??.json "$RMDIR"/tempo-????-??-??.json; do
@@ -441,7 +461,8 @@ open_record_days() {
     echo "${d#*-}"
   done | sort -u | while read -r d; do
     [[ "$d" < "$UTC_DAY" ]] || continue
-    if [ -f "$RECEIPTS/$d/anchor-sent.json" ] && grep -q '"status": *"sent"' "$RECEIPTS/$d/anchor-sent.json"; then continue; fi
+    # Done = anchored and on main. Anchored but not published (the publish failed): published again, not re-anchored.
+    if [ -f "$RECEIPTS/$d/anchor-sent.json" ] && grep -q '"status": *"sent"' "$RECEIPTS/$d/anchor-sent.json" && [ -d "$REPO/data/records/$d" ]; then continue; fi
     echo "$d"
   done
 }

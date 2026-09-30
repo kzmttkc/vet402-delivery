@@ -1,9 +1,9 @@
 /**
  * scripts/daily: the secret gate, the pay/publish decisions, and run.sh itself.
  *
- * Everything here reads only this repository: the raw result files are rebuilt from the published copies in
- * data/ by putting a made-up token back where the redaction text stands, so the tests do not change when the
- * runner's local files do. Random values come from a fixed seed. run.sh is exercised against a throwaway git
+ * Nothing here reads data/ or site/, which change every day, nor the runner's local files: the inputs are
+ * fixed copies in test/fixtures/daily/ (taken at e28f0b0), and raw result files are rebuilt from them by
+ * putting a made-up token back where the redaction text stands. Random values come from a fixed seed. run.sh is exercised against a throwaway git
  * repository whose npm scripts stand in for remeasure, rank and the records scripts: nothing here pays,
  * signs, sends, or pushes anywhere but a local bare repository.
  */
@@ -26,11 +26,12 @@ import {
   SELLER_TOKEN_REDACTION,
   type Finding,
 } from "../src/daily/secret-gate.js";
-import { alnum, b64url, GATE_SHAPES, hex, seeded, withDetail } from "../src/daily/gate-shapes.js";
+import { alnum, b64url, base58, bytes, GATE_SHAPES, hex, seeded, withDetail } from "../src/daily/gate-shapes.js";
 import { commitMessage, ledgerKeys, planVerdict, redactionNote, runOutcome, updateManifest } from "../src/daily/steps.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const DATA = join(ROOT, "data");
+/** Fixed copies of published files (test/fixtures/daily/), so a new day's data changes no test. */
+const FIX = join(ROOT, "test", "fixtures", "daily");
 const ALLOW = join(ROOT, "scripts", "daily", "secret-allow.json");
 const TSX = join(ROOT, "node_modules", ".bin", "tsx");
 const read = (p: string) => readFileSync(p, "utf8");
@@ -50,15 +51,15 @@ function withFakeToken(body: string, r = seeded(7)): string {
 
 // ---------- the secret gate on the published data (raw files rebuilt from data/) ----------
 
-test("gate: the 2026-09-29 Solana copy comes out byte for byte from a raw file with the token back in rows 4 and 192", () => {
-  const published = read(join(DATA, "remeasure", "solana-2026-09-29.json"));
+test("gate: the 2026-09-29 Solana copy comes out byte for byte from a raw file with the token back (published rows 4 and 192)", () => {
+  const published = read(join(FIX, "remeasure-solana-2026-09-29.subset.json"));
   const raw = JSON.parse(published);
-  for (const i of [4, 192]) raw.rows[i].detail = withFakeToken(raw.rows[i].detail);
+  for (const i of [4, 5]) raw.rows[i].detail = withFakeToken(raw.rows[i].detail);
   const { value, redactions } = redactKnown(raw);
   assert.equal(publicJson(value), published);
   assert.deepEqual(redactions, [
     { path: "rows[4].detail", what: "seller-token" },
-    { path: "rows[192].detail", what: "seller-token" },
+    { path: "rows[5].detail", what: "seller-token" },
   ]);
   const dir = tmp();
   writeFileSync(join(dir, "raw.json"), JSON.stringify(raw));
@@ -70,40 +71,49 @@ test("gate: the 2026-09-29 Solana copy comes out byte for byte from a raw file w
 });
 
 test("gate: the 2026-09-29 Tempo copy is unchanged by the copy step (nothing to redact)", () => {
-  const published = read(join(DATA, "remeasure", "tempo-2026-09-29.json"));
+  const published = read(join(FIX, "remeasure-tempo-2026-09-29.subset.json"));
   const { value, redactions } = redactKnown(JSON.parse(published));
   assert.equal(publicJson(value), published);
   assert.deepEqual(redactions, []);
 });
 
 test("gate: the 2026-09-28 census gets the published redactions (rows[17], records[17], the local path)", () => {
-  const published = JSON.parse(read(join(DATA, "solana", "census-2026-09-28.json")));
+  const published = JSON.parse(read(join(FIX, "census-2026-09-28.subset.json")));
   const raw = structuredClone(published);
-  raw.rows[17].first300 = withFakeToken(raw.rows[17].first300);
-  raw.records[17].response.first300 = withFakeToken(raw.records[17].response.first300);
+  raw.rows[1].first300 = withFakeToken(raw.rows[1].first300);
+  raw.records[0].response.first300 = withFakeToken(raw.records[0].response.first300);
   raw.ledger = raw.ledger.replace(/^~\//, "/Users/runner/");
   const { value, redactions } = redactKnown(raw);
   assert.deepEqual(value, published);
   assert.deepEqual(redactions, [
     { path: "ledger", what: "local-path" },
-    { path: "rows[17].first300", what: "seller-token" },
-    { path: "records[17].response.first300", what: "seller-token" },
+    { path: "rows[1].first300", what: "seller-token" },
+    { path: "records[0].response.first300", what: "seller-token" },
   ]);
   // The copy published before f61bb07 left rows[17] as it was: the gate stops on it (a known shape left in).
   const before = structuredClone(published);
-  before.rows[17].first300 = raw.rows[17].first300;
+  before.rows[1].first300 = raw.rows[1].first300;
   const block = scan(JSON.stringify(before, null, 2), "data/solana/census-2026-09-28.json");
-  assert.ok(block.some((f) => f.path === "rows[17].first300" && f.kind === "jwt" && f.known), JSON.stringify(block.map((f) => f.path)));
+  assert.ok(block.some((f) => f.path === "rows[1].first300" && f.kind === "jwt" && f.known), JSON.stringify(block.map((f) => f.path)));
 });
 
-test("gate: the whole public tree (data/, site/) passes with the allow list; every allowed value is still there", () => {
+test("gate: the site may print an id that data/ names; a random value on a page still stops", () => {
+  const dir = tmp();
+  const sig = base58(bytes(seeded(12), 64));
+  mkdirSync(join(dir, "data"), { recursive: true });
+  mkdirSync(join(dir, "site"), { recursive: true });
+  writeFileSync(join(dir, "data", "r.json"), JSON.stringify({ rows: [{ tx: sig }] }));
+  writeFileSync(join(dir, "site", "a.html"), `<a href="https://solscan.io/tx/${sig}">paid</a> <span>${sig}</span>`);
+  assert.deepEqual(gateTree(dir, ["data", "site"], { allow: [], files: [] }).blocking.map((f) => f.file), []);
+  writeFileSync(join(dir, "site", "b.html"), `<span>${alnum(seeded(13), 30)}</span>`);
+  assert.deepEqual(gateTree(dir, ["data", "site"], { allow: [], files: [] }).blocking.map((f) => f.file), ["site/b.html"]);
+  rmSync(dir, { recursive: true });
+});
+
+test("gate: the allow list loads, and each value entry says where it stands", () => {
   const allow = loadAllowList(ALLOW);
-  const { files, findings, blocking } = gateTree(ROOT, ["data", "site"], allow);
-  assert.ok(files > 500, `scanned ${files} files`);
-  assert.deepEqual(blocking.map((f) => `${f.file} ${f.path} ${f.kind}`), []);
-  const seen = new Set(findings.map((f) => `${f.kind}:${f.sha256}`));
-  for (const a of allow.allow) assert.ok(seen.has(`${a.kind}:${a.sha256}`), `allow entry ${a.sha256.slice(0, 12)} matches nothing: remove it`);
-  for (const f of allow.files) assert.ok(existsSync(join(ROOT, f.path)), `${f.path} is gone: remove it from the allow list`);
+  assert.ok(allow.files.length >= 1 && allow.allow.length >= 1);
+  for (const a of allow.allow) assert.match(a.reason, /first at \S+/, a.sha256.slice(0, 12));
 });
 
 test("gate: a whole-file allowance holds only for the exact bytes", () => {
@@ -121,7 +131,7 @@ test("gate: a whole-file allowance holds only for the exact bytes", () => {
 
 // ---------- the secret gate: every shape stops, with a fixed seed ----------
 
-test("gate: every credential shape in src/daily/gate-shapes.ts stops, 300 times each (fixed seed)", () => {
+test("gate: every credential shape in src/daily/gate-shapes.ts (both reviews' probes) stops, 300 times each (fixed seed)", () => {
   const r = seeded(20260930);
   for (const [label, make] of GATE_SHAPES) {
     let passed = 0;
@@ -147,7 +157,9 @@ test("gate: each finding kind is reported for its shape", () => {
   ];
   for (const [what, text, kind] of cases) assert.ok(kinds(scan(text)).includes(kind), `${what}: ${JSON.stringify(kinds(scan(text)))}`);
   for (const n of ["api_key", "X-Api-Key", "apiKey", "clientSecret", "SESSION_ID", "set-cookie", "refresh_token", "Authorization"]) assert.ok(isSecretName(n), n);
-  for (const n of ["tokenAddress", "author", "monkey", "keys", "description"]) assert.ok(!isSecretName(n), n);
+  // Any name holding token, secret or key is secret, public or not (tokenAddress, keyword): a person allows the value.
+  for (const n of ["tokenAddress", "token2", "tokenValue", "secret_value", "keyword", "pk", "wallet", "otp"]) assert.ok(isSecretName(n), n);
+  for (const n of ["author", "description", "address", "mint", "hash"]) assert.ok(!isSecretName(n), n);
 });
 
 test("gate: public ids in their exact format, words and vet402's own fields do not stop", () => {
@@ -157,9 +169,10 @@ test("gate: public ids in their exact format, words and vet402's own fields do n
     evm: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     hash: "bac028774b9f783fa6841b80bf99ef70179857ac7779686cb979f1c45811ca5f",
     uuid: "299de0e8-cfd8-4343-8fff-9fdd698b68df",
-    algo: "E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6ZILCA7YDAHPU5WKSTA",
+    txid: "E4IQN3GHQ6AHYKKRIS5D6DD5GE4OXCA3G6ZILCA7YDAHPU5WKSTA",
     cid: "https://ipfs.io/ipfs/QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
-    pool: "eth_0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+    link: "https://solscan.io/tx/5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW",
+    host: "https://www.x402financialdata.com/v1/prices",
     words: "Strait of Hormuz traffic returns to normal by December 31?",
     network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     redacted: `{"auth":{"id_token":"${SELLER_TOKEN_REDACTION}`,
@@ -173,18 +186,20 @@ test("gate: public ids in their exact format, words and vet402's own fields do n
   assert.deepEqual(scan(JSON.stringify(own)).map((f) => `${f.path} ${f.kind}`), []);
   // the same own field with a value off its format stops
   assert.ok(scan(JSON.stringify({ rows: [{ key: alnum(seeded(5), 32) }] })).length > 0);
+  // an id in its exact format with no field that says what it is stops (a hex key looks like a hash)
+  assert.ok(scan(withDetail(`{"note":"${hex(seeded(6), 64)}"}`)).length > 0);
 });
 
 test("gate: copy refuses a result with an unknown shape and writes nothing, never printing the value", () => {
   const dir = tmp();
-  const raw = JSON.parse(read(join(DATA, "remeasure", "solana-2026-09-29.json")));
+  const raw = JSON.parse(read(join(FIX, "remeasure-solana-2026-09-29.subset.json")));
   const secret = `${b64url(seeded(9), 33)}Q9`;
-  raw.rows[10].detail = `{"session":"${secret}","user":"vet402"}`;
+  raw.rows[2].detail = `{"session":"${secret}","user":"vet402"}`;
   writeFileSync(join(dir, "in.json"), JSON.stringify(raw));
   const out = join(dir, "out", "solana-2026-09-29.json");
   const r = gateCli("copy", join(dir, "in.json"), out);
   assert.equal(r.status, 3, r.stdout + r.stderr);
-  assert.match(r.stderr, /blocked: solana-2026-09-29\.json rows\[10\]\.detail secret-field/);
+  assert.match(r.stderr, /blocked: solana-2026-09-29\.json rows\[2\]\.detail secret-field/);
   assert.ok(!existsSync(out));
   assert.ok(!r.stderr.includes(secret.slice(0, 20)), "the value is never printed");
   rmSync(dir, { recursive: true });
@@ -306,7 +321,7 @@ test("run outcome: only one run since the start, ended, not stopped", () => {
 });
 
 test("manifest: a new day adds the input, moves the date and labels the CDP fetch the way 2026-09-29 did", () => {
-  const text = read(join(DATA, "manifest.json"));
+  const text = read(join(FIX, "manifest.json"));
   const before = JSON.parse(text);
   const r = updateManifest(text, { label: "remeasure/solana-2026-09-30", path: "remeasure/solana-2026-09-30.json", sha256: "f".repeat(64), source: "~/vet402-solana/results/remeasure/solana-2026-09-30.json", day: "2026-09-30", redactions: [{ path: "rows[3].detail", what: "seller-token" }] });
   assert.ok(r.changed);
@@ -359,7 +374,9 @@ test("public text in scripts/daily and src/daily: English only, no first person 
     const t = read(f);
     assert.ok(!JAPANESE.test(t), `${f}: Japanese`);
     assert.ok(!t.includes(EM_DASH), `${f}: em dash`);
-    assert.ok(!FIRST_PLURAL.test(t.replace(/\bUS\b/g, "")), `${f}: first person plural`);
+    // host names and slugs (us-east-2 in a seller's host) are not wording
+    const words = t.replace(/\bUS\b/g, "").replace(/[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+/g, " ");
+    assert.ok(!FIRST_PLURAL.test(words), `${f}: first person plural`);
     assert.ok(!/\/Users\/[a-z]/.test(t.replace(/\/Users\/<name>\//g, "").replace(/\/Users\/runner\//g, "")), `${f}: a home path`);
   }
 });
@@ -368,12 +385,31 @@ test("public text in scripts/daily and src/daily: English only, no first person 
 
 const RUN = join(ROOT, "scripts", "daily", "run.sh");
 const at = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
-/** The review gate installed in this clone (scripts/git-hooks/install-review-gate.sh), if any. */
-const PRE_PUSH = (() => {
-  const r = spawnSync("/usr/bin/git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: ROOT, encoding: "utf8" });
-  const p = r.status === 0 ? join(r.stdout.trim(), "hooks", "pre-push") : "";
-  return p && existsSync(p) && read(p).includes("review-gate") ? p : null;
-})();
+/**
+ * The pre-push review gate the runner checks every data commit against, as installed in vet402's clones
+ * (git notes --ref=review SHIP required unless every changed path is data/ or site/). The sandbox installs
+ * this copy itself, so the tests do not depend on the clone they run in.
+ */
+const PRE_PUSH_HOOK = `#!/bin/bash
+set -u
+DATA_RE="\${REVIEW_GATE_DATA_RE:-$(git config --get reviewgate.datare || echo '^$')}"
+zero=0000000000000000000000000000000000000000
+fail=0
+while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$zero" ] && continue
+  if [ "$rsha" = "$zero" ]; then range="$lsha --not --remotes"; else range="$rsha..$lsha"; fi
+  for c in $(git rev-list $range); do
+    paths=$(git diff-tree --no-commit-id --name-only -r "$c")
+    nondata=$(printf '%s\\n' "$paths" | grep -Ev "$DATA_RE" | grep -v '^$' || true)
+    [ -z "$nondata" ] && continue
+    if ! git notes --ref=review show "$c" 2>/dev/null | grep -q '^SHIP'; then
+      echo "review-gate: $(git log -1 --format='%h %s' "$c") has no review SHIP note" >&2
+      fail=1
+    fi
+  done
+done
+[ $fail -eq 0 ] || { echo "review-gate: push refused" >&2; exit 1; }
+`;
 
 interface Sandbox {
   dir: string;
@@ -488,10 +524,8 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
   git(repo, "config", "user.name", "Test");
   git(repo, "config", "user.email", "test@example.com");
   git(repo, "config", "reviewgate.datare", "^(data/|site/)");
-  if (PRE_PUSH) {
-    copyFileSync(PRE_PUSH, join(repo, ".git", "hooks", "pre-push"));
-    chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
-  }
+  writeFileSync(join(repo, ".git", "hooks", "pre-push"), PRE_PUSH_HOOK);
+  chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
   const rmdir = join(repo, "results", "remeasure");
   mkdirSync(rmdir, { recursive: true });
   const state = join(dir, "state");
@@ -527,7 +561,6 @@ function runSh(sb: Sandbox, args: string[], env: NodeJS.ProcessEnv = {}) {
 const logs = (sb: Sandbox) => (existsSync(join(sb.dir, "logs")) ? readdirSync(join(sb.dir, "logs")).map((f) => read(join(sb.dir, "logs", f))).join("\n") : "");
 const alerts = (sb: Sandbox) => (existsSync(sb.alerts) ? read(sb.alerts) : "");
 const calls = (sb: Sandbox) => (existsSync(sb.calls) ? read(sb.calls) : "");
-const needsHook = { skip: PRE_PUSH ? false : "no review gate installed in this clone" };
 
 test("run.sh: without ~/.config/vet402-daily/env (the alert file) nothing runs", () => {
   const sb = sandbox();
@@ -594,7 +627,7 @@ test("run.sh: an over-cap estimate stops before any --pay and halts the lane", (
   rmSync(sb.dir, { recursive: true });
 });
 
-test("run.sh: Tempo over its cap after Solana: no Tempo payment, the lane halts, what Solana bought is still published", needsHook, () => {
+test("run.sh: Tempo over its cap after Solana: no Tempo payment, the lane halts, what Solana bought is still published", () => {
   const sb = sandbox();
   writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
   const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z"), FAKE_ESTIMATE_TEMPO: "1.500000" });
@@ -619,7 +652,7 @@ test("run.sh: an unknown secret in a result stops the publish; nothing is copied
   rmSync(sb.dir, { recursive: true });
 });
 
-test("run.sh --dry-run: copies through the gate, runs the tests, commits data/ and site/ only, passes the pre-push gate, never pushes", needsHook, () => {
+test("run.sh --dry-run: copies through the gate, runs the tests, commits data/ and site/ only, passes the pre-push gate, never pushes", () => {
   const sb = sandbox();
   const jwt = `eyJhbGciOiJSUzI1NiJ9.${b64url(seeded(6), 90)}`;
   writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: `{"auth":{"id_token":"${jwt}` }] }));
@@ -660,10 +693,11 @@ function recordsBox() {
   for (const d of ["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03"]) writeFileSync(join(sb.rmdir, `solana-${d}.json`), "{}");
   mkdirSync(join(sb.receipts, "2026-09-29"), { recursive: true });
   writeFileSync(join(sb.receipts, "2026-09-29", "anchor-sent.json"), JSON.stringify({ status: "sent" }, null, 2));
+  mkdirSync(join(sb.repo, "data", "records", "2026-09-29"), { recursive: true }); // anchored and published: done
   return sb;
 }
 
-test("records: without records-enabled, the open days (oldest first, at most 3) run as a dry run: simulated anchor, nothing pushed", needsHook, () => {
+test("records: without records-enabled, the open days (oldest first, at most 3) run as a dry run: simulated anchor, nothing pushed", () => {
   const sb = recordsBox();
   const originBefore = git(sb.origin, "rev-parse", "main");
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
@@ -679,7 +713,7 @@ test("records: without records-enabled, the open days (oldest first, at most 3) 
   rmSync(sb.dir, { recursive: true });
 });
 
-test("records: with records-enabled, each open day is built, verified, anchored with --send once, then one publish", needsHook, () => {
+test("records: with records-enabled, each open day is built, verified, anchored with --send once, then one publish", () => {
   const sb = recordsBox();
   writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
@@ -693,6 +727,44 @@ test("records: with records-enabled, each open day is built, verified, anchored 
   assert.match(logs(sb), /no closed day with purchases waits for its records/);
   assert.equal(calls(sb).split("\n").filter((l) => l.includes("--send")).length, 3);
   rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh --dry-run on a day with no purchase: a made-up copy of the newest day, dated today, goes through the whole publish", () => {
+  const sb = sandbox();
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-09-30", runs: [], rows: [{ host: "a.example", key: "2026-09-30|226DYoWb2e6uYxDkFp7vK8jZhzzh2VNvHH6DgbDsNueC|0", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["pm", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T13:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /solana has no result for 2026-10-01; publishing a made-up copy of 2026-09-30 dated 2026-10-01/);
+  assert.match(logs(sb), /> typecheck[\s\S]*> npm test[\s\S]*commit [0-9a-f]{40}: data: 2026-10-01 remeasure on Solana/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a day anchored but not on main (its publish failed) is published again without a second anchor", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  mkdirSync(join(sb.receipts, "2026-09-30"), { recursive: true });
+  writeFileSync(join(sb.receipts, "2026-09-30", "sources.json"), "{}");
+  writeFileSync(join(sb.receipts, "2026-09-30", "obs_2026-09-30_000001.json"), "{}");
+  writeFileSync(join(sb.receipts, "2026-09-30", "anchor-sent.json"), JSON.stringify({ status: "sent" }, null, 2));
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /days to record \(oldest first, at most 3\): 2026-09-30/);
+  assert.match(logs(sb), /2026-09-30 root already anchored/);
+  assert.ok(!calls(sb).includes("anchor-receipts"), "no anchor sent again");
+  assert.match(git(sb.origin, "log", "-1", "--format=%s", "main"), /^records: 2026-09-30 delivery records/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("launch.sh: when run.sh is missing, launchd's start still writes the alert line", () => {
+  const dir = tmp();
+  const home = join(dir, "home");
+  mkdirSync(join(home, ".config", "vet402-daily"), { recursive: true });
+  writeFileSync(join(home, ".config", "vet402-daily", "env"), `VET402_ALERTS_FILE=${join(dir, "ALERTS.md")}\n`);
+  const r = spawnSync("/bin/bash", [join(ROOT, "scripts", "daily", "launchd", "launch.sh"), "am"], { env: { HOME: home, PATH: "/usr/bin:/bin", VET402_DAILY_NOTIFY: "0" }, encoding: "utf8" });
+  assert.equal(r.status, 3);
+  assert.match(read(join(dir, "ALERTS.md")), /\[vet402_daily\] am did not run: .*vet402-solana\/scripts\/daily\/run\.sh is missing/);
+  rmSync(dir, { recursive: true });
 });
 
 // ---------- run.sh board: the vet402-algorand board workflow, watched from outside ----------
