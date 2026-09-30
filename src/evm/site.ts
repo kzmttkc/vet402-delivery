@@ -60,6 +60,8 @@ export interface StockRow {
   comparison: StockComparison | null;
 }
 
+export type CompareRow = { resource: string } & Pick<LaneRow, "status" | "cause" | "settlementTx" | "paidRequestMs" | "relayer">;
+
 export interface LanePublic {
   kind: "vet402-evm-lane";
   lane: "robinhood" | "arbitrum";
@@ -71,8 +73,11 @@ export interface LanePublic {
   payTosInCatalogs: number;
   payTosOffered: number;
   rows: LaneRow[];
-  /** Arbitrum page: the same listing bought on Base, by resource. */
-  compare?: Record<string, Pick<LaneRow, "status" | "cause" | "settlementTx" | "paidRequestMs" | "relayer">>;
+  /**
+   * Arbitrum page: the same listing bought on Base. A list with the URL in a `resource` field, not an object
+   * keyed by URL: a seller's URL as a JSON key reads as a field name to the secret gate (".../token_analysis_api").
+   */
+  compare?: CompareRow[];
   stock?: StockRow[];
 }
 
@@ -148,14 +153,10 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
         ? { ...r, facilitatorLead: null, skipped: null } // not bought, or delivered: only the lead or skip text goes
         : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null, settled: undefined },
   );
-  const compare = l.compare
-    ? Object.fromEntries(
-        Object.entries(l.compare).map(([res, c]) => {
-          const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
-          return [res, neg && !told(hostOf(res)) ? { status: "withheld" as const, cause: null, settlementTx: null, paidRequestMs: null, relayer: null } : c];
-        }),
-      )
-    : undefined;
+  const compare = l.compare?.map((c): CompareRow => {
+    const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
+    return neg && !told(hostOf(c.resource)) ? { resource: c.resource, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null } : c;
+  });
   const stockNegative = (s: StockRow) => (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "delivered");
   const stock = l.stock?.map((s) => (stockNegative(s) && !told(hostOf(s.resource ?? null)) ? { ...s, comparison: null, status: "withheld" as const, withheld: true } : s));
   return { ...l, rows, ...(compare ? { compare } : {}), ...(stock ? { stock } : {}) };
@@ -165,7 +166,8 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
 export function unpublishableRows(l: LanePublic, notified: ReadonlySet<string>): string[] {
   const out: string[] = [];
   for (const r of l.rows) if (rowIsNegative(r) && !notified.has(rowSeller(r) ?? "")) out.push(`${l.lane}: ${r.payTo} (${r.status})`);
-  for (const [res, c] of Object.entries(l.compare ?? {})) {
+  for (const c of l.compare ?? []) {
+    const res = c.resource;
     const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
     if (neg && !notified.has(hostOf(res) ?? "")) out.push(`${l.lane}: Base side of ${res} (${c.status})`);
   }
@@ -225,18 +227,19 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
     rows,
   };
   if (lane === "arbitrum") {
-    out.compare = {};
+    out.compare = [];
     for (const c of sec.choices) {
       if (!c.chosen) continue;
       const b = last(c.chosen.resource, "base-compare");
       const paidB = b?.outcome === "sent";
-      out.compare[c.chosen.resource] = {
+      out.compare.push({
+        resource: c.chosen.resource,
         status: statusOf(b),
         cause: paidB ? b!.cause : null,
         settlementTx: paidB ? (b!.settlementTx ?? null) : null,
         paidRequestMs: paidB ? (b!.paidRequestMs ?? null) : null,
         relayer: paidB ? (b!.relayer ?? null) : null,
-      };
+      });
     }
   }
   // The reference read right after the purchase (paying run) when there is one, else the plan's.
@@ -327,7 +330,7 @@ function sellerTable(l: LanePublic, withCompare: boolean): string {
   const spec = EVM_CHAINS[l.lane];
   const rows = l.rows
     .map((r) => {
-      const cmp = withCompare && r.resource ? l.compare?.[r.resource] : undefined;
+      const cmp = withCompare && r.resource ? l.compare?.find((x) => x.resource === r.resource) : undefined;
       const compareCells = withCompare ? `<td>${escapeHtml(cmp ? STATUS_TEXT[cmp.status] : "–")}${cmp?.settlementTx ? `<span class="sub">${txLink("base", cmp.settlementTx)}</span>` : ""}</td>` : "";
       const bought = hostOf(r.resource);
       const name = bought && r.status !== "not_bought_yet" && r.status !== "not_offered_now"

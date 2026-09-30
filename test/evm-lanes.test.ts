@@ -307,7 +307,7 @@ const lanePublic = (lane: "robinhood" | "arbitrum", evil: string): LanePublic =>
     { payTo: SELLER, hosts: [`h${evil}`], catalogListings: 1, resource: `https://x/${evil}`, livePrice: "50000", status: "not_settled", cause: { cause: "facilitator", rule: "r", evidence: "supported_page", fix: `fix ${evil}` }, settlementTx: `0x${evil}`, paidRequestMs: 1200, relayer: null, facilitatorLead: evil, skipped: null },
     { payTo: OTHER, hosts: ["ok.test"], catalogListings: 1, resource: null, livePrice: null, status: "not_offered_now", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: evil },
   ],
-  ...(lane === "arbitrum" ? { compare: { [`https://x/${evil}`]: { status: "delivered" as const, cause: null, settlementTx: TX, paidRequestMs: 900, relayer: null } } } : {}),
+  ...(lane === "arbitrum" ? { compare: [{ resource: `https://x/${evil}`, status: "delivered" as const, cause: null, settlementTx: TX, paidRequestMs: 900, relayer: null }] } : {}),
   ...(lane === "robinhood"
     ? { stock: [{ ticker: "ORCL", reference: { feed: STOCK_REFS[4]!.feed, token: STOCK_REFS[4]!.token, tokenPrice: 139, sharePrice: 138.7, multiplier: 1.0022, updatedAt: 1, readAt: 3601, stale: false, oraclePaused: false }, comparison: null }] }
     : {}),
@@ -363,18 +363,18 @@ test("2: an RPC timeout while reading the settlement back is vet402's 'could not
 test("3: negative results are withheld until the seller is in notified.json, and a lane file that shows them does not build", () => {
   const evil = "x";
   const l = lanePublic("arbitrum", evil);
-  const neg = { ...l, rows: [{ ...l.rows[0]!, resource: "https://bad.test/x", hosts: ["bad.test"] }] , compare: { "https://bad.test/x": { status: "settled_no_answer" as const, cause: null, settlementTx: TX, paidRequestMs: 1, relayer: null } } };
+  const neg = { ...l, rows: [{ ...l.rows[0]!, resource: "https://bad.test/x", hosts: ["bad.test"] }], compare: [{ resource: "https://bad.test/x", status: "settled_no_answer" as const, cause: null, settlementTx: TX, paidRequestMs: 1, relayer: null }] };
   assert.ok(unpublishableRows(neg, new Set()).length >= 2);
   const w = withholdUnnotified(neg, new Set());
   assert.equal(w.rows[0]!.status, "withheld");
   assert.equal(w.rows[0]!.cause, null);
   assert.equal(w.rows[0]!.facilitatorLead, null);
-  assert.equal(w.compare!["https://bad.test/x"]!.status, "withheld");
+  assert.equal(w.compare!.find((c) => c.resource === "https://bad.test/x")!.status, "withheld");
   assert.deepEqual(unpublishableRows(w, new Set()), []);
   const told = withholdUnnotified(neg, new Set(["bad.test"]));
   assert.equal(told.rows[0]!.status, "not_settled");
   // A neutral skip (the 402 no longer lists the chain) stays; an accusation (wrong domain) is withheld.
-  const skip = (why: string) => withholdUnnotified({ ...l, compare: {}, rows: [{ ...l.rows[1]!, hosts: ["n.test"], skipped: why }] }, new Set()).rows[0]!;
+  const skip = (why: string) => withholdUnnotified({ ...l, compare: [], rows: [{ ...l.rows[1]!, hosts: ["n.test"], skipped: why }] }, new Set()).rows[0]!;
   assert.equal(skip("the live 402 no longer offers Arbitrum One").skipped, "the live 402 no longer offers Arbitrum One");
   const accused = skip("the 402 names a token domain that is not the token's own");
   assert.equal(accused.skipped, null, "the accusation is not published");
@@ -553,7 +553,7 @@ test("16: a settlement vet402 could not read back is shown as such, not as 'no s
 
 test("3b: a delivered row stays delivered for an untold seller; only a facilitator lead on it is dropped", () => {
   const l = lanePublic("arbitrum", "x");
-  const d = { ...l, compare: {}, rows: [{ ...l.rows[0]!, resource: "https://z.test/x", hosts: ["z.test"], status: "delivered" as const, cause: { cause: "delivered" as const, rule: "d", evidence: "chain" as const, fix: null }, facilitatorLead: "Dexter lists Permit2" }] };
+  const d = { ...l, compare: [], rows: [{ ...l.rows[0]!, resource: "https://z.test/x", hosts: ["z.test"], status: "delivered" as const, cause: { cause: "delivered" as const, rule: "d", evidence: "chain" as const, fix: null }, facilitatorLead: "Dexter lists Permit2" }] };
   const w = withholdUnnotified(d, new Set()).rows[0]!;
   assert.equal(w.status, "delivered");
   assert.equal(w.facilitatorLead, null);
@@ -617,4 +617,19 @@ test("Base receipts are read from mainnet.base.org (publicnode rejects eth_getTr
   assert.equal(classifyRecord(empty).cause, "seller_config", "settled with an empty answer");
   const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
   assert.match(pub, /-reverify\.jsonl/);
+});
+
+test("secret gate: the public lane files and pages pass it (a seller URL is never a JSON key; currentMultiplier is allowed by value)", async () => {
+  const { scanText } = await import("../src/daily/secret-gate.js").catch(() => ({ scanText: undefined }));
+  const l = lanePublic("arbitrum", "x");
+  const withToken = { ...l, compare: [{ resource: "https://a.test/v1/token_verdict_api/token_analysis_api", status: "not_bought_yet" as const, cause: null, settlementTx: null, paidRequestMs: null, relayer: null }] };
+  const text = JSON.stringify(withToken, null, 2);
+  assert.ok(!text.includes('"https://a.test/v1/token_verdict_api/token_analysis_api": {'), "the URL is a value, not a key");
+  const allow = JSON.parse(readFileSync(new URL("../scripts/daily/secret-allow.json", import.meta.url), "utf8")) as { allow: { sha256: string; kind: string; reason: string }[] };
+  const { createHash } = await import("node:crypto");
+  const h = createHash("sha256").update("currentMultiplier").digest("hex");
+  const e = allow.allow.find((a) => a.sha256 === h);
+  assert.equal(e?.kind, "opaque-40");
+  assert.match(e?.reason ?? "", /docs\.robinhood\.com/);
+  void scanText;
 });
