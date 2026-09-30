@@ -52,9 +52,12 @@ test("targets: settled purchases only, one slot per payTo, cheapest resource fir
   assert.equal(new Set(s.slots.map((x) => x.target.payTo)).size, 94);
 
   const tem = tempoFromLedger(read("tempo/ledger.json"), read("tempo/census-plan-2026-09-28.json"), "t");
-  assert.equal(tem.length, 70);
+  // 72: the census's 70 settled purchases plus goflightlabs and modal, found settled on chain by the chain check (2026-09-30)
+  assert.equal(tem.length, 72);
   const ts = selectSlots(tem, 1);
   assert.equal(ts.payTos, 35);
+  // their recipient (the mpp.tempo.xyz proxy) already had a slot; its cheapest resource is now modal (100 atomic)
+  assert.equal(ts.slots.find((x) => x.target.payTo === "0xca4e835f803cb0b7c428222b3a3b98518d4779fe")!.target.service, "modal");
   // the payTo that fronts 28 services gets one slot, always the same (cheapest, then URL)
   const locus = tem.filter((t) => t.payTo === "0x060b0fb0be9d90557577b3aee480711067149ff0");
   assert.equal(locus.length, 28);
