@@ -77,7 +77,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 </head>
 <body><main>
 
-<nav class="tabs" aria-label="Pages"><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="method.html">How vet402 measures</a></nav>
+<nav class="tabs" aria-label="Pages"><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="robinhood.html">Robinhood Chain</a><a href="arbitrum.html">Arbitrum</a><a href="method.html">How vet402 measures</a></nav>
 <h1>How vet402 measures</h1>
 <p class="dim">Method v3 (2026-09-29) · report 2026-09-30 · purchases <span class="nw">2026-09-27</span> to <span class="nw">2026-09-30</span> (UTC) · <a href="#changes">change log</a></p>
 
@@ -121,7 +121,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <p>Each page is graded from its own chains&#39; purchases only: the first page from Solana, Tempo and Base, the Algorand page from Algorand. A rank number needs at least 10 counted purchases on at least 2 different UTC days on that page&#39;s chains. Below that the seller is listed as &quot;measuring&quot;, with no grade and no number.</p>
 <p class="meta">A: lower bound ≥ 0.9. B: lower bound ≥ 0.75. C: lower bound ≥ 0.5. D: upper bound &lt; 0.5. Otherwise undecided. Even 10 deliveries out of 10 have a lower bound of 0.72 (grade C); an A needs about 35 out of 35.</p>
 <p class="meta">Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.</p>
-<p class="meta">This report:<br>Solana, Tempo and Base: <span class="g gA" title="90%+ came back">A</span> 0 · <span class="g gB" title="75%+">B</span> 0 · <span class="g gC" title="50%+">C</span> 0 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 0 · <span class="g gmeasuring" title="measuring">…</span> 220<br>Algorand: <span class="g gA" title="90%+ came back">A</span> 6 · <span class="g gB" title="75%+">B</span> 14 · <span class="g gC" title="50%+">C</span> 2 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 2 · <span class="g gmeasuring" title="measuring">…</span> 55</p>
+<p class="meta">This report:<br>Solana, Tempo and Base: <span class="g gA" title="90%+ came back">A</span> 0 · <span class="g gB" title="75%+">B</span> 0 · <span class="g gC" title="50%+">C</span> 0 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 0 · <span class="g gmeasuring" title="measuring">…</span> 220<br>Algorand: <span class="g gA" title="90%+ came back">A</span> 6 · <span class="g gB" title="75%+">B</span> 14 · <span class="g gC" title="50%+">C</span> 2 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 2 · <span class="g gmeasuring" title="measuring">…</span> 55<br>Robinhood Chain: <span class="g gA" title="90%+ came back">A</span> 0 · <span class="g gB" title="75%+">B</span> 0 · <span class="g gC" title="50%+">C</span> 0 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 0 · <span class="g gmeasuring" title="measuring">…</span> 0<br>Arbitrum One: <span class="g gA" title="90%+ came back">A</span> 0 · <span class="g gB" title="75%+">B</span> 0 · <span class="g gC" title="50%+">C</span> 0 · <span class="g gD" title="under 50%">D</span> 0 · <span class="g gundecided" title="undecided">?</span> 0 · <span class="g gmeasuring" title="measuring">…</span> 0</p>
 
 <h2>5. How vet402 buys</h2>
 <p>From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. Rebuy plan for 2026-09-29 to 2026-10-08 (UTC days): two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them. Base sellers have been bought once.</p>
@@ -253,6 +253,10 @@ npx tsx scripts/build-site.ts --report /tmp/rank/rank-2026-09-30.json --out /tmp
 <li><b class="mono">midax402.com</b><br>
   catalog #7 (1 calls/30d) · vet402 measuring: <b>2/2</b> came back <a class="mono" href="https://allo.info/tx/2GGS6HT4CUWP5WK27ESANOJTMU3EF4FU5AHUJA75LZO266PVP2HA" rel="noopener noreferrer nofollow">2GGS6HT4…PVP2HA</a>
   </li></ol></details>
+<h3>Robinhood Chain</h3>
+<p class="dim">No seller on this page is in a catalog with an order.</p>
+<h3>Arbitrum One</h3>
+<p class="dim">No seller on this page is in a catalog with an order.</p>
 <ul><li><b>PayAI discovery</b>: Items carry no catalog-level call, payer or quality field (checked on 1,000 of 7,040 items on 2026-09-28; such words appear only inside sellers&#39; own output examples), so there is no catalog order to compare.</li><li><b>mpp.dev/api/services</b>: A directory of 142 services with no usage, quality or rank field (checked 2026-09-28). Mercator&#39;s rank covers the same Tempo services.</li></ul>
 
 <h2 id="changes">Change log</h2>

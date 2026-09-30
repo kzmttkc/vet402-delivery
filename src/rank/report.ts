@@ -45,7 +45,7 @@ export interface InputRecord {
  * Method v3: each page of the site is graded from its own chains' purchases only.
  * "main" is the first page (Solana, Tempo, Base); "algorand" is the Algorand page (data from vet402-algorand).
  */
-export type GroupId = "main" | "algorand";
+export type GroupId = "main" | "algorand" | "robinhood" | "arbitrum";
 
 export interface GroupDef {
   id: GroupId;
@@ -58,6 +58,8 @@ export interface GroupDef {
 export const GROUPS: readonly GroupDef[] = [
   { id: "main", label: "Solana, Tempo and Base", chains: ["solana", "tempo", "base"], page: "index.html" },
   { id: "algorand", label: "Algorand", chains: ["algorand"], page: "algorand.html" },
+  { id: "robinhood", label: "Robinhood Chain", chains: ["robinhood"], page: "robinhood.html" },
+  { id: "arbitrum", label: "Arbitrum One", chains: ["arbitrum"], page: "arbitrum.html" },
 ];
 
 export function groupOf(chain: Chain): GroupDef {
@@ -196,7 +198,7 @@ export function rebuySeller(s: Pick<SellerStats, "rebuy">): string | null {
   return `vet402 bought this seller again on ${d} UTC ${d === 1 ? "day" : "days"} since ${REBUY_FIRST_DAY} (${chainCounts(s.rebuy.purchases)}), to the same payTo and at no more than the earlier price.`;
 }
 
-const CHAIN_NAME: Record<Chain, string> = { solana: "Solana", tempo: "Tempo", base: "Base", algorand: "Algorand" };
+const CHAIN_NAME: Record<Chain, string> = { solana: "Solana", tempo: "Tempo", base: "Base", algorand: "Algorand", robinhood: "Robinhood Chain", arbitrum: "Arbitrum One" };
 function chainCounts(per: Partial<Record<Chain, number>>): string {
   return (["solana", "tempo", "base", "algorand"] as Chain[])
     .filter((c) => (per[c] ?? 0) > 0)
@@ -209,7 +211,7 @@ export const DELIVERED_LINE =
   "Came back with an answer = vet402's payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.";
 
 /** Chains whose runner read vet402's payment back on chain before recording it as settled. */
-export const SETTLED_ON_CHAIN: Record<Chain, boolean> = { solana: true, tempo: true, base: true, algorand: false };
+export const SETTLED_ON_CHAIN: Record<Chain, boolean> = { solana: true, tempo: true, base: true, algorand: false, robinhood: true, arbitrum: true };
 
 /** What "settled" means, per chain. */
 export const SETTLED_LINE =

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="x402 sellers that list Arbitrum One, bought on Arbitrum and on Base: same seller, same payTo, only the chain differs.">
+<title>vet402: Arbitrum One</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1d1b;--dim:#62625d;--line:#e2e1dc;--card:#fff;--warn:#9a3b00;--link:#0b5cad;
+--gA:#1f7a3d;--gB:#3f7f6a;--gC:#8a6400;--gD:#b3261e;--gU:#62625d;--on:#fff}
+@media (prefers-color-scheme: dark){:root{--bg:#141413;--fg:#ecebe6;--dim:#a8a79f;--line:#34332f;--card:#1d1d1b;--warn:#ffb27a;--link:#8cc2ff;
+--gA:#5cc27f;--gB:#7cc1a9;--gC:#e0b64a;--gD:#ff8a80;--gU:#a8a79f;--on:#141413}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.45rem;line-height:1.25;margin:0 0 6px;overflow-wrap:anywhere}h2{font-size:1.1rem;margin:28px 0 8px}h3{font-size:1rem;margin:18px 0 6px}
+p{margin:6px 0}a{color:var(--link)}ul,ol{padding-left:1.2em}
+.lead{font-size:1.05rem;margin:4px 0}
+.dim{color:var(--dim)}.warn{color:var(--warn)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
+.g{display:inline-block;min-width:1.7em;padding:0 .3em;border-radius:5px;text-align:center;font-weight:700;color:var(--on);font-variant-numeric:tabular-nums}
+.gA{background:var(--gA)}.gB{background:var(--gB)}.gC{background:var(--gC)}.gD{background:var(--gD)}.gundecided{background:var(--gU)}
+.gmeasuring{background:transparent;color:var(--dim);border:1px solid var(--line)}
+.legend{font-size:.85rem;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px 12px;margin:12px 0}
+.legend span.item{min-width:0}
+ol.board{list-style:none;padding:0;margin:8px 0}
+.board li{display:grid;grid-template-columns:2.4em 2em minmax(0,1fr) auto 5.6em;gap:0 8px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)}
+.board .head{font-size:.8rem;color:var(--dim);border-bottom:1px solid var(--fg)}
+.board .rk{color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+.board .name{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.board .num,.board .date{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.board .date{color:var(--dim);font-size:.85rem}
+.board .sub{grid-column:3 / -1;font-size:.8rem;color:var(--dim)}
+@media (max-width:420px){.board li{grid-template-columns:2em 1.9em minmax(0,1fr) auto}.board .date{grid-column:3 / -1;text-align:left}}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:12px 0}
+.stats>div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.85rem;color:var(--dim)}
+.big{font-size:1.25rem;font-weight:700;color:var(--fg);font-variant-numeric:tabular-nums}
+.bar{position:relative;height:10px;background:var(--line);border-radius:5px;margin:8px 0 2px}
+.bar span{position:absolute;top:0;bottom:0;background:var(--fg);opacity:.35;border-radius:5px}
+.bar i{position:absolute;top:-3px;bottom:-3px;width:3px;margin-left:-1px;background:var(--fg)}
+.scale{display:flex;justify-content:space-between;font-size:.75rem;color:var(--dim)}
+ul.plain,ol.plain{list-style:none;padding:0;margin:0}
+.plain li{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.meta{font-size:.85rem;color:var(--dim);overflow-wrap:anywhere}
+.fault{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;background:var(--card)}
+.fault b.big{margin-right:6px}
+details{margin:12px 0}summary{cursor:pointer;font-weight:600}
+nav{margin-bottom:12px;font-size:.9rem}
+footer{margin-top:32px;padding-top:12px;border-top:1px solid var(--line);font-size:.9rem;display:flex;flex-wrap:wrap;gap:6px 16px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:6px 3px;text-align:right}th{font-size:.8rem;font-weight:600;vertical-align:bottom}th:first-child,td:first-child{text-align:left}
+
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 14px;font-size:.95rem}
+nav.tabs a[aria-current="page"]{color:var(--fg);font-weight:700;text-decoration:none;border-bottom:2px solid var(--fg)}
+table.board{table-layout:fixed;width:100%;margin:8px 0;font-size:.95rem}
+table.board caption{text-align:left;font-size:.85rem;color:var(--dim);padding:0 0 6px}
+table.board th,table.board td{padding:7px 3px;vertical-align:baseline;border-bottom:1px solid var(--line)}
+table.board thead th{border-bottom:1px solid var(--fg)}
+table.board .rk{width:2.3em;text-align:right;color:var(--dim)}
+table.board .gr{width:2.2em;text-align:center}
+table.board .name{text-align:left;overflow-wrap:anywhere;word-break:break-word}
+table.board .num{width:5.3em;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+table.board .date{width:3.6em;text-align:right;white-space:nowrap;color:var(--dim);font-size:.85rem;padding-left:6px}
+table.board td.name a{font-weight:600}
+table.board .sub{display:block;font-size:.78rem;color:var(--dim);font-weight:400}
+table.chain .num{width:3.9em}
+table.chain th.num{white-space:normal}
+.notcounted{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:10px 0;font-size:.9rem}
+.nw{white-space:nowrap}
+.legend{display:block}
+code,.cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
+pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
+</style>
+</head>
+<body><main>
+
+<nav class="tabs" aria-label="Pages"><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="robinhood.html">Robinhood Chain</a><a href="arbitrum.html" aria-current="page">Arbitrum</a><a href="method.html">How vet402 measures</a></nav>
+<header>
+<h1>Arbitrum One: does the seller deliver when paid there?</h1>
+<p class="lead">Many x402 sellers list Arbitrum One next to Base. vet402 pays the same seller on both chains and shows whether the Arbitrum payment settles and the answer comes back, and if not, why.</p>
+<p class="dim">Method v3</p>
+</header>
+<p class="dim">Nothing bought yet. Read without paying on 2026-09-30.</p>
+<div class="stats">
+  <div><span class="big">80</span><br>payTo addresses that the CDP, Dexter and PayAI catalogs list on Arbitrum One</div>
+  <div><span class="big">69</span><br>whose live 402 still offers it, read without paying</div>
+  <div><span class="big">0</span><br>bought by vet402</div>
+  <div><span class="big">0</span><br>paid, settled on chain and came back with an answer</div>
+</div>
+<p class="meta">Each row is one payTo that lists both Arbitrum One and Base with the same address. vet402 buys the same listing once on each chain, the same UTC day, from the same wallet, and reads each USDC transfer back on its chain. The fix column says what the seller can change when Arbitrum does not come back.</p>
+<table class="board"><thead><tr><th>seller</th><th class="num">price</th><th>Arbitrum One</th><th>Base, same listing</th><th>why not, and the fix</th></tr></thead><tbody>
+<tr><td class="name">crawl-preflight.postnov01.workers.dev<span class="sub mono">0x02d1…2bC2 · 1 listed</span></td><td class="num">–</td><td>not bought<span class="sub">no 402 came back (HTTP 400)</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">api.nativebtc.org<span class="sub mono">0x0300…A1d4 · 2 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">engedi.digi-life17.workers.dev<span class="sub mono">0x06B5…2189 · 3 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 asks more than the listing</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">api.syraa.fun<span class="sub mono">0x07cF…2396 · 5 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.dexl.io<span class="sub mono">0x0cCd…8667 · 7 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">ari001.tailb4ac3a.ts.net<span class="sub mono">0x1E45…2ae1 · 3 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">dlf-gateway.agentlabel.workers.dev<span class="sub mono">0x20Fb…406E · 1 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 no longer offers Arbitrum One</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">whaletape.xyz<span class="sub mono">0x25a8…4145 · 3 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">hotels.use.x402atlas.com, instagram.use.x402atlas.com<span class="sub mono">0x2841…10bb · 6 listed</span></td><td class="num">0.02 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">coingecko.use.x402atlas.com<span class="sub mono">0x3279…6d02 · 6 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">agentworld.me<span class="sub mono">0x367F…1a03 · 13 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">email-auth.use.x402atlas.com<span class="sub mono">0x3731…B0e0 · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">hyperliquid.use.x402atlas.com<span class="sub mono">0x3831…3442 · 9 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402.quickintel.io<span class="sub mono">0x3dBD…C362 · 1 listed</span></td><td class="num">0.03 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402.openwebninja.com<span class="sub mono">0x3e7c…1570 · 13 listed</span></td><td class="num">0.003 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">cloud.trycorpus.ai<span class="sub mono">0x3f60…BF2C · 29 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the 402 names a token domain that is not the token&#39;s own</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">agentbit.app<span class="sub mono">0x4395…d965 · 78 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">dns.use.x402atlas.com<span class="sub mono">0x446e…d7f7 · 6 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402.spendthebits.com<span class="sub mono">0x4481…Da11 · 1 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.eucompliance.tools<span class="sub mono">0x478b…39f2 · 14 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.bitrefill.com<span class="sub mono">0x480C…846A · 7 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.marketintelligenceapi.com<span class="sub mono">0x48d5…4615 · 64 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">unwrap.use.x402atlas.com<span class="sub mono">0x492e…4B71 · 1 listed</span></td><td class="num">0.009 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">alphapulse.theaslangroupllc.com, arbipulse.theaslangroupllc.com, buildpulse-alpha.vercel.app +36<span class="sub mono">0x50ab…12fc · 67 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">twitter.use.x402atlas.com<span class="sub mono">0x51D5…F78B · 21 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 asks more than the listing</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">api.munition.io<span class="sub mono">0x54d6…4aFa · 14 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402.spendthebits.com<span class="sub mono">0x59D7…4618 · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">appstore.use.x402atlas.com, places.use.x402atlas.com<span class="sub mono">0x59ea…A71c · 11 listed</span></td><td class="num">0.02 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">imgopt.use.x402atlas.com<span class="sub mono">0x5a45…f657 · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">ari001.tailb4ac3a.ts.net<span class="sub mono">0x65B2…fe37 · 5 listed</span></td><td class="num">0.003 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">ai.stable-jack.com<span class="sub mono">0x68b7…A2AD · 1 listed</span></td><td class="num">0.05 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">wiki.use.x402atlas.com<span class="sub mono">0x6A70…DD36 · 1 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">hosaka-agents.vercel.app<span class="sub mono">0x712c…648a · 3 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">quokkapix.com<span class="sub mono">0x7437…9B8e · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">agent.apiguru.app<span class="sub mono">0x766B…1422 · 10 listed</span></td><td class="num">–</td><td>not bought<span class="sub">no 402 came back (HTTP 200)</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">402oracle.com<span class="sub mono">0x7a19…6f4a · 5 listed</span></td><td class="num">0.02 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">phion.systems<span class="sub mono">0x7BEc…71e2 · 118 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">headers.use.x402atlas.com<span class="sub mono">0x7f80…7b9c · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">www.watchevelive.com<span class="sub mono">0x80aa…1E3F · 4 listed</span></td><td class="num">0.05 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">perpsignals.use.x402atlas.com<span class="sub mono">0x8209…E571 · 3 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">agents.dexl.io<span class="sub mono">0x820D…F6BB · 26 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">mcp.barker.money<span class="sub mono">0x83F1…4c9f · 3 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">agent-arcade.use.x402atlas.com, artifact-inspector.use.x402atlas.com, chain-tools.use.x402atlas.com +15<span class="sub mono">0x8C12…f1b2 · 62 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">gdelt.use.x402atlas.com<span class="sub mono">0x8d64…8982 · 2 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">gate402.app<span class="sub mono">0x8E57…d5D0 · 1 listed</span></td><td class="num">0.002 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">google-trends.use.x402atlas.com<span class="sub mono">0x9AAC…b2fa · 4 listed</span></td><td class="num">0.03 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">marketdata.use.x402atlas.com<span class="sub mono">0x9D66…A5d0 · 23 listed</span></td><td class="num">0.015 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">rpc.nodeflare.app<span class="sub mono">0x9d86…F296 · 17 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">saylorinnovations.com<span class="sub mono">0xA2A8…c8aa · 386 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">pyfile-agent.taile3ff35.ts.net, pyfile-agent.taile3ff35.ts.net:10000<span class="sub mono">0xA437…5561 · 18 listed</span></td><td class="num">0.003 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">hyperliquid-predict.use.x402atlas.com<span class="sub mono">0xA55B…b716 · 2 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">agent402.tools<span class="sub mono">0xaBF4…a9D0 · 597 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.insumermodel.com<span class="sub mono">0xAd98…5a23 · 3 listed</span></td><td class="num">0.05 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">socialintel.dev<span class="sub mono">0xB1Ac…aBBa · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">search.gedx402.com<span class="sub mono">0xb3C2…2Ab6 · 2 listed</span></td><td class="num">0.042 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">xmedia.use.x402atlas.com<span class="sub mono">0xb708…9ef5 · 1 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">ari001.tailb4ac3a.ts.net<span class="sub mono">0xB799…54a2 · 21 listed</span></td><td class="num">0.002 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402tap.com<span class="sub mono">0xB810…2C86 · 13 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">aayatai.com<span class="sub mono">0xbA7d…3442 · 101 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">backend-production-716d3.up.railway.app<span class="sub mono">0xBe5c…9D30 · 1 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 pays another address</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">flat-rate-llm.kikoribera03.workers.dev<span class="sub mono">0xc210…e9Ff · 67 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 asks more than the listing</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">defillama.use.x402atlas.com<span class="sub mono">0xCB80…3006 · 30 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">aemb.pro, agent-embassy.fly.dev<span class="sub mono">0xD004…88E9 · 2 listed</span></td><td class="num">–</td><td>not bought<span class="sub">every listing costs more than the per-purchase cap</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">airscout.scalpstream.com, recallscout.scalpstream.com<span class="sub mono">0xD0f5…564a · 2 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402.asterpay.io<span class="sub mono">0xd5f8…5A9E · 8 listed</span></td><td class="num">0.005 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">ssl.use.x402atlas.com<span class="sub mono">0xD7FE…15bf · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">ari001.tailb4ac3a.ts.net<span class="sub mono">0xd94c…2875 · 1 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.getplexa.com<span class="sub mono">0xd993…A7ef · 4 listed</span></td><td class="num">0.02 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">scvd.store<span class="sub mono">0xDD35…9bd0 · 31 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.x402gle.com<span class="sub mono">0xDDDD…eB5E · 137 listed</span></td><td class="num">0.05 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">hyperliquid-accounts.use.x402atlas.com<span class="sub mono">0xE79A…6de8 · 7 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev<span class="sub mono">0xECa8…5354 · 60 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.locus.report<span class="sub mono">0xF121…431b · 6 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the 402 names a token domain that is not the token&#39;s own</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">x402.spendthebits.com<span class="sub mono">0xF327…a857 · 1 listed</span></td><td class="num">0.05 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">x402.spendthebits.com<span class="sub mono">0xF52c…5678 · 1 listed</span></td><td class="num">0.003 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.402rates.com<span class="sub mono">0xf567…cb98 · 3 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">websearch.use.x402atlas.com<span class="sub mono">0xF752…31B9 · 3 listed</span></td><td class="num">0.01 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">saylorinnovations.com<span class="sub mono">0xf8A3…f22f · 10 listed</span></td><td class="num">–</td><td>not bought<span class="sub">no 402 came back (HTTP 404)</span></td><td>–</td><td>–</td></tr>
+<tr><td class="name">api.carbon-cashmere.de<span class="sub mono">0xf8b2…F2Ee · 24 listed</span></td><td class="num">0.02 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+<tr><td class="name">api.syraa.fun<span class="sub mono">0xF9dc…e734 · 14 listed</span></td><td class="num">0.001 USDC</td><td>not bought yet</td><td>not bought yet</td><td>–</td></tr>
+</tbody></table>
+<h2 id="root">The daily record on Arbitrum One</h2>
+<p>After each UTC day with purchases, vet402 writes one transaction on Arbitrum One from its wallet to itself. Its input data is the text <code>vet402-purchases/v0 chain=eip155:42161 day=… root=… n=…</code>: the Merkle root of that day's purchase records (each leaf is keccak256 of one record's canonical JSON). Anyone holding a record can recompute its leaf and check it against the root on chain.</p>
+<p class="meta">The same root can go to a contract, <a href="https://github.com/kzmttkc/vet402-delivery/blob/main/contracts/src/DeliveryRoots.sol" rel="noopener noreferrer nofollow">DeliveryRoots.sol</a>, whose <code>verify(day, digest, proof)</code> lets another contract ask in one call whether vet402 recorded a purchase. It is tested, not deployed yet.</p>
+<h2 id="money">How vet402 pays for this</h2>
+<p>vet402 pays from one wallet, 0x9B59…4E51, the same on every EVM chain it buys on, with the seller's own x402 402: exact scheme, EIP-3009 transferWithAuthorization only (no Permit2, no approve), to the payTo the 402 named when vet402 planned the purchase, never more than that price. On this chain: at most 0.10 USDC a purchase, 2.00 USDC in total and 90 purchases, in a ledger of its own. The facilitator the seller chose submits the payment and pays its gas.</p>
+<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="rank.json">Data (rank.json)</a><a href="https://github.com/kzmttkc/vet402-delivery/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>
+
+</main></body></html>

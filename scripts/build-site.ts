@@ -18,6 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publicPage, renderPublicSite, siteSlugs } from "../src/rank/html.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
+import { loadLanePublic } from "../src/evm/site.js";
 import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
 import type { RankReport } from "../src/rank/report.js";
 
@@ -47,7 +48,8 @@ if (report.kind !== "vet402-seller-rank") throw new Error(`${reportPath}: not a 
 const recordsDir = resolve(argValue("--records") ?? join(ROOT, "data", "records"));
 const records = existsSync(join(recordsDir, "index.json")) ? await loadPublishedRecords(recordsDir) : null;
 const slugs = siteSlugs(report);
-const pages = renderPublicSite(report, { records: records ? recordsBySeller(records) : undefined });
+const lanes = loadLanePublic(join(ROOT, "data"));
+const pages = renderPublicSite(report, { records: records ? recordsBySeller(records) : undefined, lanes });
 const jsonFiles = new Map<string, string>();
 if (records) {
   for (const [rel, html] of renderRecordsSite(records, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);

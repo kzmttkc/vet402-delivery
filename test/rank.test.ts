@@ -494,9 +494,9 @@ test("renderSite: seller-controlled strings cannot inject markup on any page", (
   const pages = renderSite(report);
   assert.ok(pages.has("index.html") && pages.has("algorand.html") && pages.has("method.html"));
   const keys = new Set(report.groups.flatMap((g) => g.ranking.map((s) => s.key)));
-  assert.equal(pages.size, 3 + keys.size, "one page per listed seller");
+  assert.equal(pages.size, 5 + keys.size, "one page per listed seller");
   for (const [path, html] of pages) {
-    assert.match(path, /^(index|algorand|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
+    assert.match(path, /^(index|algorand|robinhood|arbitrum|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
     assert.ok(!path.includes(".."), path);
     assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
     assert.ok(!html.includes("<img"), `${path}: no img tag survives`);

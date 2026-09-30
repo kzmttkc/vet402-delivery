@@ -7,7 +7,7 @@
 
 import type { InputProblem } from "../tempo/answer.js";
 
-export type Chain = "algorand" | "solana" | "tempo" | "base";
+export type Chain = "algorand" | "solana" | "tempo" | "base" | "robinhood" | "arbitrum";
 
 /**
  * Why an attempt ended the way it did.

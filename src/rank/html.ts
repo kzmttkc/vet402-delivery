@@ -14,6 +14,7 @@ import type { Comparison, CompareRow } from "./compare.js";
 import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY_PLAN, rebuyFacts, rebuySeller, type GroupId, type GroupReport, type RankReport } from "./report.js";
 import type { ChainFigures, Grade, RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
+import { renderArbitrumPage, renderRobinhoodPage, type LanePublic } from "../evm/site.js";
 
 export function escapeHtml(v: unknown): string {
   return String(v)
@@ -30,6 +31,8 @@ const TX_FORMAT: Record<Chain, { re: RegExp; base: string }> = {
   solana: { re: /^[1-9A-HJ-NP-Za-km-z]{64,90}$/, base: "https://solscan.io/tx/" },
   tempo: { re: /^0x[0-9a-fA-F]{64}$/, base: "https://explore.tempo.xyz/tx/" },
   base: { re: /^0x[0-9a-fA-F]{64}$/, base: "https://basescan.org/tx/" },
+  robinhood: { re: /^0x[0-9a-fA-F]{64}$/, base: "https://robinhoodchain.blockscout.com/tx/" },
+  arbitrum: { re: /^0x[0-9a-fA-F]{64}$/, base: "https://arbiscan.io/tx/" },
 };
 
 /** Explorer URL for a tx id, or null when the id does not match the chain's format. */
@@ -213,14 +216,16 @@ const ALGORAND_REPO_URL = "https://github.com/kzmttkc/vet402-algorand";
 export const PUBLIC_LEAD =
   "Before an AI agent pays for an API, vet402 buys it with its own money and shows what came back. Grades come only from vet402's own purchases.";
 
-const CHAIN_LABEL: Record<Chain, string> = { algorand: "Algorand", solana: "Solana", tempo: "Tempo", base: "Base" };
+const CHAIN_LABEL: Record<Chain, string> = { algorand: "Algorand", solana: "Solana", tempo: "Tempo", base: "Base", robinhood: "Robinhood Chain", arbitrum: "Arbitrum One" };
 
-const TAB_LABEL: Record<GroupId, string> = { main: "Solana, Tempo, Base", algorand: "Algorand" };
+const TAB_LABEL: Record<GroupId, string> = { main: "Solana, Tempo, Base", algorand: "Algorand", robinhood: "Robinhood Chain", arbitrum: "Arbitrum" };
 
 /** "settled" per page: read back on chain (Solana, Tempo, Base) or a facilitator's settlement receipt (Algorand). */
 const SETTLED_TEXT: Record<GroupId, { stat: string; short: string; nothing: string }> = {
   main: { stat: "payments settled on chain", short: "settled on chain", nothing: "settled on chain, and nothing usable came back" },
   algorand: { stat: "with a settlement receipt (tx id)", short: "with a settlement receipt", nothing: "with a settlement receipt, and nothing usable came back" },
+  robinhood: { stat: "payments settled on chain", short: "settled on chain", nothing: "settled on chain, and nothing usable came back" },
+  arbitrum: { stat: "payments settled on chain", short: "settled on chain", nothing: "settled on chain, and nothing usable came back" },
 };
 
 const PUBLIC_GRADE_TEXT: Record<Grade, string> = {
@@ -287,7 +292,7 @@ function publicLegend(): string {
 }
 
 /** The two pages as tabs (links: the site has no scripts), plus the method page. prefix is "../" from seller pages. */
-function tabs(current: GroupId | null, prefix = ""): string {
+export function tabs(current: GroupId | null, prefix = ""): string {
   const links = GROUPS.map((g) =>
     g.id === current
       ? `<a href="${prefix}${g.page}" aria-current="page">${escapeHtml(TAB_LABEL[g.id])}</a>`
@@ -387,7 +392,7 @@ function moneySection(): string {
 <p>${escapeHtml(MONEY_LINE)} Every purchase file the grades read is in <a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">data/</a> with its sha256.</p>`;
 }
 
-function publicFooter(): string {
+export function publicFooter(): string {
   return `<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>`;
 }
 
@@ -719,11 +724,16 @@ export function siteSlugs(r: RankReport): Map<string, string> {
  * Every HTML page of the public site, keyed by path relative to the site root.
  * rank.json (the report itself) is written next to them by scripts/build-site.ts.
  */
-export function renderPublicSite(r: RankReport, opts: { records?: ReadonlyMap<string, readonly SellerRecordLink[]> } = {}): Map<string, string> {
+export function renderPublicSite(
+  r: RankReport,
+  opts: { records?: ReadonlyMap<string, readonly SellerRecordLink[]>; lanes?: { robinhood?: LanePublic; arbitrum?: LanePublic } } = {},
+): Map<string, string> {
   const slugs = siteSlugs(r);
   const out = new Map<string, string>();
   out.set("index.html", renderMainIndex(r, groupById(r, "main"), slugs));
   out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs));
+  out.set("robinhood.html", renderRobinhoodPage(r, groupById(r, "robinhood"), opts.lanes?.robinhood));
+  out.set("arbitrum.html", renderArbitrumPage(r, groupById(r, "arbitrum"), opts.lanes?.arbitrum));
   out.set("method.html", renderPublicMethod(r));
   for (const [key, slug] of slugs) {
     const parts = r.groups.flatMap((g) => g.ranking.filter((s) => s.key === key).map((s) => ({ g, s })));

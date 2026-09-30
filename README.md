@@ -56,6 +56,9 @@ The x402 fetch hook, the output fields and the options: `packages/check/README.m
 | Delivery records | One signed record per purchase (x402-observation/v0): what vet402 paid, on which chain, and what came back, with a Merkle proof into a daily root that is written into a Solana memo | `src/receipt/`, `scripts/build-receipts.ts`, `scripts/publish-records.ts`, `scripts/anchor-receipts.ts`, `data/records/`, `site/records/` |
 | Remeasure | Buys again from sellers vet402 already paid (payment settled), one purchase per payTo per slot per UTC day, so the ranking gets purchases on more than one day. Window: 2026-09-29 to 2026-10-08 (UTC days), every day, twice on Solana and once on Tempo | `scripts/remeasure.ts`, `src/remeasure/` |
 | Solana feedback | Writes the outcome of a paid Solana purchase to the 8004-solana reputation registry (the Solana port of ERC-8004), from the wallet that paid, with the published delivery record as the feedback file | `scripts/solana-feedback.ts`, `src/solana-feedback/` |
+| Robinhood Chain | Buys, in USDG, every seller whose live 402 lists Robinhood Chain (one purchase per payTo), and checks stock prices sold over x402 against the Chainlink feed of the Stock Token: age against the heartbeat, `oraclePaused()`, and the ERC-8056 multiplier between share price and token price | `scripts/evm-lane.ts`, `src/robinhood/`, `src/evm/`, `site/robinhood.html` |
+| Arbitrum One | Buys each seller that lists Arbitrum One with the same payTo as its Base accept, once on Arbitrum and once on Base, and shows per seller whether each chain settled and came back, and why not | `scripts/evm-lane.ts`, `src/evm/`, `site/arbitrum.html` |
+| Daily root on EVM chains | One transaction a day on the chain the lane bought on, carrying the Merkle root of that day's purchase records; `contracts/DeliveryRoots.sol` holds the same root for other contracts to verify in one call (tested, not deployed) | `scripts/evm-anchor.ts`, `src/evm/evm-anchor.ts`, `contracts/` |
 
 ## Money safety
 
@@ -250,6 +253,18 @@ Published data is corrected only toward what the chain shows, and every correcti
 - **2026-09-30**: `data/tempo/ledger.json` (the 2026-09-28 Tempo census): the entries `goflightlabs` (HTTP 502) and `modal` (HTTP 500) were recorded as settled null, with no tx. Both payments settled on chain, to the mpp.tempo.xyz recipient `0xca4e835f803cb0b7c428222b3a3b98518d4779fe`: goflightlabs 0.005 USDC.e in `0x34fbc6dc957f6edd19c4e8402323b0447f9b8ebc3322c27036b4a9b9dcf965ec` (2026-09-28 08:04:39 UTC), modal 0.0001 USDC.e in `0x3439e09ee264bbc67cb1ebf45e808f4f2756a8e90925d5fcae94085be8c8643c` (08:05:17 UTC). Why they were missed: the fee was sponsored, so the transaction on chain is not the one vet402 signed, and an error answer carries no Payment-Receipt, so the runner had no tx hash to read back. Found and written by `npx tsx scripts/chain-check.ts --census --write`, which checks every USDC.e transfer out of the payer during the run against the ledger (72 transactions, 70 already recorded) and writes a transfer onto an entry only when exactly one entry fits it. Both purchases now count as paid with nothing usable back (`paid_not_delivered`) instead of a 5xx without settlement. The 2026-09-28 signed records were anchored on Solana before this correction (tx `JqhzBqMSuL9ZrZz511fCgqcvU7Sjzhs7ccdbpqtdgUUUV7G1iBAuc4my5hReEkbyr6qk9vB3uMqB13cbpVzNeb2`) and do not include these two purchases; they stay as they are.
 - **2026-09-30**: `data/remeasure/tempo-2026-09-29.json` rows[30] (kicksdb, HTTP 500) was recorded as settled null, with no tx. It settled on chain: 0.0005 USDC.e to the same recipient in `0xd25f701b7d771a4715f4e01540bd4669a1e9e6c6a20f7e2dfa8e1680542417f8` (2026-09-29 08:28:46 UTC), for the same reason. Written by `npx tsx scripts/chain-check.ts --chain tempo --date 2026-09-29 --write` (35 transactions in the run, 34 already on rows). The 2026-09-29 records include it: its record (obs_2026-09-29_000288, NOT_DELIVERED, with this tx) was signed and is in the day's root, anchored on Solana on 2026-09-30 (tx `67ZnFvRzuCz2kDu8GLHyeQhsS3zJUybrCvoaCnfrBeN1MBjhXRJaZXX3DWpVpvCej7rqu2TjJ3erg8YJaEsdztb2`, see `data/records/index.json`). It is not published until that seller is told.
 
+## Robinhood Chain and Arbitrum
+
+```bash
+npx tsx scripts/evm-lane.ts --lane robinhood --dry-run   # catalogs, unpaid 402s, Chainlink reads; signs with a throwaway key
+npx tsx scripts/evm-lane.ts --lane arbitrum --dry-run    # the same listings on Arbitrum One and on Base
+npx tsx scripts/evm-anchor.ts --lane robinhood --sample 18   # quote the daily root transaction (eth_estimateGas only)
+npx tsx scripts/evm-publish.ts --lane robinhood && npx tsx scripts/build-site.ts --out site
+cd contracts && forge test                                # DeliveryRoots against Merkle vectors from src/receipt/merkle.ts
+```
+
+One wallet (0x9B59…4E51) pays on Base, Arbitrum One and Robinhood Chain, so the same buyer is compared across chains. Each lane has its own ledger and caps (`src/evm/chains.ts`). Payment is x402 exact with EIP-3009 only; a 402 that asks for Permit2 is refused. When a paid purchase does not come back, `src/evm/settle-cause.ts` assigns one cause (facilitator, seller setup, vet402, unknown) from the seller's response and the chain, and a fix the seller can apply; a cause that rests only on a facilitator's `/supported` page is marked as a lead.
+
 ## Scope and prior work
 
 I (Sen) started vet402 on 2026-07-13. Before this repository, vet402 already had:
@@ -266,7 +281,7 @@ npm ci
 npm test
 ```
 
-Paying runs need keys in `.keys/` and are gated by explicit flags (`--pay`, `--write`) and, for Base, an environment variable as well.
+Paying runs need keys in `.keys/` and are gated by explicit flags (`--pay`, `--write`, `--send`) and, for Base and the EVM lanes, an environment variable as well (`VET402_BASE_PAY`, `VET402_EVM_PAY=<lane>`, `VET402_ANCHOR_SEND=<lane>`).
 
 ## License
 

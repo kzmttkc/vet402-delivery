@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { classifyFailure } from "../src/rank/classify.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
 import { recordsBySeller } from "../src/receipt/site.js";
+import { loadLanePublic } from "../src/evm/site.js";
 import { escapeHtml, PUBLIC_LEAD, renderPublicSite, siteSlugs } from "../src/rank/html.js";
 import { normalizeAlgorand } from "../src/rank/normalize.js";
 import { buildReport, DELIVERED_LINE, MONEY_LINE, type RankReport } from "../src/rank/report.js";
@@ -103,9 +104,9 @@ test("site: a seller name with <script> is shown as text on every page", () => {
     att({ host: `m.example${evil}`, at: DAY1 }),
   ]);
   const pages = renderPublicSite(r);
-  assert.equal(pages.size, 3 + siteSlugs(r).size);
+  assert.equal(pages.size, 5 + siteSlugs(r).size);
   for (const [path, html] of pages) {
-    assert.match(path, /^(index|algorand|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, path);
+    assert.match(path, /^(index|algorand|robinhood|arbitrum|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, path);
     assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
     assert.ok(!html.includes('example"><'), `${path}: no attribute breakout`);
     assert.ok(html.includes("script-src 'none'"), `${path}: CSP forbids scripts`);
@@ -176,7 +177,7 @@ test("method v3: each page is graded from its own chains only, on synthetic data
 
   const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
   assert.equal(pub.method.version, "v3");
-  assert.deepEqual(pub.groups.map((g) => [g.id, g.chains]), [["main", ["solana", "tempo", "base"]], ["algorand", ["algorand"]]]);
+  assert.deepEqual(pub.groups.map((g) => [g.id, g.chains]), [["main", ["solana", "tempo", "base"]], ["algorand", ["algorand"]], ["robinhood", ["robinhood"]], ["arbitrum", ["arbitrum"]]]);
   for (const g of pub.groups) {
     for (const s of g.ranking) {
       const seen = [...Object.keys(s.chains), ...s.recent.map((x) => x.chain), ...s.sellerFailures.map((x) => x.chain), ...(s.last ? [s.last.chain] : [])];
@@ -232,6 +233,7 @@ test("data/: every file matches the manifest sha256, and rank --data reproduces 
   for (const p of walk(join(ROOT, "data"))) {
     const rel = p.slice(join(ROOT, "data").length + 1);
     if (rel === "manifest.json" || rel.startsWith("records/")) continue; // records/ lists its own sha256s (test/receipt-records.test.ts)
+    if (rel.startsWith("evm/")) continue; // the Robinhood Chain / Arbitrum pages' input, not a rank input (test/evm-lanes.test.ts)
     assert.ok(listed.has(rel), `${rel} is in the manifest`);
   }
   for (const f of manifest.files) {
@@ -246,7 +248,7 @@ test("data/: every file matches the manifest sha256, and rank --data reproduces 
     const fresh = JSON.parse(readFileSync(join(out, `rank-${manifest.date}.json`), "utf8")) as RankReport;
     assert.deepEqual(fresh, pub);
     for (const i of fresh.inputs) assert.ok(i.location.startsWith("data/"), `${i.label} read from data/`);
-    const pages = renderPublicSite(fresh, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))) });
+    const pages = renderPublicSite(fresh, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))), lanes: loadLanePublic(join(ROOT, "data")) });
     for (const [rel, html] of pages) assert.equal(html, readFileSync(join(ROOT, "site", rel), "utf8"), `site/${rel} is up to date`);
   } finally {
     rmSync(out, { recursive: true, force: true });
