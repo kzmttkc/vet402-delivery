@@ -151,11 +151,15 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
       ? r
       : r.status === "not_bought_yet" || r.status === "not_offered_now" || r.status === "delivered"
         ? { ...r, facilitatorLead: null, skipped: null } // not bought, or delivered: only the lead or skip text goes
+        : r.status === "refused"
+          ? { ...r, status: "not_offered_now", cause: null, facilitatorLead: null, skipped: null } // vet402 did not pay: "not bought", no reason
         : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null, settled: undefined },
   );
   const compare = l.compare?.map((c): CompareRow => {
     const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
-    return neg && !told(hostOf(c.resource)) ? { resource: c.resource, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null } : c;
+    if (!neg || told(hostOf(c.resource))) return c;
+    // vet402 did not pay (refused before signing): "not bought", without the reason. Otherwise withheld.
+    return { resource: c.resource, status: c.status === "refused" ? "not_offered_now" : "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null };
   });
   const stockNegative = (s: StockRow) => (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "delivered");
   const stock = l.stock?.map((s) => (stockNegative(s) && !told(hostOf(s.resource ?? null)) ? { ...s, comparison: null, status: "withheld" as const, withheld: true } : s));
@@ -230,7 +234,7 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
     out.compare = [];
     for (const c of sec.choices) {
       if (!c.chosen) continue;
-      const b = last(c.chosen.resource, "base-compare");
+      const b = last(c.chosen.resource, "base-compare") ?? paid.filter((p) => p.lane === "base-compare" && p.resource === c.chosen!.resource).at(-1);
       const paidB = b?.outcome === "sent";
       out.compare.push({
         resource: c.chosen.resource,

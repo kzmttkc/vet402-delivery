@@ -633,3 +633,16 @@ test("secret gate: the public lane files and pages pass it (a seller URL is neve
   assert.match(e?.reason ?? "", /docs\.robinhood\.com/);
   void scanText;
 });
+
+test("a purchase vet402 refused before paying is 'not bought' for an untold seller, never 'bought'", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, arbitrum: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: SELLER, catalogListings: 1, hosts: ["r.test"], chosen: { resource: "https://r.test/x", liveAmount: "1000" } }] } };
+  const arb = { ...sent({ resource: "https://r.test/x", payTo: SELLER, settledOnChain: true, delivered: true, settlementTx: TX }), lane: "arbitrum", cause: { cause: "delivered", rule: "d", evidence: "chain", fix: null } };
+  const baseRefused = { agentId: `payto:${SELLER}`, resource: "https://r.test/x", method: "GET", at: "2026-10-04T01:00:00Z", outcome: "refused", refusal: { refused: "no_base_accept", detail: "x" }, lane: "base-compare", cause: { cause: "not_paid", rule: "refused:no_base_accept", evidence: "none", fix: null } };
+  const out = buildLanePublic("arbitrum", dry, [arb, baseRefused] as never);
+  assert.equal(out.compare![0]!.status, "refused");
+  const w = withholdUnnotified(out, new Set());
+  assert.equal(w.compare![0]!.status, "not_offered_now");
+  assert.deepEqual(unpublishableRows(w, new Set()), []);
+  const row = withholdUnnotified({ ...out, rows: [{ ...out.rows[0]!, status: "refused" }] }, new Set()).rows[0]!;
+  assert.equal(row.status, "not_offered_now");
+});
