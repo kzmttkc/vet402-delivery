@@ -53,19 +53,17 @@ function firstFile(dir: string): { path: string; text: string; index: RecordInde
   return { path, text: readFileSync(path, "utf8"), index };
 }
 
-test("records policy: with notified.json empty, every published record is DELIVERED", async () => {
+test("records policy: every published record is DELIVERED unless its seller is in notified.json", async () => {
   const loaded = await loadPublishedRecords(RECORDS);
-  assert.equal(loaded.notified.sellers.length, 0);
-  assert.equal(loaded.index.notifiedSellers, 0);
+  const told = notifiedSellers(loaded.notified);
+  assert.equal(loaded.index.notifiedSellers, loaded.notified.sellers.length);
   assert.ok(loaded.records.length > 0);
-  assert.deepEqual([...new Set(loaded.records.map((r) => r.obs.verdict.code))], ["DELIVERED"]);
+  for (const r of loaded.records) if (r.obs.verdict.code !== "DELIVERED") assert.ok(told.has(r.entry.seller), `${r.entry.file}: ${r.obs.verdict.code} for a seller not in notified.json`);
   // the same count straight from the files, not through the loader
   const files = readdirSync(RECORDS).filter((d) => /^\d{4}-/.test(d)).flatMap((d) => readdirSync(join(RECORDS, d)).map((f) => join(RECORDS, d, f)));
   assert.equal(files.length, loaded.records.length);
-  for (const f of files) assert.equal((JSON.parse(readFileSync(f, "utf8")) as Observation).verdict.code, "DELIVERED", f);
   const site = readdirSync(join(ROOT, "site", "records")).filter((f) => f.endsWith(".json"));
   assert.equal(site.length, loaded.records.length);
-  for (const f of site) assert.equal((JSON.parse(readFileSync(join(ROOT, "site", "records", f), "utf8")) as Observation).verdict.code, "DELIVERED", f);
 });
 
 test("records policy: a negative record is publishable only for its notified seller", () => {
@@ -108,7 +106,8 @@ test("records loader refuses a negative record whose host was not told, and acce
     index.records[0]!.sha256 = sha256Hex(negText);
     writeFileSync(join(dir, "index.json"), JSON.stringify(index));
     await assert.rejects(loadPublishedRecords(dir), new RegExp(`NOT_DELIVERED for seller ${index.records[0]!.seller.replace(/\./g, "\\.")}, which is not in notified\\.json`));
-    writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", sellers: [{ seller: index.records[0]!.seller, notifiedAt: "2026-09-30" }] }));
+    const already = (JSON.parse(readFileSync(join(dir, "notified.json"), "utf8")) as NotifiedFile).sellers;
+    writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", sellers: [...already, { seller: index.records[0]!.seller, notifiedAt: "2026-09-30" }] }));
     // Now the policy allows it, and what is left is that the altered record no longer verifies.
     await assert.rejects(loadPublishedRecords(dir), (e: Error) => !/not in notified\.json/.test(e.message) && /does not verify/.test(e.message));
     assert.equal(o.verdict.code, "DELIVERED");
@@ -129,7 +128,8 @@ test("#8 records loader: a bare host in notified.json does not open a service's 
     e.sha256 = sha256Hex(neg);
     e.verdict = "NOT_DELIVERED";
     writeFileSync(join(dir, "index.json"), JSON.stringify(index));
-    const told = (seller: string) => writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", sellers: [{ seller, notifiedAt: "2026-09-30" }] }));
+    const already = (JSON.parse(readFileSync(join(dir, "notified.json"), "utf8")) as NotifiedFile).sellers;
+    const told = (seller: string) => writeFileSync(join(dir, "notified.json"), JSON.stringify({ note: "", sellers: [...already, { seller, notifiedAt: "2026-09-30" }] }));
     told(e.host);
     await assert.rejects(loadPublishedRecords(dir), /which is not in notified\.json/);
     told(`${e.host}#some-other-service`);
