@@ -5,7 +5,13 @@
  *   seller_config the seller's own setup: took the money but sent no answer, settled to another address,
  *                 has no paid route, or advertises a chain its facilitator does not settle
  *   vet402        vet402's payment itself was wrong (balance, signature, validity window)
+ *   unconfirmed   vet402 could not read the settlement back (RPC timeout, receipt not found): vet402's side
+ *   not_settled   the payment did not settle and nothing points at anyone: not the seller's fault
  *   unknown       nothing in the response says which
+ *
+ * seller_config is assigned only on definite evidence: the payment settled on chain and no answer came
+ * back, the chain shows the transfer went to another address or amount, or the facilitator named the
+ * recipient or asset in its errorReason. A payment that did not settle is never counted against the seller.
  *
  * Inputs are what vet402 saw: the seller's PAYMENT-RESPONSE (errorReason), the HTTP status and body, the
  * settlement read back on chain, and what the facilitators' own /supported pages say about the chain.
@@ -13,7 +19,7 @@
  */
 import type { ChainBuyRecord } from "./evm-buy.js";
 
-export type Cause = "delivered" | "not_paid" | "facilitator" | "seller_config" | "vet402" | "unknown";
+export type Cause = "delivered" | "not_paid" | "facilitator" | "seller_config" | "vet402" | "unconfirmed" | "not_settled" | "unknown";
 
 export interface CauseResult {
   cause: Cause;
@@ -78,33 +84,45 @@ const FIX = {
   minimum: "Raise the price to the facilitator's minimum for this chain, or use a facilitator without one.",
   settledNoAnswer: "The payment settled; return the answer after settlement (or refund) instead of an error or an empty body.",
   settledElsewhere: "The settlement did not pay the payTo in the 402; make the 402 payTo the address the facilitator settles to.",
-  routeMissing: "The paid request hit a route that does not exist; serve the resource at the URL the 402 names.",
-  noReceipt: "Send the PAYMENT-RESPONSE header with the settlement tx so the buyer can read the payment back.",
   vet402: null,
 };
+
+/** readUsdcTransfer reasons that are a finding about the tx itself; any other failure means vet402 could not read it. */
+export const DEFINITE_SETTLEMENT_REASONS = ["amount_mismatch", "no_usdc_transfer_to_seller", "tx_status_reverted"] as const;
+
+function settlementReason(check: string | undefined): string | null {
+  if (!check?.startsWith("not verified: ")) return null;
+  return check.slice("not verified: ".length).trim();
+}
 
 /** Pure. `predicted` is the before-payment facilitator check for this record's 402, if any. */
 export function classifyRecord(r: ChainBuyRecord, predicted?: { facilitator: string | null; problem: string | null }): CauseResult {
   if (r.outcome !== "sent") return { cause: "not_paid", rule: r.refusal ? `refused:${r.refusal.refused}` : r.outcome, evidence: "none", fix: null };
   if (r.delivered) return { cause: "delivered", rule: "delivered", evidence: "chain", fix: null };
+  const status = r.response?.status ?? null;
+  const body = r.response?.first300 ?? "";
+  // 1. Settled on chain, no answer: the seller took the money.
+  if (r.settledOnChain) return { cause: "seller_config", rule: `settled_then_${status ?? "no_response"}`, evidence: "chain", fix: FIX.settledNoAnswer };
+  // 2. A settlement tx was named but vet402 could not confirm it.
+  const why = settlementReason(r.settlementCheck);
+  if (r.settlementTx && why !== null) {
+    if ((DEFINITE_SETTLEMENT_REASONS as readonly string[]).includes(why)) return { cause: "seller_config", rule: `settlement:${why}`, evidence: "chain", fix: FIX.settledElsewhere };
+    return { cause: "unconfirmed", rule: `settlement_unreadable:${why.slice(0, 60)}`, evidence: "none", fix: null };
+  }
+  if (r.settlementTx && r.settlementCheck?.startsWith("transfer ")) return { cause: "unknown", rule: "transfer_from_another_payer", evidence: "chain", fix: null };
+  // 3. Not settled. What the facilitator or vet402's own payment says, else nobody's fault.
   const reason = (r.settleResponse?.errorReason ?? "").toLowerCase();
   if (reason) {
     if (VET402_REASONS.some((x) => x.test(reason))) return { cause: "vet402", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.vet402 };
     if (FACILITATOR_REASONS.some((x) => x.test(reason))) return { cause: "facilitator", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.facilitator };
     if (SELLER_REASONS.some((x) => x.test(reason))) return { cause: "seller_config", rule: `errorReason:${reason}`, evidence: "response", fix: FIX.settledElsewhere };
   }
-  const status = r.response?.status ?? null;
-  const body = r.response?.first300 ?? "";
-  if (r.settledOnChain) return { cause: "seller_config", rule: `settled_then_${status ?? "no_response"}`, evidence: "chain", fix: FIX.settledNoAnswer };
-  if (r.settlementTx && r.settlementCheck?.startsWith("not verified")) return { cause: "seller_config", rule: "settlement_not_to_payto", evidence: "chain", fix: FIX.settledElsewhere };
-  if (status === null) return { cause: "unknown", rule: "no_response", evidence: "none", fix: null };
+  if (status === null) return { cause: "unconfirmed", rule: "no_response", evidence: "none", fix: null };
   if (VET402_TEXT.test(body)) return { cause: "vet402", rule: "body:vet402", evidence: "response", fix: FIX.vet402 };
   if (FACILITATOR_TEXT.test(body)) return { cause: "facilitator", rule: "body:facilitator", evidence: "response", fix: FIX.facilitator };
   if (predicted?.problem) {
     const fix = /Permit2/.test(predicted.problem) ? FIX.permit2 : /minimum/.test(predicted.problem) ? FIX.minimum : FIX.facilitator;
     return { cause: "facilitator", rule: `supported:${predicted.facilitator}`, evidence: "supported_page", fix };
   }
-  if (status === 404 || status === 405) return { cause: "seller_config", rule: `paid_${status}`, evidence: "response", fix: FIX.routeMissing };
-  if (status >= 200 && status < 300 && !r.settlementTx) return { cause: "seller_config", rule: "answer_without_receipt", evidence: "response", fix: FIX.noReceipt };
-  return { cause: "unknown", rule: `paid_${status}`, evidence: "response", fix: null };
+  return { cause: "not_settled", rule: `not_settled_${status}`, evidence: "response", fix: null };
 }

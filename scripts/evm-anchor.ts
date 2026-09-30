@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createPublicClient, createWalletClient, getAddress, http, keccak256, stringToBytes, type Address, type PublicClient } from "viem";
 import { buildTree } from "../src/receipt/merkle.js";
 import { EVM_CHAINS, LANES, type LaneId } from "../src/evm/chains.js";
-import { assertAnchorOnly, buildAnchorTx, dayRoot, quoteAnchor, type DayRoot } from "../src/evm/evm-anchor.js";
+import { anchorFees, assertAnchorOnly, buildAnchorTx, dayRoot, quoteAnchor, type DayRoot } from "../src/evm/evm-anchor.js";
 import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
 
 const argv = process.argv.slice(2);
@@ -79,11 +79,16 @@ if (!existsSync(planFile)) throw new Error(`no plan ${planFile}: run without --s
 const saved = JSON.parse(readFileSync(planFile, "utf8")) as { inputSha256: string; root: string };
 if (saved.inputSha256 !== r.inputSha256 || saved.root !== r.root) throw new Error("the input changed since the plan; plan again and look at the difference");
 if (existsSync(sentFile)) throw new Error(`${sentFile} exists: this day was already sent (or is being sent)`);
+// Gas and fee caps, and the wallet's ETH, before the key is read (throws when over).
+const estimate = await client.estimateGas({ account: from, to: tx.to, value: 0n, data: tx.data });
+const quoted = await client.estimateFeesPerGas();
+const fees = anchorFees(spec, estimate, { maxFeePerGas: quoted.maxFeePerGas, maxPriorityFeePerGas: quoted.maxPriorityFeePerGas }, await client.getBalance({ address: from }));
+console.log(`anchor limits: gas ${fees.gas}, maxFeePerGas ${fees.maxFeePerGas}, bound ${fees.boundWei} wei (cap ${spec.anchorMaxFeeWei})`);
 const account = loadEvmAccount();
 if (getAddress(account.address) !== from) throw new Error("key != evm.pub");
 writeFileSync(sentFile, JSON.stringify({ ...plan, status: "sending", at: new Date().toISOString() }, null, 2) + "\n");
 const wallet = createWalletClient({ account, transport: http(process.env[spec.rpcEnv] ?? spec.rpc) });
-const hash = await wallet.sendTransaction({ chain: null, to: tx.to, value: 0n, data: tx.data });
+const hash = await wallet.sendTransaction({ chain: null, to: tx.to, value: 0n, data: tx.data, gas: fees.gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
 const rc = await client.waitForTransactionReceipt({ hash });
 writeFileSync(sentFile, JSON.stringify({ ...plan, status: rc.status === "success" ? "sent" : "failed", hash, block: rc.blockNumber.toString(), at: new Date().toISOString() }, null, 2) + "\n");
 console.log(`${rc.status} ${spec.explorerTx}${hash}`);

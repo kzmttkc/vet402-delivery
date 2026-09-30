@@ -62,6 +62,8 @@ export interface BaseAcceptContext {
 
 /** Every per-accept check. null = may go on to the budget. Pure. */
 export function checkBaseAccept(a: EvmAccept | null, ctx: BaseAcceptContext): EvmRefusal | null {
+  // Fail-closed: on Base the agentWallet binding is not optional.
+  if (typeof ctx.agentWallet !== "string" || ctx.agentWallet.length === 0) return { refused: "payto_not_agent_wallet", detail: "no agentWallet to bind the payTo to" };
   return checkChainAccept(BASE, a, ctx);
 }
 
@@ -120,6 +122,7 @@ export async function buyOne(e: BuyEntry, deps: BuyDeps): Promise<BuyRecord> {
     budget: deps.budget,
     readAssetBalance: deps.readUsdcBalance,
     readAgentWallet: deps.readAgentWallet,
+    requireAgentWallet: true,
     verifySettlement: deps.verifySettlement,
     dryRun: deps.dryRun,
   });

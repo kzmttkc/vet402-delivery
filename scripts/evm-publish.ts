@@ -7,7 +7,8 @@
  *   npx tsx scripts/build-site.ts --out site
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { buildLanePublic } from "../src/evm/site.js";
+import { buildLanePublic, withholdUnnotified } from "../src/evm/site.js";
+import { notifiedSellers, type NotifiedFile } from "../src/receipt/publish.js";
 
 const argv = process.argv.slice(2);
 const lane = argv[argv.indexOf("--lane") + 1];
@@ -15,7 +16,9 @@ if (lane !== "robinhood" && lane !== "arbitrum") throw new Error("--lane robinho
 const dry = JSON.parse(readFileSync(`results/evm/${lane}-dryrun.json`, "utf8")) as Record<string, unknown>;
 const files = lane === "arbitrum" ? ["results/evm/arbitrum-purchases.jsonl", "results/evm/base-compare-purchases.jsonl"] : ["results/evm/robinhood-purchases.jsonl"];
 const paid = files.flatMap((f) => (existsSync(f) ? readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : []));
-const out = buildLanePublic(lane, dry, paid);
+// Negative results only for sellers vet402 has told (data/records/notified.json), as for the delivery records.
+const notified = notifiedSellers(JSON.parse(readFileSync("data/records/notified.json", "utf8")) as NotifiedFile);
+const out = withholdUnnotified(buildLanePublic(lane, dry, paid), notified);
 mkdirSync("data/evm", { recursive: true });
 writeFileSync(`data/evm/${lane}.json`, JSON.stringify(out, null, 2) + "\n");
 console.log(`data/evm/${lane}.json: ${out.source}, ${out.payTosInCatalogs} payTos in catalogs, ${out.payTosOffered} offered, ${out.rows.length} rows${out.stock ? `, ${out.stock.length} stock references` : ""}`);

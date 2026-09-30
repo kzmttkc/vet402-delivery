@@ -85,13 +85,13 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 </header>
 <p class="dim">Nothing bought yet. Read without paying on 2026-09-30.</p>
 <h2 id="stock">Stock prices sold over x402, against the Chainlink feed</h2>
-<p class="meta">Verdicts: agrees = within 0.5% of the share price (the feed's own deviation threshold), close = within 2%, differs = further. A feed older than its 24 h heartbeat, or a token whose oraclePaused() is true, gives no verdict.</p>
-<table class="board"><caption>Reference read from Robinhood Chain at 2026-09-30T05:30:49Z. Share price = Chainlink feed (the token price) ÷ the token's uiMultiplier().</caption><thead><tr><th>ticker</th><th class="num">share price</th><th class="num">feed age</th><th class="num">seller said</th><th>verdict</th></tr></thead><tbody>
-<tr><td class="name">AAPL<span class="sub mono">feed 0x6B22…2cD0</span></td><td class="num">$330.07<span class="sub">token $330.26 · ×1.000566</span></td><td class="num">9.9 h</td><td class="num">not bought yet</td><td>–</td></tr>
-<tr><td class="name">TSLA<span class="sub mono">feed 0x4A11…7C38</span></td><td class="num">$354.38<span class="sub">token $354.38 · ×1.000000</span></td><td class="num">5.4 h</td><td class="num">not bought yet</td><td>–</td></tr>
-<tr><td class="name">NVDA<span class="sub mono">feed 0x379E…9F15</span></td><td class="num">$228.00<span class="sub">token $228.18 · ×1.000775</span></td><td class="num">11.6 h</td><td class="num">not bought yet</td><td>–</td></tr>
-<tr><td class="name">SPY<span class="sub mono">feed 0x3197…9f6A</span></td><td class="num">$765.09<span class="sub">token $766.41 · ×1.001718</span></td><td class="num">14.8 h</td><td class="num">not bought yet</td><td>–</td></tr>
-<tr><td class="name">ORCL<span class="sub mono">feed 0x0e6a…A844</span></td><td class="num">$138.74<span class="sub">token $139.05 · ×1.002211</span></td><td class="num">5.1 h</td><td class="num">not bought yet</td><td>–</td></tr>
+<p class="meta">Verdicts: agrees = within 0.5% of the share price (the feed's own deviation threshold), close = within 2%, differs = further. A feed older than its 24 h heartbeat, or a token whose oraclePaused() is true, gives no verdict. Outside the NYSE core session (9:30 a.m. to 4:00 p.m. ET on trading days) an answer more than 0.5% off is marked market closed, not held against the seller. A result that is not in the seller's favour is shown after vet402 has told that seller.</p>
+<table class="board"><caption>Reference read from Robinhood Chain at 2026-09-30T06:18:38Z. Share price = Chainlink feed (the token price) ÷ the token's uiMultiplier().</caption><thead><tr><th>ticker</th><th class="num">share price</th><th class="num">feed age</th><th class="num">seller said</th><th>verdict</th></tr></thead><tbody>
+<tr><td class="name">AAPL<span class="sub mono">feed 0x6B22…2cD0</span></td><td class="num">$330.07<span class="sub">token $330.26 · ×1.000566</span></td><td class="num">10.7 h</td><td class="num">not bought yet</td><td>–</td></tr>
+<tr><td class="name">TSLA<span class="sub mono">feed 0x4A11…7C38</span></td><td class="num">$354.38<span class="sub">token $354.38 · ×1.000000</span></td><td class="num">6.2 h</td><td class="num">not bought yet</td><td>–</td></tr>
+<tr><td class="name">NVDA<span class="sub mono">feed 0x379E…9F15</span></td><td class="num">$228.00<span class="sub">token $228.18 · ×1.000775</span></td><td class="num">12.4 h</td><td class="num">not bought yet</td><td>–</td></tr>
+<tr><td class="name">SPY<span class="sub mono">feed 0x3197…9f6A</span></td><td class="num">$765.09<span class="sub">token $766.41 · ×1.001718</span></td><td class="num">15.6 h</td><td class="num">not bought yet</td><td>–</td></tr>
+<tr><td class="name">ORCL<span class="sub mono">feed 0x0e6a…A844</span></td><td class="num">$138.74<span class="sub">token $139.05 · ×1.002211</span></td><td class="num">5.9 h</td><td class="num">not bought yet</td><td>–</td></tr>
 </tbody></table>
 <h2 id="sellers">Sellers that list Robinhood Chain: can they be paid there?</h2>
 <div class="stats">
@@ -100,12 +100,12 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
   <div><span class="big">0</span><br>bought by vet402</div>
   <div><span class="big">0</span><br>paid, settled on chain and came back with an answer</div>
 </div>
-<p class="meta">One purchase per payTo, at the cheapest listing whose live 402 still offers Robinhood Chain in USDG. A purchase counts as paid only when the USDG transfer to that payTo is read back on chain.</p>
+<p class="meta">One purchase per payTo, at the cheapest listing whose live 402 still offers Robinhood Chain in USDG. A purchase counts as settled only when vet402 reads the USDG transfer to that payTo back on chain; a payment that did not settle is never counted against the seller. A result that is not in the seller's favour is shown after vet402 has told that seller.</p>
 <table class="board"><thead><tr><th>seller</th><th class="num">price</th><th>result</th><th>why not, and the fix</th></tr></thead><tbody>
 <tr><td class="name">api.secondedoracle.xyz<span class="sub mono">0x010a…cf3a · 1 listed</span></td><td class="num">–</td><td>not bought<span class="sub">every listing costs more than the per-purchase cap</span></td><td>–</td></tr>
 <tr><td class="name">api.syraa.fun<span class="sub mono">0x07cF…2396 · 5 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 no longer offers Robinhood Chain</span></td><td>–</td></tr>
 <tr><td class="name">api.dexl.io<span class="sub mono">0x0cCd…8667 · 7 listed</span></td><td class="num">0.001 USDG</td><td>not bought yet</td><td>–</td></tr>
-<tr><td class="name">dlf-gateway.agentlabel.workers.dev<span class="sub mono">0x20Fb…406E · 1 listed</span></td><td class="num">–</td><td>not bought<span class="sub">the live 402 asks for another token</span></td><td>–</td></tr>
+<tr><td class="name">dlf-gateway.agentlabel.workers.dev<span class="sub mono">0x20Fb…406E · 1 listed</span></td><td class="num">–</td><td>not bought</td><td>–</td></tr>
 <tr><td class="name">whaletape.xyz<span class="sub mono">0x25a8…4145 · 3 listed</span></td><td class="num">0.001 USDG</td><td>not bought yet</td><td>–</td></tr>
 <tr><td class="name">api.loopholetape.com<span class="sub mono">0x25d4…59c2 · 19 listed</span></td><td class="num">0.001 USDG</td><td>not bought yet</td><td>–</td></tr>
 <tr><td class="name">clawhunter.fun<span class="sub mono">0x3201…59E5 · 2 listed</span></td><td class="num">0.03 USDG</td><td>not bought yet</td><td>–</td></tr>

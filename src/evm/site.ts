@@ -14,8 +14,18 @@ import type { StockComparison, StockReference } from "../robinhood/stock-check.j
 import { EVM_CHAINS, LANES, type EvmChainKey } from "./chains.js";
 import type { ChainBuyRecord } from "./evm-buy.js";
 import type { CauseResult } from "./settle-cause.js";
+import { STOCK_SELLER } from "./lane-plan.js";
+import { notifiedSellers, type NotifiedFile } from "../receipt/publish.js";
 
-export type RowStatus = "not_offered_now" | "not_bought_yet" | "refused" | "delivered" | "not_delivered";
+const STOCK_SELLER_RESOURCE = STOCK_SELLER.resource;
+
+/**
+ * delivered       settled on chain (read back by vet402) and an answer came back
+ * settled_no_answer settled on chain, no answer: the only status that is the seller's doing
+ * not_settled     vet402 sent a payment and no settlement was read back (facilitator, vet402, unconfirmed or unknown)
+ * withheld        a negative result for a seller not yet in data/records/notified.json: not published
+ */
+export type RowStatus = "not_offered_now" | "not_bought_yet" | "refused" | "delivered" | "settled_no_answer" | "not_settled" | "withheld";
 
 export interface LaneRow {
   payTo: string;
@@ -36,6 +46,10 @@ export interface LaneRow {
 
 export interface StockRow {
   ticker: string;
+  /** The listing bought for this ticker. */
+  resource?: string;
+  /** A negative verdict for a seller not yet told: not published. */
+  withheld?: boolean;
   reference: Pick<StockReference, "feed" | "token" | "tokenPrice" | "sharePrice" | "multiplier" | "updatedAt" | "readAt" | "stale" | "oraclePaused">;
   comparison: StockComparison | null;
 }
@@ -81,7 +95,74 @@ type Rec = ChainBuyRecord & { lane: string; cause: CauseResult; relayer?: string
 function statusOf(r: Rec | undefined): RowStatus {
   if (!r || r.outcome === "would_pay" || r.outcome === "not_sent") return "not_bought_yet";
   if (r.outcome === "refused") return "refused";
-  return r.delivered ? "delivered" : "not_delivered";
+  if (r.delivered) return "delivered";
+  return r.settledOnChain === true ? "settled_no_answer" : "not_settled";
+}
+
+/** Skip reasons that say nothing against the seller (it just no longer lists the chain, or is over vet402's cap). */
+const NEUTRAL_SKIPS = [/^the live 402 no longer offers /, /^every listing costs more than the per-purchase cap$/, /^the live 402 asks more than the per-purchase cap$/];
+
+/** Stock verdicts that are a finding against the seller's answer. */
+const NEGATIVE_STOCK = new Set(["close", "differs", "wrong_ticker", "no_price"]);
+
+function hostOf(u: string | null): string | null {
+  try {
+    return u ? new URL(u).hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is this row negative for the seller? (Anything but delivered, not bought, or a neutral skip.) */
+export function rowIsNegative(r: LaneRow): boolean {
+  if (r.status === "settled_no_answer" || r.status === "not_settled" || r.status === "refused") return true;
+  if (r.cause && r.cause.cause !== "delivered" && r.cause.cause !== "not_paid") return true;
+  if (r.facilitatorLead) return true;
+  if (r.skipped && !NEUTRAL_SKIPS.some((x) => x.test(r.skipped!))) return true;
+  return false;
+}
+
+/** The seller key of a row: the host of the bought listing, else of its only host. */
+export function rowSeller(r: Pick<LaneRow, "resource" | "hosts">): string | null {
+  return hostOf(r.resource) ?? (r.hosts.length === 1 ? r.hosts[0]! : null);
+}
+
+/**
+ * Pure. The rule of data/records/: a negative result names a seller next to a failure, so it is published
+ * only for sellers vet402 has told first (notified.json). Other negative rows keep their payTo and hosts,
+ * and lose status detail, cause, fix, tx, lead and skip reason.
+ */
+export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>): LanePublic {
+  const told = (seller: string | null) => seller !== null && notified.has(seller);
+  const rows = l.rows.map((r): LaneRow =>
+    !rowIsNegative(r) || told(rowSeller(r))
+      ? r
+      : r.status === "not_bought_yet" || r.status === "not_offered_now"
+        ? { ...r, facilitatorLead: null, skipped: null } // not bought: only the lead or skip text goes
+        : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null },
+  );
+  const compare = l.compare
+    ? Object.fromEntries(
+        Object.entries(l.compare).map(([res, c]) => {
+          const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
+          return [res, neg && !told(hostOf(res)) ? { status: "withheld" as const, cause: null, settlementTx: null, paidRequestMs: null, relayer: null } : c];
+        }),
+      )
+    : undefined;
+  const stock = l.stock?.map((s) => (s.comparison && NEGATIVE_STOCK.has(s.comparison.verdict) && !told(hostOf(s.resource ?? null)) ? { ...s, comparison: null, withheld: true } : s));
+  return { ...l, rows, ...(compare ? { compare } : {}), ...(stock ? { stock } : {}) };
+}
+
+/** Negative rows in a lane file for sellers not in notified.json (build-site stops on any). */
+export function unpublishableRows(l: LanePublic, notified: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  for (const r of l.rows) if (rowIsNegative(r) && !notified.has(rowSeller(r) ?? "")) out.push(`${l.lane}: ${r.payTo} (${r.status})`);
+  for (const [res, c] of Object.entries(l.compare ?? {})) {
+    const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
+    if (neg && !notified.has(hostOf(res) ?? "")) out.push(`${l.lane}: Base side of ${res} (${c.status})`);
+  }
+  for (const s of l.stock ?? []) if (s.comparison && NEGATIVE_STOCK.has(s.comparison.verdict) && !notified.has(hostOf(s.resource ?? null) ?? "")) out.push(`${l.lane}: stock ${s.ticker} (${s.comparison.verdict})`);
+  return out;
 }
 
 function rowFrom(c: DryRunChoice, r: Rec | undefined, chainLabel: string): LaneRow {
@@ -143,6 +224,7 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
       const cmp = p?.stock && "deviationPct" in (p.stock as object) ? (p.stock as StockComparison) : null;
       return {
         ticker: ref.ticker,
+        resource: STOCK_SELLER_RESOURCE,
         reference: { feed: ref.feed, token: ref.token, tokenPrice: ref.tokenPrice, sharePrice: ref.sharePrice, multiplier: ref.multiplier, updatedAt: ref.updatedAt, readAt: ref.readAt, stale: ref.stale, oraclePaused: ref.oraclePaused },
         comparison: cmp,
       };
@@ -153,11 +235,15 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
 
 export function loadLanePublic(dataDir: string): { robinhood?: LanePublic; arbitrum?: LanePublic } {
   const out: { robinhood?: LanePublic; arbitrum?: LanePublic } = {};
+  const nf = join(dataDir, "records", "notified.json");
+  const notified = existsSync(nf) ? notifiedSellers(JSON.parse(readFileSync(nf, "utf8")) as NotifiedFile) : new Set<string>();
   for (const lane of ["robinhood", "arbitrum"] as const) {
     const f = join(dataDir, "evm", `${lane}.json`);
     if (!existsSync(f)) continue;
     const j = JSON.parse(readFileSync(f, "utf8")) as LanePublic;
     if (j.kind !== "vet402-evm-lane" || j.lane !== lane) throw new Error(`${f}: not a vet402 ${lane} lane file`);
+    const bad = unpublishableRows(j, notified);
+    if (bad.length) throw new Error(`${f}: negative results for sellers not in notified.json: ${bad.join("; ")}`);
     out[lane] = j;
   }
   return out;
@@ -175,24 +261,35 @@ const utc = (sec: number): string => new Date(sec * 1000).toISOString().replace(
 const STATUS_TEXT: Record<RowStatus, string> = {
   not_offered_now: "not bought",
   not_bought_yet: "not bought yet",
-  refused: "vet402 refused to pay",
-  delivered: "paid, came back",
-  not_delivered: "paid, no answer",
+  refused: "vet402 did not pay",
+  delivered: "settled on chain, came back",
+  settled_no_answer: "settled on chain, no answer",
+  not_settled: "sent, not settled",
+  withheld: "bought; the result is shown after the seller is told",
 };
 
 function money(atomic: string | null, symbol: string): string {
   return atomic === null ? "–" : `${atomicToUsdc(atomic).replace(/0{1,4}$/, "")} ${symbol}`;
 }
 
+const CAUSE_TEXT: Record<string, string> = {
+  facilitator: "the seller's facilitator",
+  seller_config: "the seller's setup",
+  vet402: "vet402's payment",
+  unconfirmed: "vet402 could not confirm the settlement",
+  not_settled: "not settled; no side identified",
+  unknown: "no clear cause",
+};
+
 function causeCell(c: CauseResult | null): string {
   if (!c || c.cause === "delivered" || c.cause === "not_paid") return "–";
   const lead = c.evidence === "supported_page" ? " (lead from the facilitator's /supported page)" : "";
-  return `${escapeHtml(c.cause.replace("_", " "))}${escapeHtml(lead)}${c.fix ? `<span class="sub">${escapeHtml(c.fix)}</span>` : ""}`;
+  return `${escapeHtml(CAUSE_TEXT[c.cause] ?? c.cause)}${escapeHtml(lead)}${c.fix ? `<span class="sub">${escapeHtml(c.fix)}</span>` : ""}`;
 }
 
 function counts(l: LanePublic): string {
   const n = (s: RowStatus) => l.rows.filter((r) => r.status === s).length;
-  const bought = n("delivered") + n("not_delivered");
+  const bought = n("delivered") + n("settled_no_answer") + n("not_settled") + n("withheld");
   return `<div class="stats">
   <div><span class="big">${l.payTosInCatalogs}</span><br>payTo addresses that the CDP, Dexter and PayAI catalogs list on ${escapeHtml(EVM_CHAINS[l.lane].label)}</div>
   <div><span class="big">${l.payTosOffered}</span><br>whose live 402 still offers it, read without paying</div>
@@ -220,7 +317,7 @@ function stockTable(l: LanePublic): string {
       const r = s.reference;
       const c = s.comparison;
       const age = r.readAt - r.updatedAt;
-      return `<tr><td class="name">${escapeHtml(s.ticker)}<span class="sub mono">feed ${escapeHtml(short(r.feed))}</span></td><td class="num">${r.sharePrice !== null ? `$${r.sharePrice.toFixed(2)}` : "–"}<span class="sub">token $${r.tokenPrice.toFixed(2)} · ×${r.multiplier !== null ? r.multiplier.toFixed(6) : "?"}</span></td><td class="num">${(age / 3600).toFixed(1)} h${r.stale ? " (stale)" : ""}${r.oraclePaused ? " (paused)" : ""}</td><td class="num">${c?.sellerPrice != null ? `$${c.sellerPrice.toFixed(2)}` : "not bought yet"}</td><td>${c ? `${escapeHtml(c.verdict)}${c.deviationPct !== null ? ` (${c.deviationPct >= 0 ? "+" : ""}${c.deviationPct.toFixed(2)}%)` : ""}` : "–"}</td></tr>`;
+      return `<tr><td class="name">${escapeHtml(s.ticker)}<span class="sub mono">feed ${escapeHtml(short(r.feed))}</span></td><td class="num">${r.sharePrice !== null ? `$${r.sharePrice.toFixed(2)}` : "–"}<span class="sub">token $${r.tokenPrice.toFixed(2)} · ×${r.multiplier !== null ? r.multiplier.toFixed(6) : "?"}</span></td><td class="num">${(age / 3600).toFixed(1)} h${r.stale ? " (stale)" : ""}${r.oraclePaused ? " (paused)" : ""}</td><td class="num">${s.withheld ? "bought" : c?.sellerPrice != null ? `$${c.sellerPrice.toFixed(2)}` : "not bought yet"}</td><td>${s.withheld ? "shown after the seller is told" : c ? `${escapeHtml(c.verdict.replace(/_/g, " "))}${c.deviationPct !== null ? ` (${c.deviationPct >= 0 ? "+" : ""}${c.deviationPct.toFixed(2)}%)` : ""}` : "–"}</td></tr>`;
     })
     .join("\n");
   const readAt = l.stock?.[0] ? utc(l.stock[0].reference.readAt) : "–";
@@ -245,11 +342,11 @@ export function renderRobinhoodPage(r: RankReport, _g: GroupReport, l: LanePubli
     ? `<p class="dim">No Robinhood Chain data yet.</p>`
     : `<p class="dim">${l.source === "census" ? `Nothing bought yet. Read without paying on ${escapeHtml(l.generatedAt.slice(0, 10))}.` : `Updated ${escapeHtml(l.generatedAt.slice(0, 10))}.`}</p>
 <h2 id="stock">Stock prices sold over x402, against the Chainlink feed</h2>
-<p class="meta">Verdicts: agrees = within 0.5% of the share price (the feed's own deviation threshold), close = within 2%, differs = further. A feed older than its 24 h heartbeat, or a token whose oraclePaused() is true, gives no verdict.</p>
+<p class="meta">Verdicts: agrees = within 0.5% of the share price (the feed's own deviation threshold), close = within 2%, differs = further. A feed older than its 24 h heartbeat, or a token whose oraclePaused() is true, gives no verdict. Outside the NYSE core session (9:30 a.m. to 4:00 p.m. ET on trading days) an answer more than 0.5% off is marked market closed, not held against the seller. A result that is not in the seller's favour is shown after vet402 has told that seller.</p>
 ${stockTable(l)}
 <h2 id="sellers">Sellers that list Robinhood Chain: can they be paid there?</h2>
 ${counts(l)}
-<p class="meta">One purchase per payTo, at the cheapest listing whose live 402 still offers Robinhood Chain in USDG. A purchase counts as paid only when the USDG transfer to that payTo is read back on chain.</p>
+<p class="meta">One purchase per payTo, at the cheapest listing whose live 402 still offers Robinhood Chain in USDG. A purchase counts as settled only when vet402 reads the USDG transfer to that payTo back on chain; a payment that did not settle is never counted against the seller. A result that is not in the seller's favour is shown after vet402 has told that seller.</p>
 ${sellerTable(l, false)}
 ${anchorSection(l)}
 ${limits(l)}`;
@@ -274,7 +371,7 @@ export function renderArbitrumPage(r: RankReport, _g: GroupReport, l: LanePublic
     ? `<p class="dim">No Arbitrum data yet.</p>`
     : `<p class="dim">${l.source === "census" ? `Nothing bought yet. Read without paying on ${escapeHtml(l.generatedAt.slice(0, 10))}.` : `Updated ${escapeHtml(l.generatedAt.slice(0, 10))}.`}</p>
 ${counts(l)}
-<p class="meta">Each row is one payTo that lists both Arbitrum One and Base with the same address. vet402 buys the same listing once on each chain, the same UTC day, from the same wallet, and reads each USDC transfer back on its chain. The fix column says what the seller can change when Arbitrum does not come back.</p>
+<p class="meta">Each row is one payTo that lists both Arbitrum One and Base with the same address. vet402 buys the same listing once on each chain, the same UTC day, from the same wallet, and reads each USDC transfer back on its chain. The fix column says what the seller can change when Arbitrum does not come back. A payment that did not settle is never counted against the seller, and a result that is not in the seller's favour is shown after vet402 has told that seller.</p>
 ${sellerTable(l, true)}
 ${anchorSection(l)}
 ${limits(l)}`;

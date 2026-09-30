@@ -7,6 +7,11 @@ import { Budget } from "../src/guard.js";
 import { EVM_CHAINS, LANES } from "../src/evm/chains.js";
 import { buyOneOnChain, checkChainAccept, createChainPayment, fencedChainSigner, type ChainBuyDeps, type ChainBuyEntry, type ChainBuyRecord, type EvmAccept, type TypedDataSigner } from "../src/evm/evm-buy.js";
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
+import { fundingProblem, payGateProblem } from "../src/evm/chains.js";
+import { anchorFees } from "../src/evm/evm-anchor.js";
+import { inCoreSession } from "../src/robinhood/stock-check.js";
+import { buildLanePublic, unpublishableRows, withholdUnnotified } from "../src/evm/site.js";
+import { buyOne, checkBaseAccept, type BuyEntry } from "../src/evm/base-buy.js";
 import { groupByPayTo, stockEntries } from "../src/evm/lane-plan.js";
 import { anchorText, assertAnchorOnly, buildAnchorTx, dayNumber, dayRoot, parseAnchorText, recordDigest } from "../src/evm/evm-anchor.js";
 import { verifyInclusion } from "../src/receipt/merkle.js";
@@ -191,9 +196,9 @@ test("classify: errorReason, chain read-back, body text, then the /supported lea
   assert.equal(lead.cause, "facilitator");
   assert.equal(lead.evidence, "supported_page");
   assert.match(lead.fix ?? "", /permit2/i);
-  assert.equal(classifyRecord(sent({ response: { status: 404, contentType: null, bytes: 0, first300: "" } })).cause, "seller_config");
-  assert.equal(classifyRecord(sent({ response: { status: 402, contentType: null, bytes: 2, first300: "{}" } })).cause, "unknown");
-  assert.equal(classifyRecord(sent({})).rule, "no_response");
+  assert.equal(classifyRecord(sent({ response: { status: 404, contentType: null, bytes: 0, first300: "" } })).cause, "not_settled");
+  assert.equal(classifyRecord(sent({ response: { status: 402, contentType: null, bytes: 2, first300: "{}" } })).cause, "not_settled");
+  assert.equal(classifyRecord(sent({})).cause, "unconfirmed");
   assert.equal(classifyRecord({ ...sent({}), outcome: "would_pay" }).cause, "not_paid");
 });
 
@@ -214,8 +219,9 @@ const ref = (over: Partial<StockReference> = {}): StockReference => ({
 test("stock check: graded against the share price (feed / multiplier); stale, paused, wrong ticker give no verdict", () => {
   const share = 139.0518 / 1.00221;
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share }), ref()).verdict, "agrees");
-  assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share * 1.01 }), ref()).verdict, "close");
-  assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share * 1.05 }), ref()).verdict, "differs");
+  const open = "2026-10-05T15:00:00Z"; // Monday 11:00 ET, in the core session
+  assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share * 1.01 }), ref(), open).verdict, "close");
+  assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share * 1.05 }), ref(), open).verdict, "differs");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ data: { symbol: "orcl", current_price: "138.7" } }), ref()).verdict, "agrees");
   assert.equal(compareStockAnswer("ORCL", JSON.stringify({ ticker: "AAPL", price: share }), ref()).verdict, "wrong_ticker");
   assert.equal(compareStockAnswer("ORCL", "not json", ref()).verdict, "no_price");
@@ -295,7 +301,7 @@ const lanePublic = (lane: "robinhood" | "arbitrum", evil: string): LanePublic =>
   payTosInCatalogs: 2,
   payTosOffered: 1,
   rows: [
-    { payTo: SELLER, hosts: [`h${evil}`], catalogListings: 1, resource: `https://x/${evil}`, livePrice: "50000", status: "not_delivered", cause: { cause: "facilitator", rule: "r", evidence: "supported_page", fix: `fix ${evil}` }, settlementTx: `0x${evil}`, paidRequestMs: 1200, relayer: null, facilitatorLead: evil, skipped: null },
+    { payTo: SELLER, hosts: [`h${evil}`], catalogListings: 1, resource: `https://x/${evil}`, livePrice: "50000", status: "not_settled", cause: { cause: "facilitator", rule: "r", evidence: "supported_page", fix: `fix ${evil}` }, settlementTx: `0x${evil}`, paidRequestMs: 1200, relayer: null, facilitatorLead: evil, skipped: null },
     { payTo: OTHER, hosts: ["ok.test"], catalogListings: 1, resource: null, livePrice: null, status: "not_offered_now", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: evil },
   ],
   ...(lane === "arbitrum" ? { compare: { [`https://x/${evil}`]: { status: "delivered" as const, cause: null, settlementTx: TX, paidRequestMs: 900, relayer: null } } } : {}),
@@ -321,10 +327,137 @@ test("Robinhood and Arbitrum pages: escaped, no scripts, links only from 0x+64 h
 
 test("the lane script reads the key only on --pay with VET402_EVM_PAY; the anchor script only on --send with VET402_ANCHOR_SEND", () => {
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /if \(pay && process\.env\.VET402_EVM_PAY !== laneArg\) throw/);
+  assert.match(lane, /const problem = payGateProblem\(laneArg, process\.env\.VET402_EVM_PAY\);\n  if \(problem\) throw/);
   assert.equal(lane.match(/loadEvmAccount\(\)/g)?.length, 1);
   assert.match(lane, /pay \? loadEvmAccount\(\) : privateKeyToAccount\(generatePrivateKey\(\)\)/);
   const anchor = readFileSync(new URL("../scripts/evm-anchor.ts", import.meta.url), "utf8");
   assert.match(anchor, /if \(send && process\.env\.VET402_ANCHOR_SEND !== laneId\) throw/);
   assert.ok(anchor.indexOf("loadEvmAccount()") > anchor.indexOf("if (!send)"), "the key is read after the no-send exit");
+});
+
+// ---------- fixes before paying and publishing (review 2026-09-30) ----------
+
+test("1: a payment that did not settle is 'sent, not settled', never 'settled, no answer', and no seller fault", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, robinhood: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: SELLER, catalogListings: 1, hosts: ["s.test"], chosen: { resource: "https://s.test/x", liveAmount: "1000" } }] } };
+  const rec = (over: Partial<ChainBuyRecord>) => ({ ...sent({ resource: "https://s.test/x", payTo: SELLER, ...over }), lane: "robinhood", cause: classifyRecord(sent(over)) });
+  const notSettled = buildLanePublic("robinhood", dry, [rec({ response: { status: 402, contentType: null, bytes: 2, first300: "{}" } })]);
+  assert.equal(notSettled.rows[0]!.status, "not_settled");
+  assert.notEqual(notSettled.rows[0]!.cause?.cause, "seller_config");
+  const settled = buildLanePublic("robinhood", dry, [rec({ settledOnChain: true, settlementTx: TX, response: { status: 500, contentType: null, bytes: 1, first300: "e" } })]);
+  assert.equal(settled.rows[0]!.status, "settled_no_answer");
+  assert.equal(settled.rows[0]!.cause?.cause, "seller_config");
+});
+
+test("2: an RPC timeout while reading the settlement back is vet402's 'could not confirm', not the seller's setup", () => {
+  const timeout = classifyRecord(sent({ settlementTx: TX, settlementCheck: "not verified: receipt not found in 60 s", response: { status: 200, contentType: null, bytes: 2, first300: "{}" } }));
+  assert.equal(timeout.cause, "unconfirmed");
+  assert.equal(classifyRecord(sent({ settlementTx: TX, settlementCheck: "not verified: fetch failed", response: { status: 200, contentType: null, bytes: 2, first300: "{}" } })).cause, "unconfirmed");
+  for (const why of ["amount_mismatch", "no_usdc_transfer_to_seller", "tx_status_reverted"]) {
+    assert.equal(classifyRecord(sent({ settlementTx: TX, settlementCheck: `not verified: ${why}`, response: { status: 200, contentType: null, bytes: 2, first300: "{}" } })).cause, "seller_config", why);
+  }
+});
+
+test("3: negative results are withheld until the seller is in notified.json, and a lane file that shows them does not build", () => {
+  const evil = "x";
+  const l = lanePublic("arbitrum", evil);
+  const neg = { ...l, rows: [{ ...l.rows[0]!, resource: "https://bad.test/x", hosts: ["bad.test"] }] , compare: { "https://bad.test/x": { status: "settled_no_answer" as const, cause: null, settlementTx: TX, paidRequestMs: 1, relayer: null } } };
+  assert.ok(unpublishableRows(neg, new Set()).length >= 2);
+  const w = withholdUnnotified(neg, new Set());
+  assert.equal(w.rows[0]!.status, "withheld");
+  assert.equal(w.rows[0]!.cause, null);
+  assert.equal(w.rows[0]!.facilitatorLead, null);
+  assert.equal(w.compare!["https://bad.test/x"]!.status, "withheld");
+  assert.deepEqual(unpublishableRows(w, new Set()), []);
+  const told = withholdUnnotified(neg, new Set(["bad.test"]));
+  assert.equal(told.rows[0]!.status, "not_settled");
+  // A neutral skip (the 402 no longer lists the chain) stays; an accusation (wrong domain) is withheld.
+  const skip = (why: string) => withholdUnnotified({ ...l, compare: {}, rows: [{ ...l.rows[1]!, hosts: ["n.test"], skipped: why }] }, new Set()).rows[0]!;
+  assert.equal(skip("the live 402 no longer offers Arbitrum One").skipped, "the live 402 no longer offers Arbitrum One");
+  const accused = skip("the 402 names a token domain that is not the token's own");
+  assert.equal(accused.skipped, null, "the accusation is not published");
+  assert.equal(accused.status, "not_offered_now", "an unbought row is never shown as bought");
+  // A stock verdict against the seller is withheld too.
+  const r = lanePublic("robinhood", evil);
+  const cmp = { ...compareStockAnswer("ORCL", JSON.stringify({ price: 150 }), ref(), "2026-10-05T15:00:00Z"), ticker: "ORCL" };
+  const st = withholdUnnotified({ ...r, rows: [], stock: [{ ...r.stock![0]!, resource: "https://equity.lonestaroracle.xyz/equity", comparison: cmp }] }, new Set());
+  assert.equal(st.stock![0]!.comparison, null);
+  assert.equal(st.stock![0]!.withheld, true);
+});
+
+test("4: the anchor is signed only within the chain's gas and fee caps and the wallet's ETH", () => {
+  const rh = EVM_CHAINS.robinhood;
+  const f = anchorFees(rh, 23_686n, { maxFeePerGas: 30_000_000n, maxPriorityFeePerGas: 0n }, 10n ** 15n);
+  assert.equal(f.gas, 29_608n);
+  assert.equal(f.boundWei, 29_608n * 30_000_000n);
+  assert.throws(() => anchorFees(rh, 60_000n, { maxFeePerGas: 1n, maxPriorityFeePerGas: 0n }, 10n ** 15n), /gas/);
+  assert.throws(() => anchorFees(rh, 23_686n, { maxFeePerGas: 10n ** 12n, maxPriorityFeePerGas: 0n }, 10n ** 18n), /fee bound/);
+  assert.throws(() => anchorFees(rh, 23_686n, { maxFeePerGas: 30_000_000n, maxPriorityFeePerGas: 0n }, 1n), /ETH/);
+  const src = readFileSync(new URL("../scripts/evm-anchor.ts", import.meta.url), "utf8");
+  assert.match(src, /sendTransaction\(\{[^}]*gas: fees\.gas, maxFeePerGas: fees\.maxFeePerGas/);
+  assert.ok(src.indexOf("anchorFees(") < src.indexOf("loadEvmAccount()"), "caps before the key is read");
+});
+
+test("5: a paying run never signs a purchase the wallet cannot cover; a lane with a daily root keeps ETH for it", async () => {
+  const s = fake402([acc()]);
+  const x = deps(s.f, { readAssetBalance: async () => 49_999n });
+  const r = await buyOneOnChain(RH, entry(), x.d);
+  assert.equal(r.refusal?.refused, "insufficient_balance");
+  assert.equal(x.signs(), 0);
+  assert.equal(x.d.budget.count, 0, "nothing reserved");
+  const dry = await buyOneOnChain(RH, entry(), deps(s.f, { readAssetBalance: async () => 0n, dryRun: true }).d);
+  assert.equal(dry.outcome, "would_pay");
+  assert.equal(dry.balanceShort, true);
+  assert.match(fundingProblem(LANES.robinhood, 478_192n, 478_191n, 10n ** 15n) ?? "", /USDG balance/);
+  assert.match(fundingProblem(LANES.robinhood, 478_192n, 500_000n, 1n) ?? "", /ETH/);
+  assert.equal(fundingProblem(LANES.robinhood, 478_192n, 500_000n, EVM_CHAINS.robinhood.anchorMaxFeeWei), null);
+  assert.equal(fundingProblem(LANES["base-compare"], 1n, 1n, 0n), null, "no daily root on the Base side");
+});
+
+test("6: --pay --lane arbitrum pays on Base too, so VET402_EVM_PAY must name both lanes", () => {
+  assert.equal(payGateProblem("robinhood", "robinhood"), null);
+  assert.match(payGateProblem("arbitrum", "arbitrum") ?? "", /missing: base-compare/);
+  assert.equal(payGateProblem("arbitrum", "arbitrum,base-compare"), null);
+  assert.match(payGateProblem("robinhood", "arbitrum,base-compare") ?? "", /missing: robinhood/);
+  assert.match(payGateProblem("arbitrum", undefined) ?? "", /Example: VET402_EVM_PAY=arbitrum,base-compare/);
+  const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(lane, /payGateProblem\(laneArg, process\.env\.VET402_EVM_PAY\)/);
+  assert.ok(lane.indexOf('preflight(LANES["base-compare"]') < lane.indexOf("results.push(await runLane(lane, arbEntries"), "both lanes checked before either signs");
+});
+
+test("7: Base stays fail-closed on agentWallet: an entry or a context without it is refused, nothing signed", async () => {
+  assert.equal(checkBaseAccept(acc({ network: BASE.caip2, asset: BASE.asset, extra: { name: "USD Coin", version: "2" } }), { payer: PAYER, lockedPayTo: SELLER, lockedAmount: "50000", agentWallet: undefined as unknown as string })?.refused, "payto_not_agent_wallet");
+  const s = fake402([acc({ network: BASE.caip2, asset: BASE.asset, extra: { name: "USD Coin", version: "2" } })]);
+  const k = throwaway();
+  let signs = 0;
+  const r = await buyOne({ agentId: "1", resource: "https://seller.test/x", method: "GET", query: null, body: null, lock: { payTo: SELLER, amount: "50000" } } as unknown as BuyEntry, {
+    fetch: s.f, payer: k.address, signer: { address: k.address, signTypedData: async (m) => (signs++, k.signTypedData(m as never)) }, budget: new Budget(null),
+    readUsdcBalance: async () => 5_000_000n, readAgentWallet: async () => SELLER, verifySettlement: async () => ({ ok: true, from: k.address }), dryRun: true,
+  });
+  assert.equal(r.refusal?.refused, "payto_not_agent_wallet");
+  assert.equal(signs, 0);
+  assert.equal(s.paid(), 0);
+});
+
+test("8: no committed file still says a facilitator settles 'Permit2 only'", () => {
+  for (const f of ["../results/evm/robinhood-dryrun.json", "../results/evm/arbitrum-dryrun.json", "../data/evm/robinhood.json", "../data/evm/arbitrum.json", "../site/robinhood.html", "../site/arbitrum.html", "../src/evm/settle-cause.ts"]) {
+    assert.ok(!/Permit2 only/i.test(readFileSync(new URL(f, import.meta.url), "utf8")), f);
+  }
+});
+
+test("9: outside the NYSE core session an answer more than 0.5% off is 'market_closed', not 'close' or 'differs'", () => {
+  assert.equal(inCoreSession("2026-10-05T14:00:00Z"), true, "Mon 10:00 ET");
+  assert.equal(inCoreSession("2026-10-05T13:29:00Z"), false, "Mon 9:29 ET");
+  assert.equal(inCoreSession("2026-10-05T20:00:00Z"), false, "Mon 16:00 ET");
+  assert.equal(inCoreSession("2026-10-04T15:00:00Z"), false, "Sunday");
+  assert.equal(inCoreSession("2026-11-26T15:00:00Z"), false, "Thanksgiving");
+  assert.equal(inCoreSession("2026-11-27T17:30:00Z"), true, "early close day, 12:30 ET");
+  assert.equal(inCoreSession("2026-11-27T18:30:00Z"), false, "early close day, 13:30 ET");
+  assert.equal(inCoreSession("2026-12-07T15:00:00Z"), true, "Mon 10:00 EST");
+  assert.equal(inCoreSession("2027-01-04T15:00:00Z"), false, "no 2027 calendar yet: closed");
+  const share = 139.0518 / 1.00221;
+  const at = (iso?: string) => compareStockAnswer("ORCL", JSON.stringify({ ticker: "ORCL", price: share * 1.05 }), ref(), iso).verdict;
+  assert.equal(at("2026-10-05T15:00:00Z"), "differs");
+  assert.equal(at("2026-10-05T23:00:00Z"), "market_closed");
+  assert.equal(at(undefined), "market_closed");
+  assert.equal(compareStockAnswer("ORCL", JSON.stringify({ price: share }), ref(), "2026-10-04T15:00:00Z").verdict, "agrees", "a right answer is still right");
 });

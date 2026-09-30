@@ -130,6 +130,28 @@ export interface AnchorQuote {
   dataBytes: number;
 }
 
+export interface AnchorFees {
+  gas: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+  boundWei: bigint;
+}
+
+/**
+ * Pure. The limits the anchor tx is signed with: gas = estimate x 1.25, maxFeePerGas as quoted. Refuses
+ * (throws) when the gas limit is over the chain's anchorMaxGas, the bound gas x maxFeePerGas is over
+ * anchorMaxFeeWei, or the wallet's ETH does not cover the bound.
+ */
+export function anchorFees(spec: Pick<EvmChainSpec, "label" | "anchorMaxGas" | "anchorMaxFeeWei">, estimate: bigint, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }, ethBalanceWei: bigint): AnchorFees {
+  const gas = (estimate * 125n + 99n) / 100n;
+  if (gas > spec.anchorMaxGas) throw new Error(`anchor refused: gas ${gas} > ${spec.anchorMaxGas} on ${spec.label}`);
+  const boundWei = gas * fees.maxFeePerGas;
+  if (boundWei > spec.anchorMaxFeeWei) throw new Error(`anchor refused: fee bound ${boundWei} wei > ${spec.anchorMaxFeeWei} on ${spec.label}`);
+  if (ethBalanceWei < boundWei) throw new Error(`anchor refused: ETH ${ethBalanceWei} wei < fee bound ${boundWei} wei on ${spec.label}`);
+  const prio = fees.maxPriorityFeePerGas > fees.maxFeePerGas ? fees.maxFeePerGas : fees.maxPriorityFeePerGas;
+  return { gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: prio, boundWei };
+}
+
 /** eth_estimateGas and eth_gasPrice only. */
 export async function quoteAnchor(client: Pick<PublicClient, "estimateGas" | "getGasPrice">, tx: AnchorTx): Promise<AnchorQuote> {
   const [gas, gasPriceWei] = await Promise.all([client.estimateGas({ account: tx.from, to: tx.to, value: 0n, data: tx.data }), client.getGasPrice()]);

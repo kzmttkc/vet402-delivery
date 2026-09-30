@@ -29,6 +29,9 @@ export interface EvmChainSpec {
   /** @x402/evm lists this asset as the chain's default (then its USD spend cap applies). */
   libraryDefaultAsset: boolean;
   explorerTx: string;
+  /** The daily root tx: above this gas limit or this total fee (gas x maxFeePerGas, wei) nothing is signed. */
+  anchorMaxGas: bigint;
+  anchorMaxFeeWei: bigint;
 }
 
 export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
@@ -46,6 +49,8 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     domain: { name: "USD Coin", version: "2" },
     libraryDefaultAsset: true,
     explorerTx: "https://basescan.org/tx/",
+    anchorMaxGas: 60_000n,
+    anchorMaxFeeWei: 10_000_000_000_000n,
   },
   arbitrum: {
     key: "arbitrum",
@@ -61,6 +66,9 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     domain: { name: "USD Coin", version: "2" },
     libraryDefaultAsset: true,
     explorerTx: "https://arbiscan.io/tx/",
+    // 2026-09-30 quote: 23,914 gas x 0.02004 gwei = 4.79e11 wei. The cap is about 20x that.
+    anchorMaxGas: 60_000n,
+    anchorMaxFeeWei: 10_000_000_000_000n,
   },
   robinhood: {
     key: "robinhood",
@@ -77,6 +85,9 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     domain: { name: "Global Dollar", version: "1" },
     libraryDefaultAsset: false,
     explorerTx: "https://robinhoodchain.blockscout.com/tx/",
+    // 2026-09-30 quote: 23,686 gas x 0.023712 gwei = 5.62e11 wei. The cap is about 18x that.
+    anchorMaxGas: 60_000n,
+    anchorMaxFeeWei: 10_000_000_000_000n,
   },
 };
 
@@ -97,15 +108,37 @@ export interface LaneSpec {
   maxPerAtomic: bigint;
   maxTotalAtomic: bigint;
   maxCount: number;
-  /** --pay also needs VET402_EVM_PAY=<this value>. */
+  /** --pay also needs this value in VET402_EVM_PAY (comma-separated). One value per lane, so allowing one lane never allows another. */
   payGate: string;
+  /** The lane's purchases get a daily root on its chain (scripts/evm-anchor.ts), so a paying run needs ETH for it. */
+  anchored: boolean;
+}
+
+/** Which lanes a --pay run touches. The Arbitrum run buys on Arbitrum AND on Base (the side-by-side). */
+export const RUN_LANES: Record<"robinhood" | "arbitrum", LaneId[]> = { robinhood: ["robinhood"], arbitrum: ["arbitrum", "base-compare"] };
+
+/** Pure. null when every lane the run pays on is named in VET402_EVM_PAY; else what is missing. */
+/** Pure. Why a paying run must not start on this lane, or null: token for the planned total, ETH for one anchor. */
+export function fundingProblem(lane: LaneSpec, plannedAtomic: bigint, assetAtomic: bigint, ethWei: bigint): string | null {
+  const c = EVM_CHAINS[lane.chain];
+  const capped = plannedAtomic > lane.maxTotalAtomic ? lane.maxTotalAtomic : plannedAtomic;
+  if (assetAtomic < capped) return `lane ${lane.id}: ${c.assetSymbol} balance ${assetAtomic} < planned ${capped}`;
+  if (lane.anchored && ethWei < c.anchorMaxFeeWei) return `lane ${lane.id}: ETH ${ethWei} wei < ${c.anchorMaxFeeWei} wei kept for the daily root on ${c.label}`;
+  return null;
+}
+
+export function payGateProblem(run: "robinhood" | "arbitrum", env: string | undefined): string | null {
+  const allowed = new Set((env ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+  const need = RUN_LANES[run].map((l) => LANES[l].payGate);
+  const missing = need.filter((g) => !allowed.has(g));
+  return missing.length ? `--pay --lane ${run} pays on ${need.join(" and ")}; VET402_EVM_PAY must name each (missing: ${missing.join(", ")}). Example: VET402_EVM_PAY=${need.join(",")}` : null;
 }
 
 export const LANES: Record<LaneId, LaneSpec> = {
   /** Every payTo that declares Robinhood Chain in its live 402, once, plus the stock-data check. */
-  robinhood: { id: "robinhood", chain: "robinhood", ledger: "results/evm/robinhood-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 1_000_000n, maxCount: 20, payGate: "robinhood" },
+  robinhood: { id: "robinhood", chain: "robinhood", ledger: "results/evm/robinhood-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 1_000_000n, maxCount: 20, payGate: "robinhood", anchored: true },
   /** Every payTo that declares Arbitrum One with the same address as its Base accept, once. */
-  arbitrum: { id: "arbitrum", chain: "arbitrum", ledger: "results/evm/arbitrum-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 2_000_000n, maxCount: 90, payGate: "arbitrum" },
+  arbitrum: { id: "arbitrum", chain: "arbitrum", ledger: "results/evm/arbitrum-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 2_000_000n, maxCount: 90, payGate: "arbitrum", anchored: true },
   /** The same payTo and endpoint on Base, the same UTC day, for the side-by-side table. */
-  "base-compare": { id: "base-compare", chain: "base", ledger: "results/evm/base-compare-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 1_500_000n, maxCount: 81, payGate: "base-compare" },
+  "base-compare": { id: "base-compare", chain: "base", ledger: "results/evm/base-compare-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 1_500_000n, maxCount: 81, payGate: "base-compare", anchored: false },
 };

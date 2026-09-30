@@ -45,7 +45,8 @@ export interface EvmRefusal {
     | "purchase_count_reached"
     | "already_bought"
     | "payload_check_failed"
-    | "ledger_unreadable";
+    | "ledger_unreadable"
+    | "insufficient_balance";
   detail: string;
 }
 
@@ -253,6 +254,8 @@ export interface ChainBuyDeps {
   /** The payer's balance of the chain's token. */
   readAssetBalance: () => Promise<bigint>;
   readAgentWallet?: (agentId: string) => Promise<Address>;
+  /** Base lane: an entry without agentWallet is refused (fail-closed), never bought unbound. */
+  requireAgentWallet?: boolean;
   /** tx -> token Transfer check (payer -> payTo, amount). */
   verifySettlement: (tx: Hex, payTo: string, amount: string) => Promise<{ ok: boolean; from?: string; reason?: string; blockNumber?: string }>;
   dryRun: boolean;
@@ -290,6 +293,8 @@ export interface ChainBuyRecord {
   body?: string;
   /** Present only on non-Base lanes: milliseconds from sending the paid request to its response. */
   paidRequestMs?: number;
+  /** Dry run only: the wallet's balance is below the price, so a paying run would refuse this purchase. */
+  balanceShort?: boolean;
 }
 
 const parser = new x402HTTPClient(new x402Client());
@@ -349,6 +354,9 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
 
   // agentWallet re-read now: the lock is what the chain says at pay time, not what a file said earlier.
   let wallet: Address | undefined;
+  if (deps.requireAgentWallet && (e.agentWallet === undefined || e.agentWallet === null || !isAddress(String(e.agentWallet)))) {
+    return refuse({ refused: "payto_not_agent_wallet", detail: "the entry has no agentWallet; this lane requires one" });
+  }
   if (e.agentWallet !== undefined) {
     if (!deps.readAgentWallet) return refuse({ refused: "payto_not_agent_wallet", detail: "no agentWallet reader" });
     try {
@@ -382,6 +390,11 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
     bal = await deps.readAssetBalance();
   } catch (err) {
     return refuse({ refused: "ledger_unreadable", detail: `${spec.assetSymbol} balance unreadable: ${(err as Error).message}`.slice(0, 200) });
+  }
+  // Never sign a payment the wallet cannot cover. A dry run notes the shortfall and goes on (its signer is a throwaway).
+  if (bal < BigInt(accept.amount)) {
+    if (!deps.dryRun) return refuse({ refused: "insufficient_balance", detail: `${spec.assetSymbol} balance ${bal} < price ${accept.amount}` });
+    rec.balanceShort = true;
   }
   deps.budget.setBaselineIfMissing(bal);
   // One purchase per seller: the default ledger key is the payTo, so two listings on one wallet cannot both buy.

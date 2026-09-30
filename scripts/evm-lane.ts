@@ -23,7 +23,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { CDP_DISCOVERY, MEASURE_MAX_PER_SELLER, MEASURE_SPACING_MS, OWN_HOSTS, PAYAI_DISCOVERY, atomicToUsdc } from "../src/constants.js";
 import { fetchCatalog, type Listing } from "../src/discovery.js";
 import { Budget } from "../src/guard.js";
-import { EVM_CHAINS, LANES, type EvmChainSpec, type LaneId, type LaneSpec } from "../src/evm/chains.js";
+import { EVM_CHAINS, LANES, fundingProblem, payGateProblem, type EvmChainSpec, type LaneId, type LaneSpec } from "../src/evm/chains.js";
 import { buyOneOnChain, eqAddr, probe402, type ChainBuyEntry, type ChainBuyRecord, type TypedDataSigner } from "../src/evm/evm-buy.js";
 import { readUsdcTransfer } from "../src/evm/erc8004.js";
 import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
@@ -40,7 +40,10 @@ const laneArg = arg("--lane");
 if (laneArg !== "robinhood" && laneArg !== "arbitrum") throw new Error("--lane robinhood | arbitrum");
 const pay = argv.includes("--pay");
 if (pay && argv.includes("--dry-run")) throw new Error("choose one of --dry-run / --pay");
-if (pay && process.env.VET402_EVM_PAY !== laneArg) throw new Error(`--pay also needs VET402_EVM_PAY=${laneArg} (set only after the independent review)`);
+if (pay) {
+  const problem = payGateProblem(laneArg, process.env.VET402_EVM_PAY);
+  if (problem) throw new Error(`${problem} (set only after the independent review)`);
+}
 const catalogsDir = arg("--catalogs");
 
 const payer: Address = readPublicAddress();
@@ -152,6 +155,16 @@ interface LaneResult {
   budget: { spentAtomic: string; count: number; maxTotalAtomic: string; maxPerAtomic: string; maxCount: number };
 }
 
+/** Before any signature in a paying run: print what will be paid, and refuse when the wallet cannot cover it. */
+async function preflight(lane: LaneSpec, entries: ChainBuyEntry[]): Promise<void> {
+  const c = EVM_CHAINS[lane.chain];
+  const total = entries.reduce((n, e) => n + BigInt(e.lock.amount), 0n);
+  const b = await balances(c);
+  console.error(`[pay] lane ${lane.id} on ${c.label} (${c.caip2}): up to ${entries.length} purchases, at most ${atomicToUsdc(total > lane.maxTotalAtomic ? lane.maxTotalAtomic : total)} ${c.assetSymbol} (lane cap ${atomicToUsdc(lane.maxTotalAtomic)}); wallet ${payer} holds ${atomicToUsdc(b.assetAtomic)} ${c.assetSymbol} and ${b.ethWei} wei`);
+  const problem = fundingProblem(lane, total, BigInt(b.assetAtomic), BigInt(b.ethWei));
+  if (problem) throw new Error(`${problem}; nothing signed`);
+}
+
 async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<string, string>, stockRefs: Map<string, StockReference>): Promise<LaneResult> {
   const c = EVM_CHAINS[lane.chain];
   const signer: TypedDataSigner = pay ? loadEvmAccount() : privateKeyToAccount(generatePrivateKey()); // dry run: throwaway, pays nobody
@@ -192,7 +205,10 @@ async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<str
     const row = { lane: lane.id, chain: c.caip2, ...rec, facilitator: predicted.facilitator, predictedProblem: predicted.problem, cause: classifyRecord(rec, predicted), ...(relayer !== undefined ? { relayer } : {}) } as LaneResult["records"][number];
     const ticker = e.agentId.startsWith("stock:") ? e.agentId.slice(6) : null;
     if (ticker && stockRefs.has(ticker)) {
-      row.stock = rec.delivered && rec.body ? compareStockAnswer(ticker, rec.body, stockRefs.get(ticker)!) : { ticker, verdict: "not_bought_yet", reference: stockRefs.get(ticker) };
+      // In a paying run the reference is read again right after the answer, so both sides are from the same minute.
+      const stockRef = STOCK_REFS.find((x) => x.ticker === ticker);
+      const refNow = pay && stockRef ? await readStockReference(client(c), stockRef).catch(() => stockRefs.get(ticker)!) : stockRefs.get(ticker)!;
+      row.stock = rec.delivered && rec.body ? { ...compareStockAnswer(ticker, rec.body, refNow, rec.at), reference: refNow } : { ticker, verdict: "not_bought_yet", reference: refNow };
     }
     out.push(row);
     if (pay) appendFileSync(`results/evm/${lane.id}-purchases.jsonl`, JSON.stringify(row) + "\n");
@@ -257,6 +273,7 @@ if (laneArg === "robinhood") {
     stockReferences: [...refs.values()],
     chainlinkDirectoryCheck: "fixed feeds match the directory (name, proxy, heartbeat)",
   };
+  if (pay) await preflight(lane, entries);
   results.push(await runLane(lane, entries, raw402, refs));
 } else {
   const arb = EVM_CHAINS.arbitrum;
@@ -270,6 +287,11 @@ if (laneArg === "robinhood") {
   const arbEntries = laneEntries(choices, arb, base);
   const baseEntries = mirrorEntries(arbEntries, choices, base, arb);
   summary.arbitrum = { payTosInCatalogs: groups.length, payTosWithLive402: choices.filter((c) => c.chosen).length, choices: choiceSummary(choices) };
+  // Both lanes are checked before either signs anything.
+  if (pay) {
+    await preflight(lane, arbEntries);
+    await preflight(LANES["base-compare"], baseEntries);
+  }
   results.push(await runLane(lane, arbEntries, raw402, new Map()));
   results.push(await runLane(LANES["base-compare"], baseEntries, raw402, new Map()));
 }

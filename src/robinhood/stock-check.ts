@@ -160,7 +160,8 @@ export type StockVerdict =
   | "no_price" // no positive price in the answer
   | "reference_invalid" // the feed answer is zero or negative
   | "reference_stale" // the feed is older than its heartbeat: nothing to compare against
-  | "reference_paused"; // the token's oracle is paused (a corporate action is being processed)
+  | "reference_paused" // the token's oracle is paused (a corporate action is being processed)
+  | "market_closed"; // bought outside the NYSE core session and not within 0.5 %: no verdict against the seller
 
 export interface StockComparison {
   ticker: string;
@@ -186,7 +187,7 @@ const pct = (a: number, b: number): number => ((a - b) / b) * 100;
  * (feed / multiplier). How far it is from the token price is kept next to it, so an answer that mixed
  * the two is visible.
  */
-export function compareStockAnswer(ticker: string, body: string, ref: StockReference): StockComparison {
+export function compareStockAnswer(ticker: string, body: string, ref: StockReference, boughtAtIso?: string): StockComparison {
   const { ticker: sellerTicker, price } = extractSellerPrice(body);
   const refPrice = ref.sharePrice ?? ref.tokenPrice;
   const base: StockComparison = {
@@ -209,8 +210,37 @@ export function compareStockAnswer(ticker: string, body: string, ref: StockRefer
   const d = pct(price, refPrice);
   const other = ref.sharePrice !== null ? pct(price, ref.tokenPrice) : null;
   const nearer = other === null || ref.multiplier === 1 ? null : Math.abs(d) <= Math.abs(other) ? "share_price" : "token_price";
-  const verdict: StockVerdict = Math.abs(d) <= FEED_DEVIATION_PCT ? "agrees" : Math.abs(d) <= CLOSE_PCT ? "close" : "differs";
+  let verdict: StockVerdict = Math.abs(d) <= FEED_DEVIATION_PCT ? "agrees" : Math.abs(d) <= CLOSE_PCT ? "close" : "differs";
+  // Outside the core session a stock API may serve the last close while the 24/5 feed moves: no verdict against the seller.
+  // No purchase time given = not known to be in session = no verdict either.
+  if (verdict !== "agrees" && (boughtAtIso === undefined || !inCoreSession(boughtAtIso))) verdict = "market_closed";
   return { ...base, verdict, deviationPct: d, deviationFromOtherPct: other, nearer };
+}
+
+/**
+ * NYSE 2026 (www.nyse.com/markets/hours-calendars, read 2026-09-30): core session 9:30 a.m. to 4:00 p.m. ET,
+ * these full-day holidays, and 1:00 p.m. closes on 2026-11-27 and 2026-12-24. A date outside 2026 is treated
+ * as closed (no verdict) until its calendar is added.
+ */
+export const NYSE_HOLIDAYS_2026 = ["2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25", "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25"];
+export const NYSE_EARLY_CLOSE_2026 = ["2026-11-27", "2026-12-24"];
+
+/** Pure. Is this instant inside the NYSE core session? */
+export function inCoreSession(iso: string): boolean {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return false;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" })
+      .formatToParts(t)
+      .map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  const day = `${parts.year}-${parts.month}-${parts.day}`;
+  if (parts.year !== "2026") return false;
+  if (parts.weekday === "Sat" || parts.weekday === "Sun") return false;
+  if (NYSE_HOLIDAYS_2026.includes(day)) return false;
+  const minutes = Number(parts.hour) * 60 + Number(parts.minute);
+  const close = NYSE_EARLY_CLOSE_2026.includes(day) ? 13 * 60 : 16 * 60;
+  return minutes >= 9 * 60 + 30 && minutes < close;
 }
 
 /** Chainlink's directory entry for a feed, to check the fixed addresses against the source of truth. */
