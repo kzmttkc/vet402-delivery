@@ -25,6 +25,8 @@ export interface SolanaConfig {
   rpcUrl: string;
   facilitatorUrl: string;
   dailyCapAtomic: bigint;
+  /** Refunds per UTC day on this chain (default: the daily cap). */
+  dailyRefundCapAtomic: bigint;
 }
 
 export interface TempoConfig {
@@ -34,6 +36,8 @@ export interface TempoConfig {
   rpcUrl: string;
   mppSecret: string;
   dailyCapAtomic: bigint;
+  /** Refunds per UTC day on this chain (default: the daily cap). */
+  dailyRefundCapAtomic: bigint;
 }
 
 export interface ProxyConfig {
@@ -95,6 +99,7 @@ export function configFromEnv(env: Env): ProxyConfig {
       rpcUrl: env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
       facilitatorUrl: env.VET402_PROXY_FACILITATOR_URL ?? DEFAULT_FACILITATOR_URL,
       dailyCapAtomic: cap("VET402_PROXY_SOLANA_DAILY_CAP", env.VET402_PROXY_SOLANA_DAILY_CAP, PROXY_SOLANA_DAILY_CAP_CEILING_ATOMIC),
+      dailyRefundCapAtomic: cap("VET402_PROXY_SOLANA_REFUND_DAILY_CAP", env.VET402_PROXY_SOLANA_REFUND_DAILY_CAP ?? env.VET402_PROXY_SOLANA_DAILY_CAP, PROXY_SOLANA_DAILY_CAP_CEILING_ATOMIC),
     };
   }
 
@@ -116,6 +121,7 @@ export function configFromEnv(env: Env): ProxyConfig {
       rpcUrl: env.TEMPO_RPC_URL ?? TEMPO_RPC_URL,
       mppSecret: secret,
       dailyCapAtomic: cap("VET402_PROXY_TEMPO_DAILY_CAP", env.VET402_PROXY_TEMPO_DAILY_CAP, TEMPO_LEDGER_CEILING),
+      dailyRefundCapAtomic: cap("VET402_PROXY_TEMPO_REFUND_DAILY_CAP", env.VET402_PROXY_TEMPO_REFUND_DAILY_CAP ?? env.VET402_PROXY_TEMPO_DAILY_CAP, TEMPO_LEDGER_CEILING),
     };
   }
 
@@ -141,8 +147,8 @@ export function describeConfig(c: ProxyConfig): Record<string, unknown> {
     fee: c.feeAtomic.toString(),
     maxPerCall: c.maxPerCallAtomic.toString(),
     dailyMaxPurchases: c.dailyMaxPurchases,
-    solana: c.solana ? { receive: c.solana.receive, payer: c.solana.payer, rpcUrl: redactUrl(c.solana.rpcUrl), facilitator: c.solana.facilitatorUrl, dailyCap: c.solana.dailyCapAtomic.toString() } : null,
-    tempo: c.tempo ? { receive: c.tempo.receive, payer: c.tempo.payer, rpcUrl: redactUrl(c.tempo.rpcUrl), dailyCap: c.tempo.dailyCapAtomic.toString() } : null,
+    solana: c.solana ? { receive: c.solana.receive, payer: c.solana.payer, rpcUrl: redactUrl(c.solana.rpcUrl), facilitator: c.solana.facilitatorUrl, dailyCap: c.solana.dailyCapAtomic.toString(), dailyRefundCap: c.solana.dailyRefundCapAtomic.toString() } : null,
+    tempo: c.tempo ? { receive: c.tempo.receive, payer: c.tempo.payer, rpcUrl: redactUrl(c.tempo.rpcUrl), dailyCap: c.tempo.dailyCapAtomic.toString(), dailyRefundCap: c.tempo.dailyRefundCapAtomic.toString() } : null,
   };
 }
 

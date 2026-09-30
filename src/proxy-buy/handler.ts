@@ -16,7 +16,7 @@ import { quote, type Quote, type QuoteDeps, type Refused } from "./quote.js";
 import { paySolana, paymentRequiredHeader, solanaPriceInfo, solanaRequirements, type PaidAnswer, type SolanaSide } from "./solana.js";
 import { payTempo, tempoPriceInfo, tempoRoute, type TempoSide } from "./tempo.js";
 import { atomicToUsdc } from "../constants.js";
-import { OFFER_TTL_SECONDS } from "./constants.js";
+import { OFFER_TTL_SECONDS, REFUND_POLICY } from "./constants.js";
 
 export interface ProxyBuyOptions {
   enabled: boolean;
@@ -94,8 +94,8 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
         const reqs = await solanaRequirements(solCtx(), qq.solana, qq.target);
         headers["PAYMENT-REQUIRED"] = await paymentRequiredHeader(solCtx(), reqs, description(qq.target));
         offers.solana = solanaPriceInfo(qq.solana, o.feeAtomic);
-      } catch (e) {
-        offers.solana = { refused: "facilitator_unavailable", detail: String((e as Error).message ?? e).slice(0, 200) };
+      } catch {
+        offers.solana = { refused: "facilitator_unavailable", detail: "the facilitator could not be read" };
       }
     } else {
       offers.solana = qq.solana.ok ? { refused: "chain_not_offered" } : { refused: qq.solana.reason, detail: qq.solana.detail };
@@ -125,8 +125,8 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
           what: "vet402 pays this seller from its own wallet after your payment settles, and returns the seller's answer with both transactions and a public record",
           fee: atomicToUsdc(o.feeAtomic),
           offers,
-          refund: "none",
-          stops: "vet402 does not pay the seller (and you are not charged) when the seller's price or payTo changes before your payment settles, or when vet402's daily cap or balance would be passed",
+          refund: REFUND_POLICY,
+          stops: "you are not charged when the seller's price or payTo changes before your payment settles, or when vet402's daily cap or balance would be passed",
         },
       },
       headers,

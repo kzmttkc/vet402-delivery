@@ -14,6 +14,9 @@ import type { TxCheck } from "./txcheck.js";
 
 const parser = new x402HTTPClient(new x402Client());
 
+/** Largest unpaid 402 body read by probe402. */
+const PROBE_MAX_BODY_BYTES = 1_000_000;
+
 export interface Probe402 {
   status: number | null;
   contentType: string | null;
@@ -41,7 +44,9 @@ export async function probe402(url: string, fetchImpl: typeof fetch): Promise<Pr
   }
   let body: unknown;
   try {
-    body = JSON.parse(await res.text());
+    // A 402 body is a few KB; one above PROBE_MAX_BODY_BYTES is not read further (only its headers count).
+    const b = await readBody(res, PROBE_MAX_BODY_BYTES);
+    body = b.truncated ? undefined : JSON.parse(new TextDecoder().decode(b.bytes));
   } catch {
     body = undefined;
   }
@@ -89,6 +94,12 @@ export interface PayDeps {
    * 2xx and a non-empty body (gate 1). Never affects whether or what is paid.
    */
   judge?: (d: { status: number; contentType: string | null; bodyText: string }) => DeliveryJudgementLike;
+  /**
+   * Optional, for a caller that hands the answer on (proxy buy): read at most this many bytes of the paid
+   * answer (unset: the whole answer, as before), and receive them as read. Never affects whether or what is paid.
+   */
+  maxBodyBytes?: number;
+  onBody?: (bytes: Uint8Array, truncated: boolean) => void;
 }
 
 export interface DeliveryJudgementLike {
@@ -199,7 +210,14 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
   if (paid) {
     let text = "";
     try {
-      text = await paid.text();
+      const body = await readBody(paid, deps.maxBodyBytes);
+      // The same UTF-8 decoding as Response.text(), from the bytes that were read.
+      text = new TextDecoder().decode(body.bytes);
+      try {
+        deps.onBody?.(body.bytes, body.truncated);
+      } catch {
+        // a caller's hook must not change the record of a sent payment
+      }
     } catch (e) {
       rec.response = { status: paid.status, contentType: paid.headers.get("content-type"), first300: null, error: `body: ${(e as Error).message}` };
     }
@@ -230,4 +248,25 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
     /* recorded as unknown */
   }
   return rec;
+}
+
+/** The paid answer's bytes: all of them when `max` is unset (Response.arrayBuffer), else at most `max`. */
+async function readBody(res: Response, max: number | undefined): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  if (max === undefined) return { bytes: new Uint8Array(await res.arrayBuffer()), truncated: false };
+  if (!res.body) return { bytes: new Uint8Array(0), truncated: false };
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (n + value.byteLength > max) {
+      chunks.push(value.subarray(0, max - n));
+      await reader.cancel().catch(() => undefined);
+      return { bytes: Buffer.concat(chunks), truncated: true };
+    }
+    n += value.byteLength;
+    chunks.push(value);
+  }
+  return { bytes: Buffer.concat(chunks), truncated: false };
 }

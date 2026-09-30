@@ -16,6 +16,13 @@ import { USDC_E } from "../src/tempo/constants.js";
 import { loadAllowlist } from "../src/proxy-buy/allowlist.js";
 import { Books } from "../src/proxy-buy/books.js";
 import { confirmSolanaTransfer } from "../src/proxy-buy/wire.js";
+import { decodePaymentSignatureHeader } from "@x402/core/http";
+import { solanaPaymentKey } from "../src/proxy-buy/solana.js";
+import { QUOTE_MAX_BODY_BYTES, readTextCapped } from "../src/proxy-buy/quote.js";
+import { checkSolanaRefundTx, sendSolanaRefund } from "../src/proxy-buy/refund.js";
+import { redact, refusalReason } from "../src/proxy-buy/reasons.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { configFromEnv, describeConfig } from "../src/proxy-buy/config.js";
 import {
   FakeChain,
@@ -140,10 +147,18 @@ test("solana: the seller raised its price between vet402's re-read and its payme
   const j = (await res.json()) as Record<string, any>;
   assert.equal(j.error, "seller_not_paid");
   assert.match(j.reason, /price_raised/);
-  assert.equal(j.refund, "none");
   assert.equal(r.fac.settles, 1, "the agent's payment settled before the third read");
   assert.equal(r.sellerPays.length, 0);
   assert.equal(r.seller.paidRequests, 0);
+  // the agent's full payment goes back to the address that paid
+  assert.equal(j.refund.status, "sent");
+  assert.equal(j.refund.to, agent.address);
+  assert.equal(j.refund.amountAtomic, "15000");
+  assert.equal(res.headers.get("x-vet402-refund-tx"), "refundtx1");
+  assert.deepEqual(r.refunds, [{ to: agent.address, amount: 15_000n }]);
+  const rec = (await (await r.buy.handle(new Request(j.record))).json()) as Record<string, any>;
+  assert.equal(rec.refund.tx, "refundtx1");
+  assert.equal(rec.outcome, "seller_not_paid");
 });
 
 test("solana: the seller's payTo changed to an address vet402 never paid -> 403 before any charge", async () => {
@@ -167,6 +182,8 @@ test("solana: payTo changed between vet402's re-read and its payment -> payOne r
   const j = (await res.json()) as Record<string, any>;
   assert.match(j.reason, /payto_mismatch/);
   assert.equal(r.sellerPays.length, 0);
+  assert.equal(j.refund.status, "sent");
+  assert.equal(r.refunds.length, 1);
 });
 
 test("solana: the same signed payment sent twice at once settles and pays once; the other is 409", async () => {
@@ -180,10 +197,36 @@ test("solana: the same signed payment sent twice at once settles and pays once; 
   // replayed later, and after a restart of the process (keys are on disk)
   assert.equal((await r.buy.handle(paidReq(header))).status, 409);
   r.books.release();
-  const books2 = new Books({ dataDir: r.dir, solana: { payer: proxyPayer.address, dailyCapAtomic: 2_000_000n, maxPerCallAtomic: 100_000n, dailyMaxPurchases: 100 } });
+  const books2 = new Books({ dataDir: r.dir, solana: { payer: proxyPayer.address, dailyCapAtomic: 2_000_000n, maxPerCallAtomic: 100_000n, dailyMaxPurchases: 100, dailyRefundCapAtomic: 1n, maxRefundAtomic: 1n } });
+  const key = solanaPaymentKey(decodePaymentSignatureHeader(header));
+  assert.equal(books2.claim(key, "solana", 1n, 0n), false, "the key is on disk");
   assert.equal(books2.claim("0".repeat(32), "solana", 1n, 0n), true);
-  const used = readdirSync(r.dir).includes("payment-keys.txt");
-  assert.equal(used, true);
+  books2.release();
+});
+
+test("solana: the same signed transaction re-encoded (extra payload fields, another JSON) is the same payment -> 409", async () => {
+  const r = solRig();
+  const { header } = await agentPaysSolana(r.buy);
+  assert.equal((await r.buy.handle(paidReq(header))).status, 200);
+  const p = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+  p.payload = { junk: "x", transaction: p.payload.transaction };
+  const again = await r.buy.handle(paidReq(Buffer.from(JSON.stringify(p)).toString("base64")));
+  assert.equal(again.status, 409);
+  assert.equal(r.fac.settles, 1);
+  assert.equal(r.sellerPays.length, 1);
+});
+
+test("solana: a facilitator that answers a new payment with an earlier settled transaction -> nothing paid or refunded for it", async () => {
+  const r = solRig();
+  r.fac.fixedTx = "custSAME";
+  const a = await agentPaysSolana(r.buy, S_URL, "ee112233445566778899aabbccddeeff");
+  assert.equal((await r.buy.handle(paidReq(a.header))).status, 200);
+  const b = await agentPaysSolana(r.buy, S_URL, "ff112233445566778899aabbccddeeff");
+  const rb = await r.buy.handle(paidReq(b.header));
+  assert.equal(rb.status, 409);
+  assert.equal(((await rb.json()) as Record<string, any>).error, "duplicate_customer_tx");
+  assert.equal(r.sellerPays.length, 1);
+  assert.equal(r.refunds.length, 0);
 });
 
 test("solana: two different payments at once when the daily cap has room for one -> one paid, one 503 with no charge", async () => {
@@ -242,10 +285,74 @@ test("solana: settlement refused by the facilitator -> no charge, seller not pai
   const b = await agentPaysSolana(r.buy, S_URL, "dd112233445566778899aabbccddeeff");
   const rb = await r.buy.handle(paidReq(b.header));
   assert.equal(rb.status, 502);
-  const jb = (await rb.json()) as Record<string, any>;
+  const text = await rb.text();
+  assert.doesNotMatch(text, /SECRET123|rpc\.example/, "an error message never reaches the answer");
+  const jb = JSON.parse(text) as Record<string, any>;
   assert.equal(jb.error, "customer_payment_unconfirmed");
   assert.equal(jb.charged, "unknown");
   assert.equal(r.sellerPays.length, 0);
+  assert.equal(r.refunds.length, 0, "no refund when it is not known that the agent paid");
+  const rec = await (await r.buy.handle(new Request(jb.record))).text();
+  assert.doesNotMatch(rec, /SECRET123|rpc\.example/);
+});
+
+test("solana: an RPC error with its URL (and key) in the message never reaches the answer", async () => {
+  const r = solRig();
+  r.state.balanceError = "fetch failed: https://mainnet.example-rpc.test/v2/SECRET-KEY-42";
+  const { header } = await agentPaysSolana(r.buy);
+  const res = await r.buy.handle(paidReq(header));
+  assert.equal(res.status, 503);
+  const text = await res.text();
+  assert.doesNotMatch(text, /SECRET-KEY-42|example-rpc/);
+  assert.equal(JSON.parse(text).reason, "ledger_unreadable");
+});
+
+test("solana: the seller's binary answer is handed over byte for byte; an answer above the cap is not forwarded and not refunded (the seller was paid)", async () => {
+  const bin = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x80]);
+  const r = solRig({ seller: { paidBody: bin, paidType: "image/png" } });
+  const { header } = await agentPaysSolana(r.buy);
+  const res = await r.buy.handle(paidReq(header));
+  assert.equal(res.status, 200);
+  assert.deepEqual(new Uint8Array(await res.arrayBuffer()), bin);
+  const big = solRig({ seller: { paidBody: new Uint8Array(1_000_001).fill(65) } });
+  const h2 = await agentPaysSolana(big.buy);
+  const r2 = await big.buy.handle(paidReq(h2.header));
+  assert.equal(r2.status, 502);
+  const j2 = (await r2.json()) as Record<string, any>;
+  assert.equal(j2.error, "answer_too_large");
+  assert.equal(j2.refund, "none");
+  assert.equal(big.sellerPays.length, 1);
+  assert.equal(big.refunds.length, 0);
+});
+
+test("solana: refund caps: over the daily refund cap the refund is refused and recorded; a failed refund is recorded, never retried", async () => {
+  const r = solRig({ refundCap: 10_000n, seller: { onRead: (n, s) => { if (n === 3) s.price = 12_000n; } } });
+  const { header } = await agentPaysSolana(r.buy);
+  const j = (await (await r.buy.handle(paidReq(header))).json()) as Record<string, any>;
+  assert.equal(j.refund.status, "refused");
+  assert.equal(j.refund.reason, "daily_refund_cap_reached");
+  assert.equal(r.refunds.length, 0);
+  const f = solRig({ seller: { onRead: (n, s) => { if (n === 3) s.price = 12_000n; } } });
+  f.state.refund = "failed";
+  const h = await agentPaysSolana(f.buy);
+  const jf = (await (await f.buy.handle(paidReq(h.header))).json()) as Record<string, any>;
+  assert.equal(jf.refund.status, "failed");
+  // sent again: stopped before any settlement (the raised price, or the spent key), and never refunded twice
+  assert.ok([402, 409].includes((await f.buy.handle(paidReq(h.header))).status));
+  assert.equal(f.fac.settles, 1);
+  assert.equal(f.refunds.length, 0);
+});
+
+test("solana: a quote whose 402 body is huge still reads the x402 header, without reading the whole body", async () => {
+  const r = solRig();
+  const huge = "x".repeat(2_000_000);
+  const orig = solSellerFetch(r.seller, r.fetched);
+  const fetchHuge = (async (u: string | URL, init?: RequestInit) => {
+    const res = await orig(u, init);
+    return new Response(huge, { status: res.status, headers: res.headers });
+  }) as unknown as typeof fetch;
+  const text = await readTextCapped(await fetchHuge(S_URL), QUOTE_MAX_BODY_BYTES);
+  assert.equal(text, "");
 });
 
 test("solana: a payment to another address or for another amount is refused by verify, nothing settled", async () => {
@@ -329,7 +436,9 @@ test("confirmSolanaTransfer: exact amount into the receive wallet, failed tx and
   assert.equal((await confirmSolanaTransfer(rpcWith(tx("14999")), "sig", agent.address, RECEIVE, 15_000n, { sleep: noSleep })).ok, false);
   assert.equal((await confirmSolanaTransfer(rpcWith(tx("15000", { InstructionError: [0, "x"] })), "sig", agent.address, RECEIVE, 15_000n, { sleep: noSleep })).ok, false);
   assert.equal((await confirmSolanaTransfer(rpcWith(null), "sig", agent.address, RECEIVE, 15_000n, { timeoutMs: 0, sleep: noSleep })).ok, false);
-  assert.equal((await confirmSolanaTransfer(rpcWith(tx("15000")), "sig", null, RECEIVE, 15_000n, { sleep: noSleep })).ok, false);
+  // a facilitator that names no payer: the receive wallet's increase still decides
+  assert.deepEqual(await confirmSolanaTransfer(rpcWith(tx("15000")), "sig", null, RECEIVE, 15_000n, { sleep: noSleep }), { ok: true });
+  assert.equal((await confirmSolanaTransfer(rpcWith(tx("1")), "sig", null, RECEIVE, 15_000n, { sleep: noSleep })).ok, false);
 });
 
 // ================= Tempo =================
@@ -412,8 +521,23 @@ test("tempo: price raised between vet402's re-read and its payment -> payOne ref
   const j = (await res.json()) as Record<string, any>;
   assert.equal(j.error, "seller_not_paid");
   assert.match(j.reason, /price_raised/);
-  assert.equal(r.chain.broadcasts, 1);
   assert.equal(r.seller.paidRequests, 0);
+  // the refund: a real signed Tempo transfer, read back and "mined" by the fake RPC
+  assert.equal(j.refund.status, "sent");
+  assert.equal(j.refund.to.toLowerCase(), tAgent.address.toLowerCase());
+  assert.equal(j.refund.amountAtomic, "13000");
+  assert.match(res.headers.get("x-vet402-refund-tx")!, /^0x[0-9a-f]{64}$/);
+  assert.equal(r.chain.broadcasts, 2, "the agent's payment, then the refund");
+  assert.deepEqual(r.chain.sent.map((x) => [x.from, x.to, x.amount]), [
+    [tAgent.address.toLowerCase(), T_RECEIVE.toLowerCase(), 13_000n],
+    [tProxy.address.toLowerCase(), tAgent.address.toLowerCase(), 13_000n],
+  ]);
+  // the refund does not count as unexplained outflow for the next purchase of the day
+  r.state.outflow = 13_000n + 31n;
+  r.seller.onRead = undefined;
+  r.seller.price = "8000";
+  const cred2 = await agentPaysTempo(r);
+  assert.equal((await r.buy.handle(tPaid(cred2))).status, 200);
 });
 
 test("tempo: recipient changed to an address vet402 never paid -> 403 before any broadcast", async () => {
@@ -431,8 +555,10 @@ test("tempo: recipient changed between vet402's re-read and its payment -> recip
   const cred = await agentPaysTempo(r);
   const res = await r.buy.handle(tPaid(cred));
   assert.equal(res.status, 502);
-  assert.match(((await res.json()) as Record<string, any>).reason, /recipient_mismatch/);
+  const j = (await res.json()) as Record<string, any>;
+  assert.match(j.reason, /recipient_mismatch/);
   assert.equal(r.seller.paidRequests, 0);
+  assert.equal(j.refund.status, "sent");
 });
 
 test("tempo: the same credential sent twice at once is broadcast and paid once; the other is 409", async () => {
@@ -487,20 +613,33 @@ test("tempo: the agent's transfer is not found on chain after the broadcast -> s
   assert.equal(r.seller.paidRequests, 0);
 });
 
-test("tempo: a chain read fails inside the seller payment after the agent paid -> 502 seller_payment_unknown, recorded, not retried", async () => {
+test("tempo: a chain read fails inside the seller payment after the agent paid (before anything is signed) -> refunded, recorded, not retried", async () => {
   const r = tRig();
   r.state.failBalanceAt = 2; // 1 = headroom before the broadcast, 2 = payOne's own balance read
   const cred = await agentPaysTempo(r);
   const res = await r.buy.handle(tPaid(cred));
   assert.equal(res.status, 502);
   const j = (await res.json()) as Record<string, any>;
-  assert.equal(j.error, "seller_payment_unknown");
-  assert.match(j.reason, /rpc down/);
-  assert.equal(r.chain.broadcasts, 1);
+  assert.equal(j.error, "seller_not_paid");
+  assert.equal(j.reason, "seller_payment_error");
+  assert.doesNotMatch(JSON.stringify(j), /rpc down/, "the error text itself is not shown");
+  assert.equal(j.refund.status, "sent");
   assert.equal(r.seller.paidRequests, 0);
   const rec = (await (await r.buy.handle(new Request(j.record))).json()) as Record<string, any>;
-  assert.equal(rec.outcome, "seller_payment_unknown");
+  assert.equal(rec.refund.status, "sent");
   assert.equal((await r.buy.handle(tPaid(cred))).status, 409);
+  assert.equal(r.chain.broadcasts, 2);
+});
+
+test("tempo: the same signed transaction in a re-encoded credential is the same payment -> 409", async () => {
+  const r = tRig();
+  const cred = await agentPaysTempo(r);
+  assert.equal((await r.buy.handle(tPaid(cred))).status, 200);
+  const c = JSON.parse(Buffer.from(cred.replace(/^Payment\s+/, ""), "base64url").toString("utf8"));
+  const re = `Payment ${Buffer.from(JSON.stringify({ extra: 1, ...c })).toString("base64url")}`;
+  const again = await r.buy.handle(tPaid(re));
+  assert.equal(again.status, 409);
+  assert.equal(r.chain.broadcasts, 1);
 });
 
 test("tempo: flag off -> nothing read, broadcast or written", async () => {
@@ -560,4 +699,98 @@ test("config: keys come from env, are never printed, and the census payers are r
   assert.throws(() => configFromEnv({ ...env, VET402_PROXY_SOLANA_DAILY_CAP: "6.00" }), /at most/);
   assert.throws(() => configFromEnv({ ...env, VET402_PROXY_TEMPO_RECEIVE: env.VET402_PROXY_TEMPO_PAYER }), /must differ/);
   assert.equal(configFromEnv({ ...env, VET402_PROXY_BUY_ENABLED: "true" }).enabled, false, "only the exact value 1 switches it on");
+});
+
+// ================= books: day boundary, refunds =================
+
+const caps = { payer: "", dailyCapAtomic: 2_000_000n, dailyMaxPurchases: 100, dailyRefundCapAtomic: 200_000n, maxRefundAtomic: 105_000n };
+
+test("UTC day boundary: a purchase in flight keeps its day ledger; the next day opens only when none is in flight", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "proxy-buy-day-"));
+  const b = new Books({ dataDir: dir, solana: { ...caps, payer: proxyPayer.address, maxPerCallAtomic: 100_000n }, tempo: { ...caps, payer: tProxy.address } });
+  const d1 = new Date("2026-10-01T23:59:59Z");
+  const d2 = new Date("2026-10-02T00:00:01Z");
+  // Solana
+  assert.equal(b.claim("k1", "solana", 10_000n, 0n), true);
+  const h = b.solanaHeadroom(d1, { usdcAtomic: 1_000_000n, lamports: 10_000_000n }, "k1", 10_000n, 15_000n);
+  assert.ok(h.ok);
+  assert.equal(b.solanaBudget(d2, 1_000_000n, "k2").day, "2026-10-01", "k1 is in flight: the new day waits");
+  b.done("k1");
+  assert.equal(b.solanaBudget(d2, 1_000_000n, "k2").day, "2026-10-02");
+  // Tempo: the start block of the new day is read only when the old day's purchases are over
+  let head = 100n;
+  assert.equal(b.claim("t1", "tempo", 8_000n, 2_000n), true);
+  const t = await b.tempoHeadroom(d1, async () => head, "t1", { amount: 8_000n, feeReserve: 2_000n, refundTotal: 13_000n }, { spentSinceStart: async () => 0n, balance: async () => 1_000_000n });
+  assert.ok(t.ok);
+  head = 200n;
+  assert.equal((await b.tempoLedger(d2, async () => head, "t2")).day, "2026-10-01");
+  b.done("t1");
+  const nd = await b.tempoLedger(d2, async () => head, "t2");
+  assert.equal(nd.day, "2026-10-02");
+  assert.equal(nd.startBlock, 200n);
+});
+
+test("refunds: one per payment key, also after a restart; per-refund and daily caps; refunds are not counted as unexplained Tempo outflow", () => {
+  const dir = mkdtempSync(join(tmpdir(), "proxy-buy-refund-"));
+  const now = new Date("2026-10-01T10:00:00Z");
+  const b = new Books({ dataDir: dir, tempo: { ...caps, payer: tProxy.address } });
+  assert.deepEqual(b.refundClaim("p1", "tempo", "2026-10-01", tAgent.address, 13_000n, now), { ok: true });
+  b.refundResult("p1", { status: "sent", tx: "0xabc", feePaid: "31" }, now);
+  assert.deepEqual(b.refundClaim("p1", "tempo", "2026-10-01", tAgent.address, 13_000n, now), { ok: false, reason: "already_refunded" });
+  assert.deepEqual(b.refundClaim("p2", "tempo", "2026-10-01", tAgent.address, 105_001n, now), { ok: false, reason: "refund_over_cap" });
+  assert.equal(b.tempoRefundOutflow("2026-10-01"), 13_031n);
+  const b2 = new Books({ dataDir: dir, tempo: { ...caps, payer: tProxy.address } });
+  assert.deepEqual(b2.refundClaim("p1", "tempo", "2026-10-01", tAgent.address, 13_000n, now), { ok: false, reason: "already_refunded" });
+  // daily cap: 200_000 per day; 13_000 already out
+  assert.deepEqual(b2.refundClaim("p3", "tempo", "2026-10-01", tAgent.address, 100_000n, now), { ok: true });
+  assert.deepEqual(b2.refundClaim("p4", "tempo", "2026-10-01", tAgent.address, 100_000n, now), { ok: false, reason: "daily_refund_cap_reached" });
+  assert.deepEqual(b2.refundClaim("p5", "tempo", "2026-10-02", tAgent.address, 100_000n, now), { ok: true });
+  // a pending refund (no result yet) counts with the fee reserve
+  assert.equal(b2.tempoRefundOutflow("2026-10-01"), 13_031n + 100_000n + 2_000n);
+});
+
+test("solana refund: exactly one USDC transfer to the agent's account, read back before it is sent, confirmed on chain", async () => {
+  const sent: string[] = [];
+  const rpc = async (method: string, params: unknown[]) => {
+    if (method === "getLatestBlockhash") return { value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 10 } };
+    if (method === "sendTransaction") {
+      sent.push(String(params[0]));
+      return "sig";
+    }
+    if (method === "getTransaction") {
+      return {
+        meta: {
+          err: null,
+          preBalances: [0],
+          postBalances: [0],
+          preTokenBalances: [{ owner: agent.address, mint: USDC_MINT, uiTokenAmount: { amount: "100" } }],
+          postTokenBalances: [{ owner: agent.address, mint: USDC_MINT, uiTokenAmount: { amount: "15100" } }],
+        },
+        transaction: { message: { accountKeys: [{ pubkey: proxyPayer.address, signer: true, writable: true }], instructions: [] } },
+      };
+    }
+    throw new Error(`unhandled ${method}`);
+  };
+  const out = await sendSolanaRefund({ rpc, signer: proxyPayer, sleep: async () => undefined }, agent.address, 15_000n);
+  assert.equal(out.status, "sent");
+  assert.equal(sent.length, 1);
+  assert.equal(await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: agent.address, amount: 15_000n }), null);
+  assert.match((await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: agent.address, amount: 15_001n }))!, /amount/);
+  assert.match((await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: SELLER, amount: 15_000n }))!, /destination/);
+  // to itself, or an off-curve address: refused before anything is built
+  assert.equal((await sendSolanaRefund({ rpc, signer: proxyPayer }, proxyPayer.address, 15_000n)).status, "failed");
+  // an RPC that cannot give a blockhash: failed, nothing sent
+  const down = async () => {
+    throw new Error("https://rpc.example.test/?api-key=SECRET");
+  };
+  const f = await sendSolanaRefund({ rpc: down, signer: proxyPayer }, agent.address, 15_000n);
+  assert.deepEqual(f, { status: "failed", reason: "rpc_error", tx: null });
+});
+
+test("reasons: URLs and credentials are removed; only offer-level refusal details are shown", () => {
+  assert.equal(redact("POST https://rpc.x.test/v2/abc?api-key=K failed"), "POST <url> failed");
+  assert.equal(redact("token=abc123 bad"), "token=<redacted> bad");
+  assert.equal(refusalReason({ refused: "price_raised", detail: "amount 12000 > recorded 10000" }), "price_raised: amount 12000 > recorded 10000");
+  assert.equal(refusalReason({ refused: "ledger_unreadable", detail: "cannot read balances: https://rpc/KEY" }), "ledger_unreadable");
+  assert.equal(refusalReason({ refused: "tx_check_failed", detail: "payload not created: https://rpc/KEY" }), "tx_check_failed");
 });

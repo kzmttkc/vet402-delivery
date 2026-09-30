@@ -86,17 +86,15 @@ export async function quote(rawTarget: string | null, deps: QuoteDeps): Promise<
       redirect: "manual",
       signal: AbortSignal.timeout(deps.timeoutMs ?? 20_000),
     });
-  } catch (e) {
-    return refused(502, "seller_unreachable", `fetch: ${(e as Error).message}`.slice(0, 200));
+  } catch {
+    return refused(502, "seller_unreachable", "the seller did not answer the unpaid request");
   }
   const www = res.headers.get("www-authenticate");
-  let bodyText = "";
-  try {
-    bodyText = await res.text();
-  } catch {
-    bodyText = "";
+  if (res.status !== 402) {
+    await res.body?.cancel().catch(() => undefined);
+    return refused(422, "not_402", `the seller answered ${res.status} to an unpaid request, not 402`);
   }
-  if (res.status !== 402) return refused(422, "not_402", `the seller answered ${res.status} to an unpaid request, not 402`);
+  const bodyText = await readTextCapped(res, QUOTE_MAX_BODY_BYTES);
 
   return {
     target: t.url,
@@ -142,6 +140,32 @@ function tempoOffer(www: string | null, host: string, deps: QuoteDeps): TempoOff
   const known = deps.allowlist.find("tempo", host, recipient);
   if (!known) return refused(403, "payto_not_allowlisted", `vet402 has not paid ${recipient} at ${host} with a settled payment`);
   return { ok: true, chain: "tempo", challenge: ch!, request: req, sellerAtomic: BigInt(req.amount), known };
+}
+
+/** A 402 body larger than this is not read further (x402 requirements are a few KB; v2 puts them in a header). */
+export const QUOTE_MAX_BODY_BYTES = 64 * 1024;
+
+/** The body as text, at most `max` bytes of it; anything unreadable is "". */
+export async function readTextCapped(res: Response, max: number): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (n + value.byteLength > max) {
+        await reader.cancel().catch(() => undefined);
+        return ""; // too large to be a 402 worth parsing
+      }
+      n += value.byteLength;
+      chunks.push(value);
+    }
+  } catch {
+    return "";
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
 }
 
 /** What the agent pays for a seller price. */

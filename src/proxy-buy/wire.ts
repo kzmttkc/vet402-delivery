@@ -18,6 +18,7 @@ import { findPayerTransfers, headBlock, payerTransfers, signerFor, usdcBalance, 
 import { PAYER_ADDRESS as TEMPO_CENSUS_PAYER, USDC_E } from "../tempo/constants.js";
 import type { SolanaConfig, TempoConfig } from "./config.js";
 import { CUSTOMER_CONFIRM_TIMEOUT_MS } from "./constants.js";
+import { Serial, sendSolanaRefund, sendTempoRefund } from "./refund.js";
 import type { SolanaSide } from "./solana.js";
 import type { MppServer, TempoSide } from "./tempo.js";
 
@@ -35,22 +36,22 @@ export async function confirmSolanaTransfer(
   amount: bigint,
   o: { timeoutMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<{ ok: true } | { ok: false; detail: string }> {
-  if (!payer) return { ok: false, detail: "the facilitator did not name the payer" };
+  // Only the receive wallet's USDC increase is checked, so a facilitator that names no payer does not block this.
   const deadline = Date.now() + (o.timeoutMs ?? CUSTOMER_CONFIRM_TIMEOUT_MS);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  let last = "not found";
+  // Fixed reason codes only: an RPC error message can carry the RPC URL.
   for (;;) {
     try {
-      const r = await readTransaction(rpc, tx, payer, receive);
+      const r = await readTransaction(rpc, tx, payer ?? "", receive);
       if (r.found) {
-        if (r.err !== null) return { ok: false, detail: `the agent's transaction failed on chain: ${JSON.stringify(r.err)}`.slice(0, 200) };
-        if (r.payToDeltaAtomic !== amount.toString()) return { ok: false, detail: `receive wallet got ${r.payToDeltaAtomic}, expected ${amount}` };
+        if (r.err !== null) return { ok: false, detail: "customer_tx_failed_on_chain" };
+        if (r.payToDeltaAtomic !== amount.toString()) return { ok: false, detail: `customer_amount_mismatch: receive wallet got ${r.payToDeltaAtomic}, expected ${amount}` };
         return { ok: true };
       }
-    } catch (e) {
-      last = (e as Error).message;
+    } catch {
+      /* keep polling */
     }
-    if (Date.now() >= deadline) return { ok: false, detail: `not confirmed on chain in time (${last})`.slice(0, 200) };
+    if (Date.now() >= deadline) return { ok: false, detail: "customer_tx_not_confirmed_in_time" };
     await sleep(o.intervalMs ?? 2_000);
   }
 }
@@ -75,8 +76,12 @@ export async function solanaSide(c: SolanaConfig, own: string[]): Promise<Solana
       ownAddresses: own,
     },
     confirmCustomer: (tx, payer, amount) => confirmSolanaTransfer(rpc, tx, payer, c.receive, amount),
+    refund: (to, amount) => solanaRefunds.run(() => sendSolanaRefund({ rpc, signer }, to, amount)),
   };
 }
+
+const solanaRefunds = new Serial();
+const tempoRefunds = new Serial();
 
 /** The mppx server behind the MppServer interface. */
 export function mppServer(c: TempoConfig, realm: string): MppServer {
@@ -140,9 +145,13 @@ export function tempoSide(c: TempoConfig, realm: string): TempoSide {
     outflowSince,
     head: () => headBlock(c.rpcUrl),
     confirmCustomer: async (tx, payer, amount) => {
-      if (!payer) return { ok: false, detail: "mppx did not name the sender" };
+      if (!payer) return { ok: false, detail: "customer_sender_unknown" };
       const s = await verifySettlement(tx, { payer, recipient: c.receive, amount }, c.rpcUrl);
-      return s.settled ? { ok: true } : { ok: false, detail: s.detail };
+      return s.settled ? { ok: true } : { ok: false, detail: `customer_tx_not_confirmed: ${s.detail}` };
     },
+    refund: (to, amount) =>
+      tempoRefunds.run(() =>
+        sendTempoRefund({ account, client: createClient({ chain: tempoChain, transport }), verify: (tx, exp) => verifySettlement(tx, exp, c.rpcUrl) }, to, amount),
+      ),
   };
 }

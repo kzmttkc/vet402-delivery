@@ -11,7 +11,7 @@ import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from "@x402
 import type { PaymentPayload } from "@x402/core/types";
 import { signerFor } from "../src/tempo/chain.js";
 import { startServer, writeResponse } from "../src/proxy-buy/http.js";
-import { agent, ORIGIN, S_URL, solRig, T_RECEIVE, T_URL, tAgent, transferTx, tRig } from "./proxy-buy-fakes.js";
+import { agent, ORIGIN, S_URL, SELLER2, solRig, T_RECEIVE, T_URL, tAgent, transferTx, tRig } from "./proxy-buy-fakes.js";
 
 /** A mock seller behind a real socket. The rig's seller logic answers; the host is carried in a header. */
 async function sellerOverHttp(): Promise<{ server: Server; wrap: (f: typeof fetch) => typeof fetch; hits: () => number }> {
@@ -99,6 +99,31 @@ test("e2e solana: the seller goes down after being paid -> 502 with the record, 
     assert.equal(j.error, "not_delivered");
     assert.equal(j.sellerStatus, 503);
     assert.equal(j.refund, "none");
+  } finally {
+    r.books.release();
+    await close(proxy.server);
+    await close(seller.server);
+  }
+});
+
+test("e2e solana: the seller moves its payTo right before vet402 pays -> seller not paid, the agent is refunded, over HTTP", async () => {
+  const seller = await sellerOverHttp();
+  const r = solRig({ wrapSeller: seller.wrap, seller: { onRead: (n, s) => { if (n === 3) s.payTo = SELLER2; } } });
+  const proxy = await proxyOverHttp(r.buy);
+  try {
+    const first = await fetch(`${proxy.base}${q(S_URL)}`);
+    const pr = decodePaymentRequiredHeader(first.headers.get("payment-required")!);
+    const req = pr.accepts[0]!;
+    const tx = await transferTx(agent, String(req.extra?.feePayer), req.payTo, BigInt(req.amount));
+    const header = encodePaymentSignatureHeader({ x402Version: 2, resource: pr.resource, accepted: req, payload: { transaction: tx } } as PaymentPayload);
+    const paid = await fetch(`${proxy.base}${q(S_URL)}`, { headers: { "payment-signature": header } });
+    assert.equal(paid.status, 502);
+    const j = (await paid.json()) as Record<string, any>;
+    assert.equal(j.error, "seller_not_paid");
+    assert.equal(j.refund.status, "sent");
+    assert.equal(paid.headers.get("x-vet402-refund-tx"), "refundtx1");
+    assert.deepEqual(r.refunds, [{ to: agent.address, amount: 15_000n }]);
+    assert.equal(r.sellerPays.length, 0);
   } finally {
     r.books.release();
     await close(proxy.server);

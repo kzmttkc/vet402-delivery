@@ -14,6 +14,7 @@ import { Books } from "../src/proxy-buy/books.js";
 import { configFromEnv, describeConfig } from "../src/proxy-buy/config.js";
 import { createProxyBuy } from "../src/proxy-buy/handler.js";
 import { startServer } from "../src/proxy-buy/http.js";
+import { redact } from "../src/proxy-buy/reasons.js";
 import { ownAddresses, solanaSide, tempoSide } from "../src/proxy-buy/wire.js";
 
 async function main(): Promise<void> {
@@ -31,11 +32,17 @@ async function main(): Promise<void> {
   if (!cfg.solana && !cfg.tempo) throw new Error("neither Solana nor Tempo is configured");
 
   const own = ownAddresses(cfg.solana, cfg.tempo);
+  // One refund is at most what one purchase can charge: the per-purchase cap plus the fee.
+  const maxRefund = cfg.maxPerCallAtomic + cfg.feeAtomic;
   const books = new Books({
     dataDir: cfg.dataDir,
     lock: true,
-    ...(cfg.solana ? { solana: { payer: cfg.solana.payer, dailyCapAtomic: cfg.solana.dailyCapAtomic, maxPerCallAtomic: cfg.maxPerCallAtomic, dailyMaxPurchases: cfg.dailyMaxPurchases } } : {}),
-    ...(cfg.tempo ? { tempo: { payer: cfg.tempo.payer, dailyCapAtomic: cfg.tempo.dailyCapAtomic, dailyMaxPurchases: cfg.dailyMaxPurchases } } : {}),
+    ...(cfg.solana
+      ? { solana: { payer: cfg.solana.payer, dailyCapAtomic: cfg.solana.dailyCapAtomic, maxPerCallAtomic: cfg.maxPerCallAtomic, dailyMaxPurchases: cfg.dailyMaxPurchases, dailyRefundCapAtomic: cfg.solana.dailyRefundCapAtomic, maxRefundAtomic: maxRefund } }
+      : {}),
+    ...(cfg.tempo
+      ? { tempo: { payer: cfg.tempo.payer, dailyCapAtomic: cfg.tempo.dailyCapAtomic, dailyMaxPurchases: cfg.dailyMaxPurchases, dailyRefundCapAtomic: cfg.tempo.dailyRefundCapAtomic, maxRefundAtomic: maxRefund } }
+      : {}),
   });
   const realm = new URL(cfg.publicOrigin).host;
   const buy = createProxyBuy({
@@ -54,7 +61,7 @@ async function main(): Promise<void> {
     origin: cfg.publicOrigin,
     trustProxy: process.env.VET402_PROXY_TRUST_PROXY === "1",
     // The message only: an error object can carry request data, never print it whole.
-    onError: (e) => console.error(`proxy buy: unexpected error: ${String((e as Error).message ?? e).slice(0, 200)}`),
+    onError: (e) => console.error(`proxy buy: unexpected error: ${redact(String((e as Error).message ?? e))}`),
   });
   console.log(`proxy buy listening on ${process.env.HOST ?? "127.0.0.1"}:${cfg.port} (enabled: ${cfg.enabled})`);
   const stop = () => {
@@ -68,6 +75,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error(`proxy buy: ${String((e as Error).message ?? e).slice(0, 300)}`);
+  console.error(`proxy buy: ${redact(String((e as Error).message ?? e), 300)}`);
   process.exit(1);
 });
