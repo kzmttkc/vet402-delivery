@@ -132,9 +132,10 @@ run. If purchases paced as in section 2 still get either reply, both rules move 
   The Algorand and Solana census runners live in their own repos and should take the same two numbers.
 - Only the count and the spacing. Amounts, payTo checks and the money caps are unchanged.
 - Applies from method v2 on; the 2026-09-27/28 inputs predate it.
-- From 2026-09-29, remeasure (`scripts/remeasure.ts`, see the top-level README) buys again about once a
-  day from the Solana and Tempo sellers whose earlier payment settled: one purchase per recipient per day,
-  payTo and price locked to the earlier payment. Base sellers have been bought once.
+- From 2026-09-29 to 2026-10-08, remeasure (`scripts/remeasure.ts`, see the top-level README) buys again every
+  day from the Solana and Tempo sellers whose earlier payment settled: twice on Solana and once on Tempo (the
+  ledger allows one purchase per recipient per slot per UTC day), payTo and price locked to the earlier payment.
+  The days it ran are the files in `data/remeasure/`. Base sellers have been bought once.
 
 ### 3. Delivery test, the same on every chain
 

@@ -1,6 +1,8 @@
 /**
- * Remeasure: buy again, once a day, from sellers vet402 already paid (payment settled), so the ranking
- * gets purchases on more than one day. Never buys from a new seller.
+ * Remeasure: buy again from sellers vet402 already paid (payment settled), so the ranking gets purchases
+ * on more than one day. Never buys from a new seller. It runs every day from 2026-09-29 to 2026-10-08, twice
+ * on Solana and once on Tempo (one purchase per payTo per slot per UTC day): by hand on 2026-09-29, then from
+ * the daily runner (scripts/daily/run.sh).
  *
  *   npm run remeasure -- --chain solana               # dry run (the default): targets and estimate, pays nothing
  *   npm run remeasure -- --chain tempo --dry-run

@@ -14,7 +14,7 @@ import {
   normalizeTempoLedger,
   parseTempoRunLog,
 } from "../src/rank/normalize.js";
-import { buildReport } from "../src/rank/report.js";
+import { buildReport, REBUY_FIRST_DAY, REBUY_LAST_DAY, REBUY_LINE, REBUY_SHORT } from "../src/rank/report.js";
 import { decideVerdict } from "../src/receipt/build.js";
 import { aggregate, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
@@ -540,4 +540,22 @@ test("index: purchase numbers first; graded rows carry grade, count and date; me
   assert.ok(html.includes('<a href="seller/new.example.html">new.example</a>'), "and is listed in its chain's table");
   assert.ok(!/\b(we|our)\b/i.test(html.replace(/<[^>]+>/g, " ")), "third person only");
   assert.ok(html.includes('href="method.html"'), "a link to the method");
+});
+
+// ---------- rebuy wording: the dates match the daily runner, no "once a day" left ----------
+
+test("rebuy copy: the last day is the day before run.sh's default VET402_DAILY_END; no 'once a day' in the public text", () => {
+  const run = readFileSync(new URL("../scripts/daily/run.sh", import.meta.url), "utf8");
+  const end = /END_DAY="\$\{VET402_DAILY_END:-(\d{4}-\d{2}-\d{2})\}"/.exec(run)?.[1];
+  assert.ok(end, "run.sh default VET402_DAILY_END");
+  const next = new Date(Date.parse(`${REBUY_LAST_DAY}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  assert.equal(next, end);
+  assert.ok(REBUY_FIRST_DAY < REBUY_LAST_DAY);
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const rankReadme = readFileSync(new URL("../src/rank/README.md", import.meta.url), "utf8");
+  for (const [name, text] of [["README.md", readme], ["src/rank/README.md", rankReadme], ["REBUY_LINE", REBUY_LINE], ["REBUY_SHORT", REBUY_SHORT]] as const) {
+    assert.ok(!/once a day|about once|two slots a day/i.test(text), name);
+  }
+  assert.ok(readme.includes(`From ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}`), "README.md names the window");
+  assert.ok(REBUY_LINE.includes("twice on Solana and once on Tempo"));
 });

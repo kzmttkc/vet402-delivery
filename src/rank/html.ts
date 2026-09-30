@@ -11,7 +11,7 @@
 import { chainName } from "../receipt/html.js";
 import { FAULT_LABEL, ruleById } from "./classify.js";
 import type { Comparison, CompareRow } from "./compare.js";
-import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, type GroupId, type GroupReport, type RankReport } from "./report.js";
+import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY_SHORT, type GroupId, type GroupReport, type RankReport } from "./report.js";
 import type { ChainFigures, Grade, RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
 
@@ -422,7 +422,7 @@ function renderMainIndex(r: RankReport, g: GroupReport, slugs: Map<string, strin
   const maxDays = Math.max(0, ...g.ranking.map((s) => s.days.length));
   const gradeState = ranked.length
     ? `${publicLegend()}\n${gradedTables(r, g, slugs, "h3")}`
-    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. vet402 buys again about once a day from the Solana and Tempo sellers whose earlier payment settled, so one or two purchases are a start, not a verdict.</p>`;
+    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. ${escapeHtml(REBUY_SHORT)} One or two purchases are a start, not a verdict.</p>`;
   const byChain = g.chains
     .map((c) => ({ c, rows: g.ranking.filter((s) => (s.chains[c]?.tried ?? 0) > 0).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) }))
     .filter((x) => x.rows.length > 0);
@@ -550,7 +550,7 @@ function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): str
   return `<h2 id="${g.id}">${escapeHtml(g.label)}</h2>
 <p class="meta">${where}</p>
 <p class="lead">vet402 paid this seller ${plural(s.tried, "time")} with its own money (${escapeHtml(triedText)}), most recently on <span class="nw">${escapeHtml(day(s.lastMeasuredAt))}</span> (UTC). ${s.settled} ${SETTLED_TEXT[g.id].short}; ${s.delivered} came back with an answer${s.paidButNotDelivered ? `; ${s.paidButNotDelivered} ${SETTLED_TEXT[g.id].nothing}` : ""}.</p>
-<p class="meta">${rebuys ? "vet402 buys again about once a day from sellers whose earlier Solana or Tempo payment settled, at the same price and to the same payTo. " : ""}It costs the seller nothing, and there is nothing to sign up for.</p>
+<p class="meta">${rebuys ? `${escapeHtml(REBUY_SHORT)} ` : ""}It costs the seller nothing, and there is nothing to sign up for.</p>
 <p>${publicBadge(s.grade)} ${escapeHtml(s.grade === "measuring" || s.grade === "undecided" ? PUBLIC_GRADE_TEXT[s.grade] : `grade ${s.grade}: ${GRADE_TEXT[s.grade].label}`)} · ${escapeHtml(standing)}</p>
 
 <div class="stats">
