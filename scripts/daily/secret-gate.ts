@@ -6,7 +6,8 @@
  *       Writes the public copy (known shapes redacted) only when nothing else is found in it.
  *       stdout: one JSON line {"sha256": ..., "redactions": [...]}. Exit 3 when blocked (nothing written).
  *   npx tsx scripts/daily/secret-gate.ts scan <root> [<dir> ...] [--allow <file>] [--keys-dir <dir>]
- *       Every file under <root>/<dir> (default: data site). Exit 3 when any finding is not allowed.
+ *       Every file under <root>/<dir> (default: data site results, everything the repository publishes).
+ *       Exit 3 when any finding is not allowed.
  *   npx tsx scripts/daily/secret-gate.ts baseline <root> [<dir> ...] --reason <text> [--allow <file>]
  *       Prints allow entries for the findings the allow list lacks, for a person to read where they appear and
  *       add (each needs its own reason). Whole files are listed under "files" with their sha256.
@@ -82,7 +83,7 @@ if (cmd === "copy") {
 } else if (cmd === "scan" || cmd === "baseline") {
   const [root, ...dirs] = args;
   if (!root) usage(`${cmd} needs <root>`);
-  const { files, findings, blocking: block } = gateTree(resolve(root), dirs.length ? dirs : ["data", "site"], allow, scanOpts);
+  const { files, findings, blocking: block } = gateTree(resolve(root), dirs.length ? dirs : ["data", "site", "results"], allow, scanOpts);
   if (cmd === "scan") {
     for (const f of block) console.error(`blocked: ${describe(f)}`);
     console.log(`secret gate: ${files} files, ${findings.length} finding(s), ${block.length} not allowed`);

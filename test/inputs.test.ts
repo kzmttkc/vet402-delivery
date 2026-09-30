@@ -148,6 +148,22 @@ test("fill: a street address never comes from the seller's example, the descript
   assert.ok(u.ok && new URL(u.value).searchParams.get("address") === "354 Oyster Point Blvd, South San Francisco, CA 94080", JSON.stringify(u));
 });
 
+test("fill: a parameter named address whose seller example is 0x... is a wallet: the seller's example is sent, never the table's street address", () => {
+  const wallet = "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51";
+  // the example field
+  const r = fillParams({}, spec([{ name: "address", required: true, example: wallet, description: "Address to look up" }]), TODAY);
+  assert.deepEqual(r.ok && [r.params, r.filled], [{ address: wallet }, [{ param: "address", rule: "seller_example" }]]);
+  // the "e.g." in the description
+  const d = fillParams({ address: "string" }, spec([{ name: "address", required: true, description: `Address, e.g. ${wallet}` }]), TODAY);
+  assert.deepEqual(d.ok && [d.params, d.filled], [{ address: wallet }, [{ param: "address", rule: "description_example" }]]);
+  // no usable example at all: not filled, and never the street address
+  const n = fillParams({}, spec([{ name: "address", required: true, example: "0x", description: "Address to look up" }]), TODAY);
+  assert.ok(!JSON.stringify(n).includes("Oyster"), JSON.stringify(n));
+  // a street example still gets the table's public address
+  const s = fillParams({}, spec([{ name: "address", required: true, example: "100 Sample Ave, Anytown, TX 75001" }]), TODAY);
+  assert.deepEqual(s.ok && s.params, { address: "354 Oyster Point Blvd, South San Francisco, CA 94080" });
+});
+
 // ---------- requests ----------
 
 const plan = JSON.parse(readFileSync(join(DATA, "tempo", "census-plan-2026-09-28.json"), "utf8")) as { plan: { serviceId: string; request: PlannedRequest }[] };

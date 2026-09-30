@@ -141,8 +141,15 @@ function typed(v: unknown, type: string | null): unknown {
 
 type Value = { value: unknown; rule: string } | { unfillable: Unfillable };
 
+/** The seller's own example for a parameter (its example, or the "e.g." in its description) is a 0x... wallet address. */
+function walletExample(p: Pick<ParamSpec, "description" | "example">): boolean {
+  return [p.example, descriptionExample(p.description)].some((eg) => typeof eg === "string" && /^\s*0x/i.test(eg));
+}
+
 function valueFor(p: Pick<ParamSpec, "name" | "type" | "description" | "enum" | "example">, spec: EndpointSpec | null, today: string, current: unknown): Value {
-  const c = classify(p.name, p.description);
+  const named = classify(p.name, p.description);
+  // "address" whose example is 0x...: a wallet, not a street. Never the table's street address; the seller's example stands.
+  const c: ReturnType<typeof classify> = named.cls === "street_address" && walletExample(p) ? { unfillable: "unknown_param" } : named;
   // Structured parameters first: a chat, or an object whose description names its required fields.
   if (c.cls === "chat_messages") return { value: tableValue("chat_messages", today), rule: "table:chat_messages" };
   if (p.type === "object" || (current && typeof current === "object" && !Array.isArray(current))) {

@@ -13,9 +13,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   blockingFindings,
+  describe,
   gateTree,
   isSecretName,
   loadAllowList,
@@ -311,6 +312,95 @@ test("gate: a listed public address, a city, a state or a ZIP code alone, and pr
   assert.deepEqual(redactions, []);
   assert.deepEqual(scanFileText(JSON.stringify(doc), "x.json").filter((f) => f.kind === "postal-address"), []);
   assert.equal(redactionNote("remeasure/x.json", [{ path: "rows[1].requestUrl", what: "postal-address" }, { path: "rows[1].detail", what: "postal-address" }]), "remeasure/x.json rows[1].requestUrl and rows[1].detail: a street address (a seller's example input, or an answer that repeats it) is replaced with [redacted]");
+});
+
+test("gate: a street address in lower case, in a lower-case URL slug, split over two fields, or with number coordinates is redacted and stops the scan", () => {
+  // Made up, as HOME above. Each form was missed before (review of 752facd).
+  const lower = "100 sample ave, anytown, tx 75001";
+  const strings = [
+    lower,
+    "100 SAMPLE AVE, ANYTOWN, TX 75001",
+    "https://x.test/properties/100-sample-ave-anytown-tx-75001?limit=1",
+    "/properties/100_sample_ave_anytown_tx_75001",
+    "100%20sample%20ave%2c%20anytown%2c%20tx%2075001",
+    "https://x.test/avm?address=100+sample+ave&limit=1",
+    `{"address":"100 sample ave","limit":1}`,
+  ];
+  for (const s of strings) {
+    const { value, redactions } = redactKnown({ detail: s });
+    const text = JSON.stringify(value);
+    assert.ok(!/100.sample/i.test(text) && !/100%20sample/i.test(text), `${s} -> ${text}`);
+    assert.deepEqual(redactions, [{ path: "detail", what: "postal-address" }], s);
+    assert.ok(scan(JSON.stringify({ detail: s })).some((f) => f.kind === "postal-address" && f.known), s);
+    assert.deepEqual(scan(text).filter((f) => f.kind === "postal-address"), [], `after redaction: ${text}`);
+  }
+  const objects: [unknown, unknown][] = [
+    // a lower-case address under an address-named field
+    [{ address: "100 sample ave" }, { address: POSTAL_ADDRESS_REDACTION }],
+    // house number and street name in fields of their own
+    [{ houseNumber: "100", streetName: "Sample Ave", city: "Anytown" }, { houseNumber: POSTAL_ADDRESS_REDACTION, streetName: POSTAL_ADDRESS_REDACTION, city: "Anytown" }],
+    [{ streetNumber: 100, street: "sample ave" }, { streetNumber: POSTAL_ADDRESS_REDACTION, street: POSTAL_ADDRESS_REDACTION }],
+    // coordinates as JSON numbers next to the address, and one level up (the rentcast answer's shape parsed)
+    [
+      { rent: 1640, latitude: 29.123456, longitude: -98.123456, subjectProperty: { formattedAddress: lower, latitude: 29.1 } },
+      { rent: 1640, latitude: POSTAL_COORD_REDACTION, longitude: POSTAL_COORD_REDACTION, subjectProperty: { formattedAddress: POSTAL_ADDRESS_REDACTION, latitude: POSTAL_COORD_REDACTION } },
+    ],
+    // a geocoder's answer: the coordinates sit deeper than the address
+    [
+      { results: [{ formatted_address: "100 Sample Ave, Anytown, TX 75001", geometry: { location: { lat: 29.1, lng: -98.1 } } }] },
+      { results: [{ formatted_address: POSTAL_ADDRESS_REDACTION, geometry: { location: { lat: POSTAL_COORD_REDACTION, lng: POSTAL_COORD_REDACTION } } }] },
+    ],
+  ];
+  for (const [input, want] of objects) {
+    const { value, redactions } = redactKnown(input);
+    assert.deepEqual(value, want, JSON.stringify(input));
+    assert.ok(redactions.length > 0 && redactions.every((r) => r.what === "postal-address"), JSON.stringify(redactions));
+    assert.ok(scan(JSON.stringify(input)).some((f) => f.kind === "postal-address" && f.known), JSON.stringify(input));
+    assert.deepEqual(scan(JSON.stringify(value)).filter((f) => f.kind === "postal-address"), [], JSON.stringify(value));
+  }
+  // Number coordinates left next to the mark of a redacted address still stop the scan.
+  assert.ok(scan(JSON.stringify({ formattedAddress: POSTAL_ADDRESS_REDACTION, lat: 29.1, lng: -98.1 })).some((f) => f.kind === "postal-address"));
+});
+
+test("gate: lower-case prose with numbers and street words, public addresses with coordinates, wallet addresses and lone coordinates stay", () => {
+  const keep: unknown[] = [
+    { detail: "the 3 in first place" },
+    { detail: "a 5-inch-drive bay" },
+    { detail: "https://x.test/products/5-inch-drive-bay" },
+    { detail: "i paid 5 dollars st" },
+    { detail: "block 12345 solana mainnet ln" },
+    { detail: "took 2 days on the way home, tx 0xabc" },
+    { detail: "they got 12 new sellers in the way, ca 94105 later" },
+    { detail: "v2 api route 3 way" },
+    { address: "354 Oyster Point Blvd, South San Francisco, CA 94080", lat: 37.66, lng: -122.38 },
+    { address: "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51", lat: 1.5 },
+    { lat: 37.7749, lng: -122.4194, city: "San Francisco" },
+    { houseNumber: "12", note: "no street field" },
+    // a redacted address in one row does not reach the coordinates of another row
+    { rows: [{ requestUrl: "https://x.test/a?address=%5Bredacted%3A+street+address%5D" }, { answer: { lat: 37.7749, lng: -122.4 } }] },
+  ];
+  for (const doc of keep) {
+    const { value, redactions } = redactKnown(doc);
+    assert.deepEqual(value, doc, JSON.stringify(doc));
+    assert.deepEqual(redactions, []);
+    assert.deepEqual(scanFileText(JSON.stringify(doc), "x.json").filter((f) => f.kind === "postal-address"), [], JSON.stringify(doc));
+  }
+});
+
+test("gate: results/ tracks only the files docs/ and test/ name, and the secret gate reads results/ in the scan and in the daily publish", () => {
+  const KEPT = ["results/base-buy-dryrun.json", "results/base-feedback-dryrun.json", "results/erc8004-simulate.json", "results/evm/arbitrum-dryrun.json", "results/evm/robinhood-dryrun.json"];
+  const ls = spawnSync("git", ["ls-files", "results"], { cwd: ROOT, encoding: "utf8" });
+  if (ls.status === 0 && ls.stdout.trim() !== "") assert.deepEqual(ls.stdout.trim().split("\n").sort(), KEPT);
+  assert.match(read(join(ROOT, "scripts", "daily", "run.sh")), /gate scan "\$PUB" data site results\b/);
+  assert.match(read(join(ROOT, "scripts", "daily", "secret-gate.ts")), /\["data", "site", "results"\]/);
+  // The kept files pass the gate as they are (checked on copies: a working tree may hold other, local results).
+  const dir = tmp();
+  for (const f of KEPT) {
+    mkdirSync(dirname(join(dir, f)), { recursive: true });
+    writeFileSync(join(dir, f), read(join(ROOT, f)));
+  }
+  assert.deepEqual(gateTree(dir, ["results"], loadAllowList(ALLOW)).blocking.map(describe), []);
+  rmSync(dir, { recursive: true });
 });
 
 test("gate: redactKnown changes no published data/ file (the address in the 2026-09-28 Tempo census plan is already redacted)", () => {

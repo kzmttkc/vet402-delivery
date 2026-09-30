@@ -103,9 +103,14 @@ const LOCAL_PATH_SRC = String.raw`\/Users\/[^/\s"'\\]+\/`;
  * ", City, ST 12345". Separators may be spaces, +, -, _ or %20, commas may be %2C
  * ("100 Sample Ave, Anytown, TX 75001", "100+Sample+Ave%2C+Anytown", "100-Sample-Ave,-Anytown,-TX-75001").
  * A city, a state or a ZIP code alone is not an address and stays.
+ *
+ * In any case (all lower case, as in a URL slug "/100-sample-ave-anytown-tx-75001"), an address counts when a
+ * city, a US state code and a ZIP code follow it, or when it stands under an address-named field or query
+ * parameter ("address": "100 sample ave", ?street=100+sample+ave). A lower-case street line alone in running
+ * text ("the 3 in first place", "5-inch-drive") is not taken for one.
  */
 const ADDR_SEP = String.raw`(?:[ \t_+-]|%20)+`;
-const ADDR_COMMA = String.raw`(?:[ \t_+-]|%20)*(?:,|%2C)(?:[ \t_+-]|%20)*`;
+const ADDR_COMMA = String.raw`(?:[ \t_+-]|%20)*(?:,|%2[Cc])(?:[ \t_+-]|%20)*`;
 const ADDR_WORD = String.raw`(?:[A-Z][A-Za-z'.]*|\d{1,3}(?:st|nd|rd|th))`;
 const STREET_SUFFIXES = [
   "Street", "St", "Avenue", "Ave", "Boulevard", "Blvd", "Drive", "Dr", "Road", "Rd", "Lane", "Ln", "Court", "Ct", "Way", "Place", "Pl",
@@ -115,8 +120,50 @@ const ADDR_SUFFIX = `(?:${[...STREET_SUFFIXES, ...STREET_SUFFIXES.map((x) => x.t
 const ADDR_UNIT = String.raw`(?:(?:${ADDR_COMMA}|${ADDR_SEP})(?:Apt|APT|Unit|UNIT|Suite|STE|Ste|#)\.?(?:${ADDR_SEP})?#?[A-Za-z0-9-]{1,6})?`;
 const ADDR_TAIL = String.raw`(?:${ADDR_COMMA}${ADDR_WORD}(?:${ADDR_SEP}${ADDR_WORD}){0,3}${ADDR_COMMA}[A-Z]{2}(?:${ADDR_COMMA}|${ADDR_SEP})\d{5}(?:-\d{4})?)?`;
 const POSTAL_ADDRESS_SRC = String.raw`(?<![A-Za-z0-9.])\d{1,6}[A-Z]?${ADDR_SEP}${ADDR_WORD}(?:${ADDR_SEP}${ADDR_WORD}){0,3}${ADDR_SEP}${ADDR_SUFFIX}\.?(?![A-Za-z0-9])${ADDR_UNIT}${ADDR_TAIL}`;
+/** A word in either case, as a character class per letter ("Dr" -> [Dd][Rr]). */
+const anyCase = (w: string) => w.replace(/[A-Za-z]/g, (c) => `[${c.toUpperCase()}${c.toLowerCase()}]`);
+const US_STATES = [
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA",
+  "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX",
+  "UT", "VT", "VA", "WA", "WV", "WI", "WY", "PR", "GU", "VI", "AS", "MP",
+];
+const ADDR_WORD_ANY = String.raw`(?:[A-Za-z][A-Za-z'.]*|\d{1,3}(?:st|nd|rd|th|ST|ND|RD|TH))`;
+const ADDR_SUFFIX_ANY = `(?:${STREET_SUFFIXES.map(anyCase).join("|")})`;
+const ADDR_STATE_ANY = `(?:${US_STATES.map(anyCase).join("|")})`;
+const ADDR_UNIT_ANY = String.raw`(?:(?:${ADDR_COMMA}|${ADDR_SEP})(?:${["Apt", "Unit", "Suite", "Ste"].map(anyCase).join("|")}|#)\.?(?:${ADDR_SEP})?#?[A-Za-z0-9-]{1,6})?`;
+const ADDR_BREAK = String.raw`(?:${ADDR_COMMA}|${ADDR_SEP})`;
+/** ", City, ST 12345" in any case, commas optional (a slug writes "-anytown-tx-75001"). */
+const ADDR_TAIL_ANY = String.raw`${ADDR_BREAK}${ADDR_WORD_ANY}(?:${ADDR_SEP}${ADDR_WORD_ANY}){0,3}${ADDR_BREAK}${ADDR_STATE_ANY}${ADDR_BREAK}\d{5}(?:-\d{4})?(?![0-9])`;
+const STREET_LINE_ANY = String.raw`\d{1,6}[A-Za-z]?${ADDR_SEP}${ADDR_WORD_ANY}(?:${ADDR_SEP}${ADDR_WORD_ANY}){0,3}${ADDR_SEP}${ADDR_SUFFIX_ANY}\.?(?![A-Za-z0-9])${ADDR_UNIT_ANY}`;
+/** Any case, with city, state and ZIP after it. */
+const ADDRESS_WITH_TAIL_SRC = String.raw`(?<![A-Za-z0-9.])${STREET_LINE_ANY}${ADDR_TAIL_ANY}`;
+/** Names of fields and query parameters that hold a street address. */
+const ADDRESS_FIELD_NAMES = [
+  "address", "street", "street_address", "streetAddress", "fullAddress", "formattedAddress", "formatted_address", "addressLine1",
+  "address_line1", "address_line_1", "address1", "line1",
+];
+/** Under an address-named field: a house number and one to six words in any case (no suffix needed). */
+const KEYED_LINE = String.raw`\d{1,6}[A-Za-z]?${ADDR_SEP}${ADDR_WORD_ANY}(?:${ADDR_SEP}${ADDR_WORD_ANY}){0,5}\.?(?![A-Za-z0-9])${ADDR_UNIT_ANY}(?:${ADDR_TAIL_ANY})?`;
+const ADDR_FIELD_ALT = `(?:${ADDRESS_FIELD_NAMES.map(anyCase).join("|")})`;
+const ADDRESS_IN_FIELD_SRC = String.raw`(?<=(?:[?&;]${ADDR_FIELD_ALT}=|${ADDR_FIELD_ALT}\\?["']\s*:\s*\\?["']))${KEYED_LINE}`;
+/** Every form above in one pass, longest first. */
+const ADDRESS_SRC = `${ADDRESS_WITH_TAIL_SRC}|${POSTAL_ADDRESS_SRC}|${ADDRESS_IN_FIELD_SRC}`;
+/** The whole value of a parsed JSON field whose name says it is an address. */
+const ADDRESS_VALUE_SRC = String.raw`(?<=^\s*)${KEYED_LINE}`;
+const foldKey = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
+const ADDRESS_KEYS = new Set(ADDRESS_FIELD_NAMES.map(foldKey));
+const addressRe = (key: string | null) =>
+  new RegExp(key !== null && ADDRESS_KEYS.has(foldKey(key)) ? `${ADDRESS_SRC}|${ADDRESS_VALUE_SRC}` : ADDRESS_SRC, "g");
+
 /** Coordinates beside a street address in the same answer ("latitude":29.123456): they point at the same house. */
-const COORD_SRC = String.raw`((?:\\?["'])(?:latitude|longitude|lat|lng|lon)(?:\\?["'])\s*:\s*)-?\d{1,3}\.\d+`;
+const COORD_SRC = String.raw`((?:\\?["'])(?:${["latitude", "longitude", "lat", "lng", "lon"].map(anyCase).join("|")})(?:\\?["'])\s*:\s*)-?\d{1,3}\.\d+`;
+const COORD_KEYS = new Set(["lat", "lng", "lon", "latitude", "longitude"]);
+const isCoordValue = (v: unknown) => (typeof v === "number" && Number.isFinite(v)) || (typeof v === "string" && /^\s*-?\d{1,3}(?:\.\d+)?\s*$/.test(v));
+/** A house number and a street name in fields of their own ({"houseNumber": "100", "streetName": "Sample Ave"}). */
+const HOUSE_NUMBER_KEYS = new Set(["housenumber", "houseno", "streetnumber", "streetno", "buildingnumber", "addressnumber"]);
+const STREET_NAME_KEYS = new Set(["street", "streetname", "road", "route", "thoroughfare", "streetline"]);
+const ENCODED_ADDRESS_REDACTION = encodeURIComponent(POSTAL_ADDRESS_REDACTION).replace(/%20/g, "+");
+const hasAddressMarker = (s: string) => s.includes(POSTAL_ADDRESS_REDACTION) || s.includes(ENCODED_ADDRESS_REDACTION);
 
 const streetKey = (s: string) => s.toLowerCase().replace(/%20|%2c/g, " ").replace(/[^a-z0-9]/g, "");
 const PUBLIC_STREET_KEYS = PUBLIC_STREET_ADDRESSES.map((a) => streetKey(a.street));
@@ -128,24 +175,57 @@ export function isPublicStreetAddress(m: string): boolean {
 
 /** The string with each listed public address blanked out (same length), so its parts are not judged as random runs. */
 function blankPublicAddresses(s: string): string {
-  return s.replace(new RegExp(POSTAL_ADDRESS_SRC, "g"), (m) => (isPublicStreetAddress(m) ? " ".repeat(m.length) : m));
+  return s.replace(addressRe(null), (m) => (isPublicStreetAddress(m) ? " ".repeat(m.length) : m));
 }
 
-/** Street addresses in a string that are not on the public list. */
-export function postalAddresses(s: string): string[] {
-  return [...s.matchAll(new RegExp(POSTAL_ADDRESS_SRC, "g"))].map((m) => m[0]).filter((m) => !isPublicStreetAddress(m));
+/** Street addresses in a string that are not on the public list. `key`: the JSON field the string is the value of. */
+export function postalAddresses(s: string, key: string | null = null): string[] {
+  return [...s.matchAll(addressRe(key))].map((m) => m[0]).filter((m) => !isPublicStreetAddress(m));
 }
 
 /** The text with each street address (not on the public list) replaced; in a URL query the replacement is encoded as the query was. */
-export function redactPostalAddresses(s: string): { text: string; count: number } {
+export function redactPostalAddresses(s: string, key: string | null = null): { text: string; count: number } {
   let count = 0;
-  let text = s.replace(new RegExp(POSTAL_ADDRESS_SRC, "g"), (m) => {
+  let text = s.replace(addressRe(key), (m) => {
     if (isPublicStreetAddress(m)) return m;
     count++;
-    return /%2C|%20|\+/.test(m) ? encodeURIComponent(POSTAL_ADDRESS_REDACTION).replace(/%20/g, "+") : POSTAL_ADDRESS_REDACTION;
+    return /%2C|%20|\+/i.test(m) ? ENCODED_ADDRESS_REDACTION : POSTAL_ADDRESS_REDACTION;
   });
   if (count > 0) text = text.replace(new RegExp(COORD_SRC, "g"), (_m, pre: string) => `${pre}"${POSTAL_COORD_REDACTION}"`);
   return { text, count };
+}
+
+type Obj = Record<string, unknown>;
+const isObj = (x: unknown): x is Obj => !!x && typeof x === "object" && !Array.isArray(x);
+
+/** The two fields of a street address split in two ({"houseNumber": "100", "streetName": "Sample Ave"}), or null. */
+function splitAddressFields(o: Obj): [string, string] | null {
+  const entries = Object.entries(o);
+  const house = entries.find(([k, v]) => HOUSE_NUMBER_KEYS.has(foldKey(k)) && (typeof v === "string" || typeof v === "number") && /^\d{1,6}[A-Za-z]?$/.test(String(v).trim()));
+  if (!house) return null;
+  const street = entries.find(([k, v]) => STREET_NAME_KEYS.has(foldKey(k)) && typeof v === "string" && /[A-Za-z]/.test(v) && !hasAddressMarker(v) && !isPublicStreetAddress(`${String(house[1])} ${v}`));
+  return street ? [house[0], street[0]] : null;
+}
+
+/**
+ * An object that holds a street address (not a public one) in its own fields or one level down
+ * ({"latitude": .., "subjectProperty": {"formattedAddress": ..}}): its coordinates point at the same house.
+ * `hit` says whether one string value is (or was redacted from) such an address.
+ */
+function holdsAddress(o: Obj, hit: (s: string, key: string) => boolean): boolean {
+  const own = (x: Obj) => !!splitAddressFields(x) || Object.entries(x).some(([k, v]) => typeof v === "string" && hit(v, k));
+  return own(o) || Object.values(o).some((v) => isObj(v) && own(v));
+}
+
+/** Number (or number-string) values under lat/lng/latitude/longitude names anywhere inside `x`, as [holder, key]. */
+function coordFields(x: unknown, out: [Obj, string][] = []): [Obj, string][] {
+  if (Array.isArray(x)) x.forEach((v) => coordFields(v, out));
+  else if (isObj(x))
+    for (const [k, v] of Object.entries(x)) {
+      if (COORD_KEYS.has(foldKey(k)) && isCoordValue(v)) out.push([x, k]);
+      else coordFields(v, out);
+    }
+  return out;
 }
 
 function redactString(s: string, key: string | null, path: string, out: Redaction[]): string {
@@ -159,7 +239,7 @@ function redactString(s: string, key: string | null, path: string, out: Redactio
     out.push({ path, what: "local-path" });
   }
   // A street address anywhere (a seller's answer, the request vet402 sent): no one's home goes public.
-  const addr = redactPostalAddresses(v);
+  const addr = redactPostalAddresses(v, key);
   if (addr.count > 0) {
     v = addr.text;
     out.push({ path, what: "postal-address" });
@@ -176,6 +256,18 @@ export function redactKnown(value: unknown): { value: unknown; redactions: Redac
     if (x && typeof x === "object") {
       const o: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(x)) o[k] = walk(v, k, path ? `${path}.${k}` : k);
+      // A house number and a street name in fields of their own: both go.
+      const split = splitAddressFields(o);
+      if (split) {
+        for (const k of split) o[k] = POSTAL_ADDRESS_REDACTION;
+        redactions.push({ path, what: "postal-address" });
+      }
+      // Coordinates (numbers too) in an object that held a street address point at the same house.
+      if (holdsAddress(o, hasAddressMarker)) {
+        const coords = coordFields(o);
+        for (const [holder, k] of coords) holder[k] = POSTAL_COORD_REDACTION;
+        if (coords.length > 0) redactions.push({ path, what: "postal-address" });
+      }
       return o;
     }
     return x;
@@ -697,7 +789,10 @@ export function scanText(text: string, file: string, path: string, key: string |
     }
     for (const m of v.matchAll(LOCAL_PATH)) add("local-path", m[0], original && m[0].startsWith("/Users/"));
     // A street address stops whatever field it is in; redactKnown replaces the ones written as they are.
-    for (const a of postalAddresses(v)) add("postal-address", a, original);
+    const addrs = postalAddresses(v, original ? key : null);
+    for (const a of addrs) add("postal-address", a, original);
+    // Coordinates in the same text as a street address (or where one was redacted) point at that house.
+    if (addrs.length > 0 || hasAddressMarker(v)) for (const m of v.matchAll(new RegExp(COORD_SRC, "g"))) add("postal-address", m[0], original);
 
     // Values under names: secret-like names stop whatever the value; public-id names vouch for ids.
     const localIds = new Set<string>();
@@ -813,14 +908,32 @@ export function scanJson(value: unknown, file: string, out: Finding[], opts: Sca
       flush();
     }
     if (Array.isArray(x)) x.forEach((v, i) => walk(v, key, `${path}[${i}]`));
-    else if (x && typeof x === "object")
+    else if (x && typeof x === "object") {
       for (const [k, v] of Object.entries(x)) {
         const p = path ? `${path}.${k}` : k;
         scanText(k, file, `${p}(name)`, null, out, o);
         walk(v, k, p);
       }
+      addressObject(x as Obj, file, path, out);
+    }
   };
   walk(value, null, "");
+}
+
+/**
+ * The parts of a street address a string scan cannot see: a house number and a street name in fields of their
+ * own, and coordinates (numbers too) in an object that holds a street address or the mark of a redacted one.
+ * redactKnown replaces both, so both are known shapes.
+ */
+function addressObject(o: Obj, file: string, path: string, out: Finding[]): void {
+  const { add, flush } = finder(file, path, out);
+  const split = splitAddressFields(o);
+  if (split) add("postal-address", `${String(o[split[0]])} ${String(o[split[1]])}`, true);
+  // (An address left in, in any encoding, is a finding of its own in scanText; here the plain one is enough.)
+  if (holdsAddress(o, (s, k) => hasAddressMarker(s) || postalAddresses(s, k).length > 0)) {
+    for (const [holder, k] of coordFields(o)) add("postal-address", `${k}:${String(holder[k])}`, true);
+  }
+  flush();
 }
 
 /** One file. JSON is walked by key; JSON lines line by line; anything else as text. */

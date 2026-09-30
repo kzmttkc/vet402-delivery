@@ -275,7 +275,7 @@ preflight_pub() {
 
 # The whole public tree, before any money moves: a publish that could not pass must not be paid for.
 gate_tree() {
-  run "secret gate on $PUB (data, site)" gate scan "$PUB" data site || {
+  run "secret gate on $PUB (data, site, results)" gate scan "$PUB" data site results || {
     alert "secret gate: the public tree in $PUB has findings that are not allowed (see log)" ${1:-}
     return 1
   }
