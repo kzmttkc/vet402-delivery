@@ -19,7 +19,9 @@ if (lane !== "robinhood" && lane !== "arbitrum") throw new Error("--lane robinho
 const planFile = existsSync(`results/evm/${lane}-paid-run.json`) ? `results/evm/${lane}-paid-run.json` : `results/evm/${lane}-dryrun.json`;
 const dry = JSON.parse(readFileSync(planFile, "utf8")) as Record<string, unknown>;
 console.error(`plan: ${planFile}`);
-const files = lane === "arbitrum" ? ["results/evm/arbitrum-purchases.jsonl", "results/evm/base-compare-purchases.jsonl"] : ["results/evm/robinhood-purchases.jsonl"];
+// Each lane's purchases, then its re-read settlements (scripts/evm-reverify.ts), so the later reading wins.
+const lanes = lane === "arbitrum" ? ["arbitrum", "base-compare"] : ["robinhood"];
+const files = lanes.flatMap((l) => [`results/evm/${l}-purchases.jsonl`, `results/evm/${l}-reverify.jsonl`]);
 const raw = files.flatMap((f) => (existsSync(f) ? readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : []));
 // Causes and stock verdicts are decided again here with today's rules, not taken from the run's own file:
 // a rule change (for instance what counts as the seller's fault) must reach every row before it is published.

@@ -94,6 +94,22 @@ const FIX = {
   vet402: null,
 };
 
+/**
+ * Pure. A record whose settlement was read again: settled when vet402's own transfer to the payTo is found;
+ * delivered when also the paid response was 2xx with a non-empty body (the rule buyOneOnChain applies).
+ */
+export function reverifyRecord<T extends ChainBuyRecord>(r: T, proof: { ok: boolean; from?: string; reason?: string }, payer: string): T {
+  const settled = proof.ok && !!proof.from && proof.from.toLowerCase() === payer.toLowerCase();
+  const status = r.response?.status ?? null;
+  const answered = status !== null && status >= 200 && status < 300 && ((r.response?.first300 ?? "").trim().length > 0 || (r.response?.bytes ?? 0) > 0);
+  return {
+    ...r,
+    settledOnChain: settled,
+    settlementCheck: proof.ok ? `transfer ${proof.from} -> ${r.payTo} ${r.amountAtomic}` : `not verified: ${proof.reason}`,
+    delivered: settled && answered,
+  };
+}
+
 /** readUsdcTransfer reasons that are a finding about the tx itself; any other failure means vet402 could not read it. */
 export const DEFINITE_SETTLEMENT_REASONS = ["amount_mismatch", "no_usdc_transfer_to_seller"] as const;
 

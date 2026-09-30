@@ -597,3 +597,24 @@ test("withheld rows keep only neutral facts: no settled count; stock references 
   assert.ok(!/settled on chain<\/span>/.test(html.replace(/came back/g, "")) || !html.includes("0 settled"), "no settled count on a withheld row");
   assert.ok(!html.includes("0 settled on chain"));
 });
+
+test("Base receipts are read from mainnet.base.org (publicnode rejects eth_getTransactionReceipt); unconfirmed rows can be read again", async () => {
+  assert.equal(EVM_CHAINS.base.receiptRpc, "https://mainnet.base.org");
+  const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(lane, /readUsdcTransfer\(receiptClient\(c\), tx,/);
+  const { reverifyRecord } = await import("../src/evm/settle-cause.js");
+  const r = sent({ payTo: SELLER, amountAtomic: "50000", settlementTx: TX, settledOnChain: false, delivered: false, settlementCheck: "not verified: receipt not found in 60 s", response: { status: 200, contentType: null, bytes: 12, first300: '{"ok":true}' } });
+  const ok = reverifyRecord(r, { ok: true, from: PAYER }, PAYER);
+  assert.equal(ok.settledOnChain, true);
+  assert.equal(ok.delivered, true);
+  assert.equal(classifyRecord(ok).cause, "delivered");
+  const other = reverifyRecord(r, { ok: true, from: OTHER }, PAYER);
+  assert.equal(other.settledOnChain, false, "only vet402's own transfer");
+  const still = reverifyRecord(r, { ok: false, reason: "receipt unreadable: x" }, PAYER);
+  assert.equal(classifyRecord(still).cause, "unconfirmed");
+  const empty = reverifyRecord({ ...r, response: { status: 200, contentType: null, bytes: 0, first300: "" } }, { ok: true, from: PAYER }, PAYER);
+  assert.equal(empty.delivered, false);
+  assert.equal(classifyRecord(empty).cause, "seller_config", "settled with an empty answer");
+  const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
+  assert.match(pub, /-reverify\.jsonl/);
+});

@@ -20,6 +20,13 @@ export interface EvmChainSpec {
   /** Public RPC used when the env var is unset. Reads only; nothing here sends. */
   rpc: string;
   rpcEnv: string;
+  /**
+   * RPC for transaction receipts (the settlement read-back). base-rpc.publicnode.com answers
+   * eth_getTransactionReceipt with "Invalid parameters" (2026-09-30), so Base reads receipts from
+   * mainnet.base.org, as scripts/base-buy.ts always has.
+   */
+  receiptRpc: string;
+  receiptRpcEnv: string;
   /** The one token vet402 pays with on this chain. */
   asset: Address;
   assetSymbol: string;
@@ -43,6 +50,8 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     v1Names: ["base"],
     rpc: "https://base-rpc.publicnode.com",
     rpcEnv: "BASE_RPC_URL",
+    receiptRpc: "https://mainnet.base.org",
+    receiptRpcEnv: "BASE_RECEIPT_RPC_URL",
     asset: getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
     assetSymbol: "USDC",
     assetDecimals: 6,
@@ -60,6 +69,8 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     v1Names: ["arbitrum"],
     rpc: "https://arb1.arbitrum.io/rpc",
     rpcEnv: "ARBITRUM_RPC_URL",
+    receiptRpc: "https://arb1.arbitrum.io/rpc",
+    receiptRpcEnv: "ARBITRUM_RECEIPT_RPC_URL",
     asset: getAddress("0xaf88d065e77c8cC2239327C5EDb3A432268e5831"),
     assetSymbol: "USDC",
     assetDecimals: 6,
@@ -78,6 +89,8 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     v1Names: ["robinhood"],
     rpc: "https://rpc.mainnet.chain.robinhood.com",
     rpcEnv: "ROBINHOOD_RPC_URL",
+    receiptRpc: "https://rpc.mainnet.chain.robinhood.com",
+    receiptRpcEnv: "ROBINHOOD_RECEIPT_RPC_URL",
     /** Global Dollar (USDG, Paxos). EIP-3009 transferWithAuthorization and DOMAIN_SEPARATOR checked by eth_call on 2026-09-30. */
     asset: getAddress("0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"),
     assetSymbol: "USDG",

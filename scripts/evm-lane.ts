@@ -121,11 +121,17 @@ async function balances(c: EvmChainSpec): Promise<{ assetAtomic: string; ethWei:
   return { assetAtomic: a.toString(), ethWei: e.toString() };
 }
 
+const receiptClients = new Map<string, PublicClient>();
+const receiptClient = (c: EvmChainSpec): PublicClient => {
+  if (!receiptClients.has(c.key)) receiptClients.set(c.key, createPublicClient({ transport: http(process.env[c.receiptRpcEnv] ?? c.receiptRpc) }) as PublicClient);
+  return receiptClients.get(c.key)!;
+};
+
 function verifier(c: EvmChainSpec) {
   return async (tx: Hex, payTo: string, amount: string) => {
     for (let i = 0; i < 20; i++) {
       try {
-        const r = await readUsdcTransfer(client(c), tx, { to: payTo as Address, amountUnits: amount, asset: c.asset, from: payer });
+        const r = await readUsdcTransfer(receiptClient(c), tx, { to: payTo as Address, amountUnits: amount, asset: c.asset, from: payer });
         return { ok: r.ok, from: r.from, reason: r.reason, blockNumber: r.blockNumber?.toString() };
       } catch {
         await new Promise((res) => setTimeout(res, 3000));
@@ -139,7 +145,7 @@ function verifier(c: EvmChainSpec) {
 async function relayerOf(c: EvmChainSpec, tx: string | null | undefined): Promise<string | null> {
   if (!tx) return null;
   try {
-    return (await client(c).getTransaction({ hash: tx as Hex })).from;
+    return (await receiptClient(c).getTransaction({ hash: tx as Hex })).from;
   } catch {
     return null;
   }
