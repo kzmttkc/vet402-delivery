@@ -8,7 +8,8 @@
  *   npx tsx scripts/daily/secret-gate.ts scan <root> [<dir> ...] [--allow <file>] [--keys-dir <dir>]
  *       Every file under <root>/<dir> (default: data site). Exit 3 when any finding is not allowed.
  *   npx tsx scripts/daily/secret-gate.ts baseline <root> [<dir> ...] --reason <text> [--allow <file>]
- *       Prints allow entries for the findings the allow list lacks, for a person to review and add.
+ *       Prints allow entries for the findings the allow list lacks, for a person to read where they appear and
+ *       add (each needs its own reason). Whole files are listed under "files" with their sha256.
  *       Known shapes (a seller token left in a body) are never printed as allowable.
  *
  * --allow defaults to scripts/daily/secret-allow.json. --keys-dir: the runner's key folder; any encoding
@@ -21,12 +22,12 @@ import {
   ALLOW_KIND,
   blockingFindings,
   describe,
+  gateTree,
   loadAllowList,
   ownKeyNeedles,
   publicJson,
   redactKnown,
   scanFileText,
-  scanTree,
   sha256Hex,
   type ScanOptions,
 } from "../../src/daily/secret-gate.js";
@@ -50,7 +51,7 @@ function usage(msg: string): never {
 const allowFile = resolve(opt("--allow") ?? join(HERE, "secret-allow.json"));
 const keysDir = opt("--keys-dir");
 const reason = opt("--reason");
-const allow = existsSync(allowFile) ? loadAllowList(allowFile) : [];
+const allow = existsSync(allowFile) ? loadAllowList(allowFile) : { allow: [], files: [] };
 const scanOpts: ScanOptions = { ownKeys: keysDir ? ownKeyNeedles(resolve(keysDir)) : [] };
 
 if (cmd === "copy") {
@@ -72,8 +73,7 @@ if (cmd === "copy") {
 } else if (cmd === "scan" || cmd === "baseline") {
   const [root, ...dirs] = args;
   if (!root) usage(`${cmd} needs <root>`);
-  const { files, findings } = scanTree(resolve(root), dirs.length ? dirs : ["data", "site"], scanOpts);
-  const block = blockingFindings(findings, allow);
+  const { files, findings, blocking: block } = gateTree(resolve(root), dirs.length ? dirs : ["data", "site"], allow, scanOpts);
   if (cmd === "scan") {
     for (const f of block) console.error(`blocked: ${describe(f)}`);
     console.log(`secret gate: ${files} files, ${findings.length} finding(s), ${block.length} not allowed`);

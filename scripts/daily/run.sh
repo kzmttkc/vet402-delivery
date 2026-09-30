@@ -3,9 +3,11 @@
 #
 #   scripts/daily/run.sh am       10:17 JST  Solana, then Tempo: remeasure (one purchase per payTo), then publish
 #   scripts/daily/run.sh pm       22:17 JST  Solana only, the second purchase per payTo (--per-payto 2), then publish
-#   scripts/daily/run.sh records  09:05 JST  the UTC day that just closed: build-receipts --day, verify-receipt on
-#                                            every record, publish-records --day, anchor-receipts --day --send,
-#                                            publish. Does nothing until the daily-records code is on main.
+#   scripts/daily/run.sh records  09:05 JST  every closed UTC day with purchases and no anchored root, oldest first
+#                                            (at most 3 a run): build-receipts --day, verify-receipt on every record,
+#                                            publish-records --day, anchor-receipts --day --send, then one publish.
+#                                            Nothing until the daily-records code is on main; a dry run until
+#                                            ~/.config/vet402-daily/records-enabled exists.
 #   scripts/daily/run.sh board    19:05 JST  watches kzmttkc/vet402-algorand's board workflow from outside: when
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
@@ -28,11 +30,13 @@
 # Only one run at a time (lockf on the state folder's lock). Nothing runs on or after VET402_DAILY_END (JST);
 # for board, VET402_BOARD_END.
 #
-# Settings (environment, or KEY=value lines in ~/.config/vet402-daily/env, which stays outside the repository):
+# Settings: KEY=value lines in ~/.config/vet402-daily/env (outside the repository). Without that file, or without
+# VET402_ALERTS_FILE in it, nothing runs: the stop is logged and shown as a notification.
 #   VET402_REPO          checkout on main that pays and anchors (keys in .keys/)  default ~/vet402-solana
 #   VET402_PUBLISH_WT    worktree the data commits are made in (created detached)  default ~/vet402-solana-publish
 #   VET402_RECEIPTS      signed records, the one place anchor-receipts reads     default ~/vet402-solana-receipt/results/receipts
-#   VET402_ALERTS_FILE   file that gets one line per stop                         default <logs>/ALERTS.md
+#   VET402_ALERTS_FILE   file that gets one line per stop                         required
+#   ~/.config/vet402-daily/records-enabled  present: records sends the anchor; absent: records runs as a dry run
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
 #   VET402_DAILY_END     first JST day with no am/pm/records runs                 default 2026-10-09
@@ -69,7 +73,8 @@ main() {
     *) echo "usage: run.sh am|pm|records|board [--dry-run]" >&2; return 2 ;;
   esac
 
-  local envfile="$HOME/.config/vet402-daily/env"
+  CONF="$HOME/.config/vet402-daily"
+  local envfile="$CONF/env"
   if [ -f "$envfile" ]; then
     set -a
     # shellcheck disable=SC1090
@@ -85,7 +90,7 @@ main() {
   BASE="${VET402_PUBLISH_BASE:-origin/main}"
   LOGDIR="${VET402_DAILY_LOGS:-$HOME/Library/Logs/vet402-daily}"
   STATE="${VET402_DAILY_STATE:-$HOME/.local/state/vet402-daily}"
-  ALERTS="${VET402_ALERTS_FILE:-$LOGDIR/ALERTS.md}"
+  ALERTS="${VET402_ALERTS_FILE:-}"
   END_DAY="${VET402_DAILY_END:-2026-10-09}"
   [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-2026-10-31}"
   NOW="${VET402_DAILY_NOW:-$(/bin/date +%s)}"
@@ -99,6 +104,13 @@ main() {
   mkdir -p "$LOGDIR" "$STATE"
   LOG="$LOGDIR/$(TZ=Asia/Tokyo /bin/date -r "$NOW" +%Y-%m-%d)-$MODE.log"
   exec >>"$LOG" 2>&1
+
+  # Stops must reach the alert file: without the settings file that names it, nothing runs.
+  if [ ! -f "$envfile" ] || [ -z "$ALERTS" ]; then
+    log "STOP: $envfile is missing or has no VET402_ALERTS_FILE; nothing ran"
+    notify "$MODE did not run: $envfile is missing or has no VET402_ALERTS_FILE"
+    return 3
+  fi
 
   JST_DAY="$(TZ=Asia/Tokyo /bin/date -r "$NOW" +%Y-%m-%d)"
   UTC_DAY="$(/bin/date -u -r "$NOW" +%Y-%m-%d)"
@@ -282,7 +294,9 @@ remeasure() {
   local file
   file="$(ls "$plan"/"$chain"-*.dry-run.json 2>/dev/null | tail -1)"
   [ -n "$file" ] || { alert "remeasure $chain wrote no plan; nothing paid"; return 1; }
-  verdict="$(daily_steps check-plan "$file" --chain "$chain" --day "$UTC_DAY" --per-payto "$per")"
+  local ledger="$RMDIR/tempo-ledger-$UTC_DAY.json"
+  [ "$chain" = solana ] && ledger="$RMDIR/budget-solana-${UTC_DAY%-*}.json"
+  verdict="$(daily_steps check-plan "$file" --chain "$chain" --day "$UTC_DAY" --per-payto "$per" --ledger "$ledger")"
   rc=$?
   log "plan: $verdict"
   if [ $rc -eq 10 ]; then return 0; fi
@@ -359,14 +373,15 @@ publish() {
   changed="$($GIT -C "$PUB" status --porcelain)"
   others="$(printf '%s\n' "$changed" | grep -v '^$' | grep -Ev '^.. (data|site)/' || true)"
   [ -z "$others" ] || { alert "the build changed files outside data/ and site/: $others" halt; return 1; }
+  # The same checks as a real publish, in a dry run too, so a failing test shows before money moves.
+  run "typecheck" in_pub $NPM run -s typecheck || { alert "typecheck failed on the data commit" halt; return 1; }
+  run "npm test" in_pub $NPM test --silent || { alert "npm test failed on the data commit" halt; return 1; }
   if [ -z "$($GIT -C "$PUB" status --porcelain -- data)" ]; then
     log "data/ unchanged: nothing to publish"
     $GIT -C "$PUB" checkout -q -- site 2>/dev/null
     $GIT -C "$PUB" clean -qfd -- site 2>/dev/null
     return 0
   fi
-  run "typecheck" in_pub $NPM run -s typecheck || { alert "typecheck failed on the data commit" halt; return 1; }
-  run "npm test" in_pub $NPM test --silent || { alert "npm test failed on the data commit" halt; return 1; }
   run "git add data site" $GIT -C "$PUB" add -- data site || { alert "git add failed" halt; return 1; }
   run "git commit" $GIT -C "$PUB" commit -q -m "$msg" || { alert "git commit failed" halt; return 1; }
   local sha base bad
@@ -399,7 +414,7 @@ publish() {
 wait_pages() {
   local sha="$1" i status conclusion
   for i in $(seq 1 40); do
-    sleep 30
+    sleep "${VET402_PAGES_POLL:-30}"
     read -r status conclusion < <($GH run list --repo "$GH_REPO" --workflow pages.yml --commit "$sha" --json status,conclusion \
       --jq 'if length == 0 then "none none" else (.[0].status + " " + (.[0].conclusion // "none")) end' 2>/dev/null || echo "error error")
     if [ "$status" = completed ]; then
@@ -417,22 +432,42 @@ wait_pages() {
 
 # ---------- records ----------
 
+# Closed UTC days with remeasure purchases whose root is not anchored yet, oldest first.
+open_record_days() {
+  local f d
+  for f in "$RMDIR"/solana-????-??-??.json "$RMDIR"/tempo-????-??-??.json; do
+    [ -f "$f" ] || continue
+    d="$(basename "$f" .json)"
+    echo "${d#*-}"
+  done | sort -u | while read -r d; do
+    [[ "$d" < "$UTC_DAY" ]] || continue
+    if [ -f "$RECEIPTS/$d/anchor-sent.json" ] && grep -q '"status": *"sent"' "$RECEIPTS/$d/anchor-sent.json"; then continue; fi
+    echo "$d"
+  done
+}
+
 records_lane() {
   preflight_repo || return 1
   if ! grep -q "assertDaySourcesCurrent" "$REPO/src/receipt/sources.ts" 2>/dev/null; then
     log "the daily-records code (src/receipt/sources.ts) is not on main yet: nothing to do"
     return 0
   fi
-  local day
-  day="$(/bin/date -u -r $((NOW - 86400)) +%Y-%m-%d)"
   if [ "$UTC_HM" -lt 0005 ]; then
-    alert "UTC $UTC_HM: $day may not be closed yet"
+    alert "UTC $UTC_HM: yesterday may not be closed yet"
     return 1
   fi
-  if [ ! -f "$RMDIR/solana-$day.json" ] && [ ! -f "$RMDIR/tempo-$day.json" ]; then
-    log "no remeasure purchases on $day: nothing to record"
+  # Until a person has run the records once by hand and created the flag, nothing is sent: a dry run instead.
+  if [ "$DRY" != 1 ] && [ ! -f "$CONF/records-enabled" ]; then
+    log "$CONF/records-enabled is absent: records run as a dry run (no anchor sent, nothing pushed)"
+    DRY=1
+  fi
+  local days
+  days="$(open_record_days | head -3)"
+  if [ -z "$days" ]; then
+    log "no closed day with purchases waits for its records"
     return 0
   fi
+  log "days to record (oldest first, at most 3): $(echo $days)"
   no_inflight || return 1
   preflight_pub || return 1
   gate_tree || return 1
@@ -445,6 +480,17 @@ records_lane() {
     [ -d "$RECEIPTS" ] && cp -R "$RECEIPTS"/. "$R"/
     anchor_from=(--from "$R")
   fi
+  local day
+  for day in $days; do
+    record_day "$day" "$R" ${anchor_from[@]+"${anchor_from[@]}"} || return 1
+  done
+  publish "records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
+}
+
+# record_day <day> <receipts dir> [--from <dir>]: build, verify every record, publish-records, anchor, publish-records.
+record_day() {
+  local day="$1" R="$2"
+  shift 2
   if [ -f "$R/$day/sources.json" ]; then
     log "$day is already built in $R"
   else
@@ -471,7 +517,7 @@ records_lane() {
     grep -q '"status": *"sent"' "$R/$day/anchor-sent.json" || { alert "$day anchor-sent.json is not \"sent\": resume by hand" halt; return 1; }
     log "$day root already anchored"
   elif [ "$DRY" = 1 ]; then
-    run "anchor $day (simulate)" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" ${anchor_from[@]+"${anchor_from[@]}"} || { alert "anchor simulation for $day failed" halt; return 1; }
+    run "anchor $day (simulate)" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" "$@" || { alert "anchor simulation for $day failed" halt; return 1; }
   else
     run "anchor $day --send" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --send || { alert "anchor-receipts --day $day --send failed (not retried)" halt; return 1; }
   fi
@@ -479,7 +525,6 @@ records_lane() {
     alert "publish-records --day $day refused after the anchor" halt
     return 1
   }
-  publish "records: $day delivery records and the day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
 }
 
 # ---------- board (kzmttkc/vet402-algorand) ----------

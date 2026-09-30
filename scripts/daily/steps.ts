@@ -1,7 +1,8 @@
 /**
  * Decisions for scripts/daily/run.sh (src/daily/steps.ts). No key, no network, no payment.
  *
- *   npx tsx scripts/daily/steps.ts check-plan <dry-run.json> --chain solana|tempo --day YYYY-MM-DD --per-payto N
+ *   npx tsx scripts/daily/steps.ts check-plan <dry-run.json> --chain solana|tempo --day YYYY-MM-DD --per-payto N [--ledger <file>]
+ *       the estimate leaves out slots the spend ledger already holds (bought earlier that day)
  *       exit 0 pay, 10 nothing to buy, 4 stop (over a cap, the month, the balance, or not today's plan)
  *   npx tsx scripts/daily/steps.ts run-outcome <result.json> --since <ISO time>
  *       exit 0 when exactly one run started since then and ended without a stop, else 4
@@ -13,7 +14,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { commitMessage, planVerdict, runOutcome, updateManifest } from "../../src/daily/steps.js";
+import { commitMessage, ledgerKeys, planVerdict, runOutcome, updateManifest } from "../../src/daily/steps.js";
 import type { Redaction } from "../../src/daily/secret-gate.js";
 
 const args = process.argv.slice(2);
@@ -36,9 +37,10 @@ if (cmd === "check-plan") {
   const chain = opt("--chain");
   const day = opt("--day");
   const per = Number(opt("--per-payto"));
+  const ledger = opt("--ledger");
   const [file] = args;
   if ((chain !== "solana" && chain !== "tempo") || !day || !file || !Number.isInteger(per)) usage("check-plan needs <file> --chain --day --per-payto");
-  const v = planVerdict(readJson(file), chain, day, per);
+  const v = planVerdict(readJson(file), chain, day, per, ledger && existsSync(ledger) ? ledgerKeys(readJson(ledger)) : new Set());
   console.log(v.line);
   process.exit(v.pay ? 0 : v.stop ? 4 : 10);
 } else if (cmd === "run-outcome") {

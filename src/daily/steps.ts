@@ -30,23 +30,34 @@ interface DryRunFile {
   perPayTo?: number;
   caps?: { perRun?: string; monthLeft?: string };
   summary?: { would?: number; estimate?: string; payerUsdcBefore?: string; payerUsdcEBefore?: string };
+  rows?: { key?: string; outcome?: string; priceUsdc?: string | null }[];
+}
+
+/** Keys the spend ledger already holds (Solana budget-solana-YYYY-MM.json purchases, Tempo day ledger entries). */
+export function ledgerKeys(ledger: unknown): Set<string> {
+  const l = (ledger ?? {}) as { purchases?: { key?: string }[]; entries?: { key?: string }[] };
+  return new Set([...(l.purchases ?? []), ...(l.entries ?? [])].map((x) => x.key).filter((k): k is string => typeof k === "string"));
 }
 
 /**
  * Pay only when the dry run of the same UTC day and chain says the run fits: estimate (plus the Tempo fee
  * reserve) within the run cap, the month left and the payer balance. Nothing to buy is not a stop.
  */
-export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: string, perPayTo: number): PlanVerdict {
+export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: string, perPayTo: number, bought: ReadonlySet<string> = new Set()): PlanVerdict {
   const stop = (line: string): PlanVerdict => ({ pay: false, stop: true, line: `${chain}: ${line}` });
   if (plan.kind !== "vet402-remeasure-dry-run" || plan.chain !== chain) return stop("the plan is not a remeasure dry run for this chain");
   if (!DAY.test(day) || plan.createdAt?.slice(0, 10) !== day) return stop(`the plan is from ${plan.createdAt ?? "?"}, not UTC day ${day}`);
   if (plan.perPayTo !== perPayTo) return stop(`the plan is for --per-payto ${plan.perPayTo}, not ${perPayTo}`);
-  const would = plan.summary?.would;
-  if (typeof would !== "number" || !Number.isInteger(would) || would < 0) return stop("the plan has no purchase count");
-  if (would === 0) return { pay: false, stop: false, line: `${chain}: nothing to buy` };
+  // The dry run prices every slot; slots the ledger already holds are bought and are not paid again.
+  if (!Array.isArray(plan.rows)) return stop("the plan has no rows");
+  const toBuy = plan.rows.filter((r) => r.outcome === "would_pay" && !(typeof r.key === "string" && bought.has(r.key)));
+  if (plan.rows.some((r) => r.outcome === "would_pay" && typeof r.key !== "string")) return stop("a planned purchase has no key");
+  const would = toBuy.length;
+  const skipped = plan.rows.filter((r) => r.outcome === "would_pay").length - would;
+  if (would === 0) return { pay: false, stop: false, line: `${chain}: nothing to buy${skipped ? ` (${skipped} already in the ledger)` : ""}` };
   let est: bigint, perRun: bigint, monthLeft: bigint, balance: bigint;
   try {
-    est = toAtomic(plan.summary?.estimate);
+    est = toBuy.reduce((a, r) => a + toAtomic(r.priceUsdc), 0n);
     perRun = toAtomic(plan.caps?.perRun);
     monthLeft = toAtomic(plan.caps?.monthLeft);
     balance = toAtomic(chain === "solana" ? plan.summary?.payerUsdcBefore : plan.summary?.payerUsdcEBefore);
@@ -58,7 +69,7 @@ export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: st
   if (need > perRun) return stop(`${what} is over the run cap ${fmt(perRun)}`);
   if (need > monthLeft) return stop(`${what} is over what is left this month ${fmt(monthLeft)}`);
   if (need > balance) return stop(`${what} is over the payer balance ${fmt(balance)}`);
-  return { pay: true, line: `${chain}: ${would} purchases, ${what} within run cap ${fmt(perRun)}, month left ${fmt(monthLeft)}, balance ${fmt(balance)}` };
+  return { pay: true, line: `${chain}: ${would} purchases${skipped ? ` (${skipped} already in the ledger)` : ""}, ${what} within run cap ${fmt(perRun)}, month left ${fmt(monthLeft)}, balance ${fmt(balance)}` };
 }
 
 interface ResultFile {
