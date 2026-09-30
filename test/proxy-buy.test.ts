@@ -544,6 +544,15 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
   landed = true;
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "landed", tx: "S1" });
   assert.deepEqual(await solanaTxFate(async () => { throw new Error("https://rpc/KEY"); }, f), { fate: "pending" });
+  // a full page of other signatures: not finding it proves nothing, so never "dead" (no refund on a guess)
+  const busy = async (method: string) => {
+    if (method === "getSignaturesForAddress") return [{ signature: "X1" }, { signature: "X2" }];
+    if (method === "getTransaction") return { meta: { err: null }, transaction: [await transferTx(agent, VET_FAC, SELLER, 1n), "base64"] };
+    if (method === "isBlockhashValid") return { value: false };
+    throw new Error(method);
+  };
+  assert.deepEqual(await solanaTxFate(busy, { ...f, limit: 2 }), { fate: "pending" });
+  assert.deepEqual(await solanaTxFate(busy, { ...f, limit: 3 }), { fate: "dead" });
 
   const base = { hash: "0xaa", from: "0xf", nonce: "3", nonceKey: "0", validBefore: "1000", sponsored: false };
   const reads = (o: { receipt?: "success" | null; time?: bigint; nonce?: bigint; hits?: string[] }) => ({

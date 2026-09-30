@@ -67,8 +67,12 @@ export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
 
 /** Find the transaction with `messageHash` among `account`'s recent signatures; then, if absent, whether it can still land. */
 export async function solanaTxFate(rpc: Rpc, f: { messageHash: string; blockhash: string; account: string; limit?: number }): Promise<Fate> {
+  const limit = f.limit ?? 100;
+  let full = false;
   const find = async (): Promise<Fate | null> => {
-    const sigs = (await rpc("getSignaturesForAddress", [f.account, { limit: f.limit ?? 25, commitment: "confirmed" }])) as { signature: string }[];
+    const sigs = (await rpc("getSignaturesForAddress", [f.account, { limit, commitment: "confirmed" }])) as { signature: string }[];
+    // A full page may have pushed the transaction out of view: "not found" then proves nothing.
+    full = sigs.length >= limit;
     for (const s of sigs) {
       const t = (await rpc("getTransaction", [s.signature, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
         meta: { err: unknown } | null;
@@ -86,7 +90,9 @@ export async function solanaTxFate(rpc: Rpc, f: { messageHash: string; blockhash
     const valid = (await rpc("isBlockhashValid", [f.blockhash, { commitment: "confirmed" }])) as { value: boolean };
     if (valid.value) return { fate: "pending" };
     // expired: one last look, in case it landed between the two reads
-    return (await find()) ?? { fate: "dead" };
+    const last = await find();
+    if (last) return last;
+    return full ? { fate: "pending" } : { fate: "dead" };
   } catch {
     return { fate: "pending" };
   }
