@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkOutflows, windows, type Candidate, type OutTx } from "../src/chaincheck.js";
@@ -140,7 +140,8 @@ function keySet() {
   const dir = mkdtempSync(join(tmpdir(), "chaincheck-"));
   const remeasureDir = join(dir, "remeasure");
   const census = join(dir, "tempo-ledger.json");
-  copyFileSync(join(import.meta.dirname, "..", "data", "tempo", "ledger.json"), census);
+  // the census ledger as published before the chain check (it had goflightlabs and modal as settled null)
+  writeFileSync(census, JSON.stringify(FX.census0928.ledger, null, 2) + "\n");
   const day = join(remeasureDir, "tempo-ledger-2026-09-29.json");
   return { set: { census, remeasureDir }, day };
 }
