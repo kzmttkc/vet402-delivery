@@ -582,3 +582,18 @@ test("stock rows: a paid purchase that did not come back is 'bought', withheld f
   const src = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
   assert.match(src, /-paid-run\.json/);
 });
+
+test("withheld rows keep only neutral facts: no settled count; stock references are the ones read at purchase time", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, robinhood: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: SELLER, catalogListings: 12, hosts: ["equity.lonestaroracle.xyz"], chosen: { resource: "https://equity.lonestaroracle.xyz/equity", liveAmount: "50000" } }], stockReferences: [ref()] } };
+  const later = { ...ref(), readAt: 999_999, updatedAt: 999_000, ageSec: 999 };
+  const rec = (t: string) => ({ ...sent({ agentId: `stock:${t}`, resource: "https://equity.lonestaroracle.xyz/equity", payTo: SELLER, response: { status: 402, contentType: null, bytes: 2, first300: "{}" } }), lane: "robinhood", cause: classifyRecord(sent({ response: { status: 402, contentType: null, bytes: 2, first300: "{}" } })), stock: { ticker: t, verdict: "not_bought_yet", reference: later } });
+  const out = buildLanePublic("robinhood", dry, [rec("ORCL"), rec("ORCL")] as never);
+  assert.equal(out.stock![0]!.reference.readAt, 999_999);
+  const w = withholdUnnotified(out, new Set()).rows[0]!;
+  assert.equal(w.status, "withheld");
+  assert.equal(w.purchases, 2);
+  assert.equal(w.settled, undefined);
+  const html = renderRobinhoodPage(JSON.parse(readFileSync(new URL("../site/rank.json", import.meta.url), "utf8")), null as never, withholdUnnotified(out, new Set()));
+  assert.ok(!/settled on chain<\/span>/.test(html.replace(/came back/g, "")) || !html.includes("0 settled"), "no settled count on a withheld row");
+  assert.ok(!html.includes("0 settled on chain"));
+});

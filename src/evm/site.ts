@@ -146,7 +146,7 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
       ? r
       : r.status === "not_bought_yet" || r.status === "not_offered_now" || r.status === "delivered"
         ? { ...r, facilitatorLead: null, skipped: null } // not bought, or delivered: only the lead or skip text goes
-        : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null },
+        : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null, settled: undefined },
   );
   const compare = l.compare
     ? Object.fromEntries(
@@ -239,6 +239,8 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
       };
     }
   }
+  // The reference read right after the purchase (paying run) when there is one, else the plan's.
+  const pick = (x: StockReference): StockRow["reference"] => ({ feed: x.feed, token: x.token, tokenPrice: x.tokenPrice, sharePrice: x.sharePrice, multiplier: x.multiplier, updatedAt: x.updatedAt, readAt: x.readAt, stale: x.stale, oraclePaused: x.oraclePaused });
   if (sec.stockReferences) {
     out.stock = sec.stockReferences.map((ref) => {
       const p = mine.filter((x) => x.agentId === `stock:${ref.ticker}` && x.outcome === "sent").at(-1);
@@ -247,7 +249,7 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
         ticker: ref.ticker,
         resource: p?.resource ?? STOCK_SELLER_RESOURCE,
         ...(p ? { status: statusOf(p) } : {}),
-        reference: { feed: ref.feed, token: ref.token, tokenPrice: ref.tokenPrice, sharePrice: ref.sharePrice, multiplier: ref.multiplier, updatedAt: ref.updatedAt, readAt: ref.readAt, stale: ref.stale, oraclePaused: ref.oraclePaused },
+        reference: pick(((p?.stock as { reference?: StockReference } | undefined)?.reference) ?? ref),
         comparison: cmp,
       };
     });
@@ -331,7 +333,7 @@ function sellerTable(l: LanePublic, withCompare: boolean): string {
       const name = bought && r.status !== "not_bought_yet" && r.status !== "not_offered_now"
         ? `${escapeHtml(bought)}${r.hosts.length > 1 ? `<span class="sub">bought here; the same payTo also serves ${r.hosts.length - 1} other ${r.hosts.length === 2 ? "host" : "hosts"}</span>` : ""}`
         : `${escapeHtml(r.hosts.slice(0, 3).join(", "))}${r.hosts.length > 3 ? ` +${r.hosts.length - 3}` : ""}`;
-      const many = r.purchases ? `<span class="sub">${r.purchases} purchases, ${r.settled ?? 0} settled on chain</span>` : "";
+      const many = r.purchases ? `<span class="sub">${r.purchases} purchases${r.settled !== undefined ? `, ${r.settled} settled on chain` : ""}</span>` : "";
       return `<tr><td class="name">${name}<span class="sub mono">${escapeHtml(short(r.payTo))} · ${r.catalogListings} listed</span></td><td class="num">${escapeHtml(money(r.livePrice, spec.assetSymbol))}</td><td>${escapeHtml(STATUS_TEXT[r.status])}${many}${r.skipped ? `<span class="sub">${escapeHtml(r.skipped)}</span>` : ""}${r.settlementTx ? `<span class="sub">${txLink(l.lane, r.settlementTx)}${r.paidRequestMs !== null ? ` · ${(r.paidRequestMs / 1000).toFixed(1)} s` : ""}</span>` : ""}</td>${compareCells}<td>${causeCell(r.cause)}${!r.cause && r.facilitatorLead ? `<span class="sub">${escapeHtml(r.facilitatorLead)}</span>` : ""}</td></tr>`;
     })
     .join("\n");
@@ -348,7 +350,9 @@ function stockTable(l: LanePublic): string {
       return `<tr><td class="name">${escapeHtml(s.ticker)}<span class="sub mono">feed ${escapeHtml(short(r.feed))}</span></td><td class="num">${r.sharePrice !== null ? `$${r.sharePrice.toFixed(2)}` : "–"}<span class="sub">token $${r.tokenPrice.toFixed(2)} · ×${r.multiplier !== null ? r.multiplier.toFixed(6) : "?"}</span></td><td class="num">${(age / 3600).toFixed(1)} h${r.stale ? " (stale)" : ""}${r.oraclePaused ? " (paused)" : ""}</td><td class="num">${s.withheld ? "bought" : c?.sellerPrice != null ? `$${c.sellerPrice.toFixed(2)}` : s.status ? escapeHtml(STATUS_TEXT[s.status]) : "not bought yet"}</td><td>${s.withheld ? "shown after the seller is told" : c ? `${escapeHtml(c.verdict.replace(/_/g, " "))}${c.deviationPct !== null ? ` (${c.deviationPct >= 0 ? "+" : ""}${c.deviationPct.toFixed(2)}%)` : ""}` : "–"}</td></tr>`;
     })
     .join("\n");
-  const readAt = l.stock?.[0] ? utc(l.stock[0].reference.readAt) : "–";
+  const reads = (l.stock ?? []).map((x) => x.reference.readAt);
+  // One time when the reads are within a minute of each other (one census), a range when purchases spread them.
+  const readAt = reads.length ? (Math.max(...reads) - Math.min(...reads) <= 60 ? utc(Math.min(...reads)) : `${utc(Math.min(...reads))} to ${utc(Math.max(...reads))}`) : "–";
   return `<table class="board"><caption>Reference read from Robinhood Chain at ${escapeHtml(readAt)}. Share price = Chainlink feed (the token price) ÷ the token's uiMultiplier().</caption><thead><tr><th>ticker</th><th class="num">share price</th><th class="num">feed age</th><th class="num">seller said</th><th>verdict</th></tr></thead><tbody>\n${rows}\n</tbody></table>`;
 }
 
