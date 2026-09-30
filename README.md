@@ -176,13 +176,21 @@ The plists start `~/.config/vet402-daily/launch.sh`, which lives outside the che
 
 ### What the secret gate stops, and what it cannot
 
-It reads each string as written and after undoing JSON escapes, percent-encoding (twice), base64 and hex of text, and JSON inside strings. It stops on: any value (text, number, list or object) under a secret-like name in any case or separator, with names found in JSON, queries, fragments, forms, headers, YAML, HTML attributes and XML tags (names that contain `token`, `secret`, `key`, `passw`, `session`, `cookie`, `credential`, `jwt`, `mnemonic`; names such as `pk`, `priv`, `private`, `seed`, `wif`, `xprv`, `wallet`, `otp`; names ending in `auth` or `signature`); a JWT or a piece of one; Bearer and Basic credentials; `user:password@` in a URL; vendor key prefixes; private key blocks; 64-byte key arrays; the runner's own keys in any common encoding; and random-looking runs of 16 characters or more. A 32-byte base58 value, 64 hex characters or a 64-byte base58 value pass only under a field that says what they are (`tx`, `payTo`, `address`, `signature`, `hash`, `mint` and similar, or the same value under such a field elsewhere in the file). Whole files copied from other public sources are allowed by their exact sha256; any other value is allowed only by its exact sha256 with a reason (`scripts/daily/secret-allow.json`).
+It reads each string as written and after undoing JSON escapes (`\u0074`, `\x74`), HTML character references (`&#116;`), percent-encoding (twice), base64 and hex of text, zero-width characters, and JSON inside strings.
 
-Limits (a secret in these shapes gets through; none of them is expected from a seller's response, and a person reads new sellers' bodies when the gate stops on them):
-- a secret under a neutral name that looks like a public id in its exact format and also stands under a public-id field in the same file;
-- a random value shorter than 16 characters under a neutral name, or split into pieces under 16 characters;
-- an all-lowercase value made of short parts joined by `-`, `_` or `.` (it reads like a host name or a slug), or a lowercase label of a host name;
-- a secret in an encoding the gate does not undo (encrypted, compressed, reversed short pieces).
+It stops on:
+- any value (text of any length or case, a number, a list or an object) under a secret-like name, wherever the name stands: JSON, queries, fragments, forms, `name = value`, headers and YAML lines, HTML attributes, XML tags, backtick quotes. Names are compared after folding case, separators, fullwidth forms and lookalike letters from other scripts (`token` spelled with a Cyrillic o, U+043E). Secret-like: any name containing `token`, `secret`, `key`, `passw`, `session`, `cookie`, `credential`, `jwt`, `mnemonic` (so also `keyword`, `tokenAddress`); the names `pk`, `priv`, `private`, `seed`, `wif`, `xprv`, `wallet`, `otp`; names ending in `auth` or `signature`;
+- a JWT or a piece of one; Bearer and Basic credentials; `user:password@` in a URL; vendor key prefixes (`sk-`, `sk_live_`, `pk_test_`, `ghp_`, `glpat-`, `npm_`, `AKIA`, ...); private key blocks; 64-byte key arrays; the runner's own keys in any common encoding; twelve or more BIP-39 words in a row;
+- random-looking runs of 16 characters or more with two kinds of characters (letters and digits, or both cases); 20 or more letters of one case that do not read as English (judged by common letter pairs); 24 or more digits; base64 runs judged whole; lowercase slugs whose parts do not read as words.
+
+A 32-byte base58 value, 64 hex characters or a 64-byte base58 value passes only under a field that says what it is (`tx`, `payTo`, `address`, `signature`, `hash`, `mint`, names ending in `tx`, `hash`, `address` and similar), or when the same value stands under such a field elsewhere in the file (on the site: anywhere in `data/`). An EVM address (`0x` and 40 hex), an Algorand address with a valid checksum and an IPFS id pass anywhere. Whole files copied from other public sources are allowed by their exact sha256; any other value is allowed only by its exact sha256 with a reason that says what it is and where it first stands (`scripts/daily/secret-allow.json`).
+
+Limits (a secret in these shapes gets through; none is expected in a seller's response, and a person reads new sellers' bodies whenever the gate stops on them):
+- under a neutral name: a random value shorter than 16 characters (20 for letters of one case, 24 for digits), or a secret split into such pieces;
+- under a neutral name: a secret that has the exact format of a public id and also stands under a public-id field in the same file, or any EVM address, checksummed Algorand address or IPFS id;
+- a lowercase label of a host name (`abc.example.com`, `//abc.example.com`), or a lowercase slug whose long parts read as English;
+- letters of one case that happen to read as English; a recovery phrase shorter than twelve words or in another language;
+- an encoding the gate does not undo (encrypted, compressed, reversed short pieces, or nested more than five times).
 
 ## Solana feedback (8004-solana)
 

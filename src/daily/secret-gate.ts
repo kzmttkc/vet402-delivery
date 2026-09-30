@@ -25,6 +25,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { BIP39_ENGLISH } from "./bip39-english.js";
 
 /** The replacement text for a token a seller returned to vet402 (same wording as data/ since 2026-09-28). */
 export const SELLER_TOKEN_REDACTION = "[redacted: token the seller issued to vet402]";
@@ -111,6 +112,21 @@ export const publicJson = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
 
 // ---------- names ----------
 
+/** Letters from other scripts that look like Latin ones (Cyrillic, Greek), folded before names are compared. */
+const LOOKALIKE: Record<string, string> = {
+  "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0443": "y", "\u0445": "x", "\u043a": "k",
+  "\u0442": "t", "\u043c": "m", "\u043d": "h", "\u0432": "b", "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u0501": "d",
+  "\u0261": "g", "\u03bf": "o", "\u03b1": "a", "\u03b5": "e", "\u03ba": "k", "\u03bd": "v", "\u03c4": "t", "\u03c1": "p",
+  "\u03c5": "u", "\u03b9": "i", "\u0391": "a", "\u0392": "b", "\u0395": "e", "\u0397": "h", "\u0399": "i", "\u039a": "k",
+  "\u039c": "m", "\u039d": "n", "\u039f": "o", "\u03a1": "p", "\u03a4": "t", "\u03a7": "x", "\u03a5": "y", "\u0410": "a",
+  "\u0412": "b", "\u0415": "e", "\u041a": "k", "\u041c": "m", "\u041d": "h", "\u041e": "o", "\u0420": "p", "\u0421": "c",
+  "\u0422": "t", "\u0425": "x",
+};
+/** A name as compared: compatibility forms folded (fullwidth), lookalike letters mapped, case and separators dropped. */
+export function foldName(name: string): string {
+  return [...name.normalize("NFKC")].map((c) => LOOKALIKE[c] ?? c).join("").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 /** Names whose value is a secret whatever it looks like, compared without case or separators. */
 const SECRET_EXACT = new Set(["key", "sid", "pass", "pwd", "pk", "priv", "private", "privkey", "seed", "wif", "xprv", "wallet", "otp", "totp", "mfa"]);
 /** Parts that make any name secret wherever they stand in it (token2, tokenValue, secret_value, apiKeyId). */
@@ -120,7 +136,7 @@ const SECRET_SUFFIX = ["auth", "authorization", "signature", "sig", "privatekey"
 
 /** A name whose value is a secret whatever it looks like: any case, any separator (api_key, X-Api-Key, apiKey, "api key"). */
 export function isSecretName(name: string): boolean {
-  const n = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const n = foldName(name);
   if (!n) return false;
   return SECRET_EXACT.has(n) || SECRET_PARTS.some((s) => n.includes(s)) || SECRET_SUFFIX.some((s) => n.endsWith(s));
 }
@@ -140,7 +156,7 @@ const PUBLIC_ID_FIELDS = new Set([
 const PUBLIC_ID_SUFFIX = ["tx", "txhash", "txid", "hash", "address", "payto", "mint", "owner", "recipient"];
 const isPublicIdField = (name: string | null) => {
   if (name === null) return false;
-  const n = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const n = foldName(name);
   return PUBLIC_ID_FIELDS.has(n) || PUBLIC_ID_SUFFIX.some((x) => n.endsWith(x));
 };
 
@@ -275,8 +291,30 @@ export function isPublicLongToken(t: string): boolean {
   if (isUnambiguousPublicId(t)) return true;
   const parts = t.split(/[-_:=+./]/).filter(Boolean);
   const lower = !/[A-Z]/.test(t);
+  // A lowercase slug reads as words; random lowercase parts joined by dashes do not.
+  const longParts = parts.filter((p) => /^[a-z]{5,}$/.test(p));
+  if (lower && longParts.join("").length >= 16 && wordiness(longParts.join("-")) < 0.8) return false;
   if (parts.length > 1 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(t)) return true; // UUID
   return parts.length > 1 && parts.every((p) => isPlainPart(p, lower));
+}
+
+const BIP39 = new Set(BIP39_ENGLISH);
+/** Letter pairs common in English words (seen 8 times or more across the BIP-39 list). */
+const COMMON_BIGRAMS = (() => {
+  const c = new Map<string, number>();
+  for (const w of BIP39_ENGLISH) for (let i = 0; i + 1 < w.length; i++) c.set(w.slice(i, i + 2), (c.get(w.slice(i, i + 2)) ?? 0) + 1);
+  return new Set([...c].filter(([, n]) => n >= 8).map(([b]) => b));
+})();
+/** Share of a lowercase string's letter pairs that are common in English: about 0.35 for random letters, 0.8+ for words. */
+export function wordiness(s: string): number {
+  let hit = 0, all = 0;
+  for (const part of s.toLowerCase().split(/[^a-z]+/)) {
+    for (let i = 0; i + 1 < part.length; i++) {
+      all++;
+      if (COMMON_BIGRAMS.has(part.slice(i, i + 2))) hit++;
+    }
+  }
+  return all ? hit / all : 1;
 }
 
 /** Chain ids in CAIP-2 form: public constants. */
@@ -297,6 +335,10 @@ const NETWORK_IDS = new Set([
  */
 function looksRandom(t: string, allowWords = false): boolean {
   if (NETWORK_IDS.has(t) || (allowWords && isWords(t))) return false;
+  // One kind of character only: a long number, or letters that do not read as words.
+  const bare = t.replace(/[-_.:/=+]/g, "");
+  if (/^\d+$/.test(bare)) return bare.length >= 24;
+  if (/^[a-z]+$/.test(bare) || /^[A-Z]+$/.test(bare)) return bare.length >= 20 && wordiness(t) < 0.85;
   const distinct = new Set(t.replace(/[-_.:/=+]/g, "")).size;
   return distinct >= Math.min(12, Math.floor(t.length * 0.6)) && [/[a-z]/, /[A-Z]/, /[0-9]/].filter((r) => r.test(t)).length >= 2;
 }
@@ -306,6 +348,7 @@ function looksRandom(t: string, allowWords = false): boolean {
 function jsonUnescape(s: string): string {
   return s
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\(["\\/])/g, "$1")
     .replace(/\\[nrt]/g, " ");
 }
@@ -340,6 +383,16 @@ function encodedTexts(s: string): string[] {
   return out;
 }
 
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+/** HTML character references (&#101; &#x65; &quot;) decoded, and invisible characters (zero-width, soft hyphen) removed. */
+function htmlUnescape(s: string): string {
+  return s
+    .replace(/&#(\d{1,7});/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]{1,6});/g, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&([a-z]+);/g, (m, n: string) => ENTITIES[n] ?? m)
+    .replace(/[\u00ad\u200b-\u200f\u2060\ufeff]/g, "");
+}
+
 /** The string and every reading of it after undoing escapes, percent-encoding, base64 and hex, up to 5 rounds. */
 export function readings(s: string): string[] {
   const seen = new Set<string>([s]);
@@ -347,7 +400,7 @@ export function readings(s: string): string[] {
   for (let round = 0; round < 5 && frontier.length; round++) {
     const next: string[] = [];
     for (const v of frontier) {
-      for (const w of [jsonUnescape(v), percentDecode(v), ...encodedTexts(v)]) {
+      for (const w of [jsonUnescape(v), htmlUnescape(v), percentDecode(v), ...encodedTexts(v)]) {
         if (!seen.has(w) && seen.size < 64) {
           seen.add(w);
           next.push(w);
@@ -362,7 +415,7 @@ export function readings(s: string): string[] {
 // ---------- detection ----------
 
 /** "name": "value", "name": 123, "name": [ ... or { ... (the value may be cut off at the end of a body). */
-const QUOTED_PAIR = /["']([^"'\n]{1,300})["']\s*:\s*(?:["']([^"']*)["']?|([[{][\s\S]{0,160})|(-?\d[\d.eE+-]*))/g;
+const QUOTED_PAIR = /["'`]([^"'`\n]{1,300})["'`]\s*:\s*(?:["'`]([^"'`]*)["'`]?|([[{][\s\S]{0,160})|(-?\d[\d.eE+-]*))/g;
 /** name=value or name = value in a query, a fragment, a form, a cookie, code or config. */
 const FORM_PAIR = /(?:^|[?&;,#\s{(])([A-Za-z0-9_.%[\]-]{1,300})[ \t]*=[ \t]*(?![="])([^&;#\s"'<>]+)/g;
 /** name="value" as an HTML or XML attribute. */
@@ -482,6 +535,18 @@ export function scanText(text: string, file: string, path: string, key: string |
     for (const m of v.matchAll(AUTH_SCHEME)) if (!ownMarker(m[1]!)) add("bearer", m[1]!);
     for (const m of v.matchAll(TOKEN_SCHEME)) if (looksRandom(m[1]!)) add("bearer", m[1]!);
     for (const m of v.matchAll(URL_USERINFO)) add("url-query-secret", m[1]!);
+    // Twelve or more BIP-39 words in a row: a wallet's recovery phrase.
+    for (const m of v.matchAll(/[a-z]{3,8}(?:[ ,]+[a-z]{3,8}){11,}/g)) {
+      const words = m[0].split(/[ ,]+/);
+      let run = 0;
+      for (const w of words) {
+        run = BIP39.has(w) ? run + 1 : 0;
+        if (run >= 12) {
+          add("secret-field", m[0]);
+          break;
+        }
+      }
+    }
     for (const m of v.matchAll(LOCAL_PATH)) add("local-path", m[0], original && m[0].startsWith("/Users/"));
 
     // Values under names: secret-like names stop whatever the value; public-id names vouch for ids.
@@ -495,17 +560,15 @@ export function scanText(text: string, file: string, path: string, key: string |
     for (const m of v.matchAll(FORM_PAIR)) named(percentDecode(m[1]!), m[2]!, "url-query-secret");
     for (const m of v.matchAll(ATTR_PAIR)) named(m[1]!, m[3]!, "secret-field");
     for (const m of v.matchAll(XML_PAIR)) named(m[1]!, m[2]!.trim(), "secret-field");
-    for (const m of v.matchAll(HEADER_PAIR)) {
-      const value = m[2]!;
-      // name: value in prose ("the seller key: the host") is a sentence; as a header it holds a token-like value.
-      if (value.length < 8 || /^[a-z]+$/.test(value) || /^(?:bearer|basic|token)$/i.test(value)) continue;
-      named(m[1]!.trim(), value, "secret-field");
-    }
+    // name: value as a header or YAML line: under a secret-like name any value stops (prose included).
+    for (const m of v.matchAll(HEADER_PAIR)) named(m[1]!.trim(), m[2]!, "secret-field");
     for (const m of v.matchAll(PATH_ID)) localIds.add(m[1]!);
 
     // base64 runs: judged whole, since their slashes and plus signs split them into short pieces below.
     for (const m of v.matchAll(B64_RUN)) {
       const t = m[0];
+      // a URL authority or a path that runs into a host name (//host, /seller/host.html) is judged as a host
+      if ((t.startsWith("//") && v[m.index! - 1] === ":") || (v[m.index! + t.length] === "." && /^[/a-z0-9-]+$/.test(t))) continue;
       if (!(/[+=]/.test(t) || (t.match(/\//g) ?? []).length >= 1)) continue;
       const pieces = t.replace(/=+$/, "").split(/[+/]/).filter(Boolean);
       if (pieces.every((p) => p.length < 3 || /^\d+$/.test(p) || isWords(p) || isPlainPart(p, !/[A-Z]/.test(p)) || isPublicLongToken(p) || localIds.has(p) || fileIds.has(p))) continue;
