@@ -54,6 +54,8 @@ export interface StockRow {
   resource?: string;
   /** A negative verdict for a seller not yet told: not published. */
   withheld?: boolean;
+  /** What the purchase for this ticker did (absent: not bought). */
+  status?: RowStatus;
   reference: Pick<StockReference, "feed" | "token" | "tokenPrice" | "sharePrice" | "multiplier" | "updatedAt" | "readAt" | "stale" | "oraclePaused">;
   comparison: StockComparison | null;
 }
@@ -154,7 +156,8 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
         }),
       )
     : undefined;
-  const stock = l.stock?.map((s) => (s.comparison && NEGATIVE_STOCK.has(s.comparison.verdict) && !told(hostOf(s.resource ?? null)) ? { ...s, comparison: null, withheld: true } : s));
+  const stockNegative = (s: StockRow) => (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "delivered");
+  const stock = l.stock?.map((s) => (stockNegative(s) && !told(hostOf(s.resource ?? null)) ? { ...s, comparison: null, status: "withheld" as const, withheld: true } : s));
   return { ...l, rows, ...(compare ? { compare } : {}), ...(stock ? { stock } : {}) };
 }
 
@@ -166,7 +169,10 @@ export function unpublishableRows(l: LanePublic, notified: ReadonlySet<string>):
     const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
     if (neg && !notified.has(hostOf(res) ?? "")) out.push(`${l.lane}: Base side of ${res} (${c.status})`);
   }
-  for (const s of l.stock ?? []) if (s.comparison && NEGATIVE_STOCK.has(s.comparison.verdict) && !notified.has(hostOf(s.resource ?? null) ?? "")) out.push(`${l.lane}: stock ${s.ticker} (${s.comparison.verdict})`);
+  for (const s of l.stock ?? []) {
+    const neg = (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "delivered" && s.status !== "withheld");
+    if (neg && !notified.has(hostOf(s.resource ?? null) ?? "")) out.push(`${l.lane}: stock ${s.ticker} (${s.comparison?.verdict ?? s.status})`);
+  }
   return out;
 }
 
@@ -236,10 +242,11 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
   if (sec.stockReferences) {
     out.stock = sec.stockReferences.map((ref) => {
       const p = mine.filter((x) => x.agentId === `stock:${ref.ticker}` && x.outcome === "sent").at(-1);
-      const cmp = p?.stock && "deviationPct" in (p.stock as object) ? (p.stock as StockComparison) : null;
+      const cmp = p?.delivered && p.stock && "deviationPct" in (p.stock as object) ? (p.stock as StockComparison) : null;
       return {
         ticker: ref.ticker,
         resource: p?.resource ?? STOCK_SELLER_RESOURCE,
+        ...(p ? { status: statusOf(p) } : {}),
         reference: { feed: ref.feed, token: ref.token, tokenPrice: ref.tokenPrice, sharePrice: ref.sharePrice, multiplier: ref.multiplier, updatedAt: ref.updatedAt, readAt: ref.readAt, stale: ref.stale, oraclePaused: ref.oraclePaused },
         comparison: cmp,
       };
@@ -338,7 +345,7 @@ function stockTable(l: LanePublic): string {
       const r = s.reference;
       const c = s.comparison;
       const age = r.readAt - r.updatedAt;
-      return `<tr><td class="name">${escapeHtml(s.ticker)}<span class="sub mono">feed ${escapeHtml(short(r.feed))}</span></td><td class="num">${r.sharePrice !== null ? `$${r.sharePrice.toFixed(2)}` : "–"}<span class="sub">token $${r.tokenPrice.toFixed(2)} · ×${r.multiplier !== null ? r.multiplier.toFixed(6) : "?"}</span></td><td class="num">${(age / 3600).toFixed(1)} h${r.stale ? " (stale)" : ""}${r.oraclePaused ? " (paused)" : ""}</td><td class="num">${s.withheld ? "bought" : c?.sellerPrice != null ? `$${c.sellerPrice.toFixed(2)}` : "not bought yet"}</td><td>${s.withheld ? "shown after the seller is told" : c ? `${escapeHtml(c.verdict.replace(/_/g, " "))}${c.deviationPct !== null ? ` (${c.deviationPct >= 0 ? "+" : ""}${c.deviationPct.toFixed(2)}%)` : ""}` : "–"}</td></tr>`;
+      return `<tr><td class="name">${escapeHtml(s.ticker)}<span class="sub mono">feed ${escapeHtml(short(r.feed))}</span></td><td class="num">${r.sharePrice !== null ? `$${r.sharePrice.toFixed(2)}` : "–"}<span class="sub">token $${r.tokenPrice.toFixed(2)} · ×${r.multiplier !== null ? r.multiplier.toFixed(6) : "?"}</span></td><td class="num">${(age / 3600).toFixed(1)} h${r.stale ? " (stale)" : ""}${r.oraclePaused ? " (paused)" : ""}</td><td class="num">${s.withheld ? "bought" : c?.sellerPrice != null ? `$${c.sellerPrice.toFixed(2)}` : s.status ? escapeHtml(STATUS_TEXT[s.status]) : "not bought yet"}</td><td>${s.withheld ? "shown after the seller is told" : c ? `${escapeHtml(c.verdict.replace(/_/g, " "))}${c.deviationPct !== null ? ` (${c.deviationPct >= 0 ? "+" : ""}${c.deviationPct.toFixed(2)}%)` : ""}` : "–"}</td></tr>`;
     })
     .join("\n");
   const readAt = l.stock?.[0] ? utc(l.stock[0].reference.readAt) : "–";

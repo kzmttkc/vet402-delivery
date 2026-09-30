@@ -15,7 +15,10 @@ import { compareStockAnswer } from "../src/robinhood/stock-check.js";
 const argv = process.argv.slice(2);
 const lane = argv[argv.indexOf("--lane") + 1];
 if (lane !== "robinhood" && lane !== "arbitrum") throw new Error("--lane robinhood | arbitrum");
-const dry = JSON.parse(readFileSync(`results/evm/${lane}-dryrun.json`, "utf8")) as Record<string, unknown>;
+// The plan of the paying run when there is one (it re-plans from live 402s), else the dry run's.
+const planFile = existsSync(`results/evm/${lane}-paid-run.json`) ? `results/evm/${lane}-paid-run.json` : `results/evm/${lane}-dryrun.json`;
+const dry = JSON.parse(readFileSync(planFile, "utf8")) as Record<string, unknown>;
+console.error(`plan: ${planFile}`);
 const files = lane === "arbitrum" ? ["results/evm/arbitrum-purchases.jsonl", "results/evm/base-compare-purchases.jsonl"] : ["results/evm/robinhood-purchases.jsonl"];
 const raw = files.flatMap((f) => (existsSync(f) ? readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : []));
 // Causes and stock verdicts are decided again here with today's rules, not taken from the run's own file:

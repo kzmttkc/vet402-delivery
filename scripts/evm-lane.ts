@@ -316,10 +316,9 @@ for (const r of results) {
 summary.funding = funding;
 summary.results = results;
 const text = JSON.stringify(summary, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n";
-if (!pay) {
-  mkdirSync("results/evm", { recursive: true });
-  writeFileSync(`results/evm/${laneArg}-dryrun.json`, text);
-}
+mkdirSync("results/evm", { recursive: true });
+// A paying run plans again from live 402s; its plan is what the published rows must be read against.
+writeFileSync(pay ? `results/evm/${laneArg}-paid-run.json` : `results/evm/${laneArg}-dryrun.json`, text);
 const brief = results.map((r) => ({
   lane: r.lane,
   entries: r.entries,

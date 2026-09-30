@@ -566,3 +566,19 @@ test("publish decides causes and stock verdicts again with the current rules", (
   assert.match(src, /compareStockAnswer\(ticker, r\.body, ref, r\.at\)/);
   assert.ok(src.indexOf("classifyRecord(r,") < src.indexOf("buildLanePublic(lane, dry, paid)"));
 });
+
+test("stock rows: a paid purchase that did not come back is 'bought', withheld for an untold seller, never 'not bought yet'", () => {
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, robinhood: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [], stockReferences: [ref()] } };
+  const p = { ...sent({ agentId: "stock:ORCL", resource: "https://equity.lonestaroracle.xyz/equity", payTo: SELLER, response: { status: 402, contentType: null, bytes: 2, first300: "{}" } }), lane: "robinhood", cause: classifyRecord(sent({ response: { status: 402, contentType: null, bytes: 2, first300: "{}" } })) };
+  const out = buildLanePublic("robinhood", dry, [p as never]);
+  assert.equal(out.stock![0]!.status, "not_settled");
+  assert.equal(unpublishableRows(out, new Set()).length, 1);
+  const w = withholdUnnotified(out, new Set());
+  assert.equal(w.stock![0]!.withheld, true);
+  assert.deepEqual(unpublishableRows(w, new Set()), []);
+  const html = renderRobinhoodPage(JSON.parse(readFileSync(new URL("../site/rank.json", import.meta.url), "utf8")), null as never, w);
+  assert.ok(!html.includes("not bought yet"), "the bought ticker is not shown as not bought");
+  assert.equal(withholdUnnotified(out, new Set(["equity.lonestaroracle.xyz"])).stock![0]!.status, "not_settled");
+  const src = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
+  assert.match(src, /-paid-run\.json/);
+});
