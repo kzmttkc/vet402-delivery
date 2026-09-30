@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { keccak256, stringToBytes } from "viem";
+import { keccak256, stringToBytes, type Hex } from "viem";
 import type { LoadedRecords } from "../src/receipt/publish.js";
 import type { Observation } from "../src/receipt/types.js";
 import {
@@ -27,7 +27,11 @@ import {
   type EvmGateChecks,
   type EvmPurchase,
 } from "../src/evm/rep-plan.js";
-import { plan, readLedger, repChain, send, simulate, type RepDeps, type RepReader, type RepSender, type SimRead } from "../src/evm/rep-run.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { decodeFunctionData, encodeFunctionResult, getAddress, parseAbi } from "viem";
+import { identityAbi, reputationAbi } from "../src/evm/erc8004.js";
+import { assertIndexComplete, chainReader, indexRow, MULTICALL3, plan, readLedger, repChain, send, simulate, type RepDeps, type RepReader, type RepSender, type SimRead } from "../src/evm/rep-run.js";
 
 const PAYER = "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51";
 const P = PAYER.toLowerCase();
@@ -78,6 +82,8 @@ const PASS: EvmGateChecks = {
   caip2: "eip155:4217",
   client: P,
   payTo: addr(1),
+  hosts: ["s1.example"],
+  pin: null,
   outcome: "delivered",
   agent: { agentId: 7n, agentWalletNow: addr(1), clientIsOwnerOrOperator: false },
   purchase: { tx: txh(1), status: "success", finalized: true, transferMatches: true, detail: "ok" },
@@ -90,6 +96,8 @@ test("every gate refuses on its own", () => {
   assert.deepEqual(evmRefusals(PASS), []);
   const cases: [string, Partial<EvmGateChecks> | ((c: EvmGateChecks) => EvmGateChecks), RegExp][] = [
     ["outcome", { outcome: null }, /no single outcome/],
+    ["shared payTo, no pin", { hosts: ["a.example", "b.example"] }, /serves 2 hosts; the agent needs an operator pin/],
+    ["pin names another agent", { pin: "8" }, /pin 8 is not the payTo's agent \(7\)/],
     ["no agent", { agent: null }, /no agent chosen/],
     ["wallet moved", (c) => ({ ...c, agent: { ...c.agent!, agentWalletNow: addr(2) } }), /agentWallet now/],
     ["owner writes", (c) => ({ ...c, agent: { ...c.agent!, clientIsOwnerOrOperator: true } }), /owns or operates/],
@@ -150,6 +158,7 @@ interface World {
   index: AgentEntry[];
   lastIndex: Map<string, bigint>;
   sim: SimRead;
+  authz?: boolean | null;
 }
 
 function fakeReader(w: World): RepReader {
@@ -157,7 +166,7 @@ function fakeReader(w: World): RepReader {
     chainId: async () => 4217,
     indexAgents: async () => w.index,
     agentWallet: async (id) => w.index.find((a) => a.agentId === id)?.agentWallet ?? null,
-    isAuthorizedOrOwner: async () => false,
+    isAuthorizedOrOwner: async () => (w.authz === undefined ? false : w.authz),
     lastIndex: async (id) => w.lastIndex.get(id.toString()) ?? 0n,
     purchase: async () => ({ status: "success", finalized: true, transferMatches: true, detail: "ok" }),
     simulate: async () => w.sim,
@@ -176,13 +185,14 @@ function setup(nSellers: number) {
   }
   const published = { index: {}, notified: {}, records: recs } as unknown as LoadedRecords;
   const texts = new Map(recs.map((r) => [`https://kzmttkc.github.io/vet402-delivery/records/${r.entry.id}.json`, r.text]));
-  const w: World = { index, lastIndex: new Map(), sim: { ok: true, revertReason: null, gas: 2_100_000n, costAtMax: 1522n, costNow: 1269n, feeBalance: 16_000_000n, blockNumber: 1n } };
+  const w: World = { index, lastIndex: new Map(), sim: { ok: true, revertReason: null, gas: 2_100_000n, maxFeePerGas: 720_000_000n, l1Fee: 0n, costAtMax: 1815n, costNow: 1269n, feeBalance: 16_000_000n, blockNumber: 1n } };
   const events: string[] = [];
+  const signedMaxFee = { v: 720_000_000n };
   const ledgerPath = join(dir, "ledger.json");
   const sender: RepSender = {
-    sign: async (data) => {
+    sign: async (data, gas) => {
       events.push("sign");
-      return { serialized: data, hash: keccak256(data), from: PAYER };
+      return { serialized: data, hash: keccak256(data), from: PAYER, gas, maxFeePerGas: signedMaxFee.v };
     },
     broadcast: async (s) => {
       const l = readLedger(ledgerPath);
@@ -202,7 +212,7 @@ function setup(nSellers: number) {
     verifyRecord: async () => true,
     sender,
   };
-  return { d, w, events, ledgerPath, recs };
+  return { d, w, events, ledgerPath, recs, signedMaxFee };
 }
 
 test("plan: a clean seller is writable with the record URL and keccak256 of its bytes", async () => {
@@ -267,7 +277,7 @@ test("the Base agents written on 2026-09-28 are never written again, even if the
   // a fake index that binds every purchased payTo to exactly the agent it was bought from
   const index: AgentEntry[] = lines.map((l) => ({ agentId: BigInt(l.agentId), owner: l.payTo, agentWallet: l.payTo }));
   const { d } = setup(0);
-  const base: RepDeps = { ...d, chain: repChain("base", {}), reader: { ...fakeReader({ index, lastIndex: new Map(), sim: { ok: true, revertReason: null, gas: 1n, costAtMax: 1n, costNow: 1n, feeBalance: 10n ** 18n, blockNumber: 1n } }), chainId: async () => 8453 }, purchases: ps, priorAgentIds: prior };
+  const base: RepDeps = { ...d, chain: repChain("base", {}), reader: { ...fakeReader({ index, lastIndex: new Map(), sim: { ok: true, revertReason: null, gas: 1n, maxFeePerGas: 1n, l1Fee: 0n, costAtMax: 1n, costNow: 1n, feeBalance: 10n ** 18n, blockNumber: 1n } }), chainId: async () => 8453 }, purchases: ps, priorAgentIds: prior };
   const items = await plan(base);
   const written = items.filter((x) => x.item.agent.agentId && prior.has(x.item.agent.agentId));
   assert.equal(written.length, 7);
@@ -282,4 +292,123 @@ test("a chain with no purchases reads nothing and plans nothing", async () => {
   };
   const reader = { chainId: boom, indexAgents: boom, agentWallet: boom, isAuthorizedOrOwner: boom, lastIndex: boom, purchase: boom, simulate: boom } as unknown as RepReader;
   assert.deepEqual(await plan({ ...d, chain: repChain("arbitrum", {}), reader, purchases: [] }), []);
+});
+
+test("send judges the fee on the tx as signed, and re-reads owner/operator before signing", async () => {
+  const a = setup(1);
+  const items = await plan(a.d);
+  a.signedMaxFee.v = 10_000_000_000n; // the node raised its fee between simulate and signing
+  const r = await send(a.d, items);
+  assert.match(r[0]!.status, /signed, not sent\): fee \d+ over the cap 5000/);
+  assert.equal(a.events.filter((e) => e.startsWith("broadcast")).length, 0);
+  assert.deepEqual(readLedger(a.ledgerPath), {});
+  const b = setup(1);
+  const items2 = await plan(b.d);
+  b.w.authz = true;
+  assert.match((await send(b.d, items2))[0]!.status, /now owns or operates/);
+  b.w.authz = null;
+  assert.match((await send(b.d, items2))[0]!.status, /could not read owner\/operator/);
+  assert.equal(b.events.length, 0);
+});
+
+test("a payTo behind several hosts is written only with an operator pin that names its agent", async () => {
+  const { d } = setup(1);
+  const shared = [...d.purchases, ...d.purchases.map((p) => ({ ...p, host: "other.example", url: "https://other.example/api", tx: p.tx.replace(/^0x0/, "0xf") }))];
+  const [x] = await plan({ ...d, purchases: shared });
+  assert.equal(x!.item.status, "refused");
+  assert.match(x!.item.refusals.join("; "), /serves 2 hosts/);
+  const [y] = await plan({ ...d, purchases: shared, pins: new Map([[addr(1), "101"]]) });
+  assert.equal(y!.item.status, "writable", y!.item.refusals.join("; "));
+  const [z] = await plan({ ...d, purchases: shared, pins: new Map([[addr(1), "5"]]) });
+  assert.match(z!.item.refusals.join("; "), /pin 5 is not the payTo's agent \(101\)/);
+});
+
+// ---------- the index against a fake JSON-RPC server (multicall3 aggregate3) ----------
+
+const mcAbi = parseAbi([
+  "struct Call3 { address target; bool allowFailure; bytes callData; }",
+  "struct Result { bool success; bytes returnData; }",
+  "function aggregate3(Call3[] calls) payable returns (Result[] returnData)",
+]);
+const SHARED = "0x00000000000000000000000000000000000000aa";
+const NONEXISTENT = "0x7e273289" + "0".repeat(64); // ERC721NonexistentToken(uint256)
+
+/** Agents 1..1199 exist; 5 and 700 share one agentWallet. mode: rpc errors on a batch, or a hole in the ids. */
+async function fakeRegistry(mode: "ok" | "batch-error" | "hole", run: (reader: RepReader) => Promise<void>) {
+  const N = 1200n;
+  const walletOf = (id: bigint) => (id === 5n || id === 700n ? SHARED : getAddress("0x" + (id + 0x1000n).toString(16).padStart(40, "0")));
+  const exists = (id: bigint) => id >= 1n && id < N && !(mode === "hole" && id === 800n);
+  const one = (data: Hex): { ok: boolean; ret: Hex } => {
+    const f = decodeFunctionData({ abi: [...identityAbi, ...reputationAbi], data });
+    const id = f.args![0] as bigint;
+    if (f.functionName === "ownerOf") return exists(id) ? { ok: true, ret: encodeFunctionResult({ abi: identityAbi, functionName: "ownerOf", result: "0x00000000000000000000000000000000000000bb" }) } : { ok: false, ret: NONEXISTENT as Hex };
+    if (f.functionName === "getAgentWallet") return { ok: true, ret: encodeFunctionResult({ abi: identityAbi, functionName: "getAgentWallet", result: walletOf(id) }) };
+    throw new Error(`unhandled ${f.functionName}`);
+  };
+  const srv = createServer((req, res) => {
+    let b = "";
+    req.on("data", (c) => (b += c));
+    req.on("end", () => {
+      const body = JSON.parse(b);
+      const answer = (q: { id: number; method: string; params: [{ to: string; data?: Hex; input?: Hex }] }) => {
+        if (q.method === "eth_chainId") return { jsonrpc: "2.0", id: q.id, result: "0x2105" };
+        if (q.method !== "eth_call") return { jsonrpc: "2.0", id: q.id, error: { code: -32601, message: `no ${q.method}` } };
+        const data = (q.params[0].data ?? q.params[0].input)!;
+        if (q.params[0].to.toLowerCase() === MULTICALL3.toLowerCase()) {
+          const calls = decodeFunctionData({ abi: mcAbi, data }).args![0] as readonly { callData: Hex }[];
+          const ids = calls.map((c) => decodeFunctionData({ abi: identityAbi, data: c.callData }).args![0] as bigint);
+          if (mode === "batch-error" && ids.some((i) => i >= 500n && i < 1000n)) return { jsonrpc: "2.0", id: q.id, error: { code: -32005, message: "rate limit exceeded" } };
+          const r = calls.map((c) => {
+            const o = one(c.callData);
+            return { success: o.ok, returnData: o.ret };
+          });
+          return { jsonrpc: "2.0", id: q.id, result: encodeFunctionResult({ abi: mcAbi, functionName: "aggregate3", result: r }) };
+        }
+        const o = one(data);
+        return o.ok ? { jsonrpc: "2.0", id: q.id, result: o.ret } : { jsonrpc: "2.0", id: q.id, error: { code: 3, message: "execution reverted", data: o.ret } };
+      };
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(Array.isArray(body) ? body.map(answer) : answer(body)));
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+  const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+  try {
+    await run(chainReader(repChain("base", { BASE_RPC_URL: url, BASE_RECEIPT_RPC_URL: url })));
+  } finally {
+    srv.close();
+  }
+}
+
+test("fake RPC: the index holds every agent, so a shared agentWallet is seen as shared", async () => {
+  await fakeRegistry("ok", async (reader) => {
+    const idx = await reader.indexAgents();
+    assert.equal(idx.length, 1199);
+    assert.deepEqual(chooseEvmAgent(idx, SHARED).byWallet, ["5", "700"]);
+    assert.equal(chooseEvmAgent(idx, SHARED).agentId, null);
+  });
+});
+
+test("fake RPC: an RPC error on a multicall batch stops the run instead of dropping 500 agents", async () => {
+  await fakeRegistry("batch-error", async (reader) => {
+    await assert.rejects(reader.indexAgents(), /ownerOf\(\d+\) failed at or below the top id/);
+  });
+});
+
+test("fake RPC: a missing id below the top stops the run", async () => {
+  await fakeRegistry("hole", async (reader) => {
+    await assert.rejects(reader.indexAgents(), /ownerOf\(800\) failed/);
+  });
+});
+
+test("index rows and completeness are checked without a chain", () => {
+  const ok = { status: "success" as const, result: addr(1) };
+  const bad = { status: "failure" as const, error: new Error("rate limit exceeded") };
+  assert.equal(indexRow("base", 1n, ok, ok).agentWallet, addr(1));
+  assert.throws(() => indexRow("base", 2n, bad, ok), /ownerOf\(2\) failed/);
+  assert.throws(() => indexRow("base", 3n, ok, bad), /getAgentWallet\(3\) failed/);
+  const rows = [0n, 1n, 2n].map((i) => ({ agentId: i, owner: addr(1), agentWallet: addr(1) }));
+  assert.doesNotThrow(() => assertIndexComplete("base", rows, 0n, 2n));
+  assert.throws(() => assertIndexComplete("base", rows.slice(1), 0n, 2n), /expected 3/);
+  assert.throws(() => assertIndexComplete("base", [rows[0]!, rows[0]!, rows[1]!], 0n, 2n), /2 distinct/);
 });

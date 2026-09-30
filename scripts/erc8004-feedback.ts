@@ -8,6 +8,8 @@
  *   VET402_ERC8004_FEEDBACK_WRITE=yes npx tsx scripts/erc8004-feedback.ts --chain tempo --send   # sign and send (max 2)
  *
  * --chain base | tempo | robinhood | arbitrum | all
+ * --pin <payTo>=<agentId>  for a payTo that serves several hosts (a marketplace or proxy): confirms which
+ *                         agent is the seller. It must be the agent whose agentWallet is that payTo.
  * Inputs (each checked against data/manifest.json): base/purchases, tempo/ledger, remeasure/<chain>-*.
  * A chain with no input has no target and reads nothing.
  * RPC: BASE_RPC_URL, TEMPO_RPC_URL, ROBINHOOD_RPC_URL, ARBITRUM_RPC_URL.
@@ -36,6 +38,13 @@ if (!chains.every((c) => REP_CHAIN_KEYS.includes(c))) throw new Error(`unknown c
 const measureArg = valueOf("--measure");
 if (measureArg !== undefined && (mode !== "simulate" || !/^\d+$/.test(measureArg))) throw new Error("--measure <agentId> goes with --simulate");
 if (mode === "send" && chains.length !== 1) throw new Error("--send takes one chain");
+const pins = new Map<string, string>();
+args.forEach((a, i) => {
+  if (a !== "--pin") return;
+  const m = /^(0x[0-9a-fA-F]{40})=(\d+)$/.exec(args[i + 1] ?? "");
+  if (!m) throw new Error(`--pin wants <payTo>=<agentId>, got "${args[i + 1]}"`);
+  pins.set(m[1]!.toLowerCase(), m[2]!);
+});
 
 // ---------- inputs ----------
 const DATA = join(ROOT, "data");
@@ -77,6 +86,7 @@ for (const chain of chains) {
     published,
     ledgerPath: join(ROOT, "results", "erc8004-feedback-ledger.json"),
     priorAgentIds: priorFor(chain),
+    pins,
     sender: mode === "send" ? chainSender(cfg, () => loadEvmAccount()) : undefined,
     log: (l) => console.error(l),
   };
@@ -87,6 +97,7 @@ for (const chain of chains) {
     chain,
     chainId: cfg.chainId,
     writer,
+    pins: Object.fromEntries(pins),
     inputs: sources,
     purchases: purchases.length,
     sellers: new Set(purchases.map((p) => p.payTo)).size,

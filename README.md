@@ -241,6 +241,8 @@ npx tsx scripts/solana-feedback.ts --simulate       # also simulateTransaction o
 VET402_SOLANA_FEEDBACK_WRITE=yes npx tsx scripts/solana-feedback.ts --send
 ```
 
+ERC-8004 feedback on Base, Tempo, Robinhood Chain and Arbitrum (`scripts/erc8004-feedback.ts`) is sent from one place only, `~/vet402-solana`: its ledger `results/erc8004-feedback-ledger.json` is not in git, and the chain's `getLastIndex` is read again before every send.
+
 ## Corrections
 
 Published data is corrected only toward what the chain shows, and every correction is listed here. The previous values stay in git history.

@@ -136,6 +136,10 @@ export interface EvmGateChecks {
   caip2: string;
   client: string;
   payTo: string;
+  /** Hosts vet402 paid this payTo for. More than one = a shared payTo (a marketplace or proxy). */
+  hosts: string[];
+  /** Operator pin payTo=agentId, or null. */
+  pin: string | null;
   outcome: Outcome | null;
   agent: { agentId: bigint | null; agentWalletNow: string | null; clientIsOwnerOrOperator: boolean | null } | null;
   purchase: {
@@ -174,6 +178,9 @@ export function evmRefusals(c: EvmGateChecks): string[] {
   const r: string[] = [];
   if (!c.outcome) r.push("no single outcome to report");
   const a = c.agent;
+  // A payTo behind several hosts is a marketplace or proxy: its agent may be the platform, not the seller.
+  if (c.hosts.length > 1 && c.pin === null) r.push(`the payTo serves ${c.hosts.length} hosts; the agent needs an operator pin (--pin ${c.payTo}=<agentId>)`);
+  if (c.pin !== null && (!a || a.agentId === null || a.agentId.toString() !== c.pin)) r.push(`pin ${c.pin} is not the payTo's agent (${a?.agentId?.toString() ?? "none"})`);
   if (!a || a.agentId === null) r.push("no agent chosen");
   else {
     if (!same(a.agentWalletNow, c.payTo)) r.push(`agentWallet now ${a.agentWalletNow} is not the payTo ${c.payTo}`);
@@ -220,4 +227,14 @@ export function feeRefusal(costAtMax: bigint | null, cap: bigint, balance: bigin
 export function tempoFeeAtomic(gas: bigint, attodollarsPerGas: bigint): bigint {
   const n = gas * attodollarsPerGas;
   return (n + 999_999_999_999n) / 1_000_000_000_000n;
+}
+
+/** The gas limit signed is the estimate plus 20%; the fee gate is judged at that limit. */
+export function gasLimitOf(estimate: bigint): bigint {
+  return (estimate * 12n) / 10n;
+}
+
+/** Worst-case cost of a tx in the chain's fee unit: gasLimit at maxFeePerGas (+ the L1 data fee on an OP chain). */
+export function feeCost(kind: "native" | "tip20", gasLimit: bigint, maxFeePerGas: bigint, l1Fee: bigint): bigint {
+  return kind === "tip20" ? tempoFeeAtomic(gasLimit, maxFeePerGas) : gasLimit * maxFeePerGas + l1Fee;
 }

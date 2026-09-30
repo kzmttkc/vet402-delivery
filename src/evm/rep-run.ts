@@ -32,7 +32,9 @@ import {
   chooseEvmAgent,
   evmRefusals,
   evmValues,
+  feeCost,
   feeRefusal,
+  gasLimitOf,
   groupEvmByPayTo,
   MAX_WRITES_PER_RUN,
   outcomeOf,
@@ -97,10 +99,14 @@ export interface PurchaseCheck {
 export interface SimRead {
   ok: boolean;
   revertReason: string | null;
+  /** eth_estimateGas. The tx is signed with gasLimitOf(gas). */
   gas: bigint | null;
-  /** Cost at the node's max fee, in the fee unit (wei, or TIP-20 atomic). */
+  maxFeePerGas: bigint | null;
+  /** OP-stack L1 data fee in wei; 0 elsewhere; null when it could not be read. */
+  l1Fee: bigint | null;
+  /** Cost at the signed gas limit and the node's max fee, in the fee unit (wei, or TIP-20 atomic). */
   costAtMax: bigint | null;
-  /** Cost at the current gas price, same unit. */
+  /** Cost at the estimate and the current gas price, same unit. */
   costNow: bigint | null;
   feeBalance: bigint | null;
   blockNumber: bigint;
@@ -117,8 +123,8 @@ export interface RepReader {
 }
 
 export interface RepSender {
-  /** Sign locally; nothing leaves the machine. Returns the raw tx and its hash. */
-  sign(data: Hex, gas: bigint): Promise<{ serialized: Hex; hash: Hex; from: string }>;
+  /** Sign locally; nothing leaves the machine. Returns the raw tx, its hash, and the gas limit and max fee it carries. */
+  sign(data: Hex, gas: bigint): Promise<{ serialized: Hex; hash: Hex; from: string; gas: bigint; maxFeePerGas: bigint }>;
   broadcast(serialized: Hex): Promise<Hex>;
   wait(hash: Hex): Promise<"success" | "reverted" | "pending">;
 }
@@ -131,6 +137,26 @@ const GAS_PRICE_ORACLE: Address = "0x420000000000000000000000000000000000000F";
 function shortError(e: unknown): string {
   const m = e instanceof Error ? ((e as { shortMessage?: string }).shortMessage ?? e.message) : String(e);
   return m.split("\n")[0]!.slice(0, 300);
+}
+
+type McResult = { status: "success"; result: unknown } | { status: "failure"; error: unknown };
+
+/**
+ * One index row from the multicall results. Every id at or below the top id must read: a failed ownerOf or
+ * getAgentWallet is an error, never "no agent" (a missing agent can make a shared payTo look unique).
+ */
+export function indexRow(chain: string, id: bigint, owner: McResult, wallet: McResult): AgentEntry {
+  const why = (r: McResult) => (r.status === "failure" ? shortError(r.error) : "");
+  if (owner.status !== "success") throw new Error(`${chain}: ownerOf(${id}) failed at or below the top id: ${why(owner)}`);
+  if (wallet.status !== "success") throw new Error(`${chain}: getAgentWallet(${id}) failed: ${why(wallet)}`);
+  return { agentId: id, owner: owner.result as string, agentWallet: wallet.result as string };
+}
+
+/** The index holds every id from first to top, once. */
+export function assertIndexComplete(chain: string, index: AgentEntry[], first: bigint, top: bigint): void {
+  const want = top >= first ? Number(top - first + 1n) : 0;
+  const ids = new Set(index.map((a) => a.agentId.toString()));
+  if (index.length !== want || ids.size !== want) throw new Error(`${chain}: index has ${index.length} agents (${ids.size} distinct), expected ${want} (ids ${first}..${top})`);
 }
 
 /** Viem-backed reader for one chain. */
@@ -152,7 +178,7 @@ export function chainReader(cfg: RepChainConfig): RepReader {
   return {
     chainId: () => c.getChainId(),
     async indexAgents() {
-      // agentIds are minted from 0 upward; find the top, then read every id (plus a tail for burned ids).
+      // agentIds are minted upward from 0 (or 1). Find the top by ownerOf, then read every id up to it.
       let hi = 1n;
       while (await exists(hi)) hi *= 2n;
       let lo = hi / 2n;
@@ -161,14 +187,16 @@ export function chainReader(cfg: RepChainConfig): RepReader {
         if (await exists(m)) lo = m;
         else hi = m;
       }
-      const last = lo + 64n;
+      const top = lo;
+      const first = (await exists(0n)) ? 0n : 1n;
       const out: AgentEntry[] = [];
       const CHUNK = 500n;
       const chunks: bigint[] = [];
-      for (let s = 0n; s <= last; s += CHUNK) chunks.push(s);
+      for (let s = first; s <= top; s += CHUNK) chunks.push(s);
       const readChunk = async (s: bigint) => {
         const ids: bigint[] = [];
-        for (let i = s; i < s + CHUNK && i <= last; i++) ids.push(i);
+        for (let i = s; i < s + CHUNK && i <= top; i++) ids.push(i);
+        // allowFailure: an RPC error on the whole batch comes back as a failure on every call, not as an exception
         const res = await c.multicall({
           multicallAddress: MULTICALL3,
           allowFailure: true,
@@ -178,18 +206,15 @@ export function chainReader(cfg: RepChainConfig): RepReader {
             { address: reg.identityRegistry, abi: identityAbi, functionName: "getAgentWallet", args: [id] } as const,
           ]),
         });
-        return ids.map((id, i) => {
-          const o = res[2 * i]!;
-          const w = res[2 * i + 1]!;
-          // an agent whose wallet did not read could hold the same payTo: stop rather than call a match unique
-          if (o.status === "success" && w.status !== "success") throw new Error(`${cfg.key}: getAgentWallet(${id}) failed`);
-          return { agentId: id, owner: o.status === "success" ? (o.result as string) : null, agentWallet: w.status === "success" ? (w.result as string) : null };
-        });
+        return ids.map((id, i) => indexRow(cfg.key, id, res[2 * i]!, res[2 * i + 1]!));
       };
       for (let i = 0; i < chunks.length; i += 4) {
         const part = await Promise.all(chunks.slice(i, i + 4).map(readChunk));
-        for (const p of part) out.push(...p.filter((a) => a.owner !== null));
+        for (const p of part) out.push(...p);
       }
+      assertIndexComplete(cfg.key, out, first, top);
+      // an agent minted during the scan is not in the index: start again rather than miss it
+      if (await exists(top + 1n)) throw new Error(`${cfg.key}: agent ${top + 1n} was registered during the scan; run again`);
       return out;
     },
     agentWallet: (id) => c.readContract({ address: reg.identityRegistry, abi: identityAbi, functionName: "getAgentWallet", args: [id] }).then((x) => x as string, () => null),
@@ -236,28 +261,23 @@ export function chainReader(cfg: RepChainConfig): RepReader {
       }
       const [fees, price] = await Promise.all([c.estimateFeesPerGas().catch(() => null), c.getGasPrice().catch(() => null)]);
       const maxFee = fees?.maxFeePerGas ?? null;
-      let costAtMax: bigint | null = null;
-      let costNow: bigint | null = null;
-      let feeBalance: bigint | null = null;
+      let l1: bigint | null = 0n;
+      let feeBalance: bigint | null;
       if (cfg.fee.kind === "tip20") {
-        if (gas !== null && maxFee !== null) costAtMax = tempoFeeAtomic(gas, maxFee);
-        if (gas !== null && price !== null) costNow = tempoFeeAtomic(gas, price);
         // eth_getBalance on Tempo is a placeholder, not money: read the fee token itself.
         feeBalance = await c.readContract({ address: cfg.fee.token, abi: erc20, functionName: "balanceOf", args: [from as Address] }).catch(() => null);
       } else {
-        let l1 = 0n;
         if (cfg.fee.opL1Oracle) {
           const approx = (data + "00".repeat(68)) as Hex; // calldata plus room for the signed envelope
-          const f = await c.readContract({ address: GAS_PRICE_ORACLE, abi: gasOracleAbi, functionName: "getL1Fee", args: [approx] }).catch(() => null);
-          // no L1 fee read: costs stay null, so the fee gate refuses
-          if (f === null) return { ok, revertReason: revertReason ?? "L1 fee oracle not read", gas, costAtMax: null, costNow: null, feeBalance: await c.getBalance({ address: from as Address }).catch(() => null), blockNumber };
-          l1 = f;
+          l1 = await c.readContract({ address: GAS_PRICE_ORACLE, abi: gasOracleAbi, functionName: "getL1Fee", args: [approx] }).catch(() => null);
         }
-        if (gas !== null && maxFee !== null) costAtMax = gas * maxFee + l1;
-        if (gas !== null && price !== null) costNow = gas * price + l1;
         feeBalance = await c.getBalance({ address: from as Address }).catch(() => null);
       }
-      return { ok, revertReason, gas, costAtMax, costNow, feeBalance, blockNumber };
+      // no L1 fee read: costs stay null, so the fee gate refuses
+      const costAtMax = gas !== null && maxFee !== null && l1 !== null ? feeCost(cfg.fee.kind, gasLimitOf(gas), maxFee, l1) : null;
+      const costNow = gas !== null && price !== null && l1 !== null ? feeCost(cfg.fee.kind, gas, price, l1) : null;
+      if (l1 === null && !revertReason) revertReason = "L1 fee oracle not read";
+      return { ok, revertReason, gas, maxFeePerGas: maxFee, l1Fee: l1, costAtMax, costNow, feeBalance, blockNumber };
     },
   };
 }
@@ -272,8 +292,10 @@ export function chainSender(cfg: RepChainConfig, loadAccount: () => PrivateKeyAc
       const w = createWalletClient({ account, chain: cfg.viemChain, transport: http(cfg.rpc) });
       const feeTok = cfg.fee.kind === "tip20" ? { feeToken: cfg.fee.token } : {};
       const req = await w.prepareTransactionRequest({ account, to: reg.reputationRegistry, data, gas, ...feeTok } as Parameters<typeof w.prepareTransactionRequest>[0]);
+      const r = req as { gas?: bigint; maxFeePerGas?: bigint };
+      if (r.gas === undefined || r.maxFeePerGas === undefined) throw new Error("prepared tx has no gas limit or maxFeePerGas");
       const serialized = (await w.signTransaction(req as Parameters<typeof w.signTransaction>[0])) as Hex;
-      return { serialized, hash: keccak256(serialized), from: account.address };
+      return { serialized, hash: keccak256(serialized), from: account.address, gas: r.gas, maxFeePerGas: r.maxFeePerGas };
     },
     broadcast: (serialized) => pub.sendRawTransaction({ serializedTransaction: serialized }),
     async wait(hash) {
@@ -314,6 +336,8 @@ export interface RepDeps {
   ledgerPath: string;
   /** agentIds already written by an earlier writer on this chain (Base: data/base/feedback-ledger.json). */
   priorAgentIds?: Set<string>;
+  /** payTo (lowercase) -> agentId, set by the operator for a payTo that serves several hosts. It confirms, never overrides, the agentWallet match. */
+  pins?: Map<string, string>;
   fetchImpl?: typeof fetch;
   verifyRecord?: (o: Observation) => Promise<boolean>;
   sender?: RepSender;
@@ -417,6 +441,8 @@ export async function plan(d: RepDeps): Promise<Planned[]> {
       caip2: d.chain.caip2,
       client: d.writer,
       payTo,
+      hosts,
+      pin: d.pins?.get(payTo) ?? null,
       outcome: oc.outcome,
       agent: choice.agentId !== null ? { agentId: choice.agentId, agentWalletNow: walletNow, clientIsOwnerOrOperator: authz } : null,
       purchase: proof && evidence ? { tx: evidence.tx, ...proof } : null,
@@ -471,13 +497,13 @@ export interface SimItem {
   simulated: boolean;
   detail: string;
   calldataBytes: number | null;
-  result: (Omit<SimRead, "gas" | "costAtMax" | "costNow" | "feeBalance" | "blockNumber"> & { gas: string | null; costAtMax: string | null; costNow: string | null; feeBalance: string | null; blockNumber: string }) | null;
+  result: ReturnType<typeof simJson> | null;
   feeUnit: string;
   feeCap: string;
   feeRefusal: string | null;
 }
 
-const simJson = (r: SimRead) => ({ ok: r.ok, revertReason: r.revertReason, gas: r.gas?.toString() ?? null, costAtMax: r.costAtMax?.toString() ?? null, costNow: r.costNow?.toString() ?? null, feeBalance: r.feeBalance?.toString() ?? null, blockNumber: r.blockNumber.toString() });
+const simJson = (r: SimRead) => ({ ok: r.ok, revertReason: r.revertReason, gas: r.gas?.toString() ?? null, gasLimit: r.gas !== null ? gasLimitOf(r.gas).toString() : null, maxFeePerGas: r.maxFeePerGas?.toString() ?? null, l1Fee: r.l1Fee?.toString() ?? null, costAtMax: r.costAtMax?.toString() ?? null, costNow: r.costNow?.toString() ?? null, feeBalance: r.feeBalance?.toString() ?? null, blockNumber: r.blockNumber.toString() });
 const feeUnit = (c: RepChainConfig) => (c.fee.kind === "tip20" ? `${c.fee.symbol} atomic (6 decimals)` : "wei");
 
 /** eth_call + eth_estimateGas for every item that has an agent and a record. Nothing is signed. */
@@ -569,6 +595,11 @@ export async function send(d: RepDeps, items: Planned[]): Promise<SendResult[]> 
       out.push(res(`refused: agentWallet changed to ${wallet}`));
       continue;
     }
+    const authz = await d.reader.isAuthorizedOrOwner(d.writer, x.give.agentId);
+    if (authz !== false) {
+      out.push(res(authz === null ? "refused: could not read owner/operator" : "refused: the writer now owns or operates the agent"));
+      continue;
+    }
     const f = await fetchRecord(x.give.feedbackURI, d.fetchImpl);
     if (!f.ok || f.sha256 !== x.record.sha256) {
       out.push(res(`refused: public record ${f.ok ? "hash changed" : f.detail}`));
@@ -585,8 +616,16 @@ export async function send(d: RepDeps, items: Planned[]): Promise<SendResult[]> 
       out.push(res(`refused: ${fr}`));
       continue;
     }
-    const signed = await d.sender.sign(data, (sim.gas * 12n) / 10n);
+    const gasLimit = gasLimitOf(sim.gas);
+    const signed = await d.sender.sign(data, gasLimit);
     if (signed.from.toLowerCase() !== d.writer.toLowerCase()) throw new Error(`key ${signed.from} is not the paying address ${d.writer}`);
+    // the fee gate again, on the tx as signed: its gas limit and max fee, not the estimate
+    const signedCost = sim.l1Fee === null ? null : feeCost(d.chain.fee.kind, signed.gas, signed.maxFeePerGas, sim.l1Fee);
+    const sfr = signed.gas !== gasLimit ? `signed gas ${signed.gas} is not the limit ${gasLimit}` : feeRefusal(signedCost, d.chain.fee.cap, sim.feeBalance);
+    if (sfr) {
+      out.push(res(`refused (signed, not sent): ${sfr}`));
+      continue;
+    }
     const entry: LedgerEntry = {
       status: "sending",
       chain: d.chain.key,
