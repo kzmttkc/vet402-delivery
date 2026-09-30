@@ -14,10 +14,11 @@
  */
 import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS } from "./constants.js";
 import { tempoTxFate, type Fate, type TempoFateFacts } from "./fate.js";
-import { refundOwed, type Common } from "./flow.js";
+import { refundOwed, windowPatch, type Common } from "./flow.js";
 import { redact } from "./reasons.js";
 import { ACCOUNT_CREATION_WAIT } from "./refund.js";
-import type { SolanaSide } from "./solana.js";
+import { REFUND_SOL_MIN_LAMPORTS, type SolanaSide } from "./solana.js";
+import { FEE_RESERVE_ATOMIC } from "../tempo/constants.js";
 import type { PurchaseRecord, PurchaseRow } from "./store.js";
 import { KNOWN_TX_WINDOW_MS, type TempoSide } from "./tempo.js";
 
@@ -30,6 +31,8 @@ export interface ReconcileContext extends Common {
   maxTxReads?: number;
   /** Closed purchases with a seller payment not seen yet, looked at per run (default 10). */
   sellerOpenLimit?: number;
+  /** Read the payer wallets and report what would refuse new purchases (default true; the request gate skips it). */
+  walletCheck?: boolean;
 }
 
 export interface ReconcileAction {
@@ -91,6 +94,8 @@ async function txFate(ctx: ReconcileContext, run: Run, row: PurchaseRow, f: Fact
       ...(typeof f.since === "number" ? { since: f.since } : {}),
       ...(typeof f.minSlot === "number" ? { minSlot: f.minSlot } : {}),
       ...(typeof f.expiredSlot === "number" ? { expiredSlot: f.expiredSlot } : {}),
+      ...(typeof f.lastValidBlockHeight === "number" ? { lastValidBlockHeight: f.lastValidBlockHeight } : {}),
+      ...(str(f.cursor) ? { cursor: str(f.cursor)! } : {}),
       ...(str(f.signature) ? { signature: str(f.signature)! } : {}),
       deadline: ctx.deadline,
       budget: run.budget,
@@ -98,9 +103,10 @@ async function txFate(ctx: ReconcileContext, run: Run, row: PurchaseRow, f: Fact
     if (out.fate === "pending") {
       if (out.capped === "run_budget") run.exhausted = true;
       else if (out.capped) run.capped = true;
-      if (out.expiredSlot !== undefined && typeof f.expiredSlot !== "number") {
-        if ("key" in keep) await ctx.store.mergeFacts(row.id, keep.key, { expiredSlot: out.expiredSlot });
-        else await ctx.store.refundMergeFacts(row.id, keep.refundTx, { expiredSlot: out.expiredSlot });
+      const patch = windowPatch(f, out);
+      if (patch) {
+        if ("key" in keep) await ctx.store.mergeFacts(row.id, keep.key, patch);
+        else await ctx.store.refundMergeFacts(row.id, keep.refundTx, patch);
       }
     }
     return out;
@@ -119,6 +125,41 @@ async function txFate(ctx: ReconcileContext, run: Run, row: PurchaseRow, f: Fact
 const waiting = (what: string, f: Fate) =>
   f.fate === "pending" && f.capped && f.capped !== "run_budget" ? `ALERT waiting: ${what}; the chain search was cut short (${f.capped})` : `waiting: ${what}`;
 
+/**
+ * What would refuse every new purchase, said as an ALERT on every run while it lasts: the payer's balance below the
+ * floor the books explain (chain_spend_exceeds_ledger), a floor that cannot cover one purchase's worst case
+ * (insufficient_balance), and too little SOL for the refund fees and account rent of the open purchases plus one
+ * (refund_fee_unavailable).
+ */
+async function walletAlerts(ctx: ReconcileContext): Promise<ReconcileAction[]> {
+  const out: ReconcileAction[] = [];
+  const say = (chain: string, action: string) => out.push({ id: "wallet", chain, state: "wallet", action });
+  if (ctx.solana) {
+    try {
+      const bal = await ctx.solana.pay.readBalances();
+      const w = await ctx.store.wallet("solana");
+      const open = await ctx.store.openCount("solana");
+      if (w && bal.usdcAtomic < w.floor) say("solana", `ALERT chain_spend_exceeds_ledger: payer balance ${bal.usdcAtomic} < floor ${w.floor}; money left the payer outside proxy buy, every purchase is refused`);
+      if (w && w.floor < ctx.maxRefund) say("solana", `ALERT insufficient_balance: floor ${w.floor} < one purchase's worst case ${ctx.maxRefund}; top up the payer`);
+      const needSol = REFUND_SOL_MIN_LAMPORTS * BigInt(open + 1);
+      if (bal.lamports < needSol) say("solana", `ALERT refund_fee_unavailable: payer SOL ${bal.lamports} lamports < ${needSol} for ${open} open purchase(s) and one more`);
+    } catch {
+      say("solana", "wallet: the payer's balance could not be read this run");
+    }
+  }
+  if (ctx.tempo) {
+    try {
+      const bal = await ctx.tempo.pay.balance();
+      const w = await ctx.store.wallet("tempo");
+      if (w && bal < w.floor) say("tempo", `ALERT chain_spend_exceeds_ledger: payer balance ${bal} < floor ${w.floor}; every purchase is refused`);
+      if (w && w.floor < ctx.maxRefund + FEE_RESERVE_ATOMIC) say("tempo", `ALERT insufficient_balance: floor ${w.floor} < one purchase's worst case ${ctx.maxRefund + FEE_RESERVE_ATOMIC}; top up the payer`);
+    } catch {
+      say("tempo", "wallet: the payer's balance could not be read this run");
+    }
+  }
+  return out;
+}
+
 const nextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
 
 export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[]> {
@@ -126,6 +167,7 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
   const out: ReconcileAction[] = [];
   const budget = { reads: ctx.maxTxReads ?? RECONCILE_MAX_TX_READS };
   await store.pruneCounters(new Date(ctx.now().getTime() - 2 * 86_400_000)).catch(() => undefined);
+  if (ctx.walletCheck !== false) out.push(...(await walletAlerts(ctx)));
   const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50);
   let exhausted = false;
   for (const row of rows) {

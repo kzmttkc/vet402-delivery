@@ -71,7 +71,7 @@ async function floodRpc(o: { sigs: { signature: string; slot?: number; blockTime
       return o.sigs.slice(start, start + p.limit);
     }
     if (method === "getTransaction") return { meta: { err: null }, transaction: [foreign, "base64"] };
-    if (method === "isBlockhashValid") return { context: { slot: o.slotNow }, value: o.valid };
+    if (method === "getEpochInfo") return { absoluteSlot: o.slotNow, blockHeight: o.valid ? 50 : 200 }; // last valid height 100
     if (method === "getSlot") return o.slotNow;
     throw new Error(method);
   };
@@ -82,14 +82,14 @@ test("zz3-S1: 1100 fresh signatures inside the window -> 'pending' capped at the
   const mine = decodeSolanaTx(await transferTx(proxyPayer, SELLER, SELLER, 10_000n))!;
   const now = Math.floor(Date.now() / 1000);
   const { rpc, calls } = await floodRpc({ sigs: Array.from({ length: 1100 }, (_, i) => ({ signature: `sig${i}`, slot: 1000 - i / 100, blockTime: now })), valid: false, slotNow: 2000 });
-  const f = await solanaTxFate(rpc, { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, since: now - 600, minSlot: 900 });
+  const f = await solanaTxFate(rpc, { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, since: now - 600, minSlot: 900, lastValidBlockHeight: 100 });
   assert.deepEqual(f, { fate: "pending", capped: "tx_reads", expiredSlot: 2000 });
   assert.ok((calls.getTransaction ?? 0) <= SOLANA_FATE_MAX_TX_READS, JSON.stringify(calls));
 });
 
 test("zz3-S1: signatures after the blockhash expired are skipped unread; below minSlot the search stops; the deadline stops it", async () => {
   const mine = decodeSolanaTx(await transferTx(proxyPayer, SELLER, SELLER, 10_000n))!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 500, expiredSlot: 800 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 500, expiredSlot: 800, lastValidBlockHeight: 100 };
   // 1100 signatures landed after expiry (slot > 800), then 3 in the window, then history before minSlot
   const sigs = [
     ...Array.from({ length: 1100 }, (_, i) => ({ signature: `late${i}`, slot: 900 })),

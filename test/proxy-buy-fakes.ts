@@ -219,7 +219,7 @@ export interface SolRig {
   side: SolanaSide;
   state: { balance: bigint; lamports: bigint; confirm: "ok" | "timeout" | "failed"; balanceError: string | null; refund: "sent" | "failed" | "unknown" | "hang" };
   refunds: { to: string; amount: bigint }[];
-  reconcile: (o?: { staleMs?: number; now?: Date }) => Promise<ReconcileAction[]>;
+  reconcile: (o?: { staleMs?: number; now?: Date; walletCheck?: boolean }) => Promise<ReconcileAction[]>;
 }
 
 export async function solRig(
@@ -235,6 +235,8 @@ export async function solRig(
     now?: () => Date;
     budgetMs?: number;
     staleMs?: number;
+    /** The spacing of request-triggered reconcile turns (default 0: every paid request). */
+    reconcileGateMs?: number;
   } = {},
 ): Promise<SolRig> {
   const wrap = o.wrapSeller ?? ((f: typeof fetch) => f);
@@ -320,10 +322,12 @@ export async function solRig(
     quotesPerMinute: 1000,
     requestBudgetMs: o.budgetMs ?? 2_000,
     pollMs: 20,
+    reconcileGateMs: o.reconcileGateMs ?? 0,
     ...(o.staleMs !== undefined ? { staleMs: o.staleMs } : {}),
   });
-  const rec = (x: { staleMs?: number; now?: Date } = {}) =>
+  const rec = (x: { staleMs?: number; now?: Date; walletCheck?: boolean } = {}) =>
     reconcile({
+      walletCheck: x.walletCheck ?? false,
       store,
       feeAtomic: BUY_FEE_ATOMIC,
       now: () => x.now ?? new Date(Date.now() + 3_600_000),
@@ -548,10 +552,12 @@ export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCap
     quotesPerMinute: 1000,
     requestBudgetMs: o.budgetMs ?? 2_000,
     pollMs: 20,
+    reconcileGateMs: 0,
     ...(o.staleMs !== undefined ? { staleMs: o.staleMs } : {}),
   });
   const rec = (x: { staleMs?: number } = {}) =>
     reconcile({
+      walletCheck: false,
       store,
       feeAtomic: BUY_FEE_ATOMIC,
       now: () => new Date(Date.now() + 3_600_000),

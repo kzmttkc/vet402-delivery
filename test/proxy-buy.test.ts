@@ -546,33 +546,33 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
   const facts = decodeSolanaTx(txb)!;
   assert.equal(facts.authority, agent.address);
   assert.equal(facts.amount, "15000");
-  let valid = true;
+  let height = 100; // the finalized block height
   let landed = false;
-  let slot = 100;
   const rpc = async (method: string) => {
     if (method === "getSignaturesForAddress") return landed ? [{ signature: "S1", slot: 90 }] : [];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [txb, "base64"] };
-    if (method === "isBlockhashValid") return { context: { slot }, value: valid };
-    if (method === "getSlot") return slot;
+    if (method === "getEpochInfo") return { absoluteSlot: 500, blockHeight: height };
+    if (method === "getSlot") return 600;
     throw new Error(method);
   };
-  const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE };
+  const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE, lastValidBlockHeight: 150 };
   assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending" });
-  valid = false;
-  // the first answer that says "expired" is only kept (its slot bounds the window); "dead" needs a later look
-  assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending", expiredSlot: 100 });
-  slot = 120;
-  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 100 }), { fate: "pending", expiredSlot: 100 });
-  slot = 140;
-  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 100 }), { fate: "dead" });
+  height = 151;
+  // the first answer past the last valid height only records the window's end; "dead" needs a later look
+  assert.deepEqual(await solanaTxFate(rpc, f), { fate: "pending", expiredSlot: 500 });
+  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 500 }), { fate: "dead" });
   landed = true;
-  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 100 }), { fate: "landed", tx: "S1" });
+  assert.deepEqual(await solanaTxFate(rpc, { ...f, expiredSlot: 500 }), { fate: "landed", tx: "S1" });
+  landed = false;
+  // without a last valid height, never dead
+  const { lastValidBlockHeight: _drop, ...noHeight } = f;
+  assert.deepEqual(await solanaTxFate(rpc, noHeight), { fate: "pending", capped: "no_last_valid_height" });
   assert.deepEqual(await solanaTxFate(async () => { throw new Error("https://rpc/KEY"); }, f), { fate: "pending" });
   // a full page of other signatures: not finding it proves nothing, so never "dead" (no refund on a guess)
   const busy = async (method: string) => {
     if (method === "getSignaturesForAddress") return [{ signature: "X1", slot: 50 }, { signature: "X2", slot: 50 }];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [await transferTx(agent, VET_FAC, SELLER, 1n), "base64"] };
-    if (method === "isBlockhashValid") return { context: { slot: 200 }, value: false };
+    if (method === "getEpochInfo") return { absoluteSlot: 200, blockHeight: 999 };
     if (method === "getSlot") return 200;
     throw new Error(method);
   };

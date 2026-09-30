@@ -28,7 +28,7 @@ import { keepExpiry, noCharge, publicTarget, refundOwed, waitFate, type Common, 
 import { redact, refusalReason } from "./reasons.js";
 import type { RefundSender } from "./refund.js";
 import { utcDay, type PurchaseRecord } from "./store.js";
-import { totalAtomic, type SolanaOffer } from "./quote.js";
+import { pinsBlockhash, totalAtomic, type SolanaOffer } from "./quote.js";
 
 export type { PaidAnswer } from "./flow.js";
 
@@ -58,6 +58,11 @@ export interface SolanaSide {
   fate: (f: SolanaFateQuery) => Promise<Fate>;
   /** The confirmed slot (a lower bound for where a transaction handed over after this read can land). */
   slot?: () => Promise<number>;
+  /**
+   * The newest blockhash (processed) and its last valid block height: an upper bound for the last valid block height
+   * of any transaction signed before this read (exact when it is the same blockhash).
+   */
+  heightBound?: () => Promise<{ blockhash: string; lastValidBlockHeight: number }>;
   /** Send `amount` USDC from the proxy payer to `to` (refund.ts sendSolanaRefund). */
   refund: RefundSender;
 }
@@ -194,7 +199,22 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   // The agent's transaction needs the facilitator's signature as fee payer: it cannot land before vet402 settles it.
   const agentMinSlot = await slotOrNone(side);
-  const agentFacts: SolanaTxFacts & { account: string; since: number; minSlot?: number; expiredSlot?: number } = { ...agentTx, account: side.receiveAta, since, ...(agentMinSlot !== undefined ? { minSlot: agentMinSlot } : {}) };
+  // The agent signed before this read: its transaction's last valid block height is at most this one's.
+  let agentHeight: number | undefined;
+  if (side.heightBound) {
+    try {
+      agentHeight = (await side.heightBound()).lastValidBlockHeight;
+    } catch {
+      return noCharge(503, "ledger_unreadable", "the chain could not be read; nothing was charged");
+    }
+  }
+  const agentFacts: SolanaTxFacts & { account: string; since: number; minSlot?: number; lastValidBlockHeight?: number; expiredSlot?: number; cursor?: string } = {
+    ...agentTx,
+    account: side.receiveAta,
+    since,
+    ...(agentMinSlot !== undefined ? { minSlot: agentMinSlot } : {}),
+    ...(agentHeight !== undefined ? { lastValidBlockHeight: agentHeight } : {}),
+  };
   if (!(await store.claim({ id, chain: "solana", target, sellerHost: offer.known.host, agent: authority, sellerAmount: seller, feeReserve: 0n, total, facts: { agent: agentFacts }, now }))) {
     return noCharge(409, "duplicate_payment", "this signed transaction was already used or is being used now");
   }
@@ -288,7 +308,11 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     refundOwed(ctx, { id, chain: "solana", day, from, base, reason, to: payerAddr, total, send: side.refund, headers: paidHeaders });
 
   // The seller: through the census payment path, with a single-purchase budget (the caps are in the database).
-  const got: { body: Uint8Array | null; truncated: boolean; sellerTx: (SolanaTxFacts & { minSlot?: number; expiredSlot?: number }) | null } = { body: null, truncated: false, sellerTx: null };
+  const got: {
+    body: Uint8Array | null;
+    truncated: boolean;
+    sellerTx: (SolanaTxFacts & { minSlot?: number; lastValidBlockHeight?: number; expiredSlot?: number; cursor?: string }) | null;
+  } = { body: null, truncated: false, sellerTx: null };
   let rec: PayRecord;
   try {
     rec = await payOne(
@@ -302,11 +326,16 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
         ...side.pay,
         // vet402's signed payment to the seller is written to the database before payOne can send it.
         createPayment: async (pr, accept) => {
+          // The x402 SVM client signs with a blockhash the seller names (extra.recentBlockhash), if it names one: the
+          // seller could then choose when vet402's payment expires. Such a 402 is refused before anything is signed.
+          if (pinsBlockhash(pr) || pinsBlockhash({ accepts: [accept] })) throw new Error("the seller's 402 names the blockhash to sign with");
           const minSlot = await slotOrNone(side);
           const created = await side.pay.createPayment(pr, accept);
           const f = decodeSolanaTx(created.txBase64);
           if (!f) throw new Error("seller payment not decodable");
-          const facts = { ...f, ...(minSlot !== undefined ? { minSlot } : {}) };
+          // Read after signing: its last valid block height bounds the one of the blockhash the client took.
+          const bound = side.heightBound ? await side.heightBound() : null;
+          const facts = { ...f, ...(minSlot !== undefined ? { minSlot } : {}), ...(bound ? { lastValidBlockHeight: bound.lastValidBlockHeight } : {}) };
           if (!(await store.move(id, ["in_progress"], "in_progress", { facts: { seller: { ...facts, account: side.payerAta, since } }, now: ctx.now() }))) throw new Error("purchase moved");
           got.sellerTx = facts;
           return created;

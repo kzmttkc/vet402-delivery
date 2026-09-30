@@ -171,7 +171,7 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
   if (await checkSolanaRefundTx(b64, { payer, to, amount })) return { status: "failed", reason: "refund_tx_check_failed", tx: null, permanent: true };
   const facts = decodeSolanaTx(b64);
   const since = Math.floor(Date.now() / 1000) - 120;
-  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", signature: sig, messageHash: facts?.messageHash, blockhash: lifetime.blockhash, account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
+  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", signature: sig, messageHash: facts?.messageHash, blockhash: lifetime.blockhash, lastValidBlockHeight: Number(lifetime.lastValidBlockHeight), account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
     return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
   }
 

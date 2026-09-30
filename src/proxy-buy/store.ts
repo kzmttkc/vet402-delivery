@@ -506,6 +506,12 @@ export class Store {
     return Number(r.rows[0]?.n ?? 0);
   }
 
+  /** Purchases that hold reservations on `chain` (admitted or open). */
+  async openCount(chain: ProxyChain): Promise<number> {
+    const r = await this.sql.query<{ n: string }>(`select count(*)::text as n from pb_purchase where chain = $1 and state = any($2)`, [chain, ["admitted", ...OPEN_STATES]]);
+    return Number(r.rows[0]?.n ?? 0);
+  }
+
   /** Test and ops helper: the wallet floor and the day row. */
   async wallet(chain: ProxyChain): Promise<{ payer: string; floor: bigint } | null> {
     const r = await this.sql.query<{ payer: string; floor: string }>(`select payer, floor::text as floor from pb_wallet where chain = $1`, [chain]);

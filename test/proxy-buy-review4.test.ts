@@ -2,8 +2,8 @@
  * Fourth review: its reproductions (R1 to R5), now asserting the fixed behaviour, and the smaller items.
  *   R1  the window's upper end is the slot of the first answer that said the blockhash expired, kept with the facts:
  *       later traffic on the account is skipped unread, so the purchase is decided (landed or dead).
- *   R2  a getSlot answer behind the node that answers isBlockhashValid cannot hide a landed payment; "dead" needs a
- *       second look DEAD_CONFIRM_SLOTS later; the reads ask for an answer at least as recent as the slot read first.
+ *   R2  a getSlot answer from a node behind cannot hide a landed payment (the window ends at a finalized slot past
+ *       the last valid block height); "dead" needs a second look.
  *   R3  a refund waiting for the next UTC day's account creations is not a failure and is tried again that day.
  *   R4  a floor raise leaves out what recently closed purchases, and delivered purchases whose seller payment is
  *       not seen yet, may still take out of the wallet.
@@ -18,7 +18,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { Rpc } from "../src/chain.js";
 import { USDC_MINT } from "../src/constants.js";
 import { configFromEnv } from "../src/proxy-buy/config.js";
-import { DEAD_CONFIRM_SLOTS, decodeSolanaTx, solanaTxFate } from "../src/proxy-buy/fate.js";
+import { decodeSolanaTx, solanaTxFate } from "../src/proxy-buy/fate.js";
 import { ACCOUNT_CREATION_WAIT, refundAgent, sendSolanaRefund } from "../src/proxy-buy/refund.js";
 import { Store } from "../src/proxy-buy/store.js";
 import { buildProxyBuy, confirmSolanaTransfer } from "../src/proxy-buy/wire.js";
@@ -26,7 +26,8 @@ import { agent, agentPaysSolana, allowlist, PAYER_ATA, paidReq, proxyPayer, RECE
 
 /**
  * A chain seen through one RPC: `later` signatures after the landing (newest first), then vet402's (if it landed),
- * then history. isBlockhashValid answers from a node at `slotNow`; getSlot may come from a node behind it.
+ * then history. The finalized bank is at `slotNow` (block height past the last valid height 100 unless `valid`);
+ * getSlot may come from a node behind it.
  */
 async function chainRpc(o: { mineTx: string | null; mineSlot: number; later: number; laterFrom: number; slotNow: number; valid: boolean; laggingSlot?: number }) {
   const other = await generateKeyPairSigner();
@@ -51,7 +52,7 @@ async function chainRpc(o: { mineTx: string | null; mineSlot: number; later: num
       const sig = (params as [string])[0];
       return { meta: { err: null }, transaction: [sig === "MINE" ? o.mineTx : foreign, "base64"] };
     }
-    if (method === "isBlockhashValid") return { context: { slot: o.slotNow }, value: o.valid };
+    if (method === "getEpochInfo") return { absoluteSlot: o.slotNow, blockHeight: o.valid ? 50 : 200 };
     if (method === "getSlot") return o.laggingSlot ?? o.slotNow;
     throw new Error(method);
   };
@@ -61,7 +62,7 @@ async function chainRpc(o: { mineTx: string | null; mineSlot: number; later: num
 test("zz4-R1: a landed seller payment behind 250 later signatures is found; one that never landed is 'dead' on the second look", async () => {
   const tx = await transferTx(proxyPayer, SELLER_FAC, SELLER, 10_000n);
   const mine = decodeSolanaTx(tx)!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100 };
   // first look right after expiry (slot 1100): the window's upper end is kept
   const first = await chainRpc({ mineTx: null, mineSlot: 0, later: 5, laterFrom: 1090, slotNow: 1100, valid: false });
   assert.deepEqual(await solanaTxFate(first.rpc, q), { fate: "pending", expiredSlot: 1100 });
@@ -80,33 +81,29 @@ test("zz4-R1: a landed seller payment behind 250 later signatures is found; one 
 test("zz4-R2: getSlot from a node behind -> the landed payment is still found (the window ends at the slot of the answer that said 'expired')", async () => {
   const tx = await transferTx(proxyPayer, SELLER_FAC, SELLER, 10_000n);
   const mine = decodeSolanaTx(tx)!;
-  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000 };
+  const q = { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, lastValidBlockHeight: 100 };
   const r = await chainRpc({ mineTx: tx, mineSlot: 1150, later: 0, laterFrom: 0, slotNow: 1160, valid: false, laggingSlot: 1140 });
   assert.deepEqual(await solanaTxFate(r.rpc, q), { fate: "landed", tx: "MINE" });
-  assert.deepEqual(r.minContext, [1140], "the signature list is asked for an answer at least as recent as the slot read first");
-  // not landed: the first look never says "dead"; a look DEAD_CONFIRM_SLOTS later does
+  assert.deepEqual(r.minContext, [1160], "the finalized signatures are asked for an answer that has the whole window");
+  // not landed: the first look never says "dead"; the next one does
   const none = await chainRpc({ mineTx: null, mineSlot: 0, later: 0, laterFrom: 0, slotNow: 1160, valid: false, laggingSlot: 1140 });
   assert.deepEqual(await solanaTxFate(none.rpc, q), { fate: "pending", expiredSlot: 1160 });
-  const soon = await chainRpc({ mineTx: null, mineSlot: 0, later: 0, laterFrom: 0, slotNow: 1160 + DEAD_CONFIRM_SLOTS - 1, valid: false });
-  assert.equal((await solanaTxFate(soon.rpc, { ...q, expiredSlot: 1160 })).fate, "pending");
-  const after = await chainRpc({ mineTx: null, mineSlot: 0, later: 0, laterFrom: 0, slotNow: 1160 + DEAD_CONFIRM_SLOTS, valid: false });
-  assert.deepEqual(await solanaTxFate(after.rpc, { ...q, expiredSlot: 1160 }), { fate: "dead" });
+  assert.deepEqual(await solanaTxFate(none.rpc, { ...q, expiredSlot: 1160 }), { fate: "dead" });
 });
 
 test("zz4-R2: a refund (vet402 paid its fee) is looked up by its signature over the whole history, not searched", async () => {
   let status: { err: unknown; confirmationStatus: string } | null = null;
-  let slot = 500;
+  const slot = 500;
   const calls: string[] = [];
   const rpc: Rpc = async (method) => {
     calls.push(method);
     if (method === "getSlot") return slot;
     if (method === "getSignatureStatuses") return { context: { slot }, value: [status] };
-    if (method === "isBlockhashValid") return { context: { slot }, value: false };
+    if (method === "getEpochInfo") return { absoluteSlot: slot, blockHeight: 200 };
     throw new Error(method);
   };
-  const q = { signature: "REFUNDSIG", messageHash: "m", blockhash: "b", account: PAYER_ATA };
+  const q = { signature: "REFUNDSIG", messageHash: "m", blockhash: "b", account: PAYER_ATA, lastValidBlockHeight: 100 };
   assert.deepEqual(await solanaTxFate(rpc, q), { fate: "pending", expiredSlot: 500 });
-  slot = 500 + DEAD_CONFIRM_SLOTS;
   assert.deepEqual(await solanaTxFate(rpc, { ...q, expiredSlot: 500 }), { fate: "dead" });
   status = { err: null, confirmationStatus: "confirmed" };
   assert.deepEqual(await solanaTxFate(rpc, { ...q, expiredSlot: 500 }), { fate: "landed", tx: "REFUNDSIG" });
@@ -118,7 +115,7 @@ test("zz4-R1: one reconcile run reads at most its budget of transactions", async
   const mine = decodeSolanaTx(tx)!;
   const r = await chainRpc({ mineTx: null, mineSlot: 0, later: 50, laterFrom: 1090, slotNow: 1200, valid: false });
   const budget = { reads: 3 };
-  const f = await solanaTxFate(r.rpc, { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, expiredSlot: 1100, budget });
+  const f = await solanaTxFate(r.rpc, { messageHash: mine.messageHash, blockhash: mine.blockhash, account: PAYER_ATA, minSlot: 1000, expiredSlot: 1100, lastValidBlockHeight: 100, budget });
   assert.deepEqual(f, { fate: "pending", capped: "run_budget", expiredSlot: 1100 });
   assert.equal(budget.reads, 0);
   assert.equal(r.calls.getTransaction, 3);

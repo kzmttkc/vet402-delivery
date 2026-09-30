@@ -123,7 +123,13 @@ export async function solanaSide(c: SolanaConfig, own: string[]): Promise<Solana
     confirmCustomer: (tx, authority, amount, messageHash) => confirmSolanaTransfer(rpc, tx, authority, c.receive, amount, { messageHash }),
     fate: (f) => solanaTxFate(rpc, f),
     slot: async () => Number(await rpc("getSlot", [{ commitment: "confirmed" }])),
-    refund: (to, amount, beforeSend) => serial.run(() => sendSolanaRefund({ rpc, signer }, to, amount, beforeSend)),
+    heightBound: async () => {
+      const r = (await rpc("getLatestBlockhash", [{ commitment: "processed" }])) as { value: { blockhash: string; lastValidBlockHeight: number | string } };
+      const h = Number(r.value.lastValidBlockHeight);
+      if (!Number.isSafeInteger(h)) throw new Error("no last valid block height");
+      return { blockhash: r.value.blockhash, lastValidBlockHeight: h };
+    },
+    refund: (to, amount, beforeSend, opts) => serial.run(() => sendSolanaRefund({ rpc, signer }, to, amount, beforeSend, opts)),
   };
 }
 

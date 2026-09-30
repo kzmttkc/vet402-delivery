@@ -46,18 +46,29 @@ export async function waitFate(c: Common, fate: () => Promise<Fate>): Promise<Fa
 }
 
 /**
- * A fate look that keeps, with the purchase's facts under `key`, the slot where the transaction's blockhash was
- * first seen expired: every later look (this request's next poll, the reconciler) reads the same window.
+ * A fate look that keeps, with the purchase's facts under `key`, where the window ends (the finalized slot first
+ * seen past the transaction's last valid block height) and how far the walk above it got: every later look (this
+ * request's next poll, the reconciler) reads the same window and starts where the last one stopped.
  */
-export function keepExpiry<F extends { expiredSlot?: number }>(store: Store, id: string, key: string, facts: F, look: (f: F) => Promise<Fate>): () => Promise<Fate> {
+export function keepExpiry<F extends { expiredSlot?: number; cursor?: string }>(store: Store, id: string, key: string, facts: F, look: (f: F) => Promise<Fate>): () => Promise<Fate> {
   return async () => {
     const f = await look(facts);
-    if (f.fate === "pending" && f.expiredSlot !== undefined && facts.expiredSlot === undefined) {
-      facts.expiredSlot = f.expiredSlot;
-      await store.mergeFacts(id, key, { expiredSlot: f.expiredSlot }).catch(() => undefined);
+    const patch = windowPatch(facts, f);
+    if (patch) {
+      Object.assign(facts, patch);
+      await store.mergeFacts(id, key, patch).catch(() => undefined);
     }
     return f;
   };
+}
+
+/** What a pending Solana answer adds to the facts it was asked with (null: nothing new). */
+export function windowPatch(facts: { expiredSlot?: unknown; cursor?: unknown }, f: Fate): { expiredSlot?: number; cursor?: string } | null {
+  if (f.fate !== "pending") return null;
+  const patch: { expiredSlot?: number; cursor?: string } = {};
+  if (f.expiredSlot !== undefined && typeof facts.expiredSlot !== "number") patch.expiredSlot = f.expiredSlot;
+  if (f.cursor !== undefined && f.cursor !== facts.cursor) patch.cursor = f.cursor;
+  return Object.keys(patch).length ? patch : null;
 }
 
 /**

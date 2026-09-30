@@ -14,6 +14,8 @@
  * Requests per client are counted in the database, so the limit holds across serverless instances.
  */
 import { createHash } from "node:crypto";
+import { decodePaymentSignatureHeader } from "@x402/core/http";
+import { Credential } from "mppx";
 import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REFUND_POLICY } from "./constants.js";
 import type { Allowlist } from "./allowlist.js";
 import type { DayCaps, Store } from "./store.js";
@@ -49,7 +51,12 @@ export interface ProxyBuyOptions {
   staleMs?: number;
   sleep?: (ms: number) => Promise<void>;
   pollMs?: number;
+  /** At most one reconcile turn per this many ms across instances before paid requests (0: every request). */
+  reconcileGateMs?: number;
 }
+
+/** Default spacing of the reconcile turns that paid requests trigger (the cron runs every five minutes anyway). */
+export const RECONCILE_GATE_MS = 30_000;
 
 export interface ProxyBuy {
   handle(req: Request): Promise<Response>;
@@ -168,19 +175,42 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
    */
   async function reconcileSome(): Promise<void> {
     if ((await o.store.stale(now(), staleMs, 1)).length === 0) return;
-    // With Tempo off, nothing Tempo is read, even for rows written while it was on.
-    const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(tempo ? { tempo } : {}), deadline: Date.now() + 20_000, limit: 5, maxTxReads: 200 };
+    // At most one such turn per window across all instances: paid requests cannot multiply the chain reads.
+    const gate = o.reconcileGateMs ?? RECONCILE_GATE_MS;
+    if (gate > 0 && !(await o.store.bump(`reconcile-gate:${Math.floor(now().getTime() / gate)}`, 1, now()).catch(() => false))) return;
+    // With Tempo off, nothing Tempo is read, even for rows written while it was on. The wallet check is the cron's.
+    const ctx = {
+      ...common(o.caps.solana ?? o.caps.tempo!),
+      ...(o.solana ? { solana: o.solana } : {}),
+      ...(tempo ? { tempo } : {}),
+      deadline: Date.now() + 20_000,
+      limit: 5,
+      maxTxReads: 200,
+      walletCheck: false,
+    };
     await reconcile(ctx).catch(() => []);
+  }
+
+  /** Whether the payment header can be read at all (a cheap decode, before anything reads a chain). */
+  function readable(pay: { chain: "solana" | "tempo"; header: string }): boolean {
+    try {
+      if (pay.chain === "solana") decodePaymentSignatureHeader(pay.header);
+      else Credential.deserialize(pay.header);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async function paid(target: string | null, pay: { chain: "solana" | "tempo"; header: string }): Promise<Response> {
     if (pay.chain === "tempo" && !tempo) {
       return json(503, { verdict: "REFUSE", reason: "tempo_disabled", detail: "proxy buy on Tempo is switched off; nothing was charged", charged: false });
     }
-    await reconcileSome();
     const q = await quote(target, quoteDeps);
     if ("ok" in q && q.ok === false) return refusedResponse(q);
     const qq = q as Quote;
+    // The reconciler's turn comes only after the payment header is readable and the seller was priced.
+    if (readable(pay)) await reconcileSome();
     if (pay.chain === "solana") {
       if (!o.solana || !o.caps.solana) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Solana is not configured", charged: false });
       if (!qq.solana.ok) return refusedResponse(qq.solana);

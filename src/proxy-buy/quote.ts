@@ -104,6 +104,15 @@ export async function quote(rawTarget: string | null, deps: QuoteDeps): Promise<
   };
 }
 
+/**
+ * Whether a 402 names the blockhash to sign with (extra.recentBlockhash or extra.recentSlot on any accept): vet402
+ * then would not choose, or know, when its payment expires.
+ */
+export function pinsBlockhash(pr: { accepts?: unknown }): boolean {
+  const accepts = Array.isArray(pr.accepts) ? (pr.accepts as { extra?: Record<string, unknown> | null }[]) : [];
+  return accepts.some((a) => !!a?.extra && ("recentBlockhash" in a.extra || "recentSlot" in a.extra));
+}
+
 function solanaOffer(headers: Headers, bodyText: string, host: string, deps: QuoteDeps): SolanaOffer | Refused {
   if (!deps.solanaPayer) return refused(422, "chain_not_offered", "proxy buy on Solana is not configured");
   let body: unknown;
@@ -124,6 +133,7 @@ function solanaOffer(headers: Headers, bodyText: string, host: string, deps: Quo
   // The lock is the seller's own payTo as read now; the allowlist below decides whether that payTo is one vet402 paid before.
   const r = checkAccept(accept, { payer: deps.solanaPayer, lockedPayTo: accept.payTo, ownAddresses: deps.ownAddresses });
   if (r) return refused(422, r.refused, r.detail);
+  if (pinsBlockhash(pr)) return refused(422, "seller_pins_blockhash", "the seller's 402 names the blockhash to sign with; vet402 signs its payments with its own");
   const known = deps.allowlist.find("solana", host, accept.payTo);
   if (!known) return refused(403, "payto_not_allowlisted", `vet402 has not paid ${accept.payTo} at ${host} with a settled payment`);
   // A seller whose every settled purchase came back without an answer is not bought for an agent.
