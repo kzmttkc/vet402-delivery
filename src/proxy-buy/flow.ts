@@ -34,12 +34,12 @@ export const noCharge = (status: number, reason: string, detail: string, extra: 
   body: { verdict: "REFUSE", reason, detail, charged: false, ...extra },
 });
 
-/** Poll `fate` until it is not "pending" or the request's deadline comes. */
+/** Poll `fate` until it is not "pending", a search was cut short (`capped`: asking again reads as much), or the deadline. */
 export async function waitFate(c: Common, fate: () => Promise<Fate>): Promise<Fate> {
   const sleep = c.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (;;) {
-    const f = await fate();
-    if (f.fate !== "pending") return f;
+    const f = await fate().catch((): Fate => ({ fate: "pending" }));
+    if (f.fate !== "pending" || f.capped) return f;
     if (Date.now() + (c.pollMs ?? 3_000) >= c.deadline) return f;
     await sleep(c.pollMs ?? 3_000);
   }

@@ -12,7 +12,7 @@
  *   seller is recorded in the database before it is handed over) -> answer.
  * A push credential (the agent already broadcast) is refused: its money would move before vet402 could re-check
  * the seller. After the broadcast: if vet402 did not pay the seller (payOne refused, or vet402's payment is proven
- * dead: past its validBefore with no receipt and no matching transfer), the agent is refunded; if the seller was
+ * dead: past its validBefore with no receipt for its hash, or, sponsored, no transfer with its memo), the agent is refunded; if the seller was
  * paid, there is no refund; if that cannot be told yet, the reconciler decides later.
  */
 import { createHash } from "node:crypto";
@@ -22,7 +22,7 @@ import { atomicToUnits, FEE_RESERVE_ATOMIC } from "../tempo/constants.js";
 import { Ledger } from "../tempo/ledger.js";
 import { payOne, type PayDeps, type PayOutcome } from "../tempo/pay.js";
 import type { Signer } from "../tempo/chain.js";
-import { ANSWER_LIMIT_NOTE, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
+import { ANSWER_LIMIT_NOTE, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY, TEMPO_MAX_VALID_AHEAD_SECONDS } from "./constants.js";
 import { decodeTempoTx, tempoTxFate, type Fate, type TempoReads, type TempoTxFacts } from "./fate.js";
 import { noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
 import { refusalReason } from "./reasons.js";
@@ -51,6 +51,9 @@ export interface TempoSide {
   /** Send `amount` USDC.e from the proxy payer to `to` (refund.ts sendTempoRefund). */
   refund: RefundSender;
 }
+
+/** Transactions bound to other purchases in this window are excluded from a sponsored payment's memo search. */
+export const KNOWN_TX_WINDOW_MS = 2 * 86_400_000;
 
 export interface TempoContext extends Common {
   side: TempoSide;
@@ -109,6 +112,12 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
   const signedTx = cred.payload.signature;
   const agentTx = decodeTempoTx(signedTx);
   if (!agentTx || agentTx.sponsored) return noCharge(400, "malformed_payment", "the credential does not carry a self-paid Tempo transaction");
+  // Without a near validBefore, a transaction that is never mined can never be shown dead: the purchase would stay
+  // open for good. mppx signs 25 seconds ahead.
+  const nowSec = BigInt(Math.floor(ctx.now().getTime() / 1000));
+  if (agentTx.validBefore === null || BigInt(agentTx.validBefore) > nowSec + BigInt(TEMPO_MAX_VALID_AHEAD_SECONDS)) {
+    return noCharge(400, "valid_before_required", `the signed transaction must carry a validBefore at most ${TEMPO_MAX_VALID_AHEAD_SECONDS} seconds ahead; nothing was charged`);
+  }
   const route = tempoRoute(offer, ctx.feeAtomic, target);
   try {
     await side.mpp.validateCredential(authorization, { request: route });
@@ -185,7 +194,11 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
   const owe = (reason: string) => refundOwed(ctx, { id, chain: "tempo", day, from: ["in_progress"], base, reason, to: sender, total, send: side.refund, headers: paidHeaders });
 
   const recipient = offer.request.recipient!;
-  const got: { body: Buffer | null; sellerTx: (TempoTxFacts & { search: { recipient: string; amount: string; fromBlock: string } }) | null } = { body: null, sellerTx: null };
+  const got: { body: Buffer | null; truncated: boolean; sellerTx: (TempoTxFacts & { search: { recipient: string; amount: string; fromBlock: string } }) | null } = {
+    body: null,
+    truncated: false,
+    sellerTx: null,
+  };
   // vet402's signed payment to the seller is written to the database before payOne hands it over.
   const signer: Signer = {
     address: side.pay.signer.address,
@@ -218,8 +231,9 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
         // A single-purchase ledger: the caps and the wallet check are in the database, before the agent paid.
         ledger: new Ledger(null, side.payer, seller + FEE_RESERVE_ATOMIC),
         chainSpent: async () => 0n,
-        onBody: (b) => {
+        onBody: (b, truncated) => {
           got.body = b;
+          got.truncated = truncated === true;
         },
       },
     );
@@ -231,27 +245,38 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
 
   const buf = got.body;
   const status = out.httpStatus ?? null;
-  const tooLarge = !!buf && buf.byteLength > PROXY_MAX_FORWARD_BYTES;
+  // A body cut at the read cap (even one whose first chunk alone passed it) is too large, never "empty".
+  const tooLarge = got.truncated || (!!buf && buf.byteLength > PROXY_MAX_FORWARD_BYTES);
   const delivered = out.result === "sent" && status !== null && status >= 200 && status < 300 && buf !== null && buf.byteLength > 0 && !tooLarge;
-  let sellerSettled: boolean | null = out.settled === true ? true : null;
-  let sellerTx = out.txHash ?? null;
+  // Whether the seller was paid is read from vet402's own signed payment: by its hash, or (sponsored) by its
+  // challenge-bound memo, never taking a transaction bound to another purchase. The transaction the seller names
+  // in its receipt, or any transfer of the same amount, is not taken: it can be another purchase's.
+  const sellerFacts = got.sellerTx;
+  const look = async (): Promise<Fate> =>
+    sellerFacts
+      ? tempoTxFate(side.reads, { ...sellerFacts, known: sellerFacts.sponsored ? await store.knownTxs("tempo", id, new Date(ctx.now().getTime() - KNOWN_TX_WINDOW_MS)) : [] })
+      : { fate: "pending" };
+  const f = delivered ? await look().catch((): Fate => ({ fate: "pending" })) : await waitFate(ctx, look);
+  let sellerSettled: boolean | null = null;
+  let sellerTx: string | null = null;
+  if (f.fate === "landed" && (await store.bindTx("tempo", f.tx, id, "seller", ctx.now()))) {
+    sellerSettled = true;
+    sellerTx = f.tx;
+  } else if ((f.fate === "dead" || f.fate === "failed") && !delivered) {
+    return owe(f.fate === "dead" ? "seller_payment_expired_unsent" : "seller_payment_failed_on_chain");
+  } else if (f.fate === "dead" || f.fate === "failed") {
+    sellerSettled = false;
+  }
   if (sellerSettled !== true && !delivered) {
-    const f: Fate = got.sellerTx ? await waitFate(ctx, () => tempoTxFate(side.reads, got.sellerTx!)) : { fate: "pending" };
-    if (f.fate === "dead" || f.fate === "failed") return owe(f.fate === "dead" ? "seller_payment_expired_unsent" : "seller_payment_failed_on_chain");
-    if (f.fate === "landed") {
-      sellerSettled = true;
-      sellerTx = f.tx;
-    } else {
-      const r: PurchaseRecord = {
-        ...base,
-        sellerPayment: { tx: sellerTx, settled: null },
-        answer: { httpStatus: status, delivered: false, bodySha256: out.bodySha256 ?? null, bodyBytes: out.bodyBytes ?? null, contentType: out.contentType ?? null },
-        outcome: "seller_payment_pending",
-        reason: `seller answered ${status ?? "nothing"}; payment not settled yet`,
-      };
-      await store.move(id, ["in_progress"], "seller_unsettled", { record: r, now: ctx.now() });
-      return { kind: "json", status: 502, body: { error: "seller_payment_pending", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile", note: "if vet402's payment to the seller never settles, the reconciler refunds you" }, headers: paidHeaders };
-    }
+    const r: PurchaseRecord = {
+      ...base,
+      sellerPayment: { tx: null, settled: null },
+      answer: { httpStatus: status, delivered: false, bodySha256: out.bodySha256 ?? null, bodyBytes: out.bodyBytes ?? null, contentType: out.contentType ?? null },
+      outcome: "seller_payment_pending",
+      reason: `seller answered ${status ?? "nothing"}; payment not settled yet`,
+    };
+    await store.move(id, ["in_progress"], "seller_unsettled", { record: r, now: ctx.now() });
+    return { kind: "json", status: 502, body: { error: "seller_payment_pending", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile", note: "if vet402's payment to the seller never settles, the reconciler refunds you" }, headers: paidHeaders };
   }
   const answer = { httpStatus: status, delivered, bodySha256: out.bodySha256 ?? null, bodyBytes: out.bodyBytes ?? null, contentType: out.contentType ?? null };
   const headers = {

@@ -6,7 +6,9 @@
  *   - one purchase per settled on-chain payment: pb_customer_tx primary key (chain, tx);
  *   - caps: a single conditional UPDATE on the day row / the wallet row (Postgres re-checks the WHERE
  *     clause under the row lock, so concurrent reservations cannot both pass);
- *   - one refund per purchase: pb_refund primary key (purchase id); a new attempt only from status "dead".
+ *   - one refund per purchase: pb_refund primary key (purchase id); a new attempt only from status "dead";
+ *   - one purchase per seller payment or refund found on chain: pb_chain_tx primary key (chain, tx);
+ *   - request limits and daily counters (per-client quotes, refund account creations): pb_counter.
  *
  * Amounts are bigint columns, read back as text (drivers differ in how they return bigint).
  */
@@ -34,7 +36,8 @@ create table if not exists pb_purchase (
   facts jsonb not null default '{}'::jsonb,
   record jsonb,
   created_at timestamptz not null,
-  updated_at timestamptz not null
+  updated_at timestamptz not null,
+  checked_at timestamptz
 );
 create index if not exists pb_purchase_state_idx on pb_purchase (state, updated_at);
 create index if not exists pb_purchase_host_idx on pb_purchase (seller_host, state);
@@ -44,6 +47,19 @@ create table if not exists pb_customer_tx (
   tx text not null,
   purchase_id text not null,
   primary key (chain, tx)
+);
+create table if not exists pb_chain_tx (
+  chain text not null,
+  tx text not null,
+  purchase_id text not null,
+  kind text not null,
+  at timestamptz not null,
+  primary key (chain, tx)
+);
+create table if not exists pb_counter (
+  key text primary key,
+  at timestamptz not null,
+  count integer not null
 );
 create table if not exists pb_day (
   chain text not null,
@@ -74,8 +90,12 @@ create table if not exists pb_refund (
   facts jsonb not null default '{}'::jsonb,
   fee_paid bigint,
   reason text,
+  failures integer not null default 0,
   updated_at timestamptz not null
 );
+alter table pb_purchase add column if not exists checked_at timestamptz;
+alter table pb_refund add column if not exists failures integer not null default 0;
+create index if not exists pb_counter_at_idx on pb_counter (at);
 `;
 
 /** node-postgres over a pool (Neon's pooled connection string on Vercel). */

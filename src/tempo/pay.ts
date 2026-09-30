@@ -47,10 +47,11 @@ export interface PayDeps {
     sleep?: (ms: number) => Promise<void>;
   };
   /**
-   * Optional: receives the paid answer's body exactly as read (capped at MAX_BODY), for a caller that
-   * hands it on (proxy buy). Called after the payment was sent; never affects whether or what is paid.
+   * Optional: receives the paid answer's body exactly as read (capped at MAX_BODY), and whether the read
+   * stopped at the cap, for a caller that hands it on (proxy buy). Called after the payment was sent; never
+   * affects whether or what is paid.
    */
-  onBody?: (body: Buffer | null) => void;
+  onBody?: (body: Buffer | null, truncated?: boolean) => void;
 }
 
 export interface PayOutcome {
@@ -159,9 +160,10 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PayOutcom
       redirect: "error",
       signal: AbortSignal.timeout(deps.paidTimeoutMs ?? PAID_TIMEOUT_MS),
     });
-    const buf = await readCapped(res);
+    const cut = { truncated: false };
+    const buf = await readCapped(res, cut);
     try {
-      deps.onBody?.(buf);
+      deps.onBody?.(buf, cut.truncated);
     } catch {
       // a caller's hook must not turn a sent payment's outcome into "unknown"
     }
@@ -338,7 +340,7 @@ function shapeOrNull(buf: Buffer | null, status: number): BodyShape | null {
   }
 }
 
-async function readCapped(res: Response): Promise<Buffer | null> {
+async function readCapped(res: Response, cut?: { truncated: boolean }): Promise<Buffer | null> {
   if (!res.body) return null;
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -348,6 +350,7 @@ async function readCapped(res: Response): Promise<Buffer | null> {
     if (done) break;
     n += value.length;
     if (n > MAX_BODY) {
+      if (cut) cut.truncated = true;
       await reader.cancel().catch(() => undefined);
       break;
     }

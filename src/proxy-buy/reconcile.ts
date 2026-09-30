@@ -12,13 +12,13 @@
  * with), so two reconcilers, or a reconciler and a request, never act twice on one purchase.
  * Actions starting with "ALERT" need a human (the cron logs them).
  */
-import type { Fate } from "./fate.js";
-import { tempoTxFate, type TempoTxFacts } from "./fate.js";
+import { OPEN_ALERT_MS } from "./constants.js";
+import { tempoTxFate, type Fate, type TempoFateFacts } from "./fate.js";
 import { refundOwed, type Common } from "./flow.js";
 import { redact } from "./reasons.js";
 import type { SolanaSide } from "./solana.js";
 import type { PurchaseRecord, PurchaseRow } from "./store.js";
-import type { TempoSide } from "./tempo.js";
+import { KNOWN_TX_WINDOW_MS, type TempoSide } from "./tempo.js";
 
 export interface ReconcileContext extends Common {
   solana?: SolanaSide;
@@ -58,30 +58,56 @@ function fallbackRecord(row: PurchaseRow, now: Date): PurchaseRecord {
   return { ...d, ...(row.record ?? {}), customer: { ...d.customer, ...(row.record?.customer ?? {}) } };
 }
 
-async function txFate(ctx: ReconcileContext, chain: string, f: Facts | null): Promise<Fate> {
+async function txFate(ctx: ReconcileContext, row: PurchaseRow, f: Facts | null): Promise<Fate> {
   if (!f) return { fate: "pending" };
-  if (chain === "solana" && ctx.solana) {
+  if (row.chain === "solana" && ctx.solana) {
     const messageHash = str(f.messageHash);
     const blockhash = str(f.blockhash);
     const account = str(f.account);
     if (!messageHash || !blockhash || !account) return { fate: "pending" };
-    return ctx.solana.fate({ messageHash, blockhash, account, ...(typeof f.since === "number" ? { since: f.since } : {}) });
+    return ctx.solana.fate({
+      messageHash,
+      blockhash,
+      account,
+      ...(typeof f.since === "number" ? { since: f.since } : {}),
+      ...(typeof f.minSlot === "number" ? { minSlot: f.minSlot } : {}),
+      deadline: ctx.deadline,
+    });
   }
-  if (chain === "tempo" && ctx.tempo) return tempoTxFate(ctx.tempo.reads, f as unknown as TempoTxFacts & { search?: { recipient: string; amount: string; fromBlock: string } });
+  if (row.chain === "tempo" && ctx.tempo) {
+    const facts = f as unknown as TempoFateFacts;
+    const known = facts.sponsored ? await ctx.store.knownTxs("tempo", row.id, new Date(ctx.now().getTime() - KNOWN_TX_WINDOW_MS)) : [];
+    return tempoTxFate(ctx.tempo.reads, { ...facts, memo: facts.memo ?? null, known });
+  }
   return { fate: "pending" };
 }
+
+/** A "pending" whose search was cut short needs a human: said as an ALERT. */
+const waiting = (what: string, f: Fate) => (f.fate === "pending" && f.capped ? `ALERT waiting: ${what}; the chain search was cut short (${f.capped})` : `waiting: ${what}`);
 
 export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[]> {
   const { store } = ctx;
   const out: ReconcileAction[] = [];
+  await store.pruneCounters(new Date(ctx.now().getTime() - 2 * 86_400_000)).catch(() => undefined);
   const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50);
   for (const row of rows) {
     if (Date.now() >= ctx.deadline) break;
     const note = (action: string) => out.push({ id: row.id, chain: row.chain, state: row.state, action });
+    let last = "";
     try {
-      await one(ctx, row, note);
+      await one(ctx, row, (a) => {
+        last = a;
+        note(a);
+      });
     } catch (e) {
+      last = "error";
       note(`error, will retry: ${redact(String((e as Error).message ?? e), 120)}`);
+    }
+    // Looked at: to the back of the queue. Still open long after it started: a human looks.
+    await store.touch(row.id, ctx.now()).catch(() => undefined);
+    const age = ctx.now().getTime() - Date.parse(row.created_at);
+    if (!/^(closed|released)/.test(last) && age > OPEN_ALERT_MS && !last.startsWith("ALERT")) {
+      note(`ALERT open for ${Math.floor(age / 60_000)} minutes (${row.state}): needs a human if it does not close`);
     }
   }
   return out;
@@ -123,8 +149,8 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
       }
     }
     if (!paidTx) {
-      const f = await txFate(ctx, row.chain, agent);
-      if (f.fate === "pending") return note("waiting: the agent's payment can still land");
+      const f = await txFate(ctx, row, agent);
+      if (f.fate === "pending") return note(waiting("the agent's payment can still land", f));
       if (f.fate === "dead" || f.fate === "failed") {
         await store.finish(row.id, ["settling"], { record: { ...base, outcome: "no_charge", reason: `agent_payment_${f.fate}` }, spent: 0n, ...pin, now: ctx.now() });
         return note(`closed: agent payment ${f.fate}, no charge`);
@@ -156,9 +182,10 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
 
   if (row.state === "in_progress" || row.state === "seller_unsettled") {
     const seller = obj(row.facts.seller);
-    const f: Fate = seller ? await txFate(ctx, row.chain, seller) : { fate: "dead" }; // never handed over
-    if (f.fate === "pending") return note("waiting: vet402's payment to the seller can still land");
+    const f: Fate = seller ? await txFate(ctx, row, seller) : { fate: "dead" }; // never handed over
+    if (f.fate === "pending") return note(waiting("vet402's payment to the seller can still land", f));
     if (f.fate === "landed") {
+      if (!(await store.bindTx(row.chain, f.tx, row.id, "seller", ctx.now()))) return note(`ALERT seller transaction ${f.tx} is bound to another purchase: needs a human`);
       const r: PurchaseRecord = {
         ...base,
         sellerPayment: { tx: f.tx, settled: true },
@@ -182,9 +209,10 @@ async function one(ctx: ReconcileContext, row: PurchaseRow, note: (a: string) =>
       return note("closed: refund sent");
     }
     if (rf && (rf.status === "sending" || rf.status === "unknown")) {
-      const f = await txFate(ctx, row.chain, rf.facts);
-      if (f.fate === "pending") return note("waiting: the refund can still land");
+      const f = await txFate(ctx, row, rf.facts);
+      if (f.fate === "pending") return note(waiting("the refund can still land", f));
       if (f.fate === "landed") {
+        if (!(await store.bindTx(row.chain, f.tx, row.id, "refund", ctx.now()))) return note(`ALERT refund transaction ${f.tx} is bound to another purchase: needs a human`);
         if (!(await store.refundSet(row.id, ["sending", "unknown"], "sent", { tx: rf.tx, now: ctx.now() }))) return note("skipped: refund moved by another run");
         await store.finish(row.id, ["refund_pending"], { record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: f.tx, reason: null } }, spent: total, ...pin, now: ctx.now() });
         return note("closed: refund landed");

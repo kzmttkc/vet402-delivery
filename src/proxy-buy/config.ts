@@ -42,6 +42,8 @@ export interface TempoConfig {
 
 export interface ProxyConfig {
   enabled: boolean;
+  /** Tempo is taken only with VET402_PROXY_TEMPO_ENABLED=1 (off by default: Solana ships first). */
+  tempoEnabled: boolean;
   publicOrigin: string;
   /** Postgres connection string (DATABASE_URL, as Vercel's Neon integration sets it; POSTGRES_URL also read). Never printed. */
   databaseUrl: string | null;
@@ -128,6 +130,7 @@ export function configFromEnv(env: Env): ProxyConfig {
 
   return {
     enabled: env.VET402_PROXY_BUY_ENABLED === "1",
+    tempoEnabled: env.VET402_PROXY_TEMPO_ENABLED === "1",
     publicOrigin: origin,
     databaseUrl: env.DATABASE_URL ?? env.POSTGRES_URL ?? null,
     port: Number(env.PORT ?? 8402),
@@ -143,6 +146,7 @@ export function configFromEnv(env: Env): ProxyConfig {
 export function describeConfig(c: ProxyConfig): Record<string, unknown> {
   return {
     enabled: c.enabled,
+    tempoEnabled: c.tempoEnabled,
     publicOrigin: c.publicOrigin,
     database: c.databaseUrl ? "set" : "missing",
     fee: c.feeAtomic.toString(),

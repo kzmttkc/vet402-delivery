@@ -23,6 +23,8 @@ export type PurchaseState = "claimed" | "admitted" | "settling" | "in_progress" 
 export const OPEN_STATES: PurchaseState[] = ["settling", "in_progress", "seller_unsettled", "refund_pending"];
 /** A refund is sent at most this many times; then it is "stuck" and needs a human (the reconciler reports it). */
 export const MAX_REFUND_ATTEMPTS = 3;
+/** Refund attempts that fail before sending (a read error, a refused build): after this many, "stuck" too. */
+export const MAX_REFUND_FAILURES_BEFORE_SEND = 6;
 
 export interface RefundRecord {
   status: "sent" | "failed" | "unknown" | "refused" | "pending" | "stuck";
@@ -113,10 +115,12 @@ export interface RefundRow {
   facts: Record<string, unknown>;
   fee_paid: string | null;
   reason: string | null;
+  /** Attempts that failed before sending. */
+  failures: number;
   updated_at: string;
 }
 const REFUND_ROW = `purchase_id, chain, to_char(day, 'YYYY-MM-DD') as day, to_addr, amount::text as amount, status, attempt, tx, facts,
-  fee_paid::text as fee_paid, reason, updated_at::text as updated_at`;
+  fee_paid::text as fee_paid, reason, failures, updated_at::text as updated_at`;
 
 export class Store {
   constructor(readonly sql: Sql) {}
@@ -153,7 +157,18 @@ export class Store {
    */
   async admit(
     id: string,
-    o: { chain: ProxyChain; payer: string; day: string; caps: DayCaps; need: bigint; balance: bigint; balanceReadAt?: Date; now: Date },
+    o: {
+      chain: ProxyChain;
+      payer: string;
+      day: string;
+      caps: DayCaps;
+      need: bigint;
+      balance: bigint;
+      balanceReadAt?: Date;
+      /** Solana: the payer's SOL, which must cover one refund's fee and account rent for every open purchase plus this one. */
+      lamports?: { have: bigint; perPurchase: bigint };
+      now: Date;
+    },
   ): Promise<{ ok: true } | Refusal> {
     try {
       await this.sql.tx(async (q) => {
@@ -178,6 +193,13 @@ export class Store {
           if (busy.rows.length === 0) floor = o.balance;
         }
         if (floor - o.need < 0n) throw new Rollback({ ok: false, reason: "insufficient_balance", detail: `balance for proxy buy ${floor} < ${o.need}` });
+        if (o.lamports) {
+          // Under the wallet row lock: concurrent admissions count each other, so every open purchase keeps the SOL
+          // its refund may need (network fee and the rent of a USDC account the refund may create).
+          const open = await q.query<{ n: string }>(`select count(*)::text as n from pb_purchase where chain = $1 and id <> $2 and state = any($3)`, [o.chain, id, ["admitted", ...OPEN_STATES]]);
+          const want = o.lamports.perPurchase * (BigInt(open.rows[0]?.n ?? "0") + 1n);
+          if (o.lamports.have < want) throw new Rollback({ ok: false, reason: "refund_fee_unavailable", detail: "the proxy wallet cannot pay the network fee of every refund that may be owed; nothing was charged" });
+        }
         await q.query(`update pb_wallet set floor = $2 where chain = $1`, [o.chain, (floor - o.need).toString()]);
         await q.query(
           `insert into pb_day (chain, day, cap, max_count, refund_cap) values ($1, $2, $3, $4, $5) on conflict (chain, day) do nothing`,
@@ -322,12 +344,28 @@ export class Store {
    * (from "dead" or "failed") counts, and stops at MAX_REFUND_ATTEMPTS.
    */
   async refundSending(id: string, from: RefundRow["status"][], o: { tx: string; facts: Record<string, unknown>; now: Date }): Promise<boolean> {
+    // `attempt` counts transactions that were sent: a new one after a sent one proven dead. A failure before
+    // sending counts in `failures` instead (refundFailed).
     const r = await this.sql.query(
-      `update pb_refund set status = 'sending', tx = $3, facts = $4::jsonb, attempt = attempt + (case when status in ('dead', 'failed') then 1 else 0 end), updated_at = $5
-       where purchase_id = $1 and status = any($2) and (status not in ('dead', 'failed') or attempt < $6) returning purchase_id`,
+      `update pb_refund set status = 'sending', tx = $3, facts = $4::jsonb, attempt = attempt + (case when status = 'dead' then 1 else 0 end), updated_at = $5
+       where purchase_id = $1 and status = any($2) and (status <> 'dead' or attempt < $6) returning purchase_id`,
       [id, from, o.tx, JSON.stringify(o.facts), iso(o.now), MAX_REFUND_ATTEMPTS],
     );
     return r.rows.length === 1;
+  }
+
+  /**
+   * A refund attempt that failed before anything was sent: counted, and "stuck" (a human's) when the failure cannot
+   * change by itself (`permanent`) or after MAX_REFUND_FAILURES_BEFORE_SEND of them. Returns the new status.
+   */
+  async refundFailed(id: string, from: RefundRow["status"][], o: { reason: string; permanent: boolean; now: Date }): Promise<RefundRow["status"] | null> {
+    const r = await this.sql.query<{ status: RefundRow["status"] }>(
+      `update pb_refund set failures = failures + 1, reason = $3, updated_at = $4,
+         status = case when $5::boolean or failures + 1 >= $6 then 'stuck' else 'failed' end
+       where purchase_id = $1 and status = any($2) returning status`,
+      [id, from, o.reason, iso(o.now), o.permanent, MAX_REFUND_FAILURES_BEFORE_SEND],
+    );
+    return r.rows[0]?.status ?? null;
   }
 
   /** Guarded refund status change; with `tx`, only while the row still carries that transaction. */
@@ -347,11 +385,50 @@ export class Store {
 
   /** Purchases in a non-final state not touched for `staleMs`: they need the reconciler. */
   async stale(now: Date, staleMs: number, limit = 50): Promise<PurchaseRow[]> {
-    const r = await this.sql.query<PurchaseRow>(`select ${ROW} from pb_purchase where state <> 'done' and updated_at < $1 order by updated_at limit $2`, [
-      iso(new Date(now.getTime() - staleMs)),
-      limit,
-    ]);
+    // Least recently looked at first: rows that cannot be decided yet go to the back after each look, so a newer
+    // row that can be decided is reached by the next run however many undecidable rows there are.
+    const r = await this.sql.query<PurchaseRow>(
+      `select ${ROW} from pb_purchase where state <> 'done' and updated_at < $1 order by coalesce(checked_at, updated_at), id limit $2`,
+      [iso(new Date(now.getTime() - staleMs)), limit],
+    );
     return r.rows;
+  }
+
+  /** The reconciler looked at this row (its state and updated_at stay as they are). */
+  async touch(id: string, now: Date): Promise<void> {
+    await this.sql.query(`update pb_purchase set checked_at = $2 where id = $1`, [id, iso(now)]);
+  }
+
+  /**
+   * Bind a seller payment or refund found on chain to one purchase (primary key (chain, tx)). false: this
+   * transaction is already bound to another purchase, so it is not this purchase's.
+   */
+  async bindTx(chain: ProxyChain, tx: string, id: string, kind: "seller" | "refund", now: Date): Promise<boolean> {
+    const key = chain === "tempo" ? tx.toLowerCase() : tx;
+    await this.sql.query(`insert into pb_chain_tx (chain, tx, purchase_id, kind, at) values ($1, $2, $3, $4, $5) on conflict (chain, tx) do nothing`, [chain, key, id, kind, iso(now)]);
+    const r = await this.sql.query<{ purchase_id: string }>(`select purchase_id from pb_chain_tx where chain = $1 and tx = $2`, [chain, key]);
+    return r.rows[0]?.purchase_id === id;
+  }
+
+  /** Transactions bound to other purchases since `since`: never taken for this one. */
+  async knownTxs(chain: ProxyChain, exceptId: string, since: Date): Promise<string[]> {
+    const r = await this.sql.query<{ tx: string }>(`select tx from pb_chain_tx where chain = $1 and purchase_id <> $2 and at >= $3 limit 5000`, [chain, exceptId, iso(since)]);
+    return r.rows.map((x) => x.tx);
+  }
+
+  /** Count one under `key`; false when it is already at `max` (a fixed window: the key carries the window). */
+  async bump(key: string, max: number, now: Date): Promise<boolean> {
+    const r = await this.sql.query(
+      `insert into pb_counter (key, at, count) values ($1, $3, 1)
+       on conflict (key) do update set count = pb_counter.count + 1 where pb_counter.count < $2 returning count`,
+      [key, max, iso(now)],
+    );
+    return r.rows.length === 1 && max >= 1;
+  }
+
+  /** Drop counters older than `before`. */
+  async pruneCounters(before: Date): Promise<void> {
+    await this.sql.query(`delete from pb_counter where at < $1`, [iso(before)]);
   }
 
   /**

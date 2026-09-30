@@ -43,7 +43,7 @@ test("zz2-premise tempo: a receipt read error (RPC 503) is not 'no receipt' -> p
     getTransactionCount: async () => 8,
   };
   const reads = tempoReads("http://127.0.0.1:1", client as never);
-  const facts = { hash: "0x" + "ab".repeat(32), from: "0x" + "11".repeat(20), nonce: "7", nonceKey: "0", validBefore: "9000", sponsored: false };
+  const facts = { hash: "0x" + "ab".repeat(32), from: "0x" + "11".repeat(20), nonce: "7", nonceKey: "0", validBefore: "9000", sponsored: false, memo: null };
   assert.deepEqual(await tempoTxFate(reads, facts), { fate: "pending" });
   assert.ok(n >= 1);
   // a real "not found" is still an answer

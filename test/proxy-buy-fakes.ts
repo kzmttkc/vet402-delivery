@@ -354,7 +354,7 @@ export const paidReq = (header: string, target = S_URL) => new Request(buyUrl(ta
 
 export interface FakeChain {
   broadcasts: number;
-  sent: { from: string; to: string; amount: bigint; hash: string }[];
+  sent: { from: string; to: string; amount: bigint; hash: string; memo?: string }[];
   mined: Map<string, "success" | "reverted">;
   /** Added to the wall clock for the chain's head time (a test moves time past a validBefore). */
   timeShift: number;
@@ -376,7 +376,7 @@ export function mineTempo(chain: FakeChain, raw: Hex) {
   for (const c of tx.calls) {
     const d = decodeFunctionData({ abi: Abis.tip20, data: c.data });
     const [to, amount, memo] = d.args as [Hex, bigint, Hex | undefined];
-    chain.sent.push({ from: tx.from.toLowerCase(), to: to.toLowerCase(), amount, hash });
+    chain.sent.push({ from: tx.from.toLowerCase(), to: to.toLowerCase(), amount, hash, ...(memo ? { memo: memo.toLowerCase() } : {}) });
     const base = { address: c.to, blockHash, blockNumber: "0x1", transactionHash: hash, transactionIndex: "0x0", removed: false };
     logs.push({ ...base, logIndex: `0x${(i++).toString(16)}`, topics: encodeEventTopics({ abi: Abis.tip20, eventName: "Transfer", args: { from: tx.from, to } }), data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
     if (memo) logs.push({ ...base, logIndex: `0x${(i++).toString(16)}`, topics: encodeEventTopics({ abi: Abis.tip20, eventName: "TransferWithMemo", args: { from: tx.from, to, memo } }), data: encodeAbiParameters([{ type: "uint256" }], [amount]) });
@@ -479,7 +479,7 @@ export interface TRig {
   reconcile: (o?: { staleMs?: number }) => Promise<ReconcileAction[]>;
 }
 
-export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCaps>; enabled?: boolean; wrapSeller?: (f: typeof fetch) => typeof fetch; sql?: Sql; budgetMs?: number; staleMs?: number } = {}): Promise<TRig> {
+export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCaps>; enabled?: boolean; tempoEnabled?: boolean; wrapSeller?: (f: typeof fetch) => typeof fetch; sql?: Sql; budgetMs?: number; staleMs?: number } = {}): Promise<TRig> {
   const wrap = (f: (url: string, init?: RequestInit) => Promise<Response>) => (o.wrapSeller ? (o.wrapSeller(f as unknown as typeof fetch) as unknown as typeof f) : f);
   const sql = o.sql ?? (await testSql());
   const store = new Store(sql);
@@ -505,7 +505,8 @@ export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCap
     },
     headTime: async () => BigInt(nowSec(chain)),
     nonce: async () => 0n,
-    transfers: async (exp) => chain.sent.filter((s) => s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount).map((s) => s.hash),
+    memoTransfers: async (exp) =>
+      chain.sent.filter((s) => s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount && s.memo === exp.memo.toLowerCase()).map((s) => s.hash),
   };
   const side: TempoSide = {
     receive: T_RECEIVE,
@@ -533,6 +534,7 @@ export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCap
   };
   const buy = createProxyBuy({
     enabled: o.enabled ?? true,
+    tempoEnabled: o.tempoEnabled ?? true,
     publicOrigin: ORIGIN,
     feeAtomic: BUY_FEE_ATOMIC,
     allowlist,

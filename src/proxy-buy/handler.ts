@@ -8,9 +8,12 @@
  *
  * Before a paid request is taken: purchases that stopped half way (a function killed at its time limit, an
  * outcome not known) are reconciled first (reconcile.ts). While one of them still cannot be settled, new paid
- * requests are refused (503, nothing charged).
- * With the flag off, nothing is quoted, verified, settled, written or paid (503).
+ * requests from the same agent or to the same seller are refused (503, nothing charged).
+ * With the flag off, nothing is quoted, verified, settled, written or paid (503). Tempo needs its own flag as well
+ * (`tempoEnabled`): without it no Tempo price is offered and a Tempo payment is refused (503).
+ * Requests per client are counted in the database, so the limit holds across serverless instances.
  */
+import { createHash } from "node:crypto";
 import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REFUND_POLICY } from "./constants.js";
 import type { Allowlist } from "./allowlist.js";
 import type { DayCaps, Store } from "./store.js";
@@ -23,6 +26,11 @@ import { atomicToUsdc } from "../constants.js";
 
 export interface ProxyBuyOptions {
   enabled: boolean;
+  /**
+   * Tempo is taken only when this is true (VET402_PROXY_TEMPO_ENABLED=1): off, a Tempo payment is refused with 503
+   * and no Tempo price is offered, even with Tempo configured.
+   */
+  tempoEnabled?: boolean;
   /** e.g. https://buy.example.com (used in record links and the x402 resource URL). */
   publicOrigin: string;
   feeAtomic: bigint;
@@ -51,23 +59,6 @@ export interface ProxyBuy {
 export const DEFAULT_REQUEST_BUDGET_MS = 240_000;
 export const DEFAULT_STALE_MS = 330_000;
 
-class Limiter {
-  private readonly seen = new Map<string, { start: number; count: number }>();
-  constructor(private readonly perMinute: number, private readonly now: () => number) {}
-  take(key: string): boolean {
-    const t = this.now();
-    const w = this.seen.get(key);
-    if (!w || t - w.start >= 60_000) {
-      this.seen.delete(key);
-      this.seen.set(key, { start: t, count: 1 });
-      if (this.seen.size > 10_000) this.seen.delete(this.seen.keys().next().value!);
-      return true;
-    }
-    w.count += 1;
-    return w.count <= this.perMinute;
-  }
-}
-
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body, null, 2), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
 
@@ -87,13 +78,20 @@ function refusedResponse(r: Refused): Response {
 
 export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
   const now = o.now ?? (() => new Date());
-  const limiter = new Limiter(o.quotesPerMinute ?? QUOTES_PER_MINUTE, () => now().getTime());
+  const perMinute = o.quotesPerMinute ?? QUOTES_PER_MINUTE;
+  const tempo = o.tempoEnabled === true ? o.tempo : undefined;
+  /** Requests per client per minute, counted in the database (every serverless instance sees one count). */
+  const allowed = async (req: Request): Promise<boolean> => {
+    const t = now();
+    const ip = createHash("sha256").update(`vet402-buy-rate:${clientIp(req)}`).digest("hex").slice(0, 32);
+    return o.store.bump(`rate:${ip}:${Math.floor(t.getTime() / 60_000)}`, perMinute, t);
+  };
   const recordUrl = (id: string) => `${o.publicOrigin}${RECORD_PATH_PREFIX}${id}`;
   const quoteDeps: QuoteDeps = {
     ...o.quoteDeps,
     allowlist: o.allowlist,
     solanaPayer: o.solana ? o.quoteDeps.solanaPayer : null,
-    tempoPayer: o.tempo ? o.quoteDeps.tempoPayer : null,
+    tempoPayer: tempo ? o.quoteDeps.tempoPayer : null,
     now,
   };
   const staleMs = o.staleMs ?? DEFAULT_STALE_MS;
@@ -110,7 +108,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     ...(o.pollMs !== undefined ? { pollMs: o.pollMs } : {}),
   });
   const solCtx = () => ({ ...common(o.caps.solana!), side: o.solana!, resourceUrl: `${o.publicOrigin}${BUY_PATH}` });
-  const tempoCtx = () => ({ ...common(o.caps.tempo!), side: o.tempo! });
+  const tempoCtx = () => ({ ...common(o.caps.tempo!), side: tempo! });
 
   async function unpaid(req: Request, target: string | null): Promise<Response> {
     const q = await quote(target, quoteDeps);
@@ -130,10 +128,10 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     } else {
       offers.solana = qq.solana.ok ? { refused: "chain_not_offered" } : { refused: qq.solana.reason, detail: qq.solana.detail };
     }
-    if (qq.tempo.ok && o.tempo) {
+    if (qq.tempo.ok && tempo) {
       const route = tempoRoute(qq.tempo, o.feeAtomic, qq.target);
       const expires = new Date(now().getTime() + OFFER_TTL_SECONDS * 1000).toISOString();
-      const ch = await o.tempo.mpp.challenge(req, { ...route, expires });
+      const ch = await tempo.mpp.challenge(req, { ...route, expires });
       const www = ch.headers.get("www-authenticate");
       if (ch.status === 402 && www) {
         headers["www-authenticate"] = www;
@@ -142,7 +140,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
         offers.tempo = { refused: "challenge_unavailable", detail: `mppx answered ${ch.status}` };
       }
     } else {
-      offers.tempo = qq.tempo.ok ? { refused: "chain_not_offered" } : { refused: qq.tempo.reason, detail: qq.tempo.detail };
+      offers.tempo = qq.tempo.ok || (o.tempo && !tempo) ? { refused: "chain_not_offered" } : { refused: qq.tempo.reason, detail: qq.tempo.detail };
     }
     if (!headers["PAYMENT-REQUIRED"] && !headers["www-authenticate"]) {
       return json(422, { verdict: "REFUSE", reason: "no_payable_offer", target: qq.target, offers, charged: false });
@@ -170,11 +168,15 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
    */
   async function reconcileSome(): Promise<void> {
     if ((await o.store.stale(now(), staleMs, 1)).length === 0) return;
+    // Tempo rows (if any were written while Tempo was on) are still reconciled when Tempo is configured.
     const ctx = { ...common(o.caps.solana ?? o.caps.tempo!), ...(o.solana ? { solana: o.solana } : {}), ...(o.tempo ? { tempo: o.tempo } : {}), deadline: Date.now() + 20_000, limit: 5 };
     await reconcile(ctx).catch(() => []);
   }
 
   async function paid(target: string | null, pay: { chain: "solana" | "tempo"; header: string }): Promise<Response> {
+    if (pay.chain === "tempo" && !tempo) {
+      return json(503, { verdict: "REFUSE", reason: "tempo_disabled", detail: "proxy buy on Tempo is switched off; nothing was charged", charged: false });
+    }
     await reconcileSome();
     const q = await quote(target, quoteDeps);
     if ("ok" in q && q.ok === false) return refusedResponse(q);
@@ -184,7 +186,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       if (!qq.solana.ok) return refusedResponse(qq.solana);
       return toResponse(await paySolana(solCtx(), qq.target, qq.solana, pay.header));
     }
-    if (!o.tempo || !o.caps.tempo) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Tempo is not configured", charged: false });
+    if (!tempo || !o.caps.tempo) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Tempo is not configured", charged: false });
     if (!qq.tempo.ok) return refusedResponse(qq.tempo);
     return toResponse(await payTempo(tempoCtx(), qq.target, qq.tempo, pay.header));
   }
@@ -205,7 +207,13 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       if (req.method !== "GET") return json(405, { verdict: "REFUSE", reason: "method_not_allowed", detail: "use GET", charged: false });
       if (!o.enabled) return json(503, { verdict: "REFUSE", reason: "proxy_buy_disabled", detail: "proxy buy is switched off; nothing was charged", charged: false });
       // Every request below reads the seller's 402 at least once: limit them per client.
-      if (!limiter.take(clientIp(req))) return json(429, { verdict: "REFUSE", reason: "rate_limited", detail: `at most ${o.quotesPerMinute ?? QUOTES_PER_MINUTE} requests per minute`, charged: false });
+      let ok: boolean;
+      try {
+        ok = await allowed(req);
+      } catch {
+        return json(503, { verdict: "REFUSE", reason: "busy", detail: "try again shortly; nothing was charged", charged: false });
+      }
+      if (!ok) return json(429, { verdict: "REFUSE", reason: "rate_limited", detail: `at most ${o.quotesPerMinute ?? QUOTES_PER_MINUTE} requests per minute`, charged: false });
       const target = u.searchParams.get("url");
       const x402 = req.headers.get("payment-signature") ?? req.headers.get("x-payment");
       if (x402) return paid(target, { chain: "solana", header: x402 });

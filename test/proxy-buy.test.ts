@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
-import { createKeyPairSignerFromBytes } from "@solana/kit";
+import { createKeyPairSignerFromBytes, getBase64Encoder, getCompiledTransactionMessageDecoder, getTransactionDecoder } from "@solana/kit";
 import { decodePaymentSignatureHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import type { PaymentPayload } from "@x402/core/types";
 import { createClient, custom, type Hex } from "viem";
@@ -548,6 +548,7 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     if (method === "getSignaturesForAddress") return landed ? [{ signature: "S1" }] : [];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [txb, "base64"] };
     if (method === "isBlockhashValid") return { value: valid };
+    if (method === "getSlot") return 100;
     throw new Error(method);
   };
   const f = { messageHash: facts.messageHash, blockhash: facts.blockhash, account: RECEIVE };
@@ -562,31 +563,37 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     if (method === "getSignaturesForAddress") return [{ signature: "X1" }, { signature: "X2" }];
     if (method === "getTransaction") return { meta: { err: null }, transaction: [await transferTx(agent, VET_FAC, SELLER, 1n), "base64"] };
     if (method === "isBlockhashValid") return { value: false };
+    if (method === "getSlot") return 100;
     throw new Error(method);
   };
-  assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 2 }), { fate: "pending" });
+  assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 2 }), { fate: "pending", capped: "pages" });
   assert.deepEqual(await solanaTxFate(busy, { ...f, pageSize: 3 }), { fate: "dead" });
 
-  const base = { hash: "0xaa", from: "0xf", nonce: "3", nonceKey: "0", validBefore: "1000", sponsored: false };
+  const base = { hash: "0xaa", from: "0xf", nonce: "3", nonceKey: "0", validBefore: "1000", sponsored: false, memo: null };
   const reads = (o: { receipt?: "success" | null; time?: bigint; nonce?: bigint; hits?: string[] }) => ({
     receipt: async () => (o.receipt ? { status: o.receipt } : null),
     headTime: async () => o.time ?? 0n,
     nonce: async () => o.nonce ?? 0n,
-    transfers: async () => o.hits ?? [],
+    memoTransfers: async () => o.hits ?? [],
   });
   assert.deepEqual(await tempoTxFate(reads({ receipt: "success" }), base), { fate: "landed", tx: "0xaa" });
   assert.deepEqual(await tempoTxFate(reads({ time: 999n }), base), { fate: "pending" });
   assert.deepEqual(await tempoTxFate(reads({ time: 1001n }), base), { fate: "dead" });
   assert.deepEqual(await tempoTxFate(reads({ nonce: 4n }), { ...base, validBefore: null }), { fate: "dead" });
-  const s = { ...base, sponsored: true, search: { recipient: "0xr", amount: "5", fromBlock: "1" } };
+  // self-paid: a matching transfer is never taken (only the transaction's own hash counts)
+  assert.deepEqual(await tempoTxFate(reads({ hits: ["0xBB"], time: 999n }), { ...base, search: { recipient: "0xr", amount: "5", fromBlock: "1" } }), { fate: "pending" });
+  const s = { ...base, sponsored: true, memo: "0x" + "ef".repeat(32), search: { recipient: "0xr", amount: "5", fromBlock: "1" } };
   assert.deepEqual(await tempoTxFate(reads({ hits: ["0xBB"] }), s), { fate: "landed", tx: "0xbb" });
-  assert.deepEqual(await tempoTxFate(reads({ hits: ["0xbb", "0xcc"] }), s), { fate: "pending" });
+  assert.deepEqual(await tempoTxFate(reads({ hits: ["0xbb", "0xcc"] }), s), { fate: "pending", capped: "ambiguous_transfer" });
+  assert.deepEqual(await tempoTxFate(reads({ hits: ["0xbb", "0xcc"] }), { ...s, known: ["0xCC"] }), { fate: "landed", tx: "0xbb" });
 });
 
 test("solana refund: one USDC transfer to the signer's account, facts written before sending; a taken attempt sends nothing", async () => {
   const sent: string[] = [];
+  let accountExists = true;
   const rpc = async (method: string, params: unknown[]) => {
-    if (method === "getLatestBlockhash") return { value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 10 } };
+    if (method === "getLatestBlockhash") return { context: { slot: 777 }, value: { blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 10 } };
+    if (method === "getAccountInfo") return { value: accountExists ? { lamports: 2_039_280 } : null };
     if (method === "sendTransaction") {
       sent.push(String(params[0]));
       return "sig";
@@ -605,9 +612,21 @@ test("solana refund: one USDC transfer to the signer's account, facts written be
   assert.equal(written[0]!.facts.account, PAYER_ATA);
   assert.equal(await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: agent.address, amount: 15_000n }), null);
   assert.match((await checkSolanaRefundTx(sent[0]!, { payer: proxyPayer.address, to: SELLER, amount: 15_000n }))!, /ATA\(to, USDC\)|destination/);
+  assert.equal(written[0]!.facts.minSlot, 777);
+  const ixCount = (b64: string) => getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(getBase64Encoder().encode(b64)).messageBytes).instructions.length;
+  assert.equal(ixCount(sent[0]!), 1, "the account exists: no creation, no rent");
   const taken = await sendSolanaRefund({ rpc, signer: proxyPayer }, agent.address, 15_000n, async () => false);
   assert.equal(taken.status, "failed");
   assert.equal(sent.length, 1, "nothing sent when the attempt belongs to someone else");
+  // the account is missing: created only with one of the day's creations
+  accountExists = false;
+  const noRoom = await sendSolanaRefund({ rpc, signer: proxyPayer, sleep: async () => undefined }, agent.address, 15_000n, async () => true, { mayCreateAccount: async () => false });
+  assert.deepEqual(noRoom, { status: "failed", reason: "refund_account_missing_creation_limit", tx: null });
+  assert.equal(sent.length, 1);
+  const created = await sendSolanaRefund({ rpc, signer: proxyPayer, sleep: async () => undefined }, agent.address, 15_000n, async () => true, { mayCreateAccount: async () => true });
+  assert.equal(created.status, "sent");
+  assert.equal(ixCount(sent[1]!), 2, "creation, then the transfer");
+  assert.equal(await checkSolanaRefundTx(sent[1]!, { payer: proxyPayer.address, to: agent.address, amount: 15_000n }), null);
 });
 
 test("M2 tempo refund: eth_call first, gas = estimate x 1.25, fee cap, fee in USDC.e, validBefore; facts written before sending", async () => {

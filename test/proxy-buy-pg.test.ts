@@ -15,7 +15,7 @@ const URL0 = process.env.PROXY_BUY_TEST_PG_URL;
 const skip = !URL0;
 const pool = URL0 ? new pg.Pool({ connectionString: URL0, max: 40 }) : null;
 const sql = pool ? pgSql(pool) : null;
-const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund";
+const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter";
 
 async function fresh(): Promise<Store> {
   await pool!.query(`drop table if exists ${TABLES}`);
@@ -159,4 +159,28 @@ test("pg e2e: 8 distinct payments at once with a day count of 3 -> at most 3 set
 
 test.after(async () => {
   await pool?.end();
+});
+
+test("pg (third review): 30 purchases bind one on-chain transaction at once -> exactly one owns it", { skip }, async () => {
+  const s = await fresh();
+  const r = await Promise.all(Array.from({ length: 30 }, (_, i) => s.bindTx("tempo", "0xAB", `p${i}`, "seller", now)));
+  assert.equal(r.filter(Boolean).length, 1);
+});
+
+test("pg (third review): 40 concurrent requests against a limit of 5 in one window -> exactly 5 pass", { skip }, async () => {
+  const s = await fresh();
+  const r = await Promise.all(Array.from({ length: 40 }, () => s.bump("rate:x:1", 5, now)));
+  assert.equal(r.filter(Boolean).length, 5);
+});
+
+test("pg (third review): 20 concurrent admits with SOL for 3 refunds -> exactly 3 admitted", { skip }, async () => {
+  const s = await fresh();
+  const ids = Array.from({ length: 20 }, (_, i) => `l${i}`);
+  await Promise.all(ids.map((id) => claim(s, id)));
+  const wide = { cap: 5_000_000n, maxCount: 100, refundCap: 5_000_000n };
+  const res = await Promise.all(
+    ids.map((id) => s.admit(id, { chain: "solana", payer: "P", day, caps: wide, need: 105_000n, balance: 5_000_000n, lamports: { have: 3n * 2_100_000n + 1n, perPurchase: 2_100_000n }, now })),
+  );
+  assert.equal(res.filter((x) => x.ok).length, 3);
+  assert.ok(res.filter((x) => !x.ok).every((x) => (x as { reason: string }).reason === "refund_fee_unavailable"));
 });

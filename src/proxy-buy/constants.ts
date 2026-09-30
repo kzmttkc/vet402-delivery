@@ -32,6 +32,19 @@ export const CUSTOMER_CONFIRM_TIMEOUT_MS = 30_000;
 /** Unpaid price reads per client IP per minute (each one reads the seller's 402). */
 export const QUOTES_PER_MINUTE = 30;
 
+/**
+ * Solana refunds that may create the agent's USDC account (the proxy payer pays its rent in SOL, about 0.002
+ * each) per UTC day. A refund whose account is missing past this waits for the next day, and is reported once
+ * it is stuck.
+ */
+export const REFUND_ACCOUNT_CREATIONS_PER_DAY = 10;
+
+/** A Tempo payment's validBefore may be at most this far ahead (mppx signs 25 s ahead): past it, it is refused. */
+export const TEMPO_MAX_VALID_AHEAD_SECONDS = 600;
+
+/** An open purchase older than this is reported by the reconciler (ALERT) on every look. */
+export const OPEN_ALERT_MS = 2 * 3_600_000;
+
 export const DEFAULT_FACILITATOR_URL = "https://facilitator.payai.network";
 
 /** Shown with every price and in the README. */

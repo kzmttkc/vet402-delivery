@@ -4,7 +4,7 @@
  * goes back from vet402's proxy payer wallet to the account whose balance paid, on the same chain, in the
  * same token.
  *
- * Order for one attempt: take the refund (one per purchase, daily refund cap: Store.refundClaim) -> build and
+ * Order for one attempt: take the refund (one per purchase: Store.refundClaim) -> build and
  * sign -> read the signed transaction back -> write its signature/hash and expiry to the database -> send ->
  * confirm. A later attempt is made only after the previous one is proven dead on chain (reconcile.ts).
  * Errors are reported as fixed codes: RPC error messages can carry the RPC URL.
@@ -19,7 +19,6 @@ import {
   getSignatureFromTransaction,
   getTransactionDecoder,
   isAddress,
-  isOffCurveAddress,
   pipe,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
@@ -39,12 +38,14 @@ import type { SettlementCheck } from "../tempo/chain.js";
 import { FEE_RESERVE_ATOMIC, TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../tempo/constants.js";
 import { checkSignedTransfer } from "../tempo/txcheck.js";
 import type { ProxyChain } from "./allowlist.js";
+import { REFUND_ACCOUNT_CREATIONS_PER_DAY } from "./constants.js";
+import { decodeSolanaTx } from "./fate.js";
 import { MAX_REFUND_ATTEMPTS, type RefundRecord, type Store } from "./store.js";
 
 export type RefundOutcome =
   | { status: "sent"; tx: string; feePaid?: string | null }
-  /** Nothing left vet402 (proven): safe to say no refund was made. */
-  | { status: "failed"; reason: string; tx: null }
+  /** Nothing left vet402 (proven): safe to say no refund was made. `permanent`: trying again cannot help. */
+  | { status: "failed"; reason: string; tx: null; permanent?: boolean }
   /** A signed refund may have left vet402 and is not confirmed yet: the reconciler decides, never a blind retry. */
   | { status: "unknown"; reason: string; tx: string | null };
 
@@ -116,19 +117,35 @@ export interface SolanaRefundDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend): Promise<RefundOutcome> {
+/**
+ * The owner may be any address, a program-derived one (a multisig vault) included: its associated USDC account is
+ * derived the same way and the associated token program creates it for an off-curve owner too.
+ * The USDC account is created by the refund only when it does not exist, and only while the day's count of such
+ * creations (their rent is paid in SOL by the payer) is below REFUND_ACCOUNT_CREATIONS_PER_DAY; otherwise the
+ * attempt fails before sending and the reconciler tries again (and reports it once it is stuck).
+ */
+export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend, opts: SendOptions = {}): Promise<RefundOutcome> {
   const payer = d.signer.address;
-  if (!isAddress(to) || isOffCurveAddress(to) || to === payer) return { status: "failed", reason: "refund_to_invalid", tx: null };
-  if (amount <= 0n) return { status: "failed", reason: "refund_amount_invalid", tx: null };
+  if (!isAddress(to) || to === payer) return { status: "failed", reason: "refund_to_invalid", tx: null, permanent: true };
+  if (amount <= 0n) return { status: "failed", reason: "refund_amount_invalid", tx: null, permanent: true };
+  const src = await usdcAta(payer);
+  const dst = await usdcAta(to);
   let lifetime: { blockhash: Blockhash; lastValidBlockHeight: bigint };
+  let minSlot: number | undefined;
+  let create: boolean;
   try {
-    const r = (await d.rpc("getLatestBlockhash", [{ commitment: "confirmed" }])) as { value: { blockhash: string; lastValidBlockHeight: number | string } };
+    const r = (await d.rpc("getLatestBlockhash", [{ commitment: "confirmed" }])) as { context?: { slot?: number }; value: { blockhash: string; lastValidBlockHeight: number | string } };
     lifetime = { blockhash: r.value.blockhash as Blockhash, lastValidBlockHeight: BigInt(r.value.lastValidBlockHeight) };
+    minSlot = typeof r.context?.slot === "number" ? r.context.slot : undefined;
+    const acct = (await d.rpc("getAccountInfo", [dst, { encoding: "base64", commitment: "confirmed" }])) as { value: unknown } | null;
+    if (!acct || !("value" in acct)) throw new Error("no answer");
+    create = acct.value === null;
   } catch {
     return { status: "failed", reason: "rpc_error", tx: null };
   }
-  const src = await usdcAta(payer);
-  const dst = await usdcAta(to);
+  if (create && !(opts.mayCreateAccount && (await opts.mayCreateAccount().catch(() => false)))) {
+    return { status: "failed", reason: "refund_account_missing_creation_limit", tx: null };
+  }
   const message = pipe(
     createTransactionMessage({ version: 0 }),
     (m) => setTransactionMessageFeePayerSigner(d.signer, m),
@@ -136,7 +153,7 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
     (m) =>
       appendTransactionMessageInstructions(
         [
-          getCreateAssociatedTokenIdempotentInstruction({ payer: d.signer, ata: address(dst), owner: address(to), mint: address(USDC_MINT), tokenProgram: address(TOKEN_PROGRAM) }),
+          ...(create ? [getCreateAssociatedTokenIdempotentInstruction({ payer: d.signer, ata: address(dst), owner: address(to), mint: address(USDC_MINT), tokenProgram: address(TOKEN_PROGRAM) })] : []),
           getTransferCheckedInstruction({ source: address(src), mint: address(USDC_MINT), destination: address(dst), authority: d.signer, amount, decimals: USDC_DECIMALS }),
         ],
         m,
@@ -145,11 +162,10 @@ export async function sendSolanaRefund(d: SolanaRefundDeps, to: string, amount: 
   const signed = await signTransactionMessageWithSigners(message);
   const b64 = getBase64EncodedWireTransaction(signed);
   const sig = getSignatureFromTransaction(signed);
-  if (await checkSolanaRefundTx(b64, { payer, to, amount })) return { status: "failed", reason: "refund_tx_check_failed", tx: null };
-  const { decodeSolanaTx } = await import("./fate.js");
+  if (await checkSolanaRefundTx(b64, { payer, to, amount })) return { status: "failed", reason: "refund_tx_check_failed", tx: null, permanent: true };
   const facts = decodeSolanaTx(b64);
   const since = Math.floor(Date.now() / 1000) - 120;
-  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", messageHash: facts?.messageHash, blockhash: lifetime.blockhash, account: src, since } }))) {
+  if (!(await beforeSend({ tx: sig, facts: { chain: "solana", messageHash: facts?.messageHash, blockhash: lifetime.blockhash, account: src, since, ...(minSlot !== undefined ? { minSlot } : {}) } }))) {
     return { status: "failed", reason: "refund_taken_by_another_attempt", tx: null };
   }
 
@@ -193,7 +209,7 @@ export interface TempoRefundDeps {
  */
 export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend): Promise<RefundOutcome> {
   const payer = d.account.address;
-  if (!/^0x[0-9a-fA-F]{40}$/.test(to) || to.toLowerCase() === payer.toLowerCase()) return { status: "failed", reason: "refund_to_invalid", tx: null };
+  if (!/^0x[0-9a-fA-F]{40}$/.test(to) || to.toLowerCase() === payer.toLowerCase()) return { status: "failed", reason: "refund_to_invalid", tx: null, permanent: true };
   if (amount <= 0n) return { status: "failed", reason: "refund_amount_invalid", tx: null };
   const data = encodeFunctionData({ abi: Abis.tip20, functionName: "transfer", args: [to as Hex, amount] });
   let serialized: Hex;
@@ -252,12 +268,19 @@ export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bi
   return { status: "unknown", reason: "refund_not_confirmed", tx: hash };
 }
 
-export type RefundSender = (to: string, amount: bigint, beforeSend: BeforeSend) => Promise<RefundOutcome>;
+/** Options a sender may use: `mayCreateAccount` takes one of the day's refund account creations (Solana rent). */
+export interface SendOptions {
+  mayCreateAccount?: () => Promise<boolean>;
+}
+
+export type RefundSender = (to: string, amount: bigint, beforeSend: BeforeSend, opts?: SendOptions) => Promise<RefundOutcome>;
 
 /**
  * Refund one purchase whose seller vet402 did not pay. First attempt: take the refund (one per purchase ever).
- * Later attempts (the reconciler): only from a state where no earlier refund transaction can still land, and at most
- * MAX_REFUND_ATTEMPTS in all; then the refund is "stuck" and needs a human. Never throws.
+ * Later attempts (the reconciler): only from a state where no earlier refund transaction can still land, at most
+ * MAX_REFUND_ATTEMPTS sent transactions and MAX_REFUND_FAILURES_BEFORE_SEND failures before sending; then the refund
+ * is "stuck" and needs a human (the reconciler reports it). A failure that cannot change by itself (an address no
+ * transfer can reach) is "stuck" at once. Never throws.
  */
 export async function refundAgent(
   store: Store,
@@ -271,25 +294,34 @@ export async function refundAgent(
     if (!c.ok) return { status: "refused", to: o.to, amountAtomic, tx: null, reason: c.reason };
   } else {
     const rf = await store.getRefund(o.id);
-    if (rf && (rf.status === "dead" || rf.status === "failed") && rf.attempt >= MAX_REFUND_ATTEMPTS) {
-      await store.refundSet(o.id, ["dead", "failed"], "stuck", { reason: "too_many_attempts", now: o.now() });
+    if (rf && rf.status === "stuck") return { status: "stuck", to: o.to, amountAtomic, tx: rf.tx, reason: rf.reason ?? "stuck" };
+    if (rf && rf.status === "dead" && rf.attempt >= MAX_REFUND_ATTEMPTS) {
+      await store.refundSet(o.id, ["dead"], "stuck", { reason: "too_many_attempts", now: o.now() });
       return { status: "stuck", to: o.to, amountAtomic, tx: rf.tx, reason: "too_many_attempts" };
     }
   }
   const from: ("pending" | "dead" | "failed")[] = o.retry ? ["pending", "dead", "failed"] : ["pending"];
   let taken = false;
   let out: RefundOutcome;
+  const opts: SendOptions = {
+    mayCreateAccount: () => store.bump(`refund-account:${o.chain}:${o.now().toISOString().slice(0, 10)}`, REFUND_ACCOUNT_CREATIONS_PER_DAY, o.now()),
+  };
   try {
-    out = await send(o.to, o.amount, async (f) => (taken = await store.refundSending(o.id, from, { tx: f.tx, facts: f.facts, now: o.now() })));
+    out = await send(o.to, o.amount, async (f) => (taken = await store.refundSending(o.id, from, { tx: f.tx, facts: f.facts, now: o.now() })), opts);
   } catch {
     out = { status: "unknown", reason: "refund_error", tx: null };
   }
-  if (out.status === "sent") await store.refundSet(o.id, ["sending"], "sent", { feePaid: out.feePaid ?? null, tx: out.tx, now: o.now() });
-  else if (out.status === "unknown") {
+  if (out.status === "sent") {
+    // One refund transaction pays back one purchase.
+    if (await store.bindTx(o.chain, out.tx, o.id, "refund", o.now())) await store.refundSet(o.id, ["sending"], "sent", { feePaid: out.feePaid ?? null, tx: out.tx, now: o.now() });
+    else out = { status: "unknown", reason: "refund_tx_bound_to_another_purchase", tx: out.tx };
+  }
+  if (out.status === "unknown") {
     if (taken) await store.refundSet(o.id, ["sending"], "unknown", { reason: out.reason, tx: out.tx, now: o.now() });
-  } else if (!taken) {
-    // Failed before this attempt took the refund row (a build or read error, or another attempt holds it): leave the row as it is.
-    if (out.reason !== "refund_taken_by_another_attempt") await store.refundSet(o.id, from, "failed", { reason: out.reason, now: o.now() });
+  } else if (out.status === "failed" && !taken && out.reason !== "refund_taken_by_another_attempt") {
+    // Failed before anything was sent (a read or build error): counted; "stuck" when it cannot change or repeats.
+    const st = await store.refundFailed(o.id, from, { reason: out.reason, permanent: out.permanent === true, now: o.now() });
+    if (st === "stuck") return { status: "stuck", to: o.to, amountAtomic, tx: null, reason: out.reason };
   }
   return { status: out.status, to: o.to, amountAtomic, tx: out.tx, reason: out.status === "sent" ? null : out.reason };
 }

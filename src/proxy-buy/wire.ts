@@ -8,14 +8,14 @@ import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { Mppx, tempo as mppTempo } from "mppx/server";
 import pg from "pg";
-import { createClient, createPublicClient, http, type Hex } from "viem";
+import { createClient, createPublicClient, http, parseAbiItem, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { tempo as tempoChain } from "viem/chains";
 import { jsonRpc, readBalances, waitForSettlement, type Rpc } from "../chain.js";
 import { makeCreatePayment } from "../client.js";
 import { PAYER_ADDRESS as SOLANA_CENSUS_PAYER, SOLANA_MAINNET, USDC_MINT } from "../constants.js";
 import { checkPaymentTransaction, usdcAta } from "../txcheck.js";
-import { findPayerTransfers, headBlock, signerFor, usdcBalance, verifySettlement } from "../tempo/chain.js";
+import { headBlock, signerFor, usdcBalance, verifySettlement } from "../tempo/chain.js";
 import { PAYER_ADDRESS as TEMPO_CENSUS_PAYER, USDC_E } from "../tempo/constants.js";
 import { loadAllowlist, type Allowlist } from "./allowlist.js";
 import type { ProxyConfig, SolanaConfig, TempoConfig } from "./config.js";
@@ -115,6 +115,7 @@ export async function solanaSide(c: SolanaConfig, own: string[]): Promise<Solana
     },
     confirmCustomer: (tx, authority, amount) => confirmSolanaTransfer(rpc, tx, authority, c.receive, amount),
     fate: (f) => solanaTxFate(rpc, f),
+    slot: async () => Number(await rpc("getSlot", [{ commitment: "confirmed" }])),
     refund: (to, amount, beforeSend) => serial.run(() => sendSolanaRefund({ rpc, signer }, to, amount, beforeSend)),
   };
 }
@@ -158,6 +159,9 @@ export function mppAdapter(mppx: MppxLike): MppServer {
   };
 }
 
+const TRANSFER_WITH_MEMO = parseAbiItem("event TransferWithMemo(address indexed from, address indexed to, uint256 amount, bytes32 indexed memo)");
+const MEMO_LOG_RANGE = 99_999n;
+
 /** Tempo chain reads over viem (fate.ts TempoReads). */
 export function tempoReads(rpcUrl: string, client = createPublicClient({ chain: tempoChain, transport: http(rpcUrl, { timeout: 15_000, retryCount: 1 }) })): TempoReads {
   return {
@@ -175,7 +179,16 @@ export function tempoReads(rpcUrl: string, client = createPublicClient({ chain: 
     async nonce(address) {
       return BigInt(await client.getTransactionCount({ address: address as Hex, blockTag: "latest" }));
     },
-    transfers: (exp, from) => findPayerTransfers(exp, from, rpcUrl),
+    async memoTransfers(exp, from) {
+      const head = await client.getBlockNumber();
+      const out: string[] = [];
+      for (let a = from; a <= head; a += MEMO_LOG_RANGE + 1n) {
+        const b = a + MEMO_LOG_RANGE > head ? head : a + MEMO_LOG_RANGE;
+        const logs = await client.getLogs({ address: USDC_E as Hex, event: TRANSFER_WITH_MEMO, args: { from: exp.payer as Hex, to: exp.recipient as Hex, memo: exp.memo as Hex }, fromBlock: a, toBlock: b });
+        for (const l of logs) if (l.args.amount === exp.amount) out.push(l.transactionHash.toLowerCase());
+      }
+      return out;
+    },
   };
 }
 
@@ -200,7 +213,7 @@ export function tempoSide(c: TempoConfig, realm: string): TempoSide {
       signer: signerFor(account, transport),
       balance: () => usdcBalance(c.payer, c.rpcUrl),
       verify: (tx, exp) => verifySettlement(tx, exp, c.rpcUrl),
-      findTx: { head: () => headBlock(c.rpcUrl), search: (exp, from) => findPayerTransfers(exp, from, c.rpcUrl) },
+      // No transfer search here: whether the seller was paid is read from vet402's own payment (tempo.ts).
     },
     head: () => headBlock(c.rpcUrl),
     reads: tempoReads(c.rpcUrl),
@@ -236,6 +249,7 @@ export async function buildProxyBuy(cfg: ProxyConfig, o: { dataDir: string; sql?
   const tCaps = dayCaps(cfg, "tempo");
   const buy = createProxyBuy({
     enabled: cfg.enabled,
+    tempoEnabled: cfg.tempoEnabled,
     publicOrigin: cfg.publicOrigin,
     feeAtomic: cfg.feeAtomic,
     allowlist: o.allowlist ?? loadAllowlist(o.dataDir),

@@ -3,21 +3,23 @@
  * landed, failed, can never land, or cannot be told yet. A refund is only ever made on "dead" or "failed"
  * (proof that the money did not move), never on "cannot tell".
  *
- * Solana: the transaction is found by the sha256 of its message bytes among the recent signatures of an
- * account it touches; it is dead once its blockhash is no longer valid and it still is not there.
- * Tempo: by its hash (or, for a fee-sponsored envelope whose hash changes, the one matching transfer since a
- * block); it is dead once the chain's time is past its validBefore, or (protocol nonce) the sender's nonce
- * moved past it, and it still is not there.
+ * Solana: the transaction is found by the sha256 of its message bytes among the signatures of an account it
+ * touches, inside the slots it could have landed in; it is dead once its blockhash is no longer valid and it is
+ * not in that window.
+ * Tempo: by its own hash. Only a fee-sponsored envelope (whose hash the sponsor changes) is looked for another
+ * way: the one transfer carrying its challenge-bound memo. It is dead once the chain's time is past its
+ * validBefore, or (protocol nonce) the sender's nonce moved past it, and it still is not there.
  * Errors are swallowed into "pending": an RPC error message can carry the RPC URL.
  */
 import { createHash } from "node:crypto";
 import { getBase64Encoder, getCompiledTransactionMessageDecoder, getTransactionDecoder } from "@solana/kit";
-import { keccak256, type Hex } from "viem";
-import { Transaction } from "viem/tempo";
+import { decodeFunctionData, keccak256, type Hex } from "viem";
+import { Abis, Transaction } from "viem/tempo";
 import type { Rpc } from "../chain.js";
 import { TOKEN_PROGRAM } from "../constants.js";
 
-export type Fate = { fate: "landed"; tx: string } | { fate: "failed"; tx: string } | { fate: "dead" } | { fate: "pending" };
+/** `capped`: the search stopped before it could read everything it needed (see solanaTxFate); a human looks. */
+export type Fate = { fate: "landed"; tx: string } | { fate: "failed"; tx: string } | { fate: "dead" } | { fate: "pending"; capped?: string };
 
 // ---------------- Solana ----------------
 
@@ -65,30 +67,69 @@ export function decodeSolanaTx(txBase64: string): SolanaTxFacts | null {
   }
 }
 
+/** Most getTransaction reads one Solana fate call makes; past it the answer is "pending" with `capped`. */
+export const SOLANA_FATE_MAX_TX_READS = 200;
+
+export interface SolanaFateQuery {
+  messageHash: string;
+  blockhash: string;
+  account: string;
+  /** Unix seconds before which the transaction cannot have landed. */
+  since?: number;
+  /** The confirmed slot read before the transaction was handed over: it cannot have landed below it. */
+  minSlot?: number;
+  pageSize?: number;
+  maxPages?: number;
+  maxTxReads?: number;
+  /** Epoch ms: stop reading then ("pending", capped "deadline"). */
+  deadline?: number;
+}
+
 /**
- * Find the transaction with `messageHash` among `account`'s signatures, paging back (`before`) until the history
- * is older than `since` (unix seconds, the purchase's start) or ends; then, if absent, whether it can still land.
- * "dead" needs the whole window read: a listed signature whose transaction the RPC does not serve yet, a history
- * longer than `maxPages`, or any read error leaves the answer at "pending" (no refund on a guess).
+ * Find the transaction with `messageHash` among `account`'s signatures, paging back (`before`), and decide:
+ *   - its blockhash still valid: "landed"/"failed" if found, else "pending" (it can still land);
+ *   - its blockhash expired: the confirmed slot is read after that, so the transaction, if it ever landed, is in
+ *     the slots from `minSlot` to that slot. Signatures above the window are skipped without reading their
+ *     transaction; the search stops below `minSlot` or below `since`. Not found in a window read completely: "dead".
+ * Anything that leaves the window unread (a listed transaction the RPC does not serve yet, more history than
+ * `maxPages`, more than `maxTxReads` transactions to read, the deadline, a read error) leaves the answer at
+ * "pending" (no refund on a guess); `capped` then says why, and the reconciler reports it (ALERT).
  */
-export async function solanaTxFate(
-  rpc: Rpc,
-  f: { messageHash: string; blockhash: string; account: string; since?: number; pageSize?: number; maxPages?: number },
-): Promise<Fate> {
-  const pageSize = f.pageSize ?? 100;
+export async function solanaTxFate(rpc: Rpc, f: SolanaFateQuery): Promise<Fate> {
+  const pageSize = f.pageSize ?? 1000;
   const maxPages = f.maxPages ?? 10;
-  let complete = false;
-  const find = async (): Promise<Fate | null> => {
-    complete = false;
+  const maxReads = f.maxTxReads ?? SOLANA_FATE_MAX_TX_READS;
+  let reads = 0;
+  let capped: string | null = null;
+  const late = () => f.deadline !== undefined && Date.now() >= f.deadline;
+  /** hit null + complete: not in the window; hit null + !complete: the window was not read to its end. */
+  const find = async (maxSlot: number | null): Promise<{ hit: Fate | null; complete: boolean }> => {
     let unreadable = false;
     let before: string | undefined;
     for (let page = 0; page < maxPages; page++) {
-      const sigs = (await rpc("getSignaturesForAddress", [f.account, { limit: pageSize, commitment: "confirmed", ...(before ? { before } : {}) }])) as { signature: string; blockTime?: number | null }[];
+      if (late()) {
+        capped = "deadline";
+        return { hit: null, complete: false };
+      }
+      const sigs = (await rpc("getSignaturesForAddress", [f.account, { limit: pageSize, commitment: "confirmed", ...(before ? { before } : {}) }])) as {
+        signature: string;
+        slot?: number | null;
+        blockTime?: number | null;
+      }[];
       for (const s of sigs) {
-        if (f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) {
-          complete = !unreadable;
-          return null;
+        const slot = typeof s.slot === "number" ? s.slot : null;
+        if (f.minSlot !== undefined && slot !== null && slot < f.minSlot) return { hit: null, complete: !unreadable };
+        if (f.since !== undefined && typeof s.blockTime === "number" && s.blockTime < f.since) return { hit: null, complete: !unreadable };
+        if (maxSlot !== null && slot !== null && slot > maxSlot) continue; // after the blockhash expired: not it
+        if (reads >= maxReads) {
+          capped = "tx_reads";
+          return { hit: null, complete: false };
         }
+        if (late()) {
+          capped = "deadline";
+          return { hit: null, complete: false };
+        }
+        reads++;
         const t = (await rpc("getTransaction", [s.signature, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }])) as {
           meta: { err: unknown } | null;
           transaction: [string, string];
@@ -98,27 +139,29 @@ export async function solanaTxFate(
           continue;
         }
         const d = decodeSolanaTx(t.transaction[0]);
-        if (d && d.messageHash === f.messageHash) return t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature };
+        if (d && d.messageHash === f.messageHash) return { hit: t.meta?.err ? { fate: "failed", tx: s.signature } : { fate: "landed", tx: s.signature }, complete: true };
       }
-      if (sigs.length < pageSize) {
-        complete = !unreadable;
-        return null;
-      }
+      if (sigs.length < pageSize) return { hit: null, complete: !unreadable };
       before = sigs[sigs.length - 1]!.signature;
     }
-    return null; // more history than maxPages: not complete
+    capped = capped ?? "pages";
+    return { hit: null, complete: false };
   };
+  const pending = (): Fate => (capped ? { fate: "pending", capped } : { fate: "pending" });
   try {
-    const hit = await find();
-    if (hit) return hit;
     const valid = (await rpc("isBlockhashValid", [f.blockhash, { commitment: "confirmed" }])) as { value: boolean } | null;
-    if (!valid || valid.value !== false) return { fate: "pending" };
-    // expired: one last full look, in case it landed between the two reads
-    const last = await find();
-    if (last) return last;
-    return complete ? { fate: "dead" } : { fate: "pending" };
+    if (!valid || valid.value !== false) {
+      const r = await find(null);
+      return r.hit ?? pending();
+    }
+    // Expired at the confirmed slot: every slot it could have landed in is at or below the slot read now.
+    const maxSlot = Number(await rpc("getSlot", [{ commitment: "confirmed" }]));
+    if (!Number.isSafeInteger(maxSlot)) return pending();
+    const r = await find(maxSlot);
+    if (r.hit) return r.hit;
+    return r.complete ? { fate: "dead" } : pending();
   } catch {
-    return { fate: "pending" };
+    return pending();
   }
 }
 
@@ -133,11 +176,29 @@ export interface TempoTxFacts {
   validBefore: string | null;
   /** 0x78: a fee-payer envelope, re-signed by the server; the hash on chain differs. */
   sponsored: boolean;
+  /** The bytes32 memo of its one transferWithMemo call (mppx binds it to the challenge), else null. */
+  memo: string | null;
 }
 
 export function decodeTempoTx(serialized: string): TempoTxFacts | null {
   try {
-    const t = Transaction.deserialize(serialized as `0x76${string}`) as { from?: string; nonce?: unknown; nonceKey?: unknown; validBefore?: unknown };
+    const t = Transaction.deserialize(serialized as `0x76${string}`) as unknown as {
+      from?: string;
+      nonce?: unknown;
+      nonceKey?: unknown;
+      validBefore?: unknown;
+      calls?: readonly { data?: Hex }[];
+    };
+    let memo: string | null = null;
+    const calls = t.calls ?? [];
+    if (calls.length === 1 && calls[0]!.data) {
+      try {
+        const d = decodeFunctionData({ abi: Abis.tip20, data: calls[0]!.data });
+        if (d.functionName === "transferWithMemo") memo = String((d.args as unknown as unknown[])[2]).toLowerCase();
+      } catch {
+        memo = null;
+      }
+    }
     return {
       hash: keccak256(serialized as Hex).toLowerCase(),
       from: String(t.from ?? "").toLowerCase(),
@@ -145,6 +206,7 @@ export function decodeTempoTx(serialized: string): TempoTxFacts | null {
       nonceKey: String(t.nonceKey ?? 0),
       validBefore: t.validBefore === undefined || t.validBefore === null ? null : String(t.validBefore),
       sponsored: serialized.slice(0, 4).toLowerCase() === "0x78",
+      memo,
     };
   } catch {
     return null;
@@ -158,25 +220,29 @@ export interface TempoReads {
   headTime(): Promise<bigint>;
   /** The sender's protocol nonce (nonce key 0), as of the head. */
   nonce(address: string): Promise<bigint>;
-  /** Tx hashes from `fromBlock` on with a USDC.e Transfer payer -> recipient of exactly `amount`. */
-  transfers(exp: { payer: string; recipient: string; amount: bigint }, fromBlock: bigint): Promise<string[]>;
+  /** Tx hashes from `fromBlock` on with a USDC.e TransferWithMemo payer -> recipient of exactly `amount` and this memo. */
+  memoTransfers(exp: { payer: string; recipient: string; amount: bigint; memo: string }, fromBlock: bigint): Promise<string[]>;
 }
 
-export async function tempoTxFate(
-  r: TempoReads,
-  f: TempoTxFacts & { search?: { recipient: string; amount: string; fromBlock: string; known?: string[] } },
-): Promise<Fate> {
+export type TempoFateFacts = TempoTxFacts & { search?: { recipient: string; amount: string; fromBlock: string }; known?: string[] };
+
+/**
+ * A self-paid transaction (every agent payment and refund, and a seller payment the seller does not sponsor) is
+ * found by its own hash only: a transfer of the same amount from the same wallet may be another purchase's.
+ * A sponsored seller payment is found by its memo (bound to that seller's challenge); a hash in `known` (recorded
+ * for another purchase) is never taken, and more than one match is left to a human ("pending").
+ */
+export async function tempoTxFate(r: TempoReads, f: TempoFateFacts): Promise<Fate> {
   try {
     const rc = await r.receipt(f.hash);
     if (rc) return rc.status === "success" ? { fate: "landed", tx: f.hash } : { fate: "failed", tx: f.hash };
     const look = async (): Promise<Fate | null> => {
-      if (!f.search) return null;
-      const known = new Set((f.search.known ?? []).map((h) => h.toLowerCase()));
-      const hits = [...new Set((await r.transfers({ payer: f.from, recipient: f.search.recipient, amount: BigInt(f.search.amount) }, BigInt(f.search.fromBlock))).map((h) => h.toLowerCase()))].filter(
-        (h) => !known.has(h),
-      );
+      if (!f.sponsored || !f.memo || !f.search) return null;
+      const known = new Set((f.known ?? []).map((h) => h.toLowerCase()));
+      const found = await r.memoTransfers({ payer: f.from, recipient: f.search.recipient, amount: BigInt(f.search.amount), memo: f.memo }, BigInt(f.search.fromBlock));
+      const hits = [...new Set(found.map((h) => h.toLowerCase()))].filter((h) => !known.has(h));
       if (hits.length === 1) return { fate: "landed", tx: hits[0]! };
-      if (hits.length > 1) return { fate: "pending" }; // more than one fits: a human decides
+      if (hits.length > 1) return { fate: "pending", capped: "ambiguous_transfer" }; // more than one fits: a human decides
       return null;
     };
     const hit = await look();
