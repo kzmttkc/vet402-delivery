@@ -134,6 +134,75 @@ const SECRET_PARTS = ["token", "secret", "key", "passw", "passphrase", "credenti
 /** Endings that make a name secret (auth, x-authorization, signature, hmac_sig). */
 const SECRET_SUFFIX = ["auth", "authorization", "signature", "sig", "privatekey"];
 
+/**
+ * "token" also names a crypto asset (token_mint, token_symbol, base_token_price_usd, tokens). Such a field passes
+ * only when its value has the exact public shape the name implies: a number for amounts and prices, a short
+ * name for names and symbols, an address for mints and addresses, an upper-case ticker or an address for a
+ * bare "token". Credential tokens (access_token, id_token, auth_token, refresh_token, api_token, ...) never do.
+ */
+const CREDENTIAL_TOKEN = /(?:access|id|auth|refresh|api|bearer|session|csrf|xsrf|oauth|jwt|secret|private|reset|verify|verification|invite|magic|push|device|client|github|slack|personal|app|user|login|signin|service|security|sas|upload|download|share|cancel|confirm|unsubscribe|notification|webhook)tokens?/;
+export function publicTokenValue(name: string, value: string): boolean {
+  const n = foldName(name);
+  const isAddress = (v: string) => base58Len(v) === 32 || /^0x[0-9a-fA-F]{40}$/.test(v);
+  if (n === "wallet" || n === "walletaddress" || n === "wallets") return isAddress(value);
+  if (!n.includes("token") || CREDENTIAL_TOKEN.test(n) || /secret|key|passw|session|cookie|credential|jwt/.test(n.replace(/token/g, ""))) return false;
+  if (/amount|amt|price|decimals|supply|balance|count|volume|usd|marketcap|mcap|liquidity|pct|percent|change|rate|fee|reserve|holders|value/.test(n)) {
+    return /^-?\d{1,24}(?:\.\d{1,24})?(?:e[+-]?\d{1,3})?$/i.test(value) && !/^tokens?value$/.test(n);
+  }
+  if (/name|symbol|ticker|standard|type|program|chain|network|logo|uri|url|icon|image|description/.test(n)) {
+    return value.length <= 80 && !/[A-Za-z0-9]{16,}/.test(value.replace(/^https?:\/\/\S+$/, ""));
+  }
+  if (/mint|address|addr|contract|account|pubkey|ca$|id$/.test(n)) return isAddress(value);
+  if (/^(?:base|quote|native|from|to|in|out|src|dst|pay|sell|buy|reward|stake|input|output|target|source)?tokens?(?:a|b|in|out|0|1)?$/.test(n)) {
+    return isAddress(value) || /^w?[A-Z][A-Z0-9]{1,9}(?:\.[a-z])?$/.test(value);
+  }
+  return false;
+}
+/** A list or object under a crypto-asset name (tokens, base_token, fromToken) is scanned inside, not stopped whole. */
+function cryptoTokenContainer(name: string): boolean {
+  const n = foldName(name);
+  return (
+    /^(?:[a-z]*tokens|tokenlist|tokeninfo|tokenmeta(?:data)?|tokenaccounts?|(?:base|quote|native|from|to|in|out|src|dst|pay|sell|buy|reward|stake|input|output|target|source)tokens?(?:a|b|in|out)?)$/.test(n) &&
+    !CREDENTIAL_TOKEN.test(n)
+  );
+}
+
+/**
+ * A bare "token" over an object that only describes an asset ({"name":"Wrapped SOL","symbol":"SOL"}): every
+ * field is an asset field whose value has its public shape. {"token":{"value":...}} is not.
+ */
+function describesAsset(json: string): boolean {
+  let o: unknown;
+  try {
+    o = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+  const ok = /^(?:name|symbol|ticker|address|mint|decimals|chain|chainid|network|standard|type|logo|logouri|icon|image|priceusd|price)$/;
+  return Object.entries(o as Record<string, unknown>).every(
+    ([k, v]) => ok.test(foldName(k)) && (typeof v === "number" || v === null || (typeof v === "string" && publicTokenValue(`token_${k}`, v))),
+  );
+}
+
+/** The balanced JSON list or object that starts at s[i] ("[" or "{"), or null when it does not close in 4000 characters. */
+function balanced(s: string, i: number): string | null {
+  let depth = 0, inStr = false;
+  for (let j = i; j < s.length && j < i + 4000; j++) {
+    const c = s[j]!;
+    if (inStr) {
+      if (c === "\\") j++;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") {
+      depth--;
+      if (depth === 0) return s.slice(i, j + 1);
+    }
+  }
+  return null;
+}
+
 /** A name whose value is a secret whatever it looks like: any case, any separator (api_key, X-Api-Key, apiKey, "api key"). */
 export function isSecretName(name: string): boolean {
   const n = foldName(name);
@@ -153,7 +222,7 @@ const PUBLIC_ID_FIELDS = new Set([
   "sha256", "urlhash", "paramshash", "responsehash", "bodyhash", "digest", "proof", "paytos", "observeraddress", "txs",
 ]);
 /** Endings of names that hold an on-chain id (settlementTx, feedbackTx, tokenAddress, blockHash). */
-const PUBLIC_ID_SUFFIX = ["tx", "txhash", "txid", "hash", "address", "payto", "mint", "owner", "recipient"];
+const PUBLIC_ID_SUFFIX = ["tx", "txhash", "txid", "hash", "address", "payto", "mint", "owner", "recipient", "conditionid", "marketid", "poolid"];
 const isPublicIdField = (name: string | null) => {
   if (name === null) return false;
   const n = foldName(name);
@@ -415,7 +484,9 @@ export function readings(s: string): string[] {
 // ---------- detection ----------
 
 /** "name": "value", "name": 123, "name": [ ... or { ... (the value may be cut off at the end of a body). */
-const QUOTED_PAIR = /["'`]([^"'`\n]{1,300})["'`]\s*:\s*(?:["'`]([^"'`]*)["'`]?|([[{][\s\S]{0,160})|(-?\d[\d.eE+-]*))/g;
+const QUOTED_PAIR = /["'`]([^"'`\n]{1,300})["'`]\s*:\s*(?:["'`]([^"'`]*)["'`]?|(?=([[{][\s\S]{0,160}))|(-?\d[\d.eE+-]*))/g;
+/** name:type="value" as vet402's one-line summary of a response writes it (wallet_address:string="..."). */
+const SUMMARY_PAIR = /([A-Za-z_][A-Za-z0-9_]{0,60}):[a-z]+=\\?"([^"\\,}]*)/g;
 /** name=value or name = value in a query, a fragment, a form, a cookie, code or config. */
 const FORM_PAIR = /(?:^|[?&;,#\s{(])([A-Za-z0-9_.%[\]-]{1,300})[ \t]*=[ \t]*(?![="])([^&;#\s"'<>]+)/g;
 /** name="value" as an HTML or XML attribute. */
@@ -515,7 +586,7 @@ export function scanText(text: string, file: string, path: string, key: string |
   // vet402's own field in its exact format: nothing else to look at.
   if (key !== null && ownField(path, key, text)) return flush();
   // A structured field under a secret-like name: always.
-  if (key !== null && isSecretName(key) && text !== "" && !ownMarker(text)) add("secret-field", text);
+  if (key !== null && isSecretName(key) && text !== "" && !ownMarker(text) && !publicTokenValue(key, text)) add("secret-field", text);
   const bodyField = key !== null && SELLER_BODY_FIELDS.includes(key);
   const challengeField = key !== null && PUBLIC_ID_NAMES.test(key);
   const fileIds = opts.publicIds ?? new Set<string>();
@@ -551,12 +622,24 @@ export function scanText(text: string, file: string, path: string, key: string |
 
     // Values under names: secret-like names stop whatever the value; public-id names vouch for ids.
     const localIds = new Set<string>();
-    const named = (name: string, value: string, kind: FindingKind) => {
+    const named = (name: string, value: string, kind: FindingKind, container = false) => {
       if (isSecretName(name)) {
-        if (value !== "" && !ownMarker(value)) add(kind, value);
+        if (value === "" || ownMarker(value) || publicTokenValue(name, value) || (container && cryptoTokenContainer(name))) {
+          if (publicTokenValue(name, value)) localIds.add(value);
+          return;
+        }
+        add(kind, value);
       } else if (isPublicIdField(name)) localIds.add(value);
     };
-    for (const m of v.matchAll(QUOTED_PAIR)) named(m[1]!, m[2] ?? m[3] ?? m[4] ?? "", "secret-field");
+    for (const m of v.matchAll(QUOTED_PAIR)) {
+      if (m[3] !== undefined) {
+        // a list or object: judged as the whole balanced value when it closes, else as its first 160 characters
+        const whole = balanced(v, m.index! + m[0].length) ?? m[3];
+        if (isSecretName(m[1]!) && whole.startsWith("{") && foldName(m[1]!) === "token" && describesAsset(whole)) continue;
+        named(m[1]!, whole, "secret-field", true);
+      } else named(m[1]!, m[2] ?? m[4] ?? "", "secret-field");
+    }
+    for (const m of v.matchAll(SUMMARY_PAIR)) named(m[1]!, m[2]!, "secret-field");
     for (const m of v.matchAll(FORM_PAIR)) named(percentDecode(m[1]!), m[2]!, "url-query-secret");
     for (const m of v.matchAll(ATTR_PAIR)) named(m[1]!, m[3]!, "secret-field");
     for (const m of v.matchAll(XML_PAIR)) named(m[1]!, m[2]!.trim(), "secret-field");
@@ -571,6 +654,9 @@ export function scanText(text: string, file: string, path: string, key: string |
       if ((t.startsWith("//") && v[m.index! - 1] === ":") || (v[m.index! + t.length] === "." && /^[/a-z0-9-]+$/.test(t))) continue;
       if (!(/[+=]/.test(t) || (t.match(/\//g) ?? []).length >= 1)) continue;
       const pieces = t.replace(/=+$/, "").split(/[+/]/).filter(Boolean);
+      // an IPFS path (.../ipfs/<cid>, cut short or not) names content, not a secret
+      const ipfs = pieces.indexOf("ipfs");
+      if (ipfs >= 0 && pieces.slice(ipfs + 1).every((p) => /^(?:Qm[1-9A-HJ-NP-Za-km-z]{8,44}|baf[a-z2-7]{8,})$/.test(p))) continue;
       if (pieces.every((p) => p.length < 3 || /^\d+$/.test(p) || isWords(p) || isPlainPart(p, !/[A-Z]/.test(p)) || isPublicLongToken(p) || localIds.has(p) || fileIds.has(p))) continue;
       if (!looksRandom(t.replace(/[+/=]/g, ""))) continue;
       add("opaque-40", t);
@@ -639,7 +725,8 @@ export function scanJson(value: unknown, file: string, out: Finding[], opts: Sca
   const o = { ...opts, publicIds: ids };
   const walk = (x: unknown, key: string | null, path: string) => {
     if (typeof x === "string") return scanText(x, file, path, key, out, o);
-    if (key !== null && x !== null && typeof x !== "boolean" && isSecretName(key) && !ownField(path, key, x)) {
+    const publicNumber = typeof x === "number" && key !== null && publicTokenValue(key, String(x));
+    if (key !== null && x !== null && typeof x !== "boolean" && isSecretName(key) && !ownField(path, key, x) && !publicNumber && !(typeof x === "object" && cryptoTokenContainer(key))) {
       const { add, flush } = finder(file, path, out);
       add("secret-field", JSON.stringify(x));
       flush();

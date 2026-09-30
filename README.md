@@ -183,6 +183,8 @@ It stops on:
 - a JWT or a piece of one; Bearer and Basic credentials; `user:password@` in a URL; vendor key prefixes (`sk-`, `sk_live_`, `pk_test_`, `ghp_`, `glpat-`, `npm_`, `AKIA`, ...); private key blocks; 64-byte key arrays; the runner's own keys in any common encoding; twelve or more BIP-39 words in a row;
 - random-looking runs of 16 characters or more with two kinds of characters (letters and digits, or both cases); 20 or more letters of one case that do not read as English (judged by common letter pairs); 24 or more digits; base64 runs judged whole; lowercase slugs whose parts do not read as words.
 
+`token` also names a crypto asset. A field such as `token_amount`, `base_token_price_usd`, `token_name`, `token_symbol`, `token_mint`, `tokenAddress` or a bare `token` passes only when its value has the public shape its name implies: a number for amounts and prices, a short name for names and symbols, an address for mints and addresses, an upper-case ticker or an address for a bare `token`. Lists and objects under `tokens`, `fromToken`, `base_token` and the like are read inside rather than stopped whole, and a bare `token` over an object passes only when every field describes the asset. `wallet` passes with an address and stops with anything else (a 64-byte key). Credential tokens (`access_token`, `id_token`, `auth_token`, `refresh_token`, `api_token` and similar) stop whatever their value.
+
 A 32-byte base58 value, 64 hex characters or a 64-byte base58 value passes only under a field that says what it is (`tx`, `payTo`, `address`, `signature`, `hash`, `mint`, names ending in `tx`, `hash`, `address` and similar), or when the same value stands under such a field elsewhere in the file (on the site: anywhere in `data/`). An EVM address (`0x` and 40 hex), an Algorand address with a valid checksum and an IPFS id pass anywhere. Whole files copied from other public sources are allowed by their exact sha256; any other value is allowed only by its exact sha256 with a reason that says what it is and where it first stands (`scripts/daily/secret-allow.json`).
 
 Limits (a secret in these shapes gets through; none is expected in a seller's response, and a person reads new sellers' bodies whenever the gate stops on them):
@@ -190,6 +192,7 @@ Limits (a secret in these shapes gets through; none is expected in a seller's re
 - under a neutral name: a secret that has the exact format of a public id and also stands under a public-id field in the same file, or any EVM address, checksummed Algorand address or IPFS id;
 - a lowercase label of a host name (`abc.example.com`, `//abc.example.com`), or a lowercase slug whose long parts read as English;
 - letters of one case that happen to read as English; a recovery phrase shorter than twelve words or in another language;
+- a secret shaped like a number, a short name, an address or an upper-case ticker under an asset field (`token_amount`, `token_name`, `token_mint`, `token`), or an address under `wallet`;
 - an encoding the gate does not undo (encrypted, compressed, reversed short pieces, or nested more than five times).
 
 ## Solana feedback (8004-solana)

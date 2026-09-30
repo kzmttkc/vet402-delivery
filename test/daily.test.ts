@@ -149,7 +149,7 @@ test("gate: each finding kind is reported for its shape", () => {
     ["api key in a URL query", withDetail(`see https://api.example.com/v1/x?api_key=${secret}&q=1`), "url-query-secret"],
     ["session id field", withDetail(`{"session_id":"${secret}","ok":true}`), "secret-field"],
     ["token-named JSON key", JSON.stringify({ rows: [{ access_token: secret }] }), "secret-field"],
-    ["token under any shape", JSON.stringify({ rows: [{ token: "USDC" }] }), "secret-field"],
+    ["token over a value that is not an asset shape", JSON.stringify({ rows: [{ token: "usdc-session" }] }), "secret-field"],
     ["opaque 24+", withDetail(`{"ref":"${alnum(r, 30)}"}`), "opaque-40"],
     ["local path", withDetail(`{"file":"/home/runner/.keys/payer.json"}`), "local-path"],
     ["vendor key", withDetail(`{"k":"sk_live_${hex(r, 24)}Ab"}`), "vendor-key"],
@@ -160,6 +160,35 @@ test("gate: each finding kind is reported for its shape", () => {
   // Any name holding token, secret or key is secret, public or not (tokenAddress, keyword): a person allows the value.
   for (const n of ["tokenAddress", "token2", "tokenValue", "secret_value", "keyword", "pk", "wallet", "otp"]) assert.ok(isSecretName(n), n);
   for (const n of ["author", "description", "address", "mint", "hash"]) assert.ok(!isSecretName(n), n);
+});
+
+test("gate: the nine market-data values that stopped the 2026-09-30 production publish now pass by rule", () => {
+  // rows 1, 20, 39, 69, 75, 83, 86 of that day's Solana result: prices, a token list, token names and amounts,
+  // wallet and mint addresses, an IPFS image path, a Polymarket condition id
+  const text = read(join(FIX, "remeasure-solana-2026-09-30.market-rows.json"));
+  const stopped = ["bbe956917b9eb728", "9ea0471224a66f87", "665ecd3af9b7e667", "e210c898bc3ff073", "b7abea86f26fee1c", "973294ef1984925c", "4e31ccb3da499f0f", "1fda63ea92492d23", "48626b95896d7d37"];
+  const raw = blockingFindings(scanFileText(text, "data/x.json"), []);
+  assert.deepEqual(raw.filter((f) => stopped.includes(f.sha256.slice(0, 16))).map((f) => f.path), []);
+  assert.deepEqual(scan(text), []);
+});
+
+test("gate: a crypto asset named token passes only in its public shape; credential tokens always stop", () => {
+  const pass = [
+    { token_amount: "835335.7825230001" }, { base_token_price_quote_token: "2668.701" }, { token_name: "American Inu" },
+    { token_symbol: "NUTFLEX" }, { token_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, { token: "USDC" },
+    { tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }, { wallet_address: "69aiAKU3uJMxMLRkUEGFNt6nQ43PiVimE4ZbErJ7VSM1" },
+    { wallet: "69aiAKU3uJMxMLRkUEGFNt6nQ43PiVimE4ZbErJ7VSM1" }, { tokens: [{ mint: "So11111111111111111111111111111111111111112", symbol: "SOL" }] },
+  ];
+  for (const o of pass) assert.deepEqual(scan(withDetail(JSON.stringify(o))), [], JSON.stringify(o));
+  const r = seeded(31);
+  const stop = [
+    { access_token: "USDC" }, { id_token: "1234" }, { refresh_token: alnum(r, 10) }, { api_token: "12.5" }, { token: alnum(r, 8).toLowerCase() },
+    { token: digits20() }, { token_amount: alnum(r, 20) }, { tokenValue: "100" }, { wallet: base58(bytes(r, 64)) }, { token: { value: alnum(r, 8) } },
+  ];
+  for (const o of stop) assert.ok(scan(withDetail(JSON.stringify(o))).length > 0, JSON.stringify(o));
+  function digits20() {
+    return "31415926535897932384";
+  }
 });
 
 test("gate: public ids in their exact format, words and vet402's own fields do not stop", () => {
