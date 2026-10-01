@@ -40,8 +40,9 @@
  *  - "avoid" is given only for a seller vet402 has told about its results (data/records/notified.json,
  *    matched by src/receipt/publish.ts sellerWasTold, the same test that gates negative signed records).
  *    For any other seller a would-be "avoid" is "unknown", and its why states only the facts the
- *    Sellers page already shows ("vet402 paid this seller 6 times on Solana; 0 of 6 paid calls
- *    answered."). No mark says that a verdict is being held back: such a mark would itself be the signal.
+ *    Sellers page already shows, in the same form as any other why ("vet402 paid this seller 6 times on
+ *    Solana over 4 days; 0 of 6 paid calls answered (the newest failed one answered HTTP 500)."). No mark says that a verdict is
+ *    being held back: such a mark would itself be the signal.
  *  - Several sellers can answer one URL (a seller on the Solana, Tempo and Base page and on the Algorand
  *    page, or several services behind one host). "avoid" if any of them is "avoid" and none is "pay";
  *    "pay" if any is "pay" and none is "avoid"; both at once is "unknown" (pass a chain to choose).
@@ -226,8 +227,7 @@ function decide(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, t
   if (heldOnes.length) {
     // The seller has not been told: the facts the Sellers page shows, and nothing that reads as a verdict.
     const b = heldOnes[0]!;
-    const on = b.chains.length ? ` on ${joinAnd(b.chains.map(chainName))}` : "";
-    return { verdict: "unknown", why: `vet402 paid this seller ${times(b.settled)}${on}; ${b.answered} of ${b.counted} paid calls answered.`, basis: b, bases };
+    return { verdict: "unknown", why: `${paidClause(b)}${newestStatus(factsOf(b), b)}${notCountedClause(b)}.`, basis: b, bases };
   }
   if (pays.length) {
     const b = pays[0]!;

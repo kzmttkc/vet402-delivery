@@ -4,7 +4,9 @@
  * now; run.sh writes each line to the alert file and shows a notification. Nothing fails quietly:
  *   - an open alert: when it is new, and again each day it stays open;
  *   - the reconciler's last full run older than RECONCILER_LATE_MS (the cron stopped): when it starts, then daily;
- *   - a read that fails (no answer, not 200, not JSON, no alerts list): when it starts, then daily.
+ *   - a read that fails (no answer, not 200, not JSON, no alerts list): when it starts, then daily;
+ *   - Neon's free plan: when this month's database time, projected to the month's end, passes NEON_ALERT_CU_HOURS,
+ *     or when the database does not say when it woke up (nothing to estimate from): when it starts, then daily.
  *
  *   tsx scripts/daily/proxy-alerts.ts --state <file>
  *
@@ -29,7 +31,29 @@ export interface ProxyAlert {
 export interface ReportState {
   /** report key -> when it was last reported (ISO). Alert keys, and "read-failing" / "reconciler-late". */
   reported: Record<string, string>;
+  /** This month's database wake-ups as the reads saw them (for the Neon estimate). */
+  neon?: WakeLog;
 }
+
+/**
+ * The database's wake-ups seen by the reads. Each read is at :02 or :32, inside the wake-up the cron run just
+ * caused, and api/alerts gives when the database server started (pg_postmaster_start_time: on Neon, the last
+ * wake-up). The same start in two reads in a row means it stayed awake between them.
+ */
+export interface WakeLog {
+  /** UTC month, YYYY-MM. A new month starts a new log. */
+  month: string;
+  firstReadAt: string;
+  wakes: { start: string; lastSeen: string }[];
+}
+
+/** Neon's free plan: CU-hours a month, the smallest compute size, and the idle time before it stops. */
+export const NEON_FREE_CU_HOURS = 100;
+export const NEON_ALERT_CU_HOURS = 80;
+export const NEON_CU = 0.25;
+export const NEON_IDLE_MS = 5 * 60_000;
+/** No projection from less than this much watching. */
+export const NEON_MIN_OBSERVED_MS = 6 * 3_600_000;
 
 /** Report again something still true this long after it was last reported. */
 export const REPORT_AGAIN_MS = 24 * 3_600_000;
@@ -49,18 +73,68 @@ export function lineFor(a: ProxyAlert): string {
   return `[vet402_proxy_buy] ${a.chain} ${a.purchaseId}: ${reason} (first ${a.firstAt}, seen ${a.count} time(s))${a.note ? ` note: ${a.note.slice(0, 200)}` : ""}`;
 }
 
+/** Add this read to the month's wake-up log. */
+export function recordWake(log: WakeLog | undefined, dbStartedAt: string | null, now: Date): WakeLog {
+  const month = now.toISOString().slice(0, 7);
+  const cur: WakeLog = log && log.month === month ? { ...log, wakes: [...log.wakes] } : { month, firstReadAt: now.toISOString(), wakes: [] };
+  if (!dbStartedAt || !Number.isFinite(Date.parse(dbStartedAt))) return cur;
+  const last = cur.wakes[cur.wakes.length - 1];
+  if (last && last.start === dbStartedAt) last.lastSeen = now.toISOString();
+  else cur.wakes.push({ start: dbStartedAt, lastSeen: now.toISOString() });
+  if (cur.wakes.length > 3000) cur.wakes.splice(0, cur.wakes.length - 3000);
+  return cur;
+}
+
+/**
+ * This month's database time, projected to the month's end, in CU-hours at NEON_CU. Each wake-up counts from
+ * its start to the last read that saw it, plus the idle minutes before Neon stops it. A wake-up that started and
+ * ended between two reads is not seen, so this can only undercount; the 17-day failure (the database never
+ * stopping) is what it is sure to see. null when too little has been watched.
+ */
+export function projectedCuHours(log: WakeLog, now: Date): { awakeHours: number; observedHours: number; projected: number } | null {
+  const monthStart = Date.parse(`${log.month}-01T00:00:00Z`);
+  const from = Math.max(monthStart, Date.parse(log.firstReadAt));
+  const observedMs = now.getTime() - from;
+  if (observedMs < NEON_MIN_OBSERVED_MS) return null;
+  let awakeMs = 0;
+  for (const w of log.wakes) {
+    const start = Math.max(Date.parse(w.start), from);
+    awakeMs += Math.max(0, Date.parse(w.lastSeen) - start) + NEON_IDLE_MS;
+  }
+  const d = new Date(monthStart);
+  const monthMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - monthStart;
+  const projected = (awakeMs / observedMs) * (monthMs / 3_600_000) * NEON_CU;
+  return { awakeHours: awakeMs / 3_600_000, observedHours: observedMs / 3_600_000, projected };
+}
+
+/** What to say about Neon's free plan after this read. */
+export function neonItems(log: WakeLog, dbStartedAt: string | null, now: Date): Item[] {
+  if (!dbStartedAt) {
+    return [{ key: "neon-unmeasured", line: "[vet402_proxy_buy] Neon: the database did not say when it woke up (api/alerts dbStartedAt); its monthly use is not being estimated" }];
+  }
+  const p = projectedCuHours(log, now);
+  if (!p || p.projected <= NEON_ALERT_CU_HOURS) return [];
+  return [
+    {
+      key: "neon-usage",
+      line: `[vet402_proxy_buy] Neon: about ${p.projected.toFixed(0)} CU-hours projected for ${log.month} (awake ${p.awakeHours.toFixed(1)} h of ${p.observedHours.toFixed(1)} h watched, at ${NEON_CU} CU); the free plan stops the database at ${NEON_FREE_CU_HOURS}, and proxy buy with it`,
+    },
+  ];
+}
+
 /** The answer of api/alerts, checked: anything else is a failed read. */
-export function parseAnswer(text: string): { alerts: ProxyAlert[]; reconcilerLastRunAt: string | null } | { error: string } {
+export function parseAnswer(text: string): { alerts: ProxyAlert[]; reconcilerLastRunAt: string | null; dbStartedAt?: string | null } | { error: string } {
   let j: unknown;
   try {
     j = JSON.parse(text);
   } catch {
     return { error: "not JSON" };
   }
-  const o = j as { alerts?: unknown; reconcilerLastRunAt?: unknown };
+  const o = j as { alerts?: unknown; reconcilerLastRunAt?: unknown; dbStartedAt?: unknown };
   if (!o || typeof o !== "object" || !Array.isArray(o.alerts)) return { error: "no alerts list" };
   const last = typeof o.reconcilerLastRunAt === "string" ? o.reconcilerLastRunAt : null;
-  return { alerts: o.alerts as ProxyAlert[], reconcilerLastRunAt: last };
+  const started = typeof o.dbStartedAt === "string" ? o.dbStartedAt : null;
+  return { alerts: o.alerts as ProxyAlert[], reconcilerLastRunAt: last, dbStartedAt: started };
 }
 
 type Item = { key: string; line: string };
@@ -102,7 +176,7 @@ function readState(file: string): ReportState {
   if (!existsSync(file)) return { reported: {} };
   try {
     const s = JSON.parse(readFileSync(file, "utf8")) as ReportState;
-    return { reported: s.reported ?? {} };
+    return { reported: s.reported ?? {}, ...(s.neon ? { neon: s.neon } : {}) };
   } catch {
     return { reported: {} };
   }
@@ -126,12 +200,15 @@ async function main(): Promise<void> {
   const state = readState(file);
   const now = new Date();
   let items: Item[];
+  let neon = state.neon;
   try {
     const res = await fetch(url, { headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(20_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const a = parseAnswer(await res.text());
     if ("error" in a) throw new Error(a.error);
     items = itemsFor(a, now);
+    neon = recordWake(state.neon, a.dbStartedAt ?? null, now);
+    items.push(...neonItems(neon, a.dbStartedAt ?? null, now));
   } catch (e) {
     // Fixed words only: the URL and the secret are never printed.
     const m = (e as Error).message;
@@ -139,12 +216,12 @@ async function main(): Promise<void> {
     // Keep what was reported about alerts: a failed read says nothing about them.
     const out = toReport([failedItem(why)], state, now);
     for (const l of out.lines) console.log(l);
-    writeState(file, { reported: { ...state.reported, ...out.state.reported } });
+    writeState(file, { reported: { ...state.reported, ...out.state.reported }, ...(neon ? { neon } : {}) });
     return;
   }
   const out = toReport(items, state, now);
   for (const l of out.lines) console.log(l);
-  writeState(file, out.state);
+  writeState(file, { ...out.state, ...(neon ? { neon } : {}) });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

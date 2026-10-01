@@ -429,7 +429,7 @@ test("zz3-tempo: Tempo is off unless VET402_PROXY_TEMPO_ENABLED=1: no Tempo pric
 
 // ---------------- both ----------------
 
-test("zz3-low: the request limit is counted in the database, across instances", async () => {
+test("zz3-low: the limit on requests that carry a payment is counted in the database, across instances; free quotes are limited in memory and write nothing", async () => {
   const sql = await testSql();
   const make = () =>
     createProxyBuy({
@@ -444,14 +444,25 @@ test("zz3-low: the request limit is counted in the database, across instances", 
       quotesPerMinute: 2,
     });
   const [one, two] = [make(), make()];
-  const req = () => new Request(`${ORIGIN}/v1/buy`, { headers: { "x-real-ip": "203.0.113.9" } });
-  assert.notEqual((await one.handle(req())).status, 429);
-  assert.notEqual((await two.handle(req())).status, 429);
-  assert.equal((await one.handle(req())).status, 429, "the third request in the minute is refused by the other instance's count");
-  const other = new Request(`${ORIGIN}/v1/buy`, { headers: { "x-real-ip": "203.0.113.10" } });
+  // With a payment: the same database count as before (the payment path is unchanged).
+  const paidReq = () => new Request(`${ORIGIN}/v1/buy`, { headers: { "x-real-ip": "203.0.113.9", "PAYMENT-SIGNATURE": "x" } });
+  assert.notEqual((await one.handle(paidReq())).status, 429);
+  assert.notEqual((await two.handle(paidReq())).status, 429);
+  assert.equal((await one.handle(paidReq())).status, 429, "the third paid request in the minute is refused by the other instance's count");
+  const other = new Request(`${ORIGIN}/v1/buy`, { headers: { "x-real-ip": "203.0.113.10", "PAYMENT-SIGNATURE": "x" } });
   assert.notEqual((await two.handle(other)).status, 429);
   const keys = (await sql.query<{ key: string }>(`select key from pb_counter`)).rows.map((x) => x.key);
+  assert.equal(keys.length, 2, "two clients, one minute");
   assert.ok(keys.every((k) => !k.includes("203.0.113")), "addresses are stored hashed");
+
+  // Free quotes: no database write at all; the limit holds per instance.
+  await sql.query(`delete from pb_counter`);
+  const quote = () => new Request(`${ORIGIN}/v1/buy`, { headers: { "x-real-ip": "203.0.113.11" } });
+  assert.notEqual((await one.handle(quote())).status, 429);
+  assert.notEqual((await one.handle(quote())).status, 429);
+  assert.equal((await one.handle(quote())).status, 429, "the third quote in the minute on this instance");
+  assert.notEqual((await two.handle(quote())).status, 429, "another instance counts its own");
+  assert.equal((await sql.query(`select key from pb_counter`)).rows.length, 0, "a quote writes nothing");
 });
 
 test("zz3-C1: a transaction found on chain belongs to one purchase only", async () => {

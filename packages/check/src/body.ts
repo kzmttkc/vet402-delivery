@@ -44,7 +44,8 @@ export function checkBody(r: CheckResult) {
       "pay: the 95% interval of answered / counted is at or above 0.5 (grade C's line), on 2+ days. " +
       "avoid: its upper bound is below 0.5 (grade D's line), on 2+ days. Otherwise unknown. Counted = paid calls: purchases whose payment settled, " +
       "answered or failed on the seller's side; a seller's 5xx with no settled payment, failures on vet402's or the facilitator's side, " +
-      "and failures of unknown cause are left out. No settled payment: unknown.",
+      "and failures of unknown cause are left out. No settled payment: unknown. " +
+      "avoid is said only after vet402 has told the seller; until then the verdict is unknown.",
     method: `${PUBLIC_SITE_URL}/method.html`,
   };
 }

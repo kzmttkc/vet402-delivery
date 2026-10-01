@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { itemsFor, RECONCILE_EVERY_MS, RECONCILE_MAX_RUN_MS, RECONCILER_LATE_MS } from "../scripts/daily/proxy-alerts.js";
+import { itemsFor, NEON_ALERT_CU_HOURS, neonItems, projectedCuHours, RECONCILE_EVERY_MS, RECONCILE_MAX_RUN_MS, RECONCILER_LATE_MS, recordWake, type WakeLog } from "../scripts/daily/proxy-alerts.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const vercel = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf8")) as { crons: { path: string; schedule: string }[]; functions: Record<string, { maxDuration?: number }> };
@@ -78,4 +78,36 @@ test("the README says the same schedule, threshold and free-plan numbers", () =>
   assert.ok(readme.includes("has not run in full for 95 minutes"));
   assert.ok(readme.includes("100 CU-hours a month"));
   assert.ok(!/every five minutes|\*\/5 in|every 15 min/.test(readme), "no old interval left");
+});
+
+test("Neon estimate: a normal month stays quiet, a database that never stops is reported, a missing wake-up time says so", () => {
+  const day = Date.parse("2026-10-02T00:00:00Z");
+  const run = (startFor: (t: number) => number, hours: number) => {
+    let log: WakeLog | undefined;
+    let items: { key: string }[] = [];
+    for (let t = day; t < day + hours * 3_600_000; t += 30 * 60_000) {
+      const read = new Date(t + 2 * 60_000);
+      const started = new Date(startFor(t)).toISOString().replace(/\.\d{3}Z$/, "Z");
+      log = recordWake(log, started, read);
+      items = neonItems(log, started, read);
+    }
+    return { log: log!, items };
+  };
+  // Woken by each cron run at :00 / :30, stopped 5 idle minutes after the :02 / :32 read.
+  const normal = run((t) => t, 48);
+  const p = projectedCuHours(normal.log, new Date(day + 48 * 3_600_000))!;
+  assert.ok(p.projected > 40 && p.projected < 46, `about 43 CU-hours: ${p.projected}`);
+  assert.deepEqual(normal.items, []);
+  // Never stopped (the old five-minute cron): one wake-up all along.
+  const always = run(() => day - 60_000, 48);
+  assert.equal(always.log.wakes.length, 1);
+  assert.equal(always.items[0]?.key, "neon-usage");
+  assert.ok(projectedCuHours(always.log, new Date(day + 48 * 3_600_000))!.projected > NEON_ALERT_CU_HOURS);
+  // Too little watched: no projection yet.
+  assert.equal(projectedCuHours(run(() => day - 60_000, 3).log, new Date(day + 3 * 3_600_000)), null);
+  // The database does not say: said, not guessed.
+  assert.equal(neonItems(recordWake(undefined, null, new Date(day)), null, new Date(day))[0]?.key, "neon-unmeasured");
+  // A new month starts a new log.
+  const next = recordWake(normal.log, "2026-11-01T00:00:00Z", new Date("2026-11-01T00:02:00Z"));
+  assert.deepEqual([next.month, next.wakes.length], ["2026-11", 1]);
 });

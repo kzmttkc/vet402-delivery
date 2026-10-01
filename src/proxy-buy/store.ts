@@ -577,6 +577,15 @@ export class Store {
   }
 
   /** When it last ran (ISO), or null. */
+  /**
+   * When the database server process started: on Neon, the moment the compute last woke up (it starts a new
+   * server on each wake-up). Read-only; null when the server does not say.
+   */
+  async dbStartedAt(): Promise<string | null> {
+    const r = await this.sql.query<{ at: string | null }>(`select to_char(pg_postmaster_start_time() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as at`);
+    return r.rows[0]?.at ?? null;
+  }
+
   async lastRan(key: string): Promise<string | null> {
     const r = await this.sql.query<{ at: string }>(`select to_char(at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as at from pb_state where key = $1`, [key]);
     return r.rows[0]?.at ?? null;

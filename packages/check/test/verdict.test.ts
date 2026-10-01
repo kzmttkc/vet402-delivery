@@ -139,7 +139,9 @@ test("avoid only for a seller vet402 has told: syraa and blocksearch (not told) 
   for (const url of ["https://api.syraa.fun/insights/gas-oracle", "https://blocksearch.dev/"]) {
     const r = lookup(rank, index, { url, chain: "solana" }, [], lanes, notified);
     assert.equal(r.verdict, "unknown", url);
-    assert.equal(r.why, "vet402 paid this seller 6 times on Solana; 0 of 6 paid calls answered.", url);
+    // The same form as any other why: over N days, and the newest failed purchase's status.
+    assert.match(r.why, /^vet402 paid this seller 6 times on Solana over \d+ days; 0 of 6 paid calls answered( \(the newest failed one answered HTTP \d{3}\))?\.$/, url);
+    assert.equal(r.why, lookup(rank, index, { url, chain: "solana" }, [], lanes, { ...notified, sellers: [...notified.sellers, { seller: new URL(url).hostname, notifiedAt: "2026-10-01" }] }).why, `${url}: word for word the why it would have once told`);
     assert.equal(r.basis?.verdict, "unknown", "the basis does not say avoid either");
     const b = await body(get(q(url, "&chain=solana")));
     assert.equal(b.verdict, "unknown");
@@ -154,6 +156,7 @@ test("avoid only for a seller vet402 has told: syraa and blocksearch (not told) 
     assert.ok(html.includes('<span class="v v-unknown">unknown</span>') && !html.includes('<span class="v v-avoid">') && !html.includes("seller_not_told"), `${url}: HTML`);
     assert.ok(!/\bheld\b/.test(r.why) && !/\bavoid\b/.test(r.why));
     assert.equal(b.heldPurchases, 0);
+    assert.ok(b.rule.endsWith("avoid is said only after vet402 has told the seller; until then the verdict is unknown."), "the fixed rule, the same for every seller, says when avoid is said");
     const told = { ...notified, sellers: [...notified.sellers, { seller: new URL(url).hostname, notifiedAt: "2026-10-01" }] };
     assert.equal(lookup(rank, index, { url, chain: "solana" }, [], lanes, told).verdict, "avoid", `${url}: avoid once told`);
   }
@@ -464,7 +467,7 @@ test("site/index.html: the two example answers are computed from the published d
     const r = lookup(real.rank, real.index, { url }, [], real.lanes, JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8")));
     const href = `${CHECK_ENDPOINT}?url=${encodeURIComponent(url)}&amp;format=html`;
     const short = url.replace(/^https:\/\//, "");
-    assert.ok(index.includes(`<li><span class="v v-${r.verdict}">${r.verdict}</span> <a class="mono" href="${href}">${short}</a> ${r.basis!.answered} of ${r.basis!.settled} paid calls answered.</li>`), url);
+    assert.ok(index.includes(`<li><span class="v v-${r.verdict}">${r.verdict}</span> <a class="mono" href="${href}">${short}</a> ${r.basis!.answered} of ${r.basis!.counted} paid calls answered.</li>`), url);
   }
   assert.ok(index.indexOf('id="check"') < index.indexOf('class="plain examples"'), "right under the field");
 });

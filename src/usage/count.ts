@@ -7,7 +7,8 @@
  * nothing is counted. Calls whose User-Agent contains "vet402" are vet402's own and are counted apart
  * (own = true).
  *
- * Rows are kept USAGE_KEEP_DAYS days. Counting is best effort: every error is swallowed. /v1/check waits for it at most http.ts USE_WAIT_MS;
+ * Rows are kept USAGE_KEEP_DAYS days. Counts wait in memory until the database is awake anyway (see
+ * usageCounter), so counting never wakes it. Counting is best effort: every error is swallowed. /v1/check waits for it at most http.ts USE_WAIT_MS;
  * the /v1/buy quote does not wait for it at all (countBuyQuote).
  */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
@@ -54,27 +55,65 @@ export function usageKey(env: NodeJS.ProcessEnv = process.env): string | null {
   return k && k.length >= 16 ? k : null;
 }
 
-/** A counter for one endpoint ("check", "buy_quote"). Without a database or a key it counts nothing. */
-/** Rows older than this many days are deleted (once a UTC day per instance, after a count). */
+/** Rows older than this many days are deleted (once a UTC day per instance, after a write). */
 export const USAGE_KEEP_DAYS = 90;
 
+/**
+ * Minutes after each reconciler cron run (vercel.json, at :00 and :30) during which the database is awake
+ * anyway: the cron's queries, then the operator's proxy-alerts read at :02 and :32, then Neon's 5 idle minutes.
+ */
+export const AWAKE_AFTER_CRON_MIN = 6;
+/** After this instance's own write the database stays awake 5 minutes; write again only well inside that. */
+export const AWAKE_AFTER_WRITE_MS = 4 * 60_000;
+
+/** Would a query now find the database awake anyway (no wake-up of its own)? */
+export function databaseLikelyAwake(at: Date, lastWriteAt: number | null): boolean {
+  if (lastWriteAt !== null && at.getTime() - lastWriteAt >= 0 && at.getTime() - lastWriteAt < AWAKE_AFTER_WRITE_MS) return true;
+  return at.getUTCMinutes() % 30 <= AWAKE_AFTER_CRON_MIN;
+}
+
+/** Most distinct (day, caller) rows kept in memory between writes; past it, new callers are not counted. */
+export const USAGE_BUFFER_MAX = 5_000;
+
+/**
+ * A counter for one endpoint ("check", "buy_quote"). Without a database or a key it counts nothing.
+ *
+ * Counts are added up in this instance's memory and written only when the database is awake anyway (in the
+ * minutes after a cron run, or soon after this instance's own last write), so counting never wakes a stopped
+ * database (Neon's free plan: 100 CU-hours a month). The price: an instance that stops before such a moment
+ * loses its counts, so the table can only undercount.
+ */
 export function usageCounter(endpoint: string, db: () => UsageDb | null, key: string | null, now: () => Date = () => new Date()): (req: Request) => Promise<void> {
   let ready: Promise<unknown> | null = null;
   let prunedOn = "";
+  let lastWriteAt: number | null = null;
+  const pending = new Map<string, { day: string; caller: string; own: boolean; calls: number }>();
   return async (req: Request) => {
     const sql = db();
     if (!sql || !key) return;
+    const at = now();
+    const day = utcDay(at);
+    const caller = callerId(callerIp(req), day, key);
+    const own = isOwnCall(req);
+    const k = `${day}|${caller}|${own}`;
+    const cur = pending.get(k);
+    if (cur) cur.calls++;
+    else if (pending.size < USAGE_BUFFER_MAX) pending.set(k, { day, caller, own, calls: 1 });
+    if (!databaseLikelyAwake(at, lastWriteAt)) return;
     ready ??= sql.query(USAGE_SCHEMA).catch((e) => {
       ready = null;
       throw e;
     });
     await ready;
-    const day = utcDay(now());
-    await sql.query(
-      `insert into pc_usage (day, endpoint, caller, own, calls) values ($1, $2, $3, $4, 1)
-       on conflict (day, endpoint, caller, own) do update set calls = pc_usage.calls + 1`,
-      [day, endpoint, callerId(callerIp(req), day, key), isOwnCall(req)],
-    );
+    for (const [pk, row] of [...pending]) {
+      await sql.query(
+        `insert into pc_usage (day, endpoint, caller, own, calls) values ($1, $2, $3, $4, $5)
+         on conflict (day, endpoint, caller, own) do update set calls = pc_usage.calls + excluded.calls`,
+        [row.day, endpoint, row.caller, row.own, row.calls],
+      );
+      pending.delete(pk);
+    }
+    lastWriteAt = at.getTime();
     if (prunedOn !== day) {
       prunedOn = day;
       await sql.query(`delete from pc_usage where day < $1::date - $2::int`, [day, USAGE_KEEP_DAYS]);

@@ -23,7 +23,9 @@ export async function alertsResponse(req: Request, store: Store, secret: string 
   const rows = await store.openAlerts(500);
   const alerts = rows.map((r) => ({ key: r.key, purchaseId: r.purchase_id, chain: r.chain, reason: r.reason, firstAt: r.first_at, lastAt: r.last_at, count: r.count, note: r.note }));
   const reconcilerLastRunAt = await store.lastRan(RECONCILE_RAN_KEY);
-  return new Response(JSON.stringify({ at: new Date().toISOString(), reconcilerLastRunAt, alerts }, null, 2), {
+  // For the operator's Neon usage estimate (scripts/daily/proxy-alerts.ts): when this database last woke up.
+  const dbStartedAt = await store.dbStartedAt().catch(() => null);
+  return new Response(JSON.stringify({ at: new Date().toISOString(), reconcilerLastRunAt, dbStartedAt, alerts }, null, 2), {
     status: 200,
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });

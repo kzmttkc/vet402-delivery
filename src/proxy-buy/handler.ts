@@ -83,16 +83,44 @@ function refusedResponse(r: Refused): Response {
   return json(r.status, { verdict: "REFUSE", reason: r.reason, detail: r.detail, charged: false });
 }
 
+/**
+ * A per-key limit of `max` in each `windowMs`, in memory (a fixed window per key, like the database's per-minute
+ * counter). Keys whose window has passed are dropped as new ones come, so the map stays small.
+ */
+export function memoryRateLimit(max: number, windowMs: number): (key: string, nowMs: number) => boolean {
+  const seen = new Map<string, { window: number; n: number }>();
+  return (key, nowMs) => {
+    const window = Math.floor(nowMs / windowMs);
+    if (seen.size > 10_000) for (const [k, v] of seen) if (v.window !== window) seen.delete(k);
+    const cur = seen.get(key);
+    if (!cur || cur.window !== window) {
+      seen.set(key, { window, n: 1 });
+      return max >= 1;
+    }
+    if (cur.n >= max) return false;
+    cur.n++;
+    return true;
+  };
+}
+
 export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
   const now = o.now ?? (() => new Date());
   const perMinute = o.quotesPerMinute ?? QUOTES_PER_MINUTE;
   const tempo = o.tempoEnabled === true ? o.tempo : undefined;
-  /** Requests per client per minute, counted in the database (every serverless instance sees one count). */
+  const clientKey = (req: Request) => createHash("sha256").update(`vet402-buy-rate:${clientIp(req)}`).digest("hex").slice(0, 32);
+  /** Paid requests: per client per minute, counted in the database (every serverless instance sees one count). */
   const allowed = async (req: Request): Promise<boolean> => {
     const t = now();
-    const ip = createHash("sha256").update(`vet402-buy-rate:${clientIp(req)}`).digest("hex").slice(0, 32);
-    return o.store.bump(`rate:${ip}:${Math.floor(t.getTime() / 60_000)}`, perMinute, t);
+    return o.store.bump(`rate:${clientKey(req)}:${Math.floor(t.getTime() / 60_000)}`, perMinute, t);
   };
+  /**
+   * Free quotes: the same limit per client per minute, counted in this instance's memory, so a quote never
+   * writes to the database (and never wakes a database that has stopped; see README, Neon's free plan). A
+   * quote charges nothing and changes nothing; the limit only keeps one client from making vet402 read
+   * sellers' 402s too often. Each instance counts on its own.
+   */
+  const quoteBucket = memoryRateLimit(perMinute, 60_000);
+  const allowedQuote = (req: Request): boolean => quoteBucket(clientKey(req), now().getTime());
   const recordUrl = (id: string) => `${o.publicOrigin}${RECORD_PATH_PREFIX}${id}`;
   const quoteDeps: QuoteDeps = {
     ...o.quoteDeps,
@@ -236,19 +264,22 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       if (path !== BUY_PATH) return json(404, { error: "not_found" });
       if (req.method !== "GET") return json(405, { verdict: "REFUSE", reason: "method_not_allowed", detail: "use GET", charged: false });
       if (!o.enabled) return json(503, { verdict: "REFUSE", reason: "proxy_buy_disabled", detail: "proxy buy is switched off; nothing was charged", charged: false });
-      // Every request below reads the seller's 402 at least once: limit them per client.
-      let ok: boolean;
-      try {
-        ok = await allowed(req);
-      } catch {
-        return json(503, { verdict: "REFUSE", reason: "busy", detail: "try again shortly; nothing was charged", charged: false });
-      }
-      if (!ok) return json(429, { verdict: "REFUSE", reason: "rate_limited", detail: `at most ${o.quotesPerMinute ?? QUOTES_PER_MINUTE} requests per minute`, charged: false });
+      // Every request below reads the seller's 402 at least once: limit them per client. A request that carries
+      // a payment is limited in the database, as before; a free quote in this instance's memory.
       const target = u.searchParams.get("url");
       const x402 = req.headers.get("payment-signature") ?? req.headers.get("x-payment");
-      if (x402) return paid(target, { chain: "solana", header: x402 });
       const auth = req.headers.get("authorization");
-      if (auth && /^Payment\s/i.test(auth)) return paid(target, { chain: "tempo", header: auth });
+      const pay = x402 ? { chain: "solana" as const, header: x402 } : auth && /^Payment\s/i.test(auth) ? { chain: "tempo" as const, header: auth } : null;
+      let ok: boolean;
+      if (pay) {
+        try {
+          ok = await allowed(req);
+        } catch {
+          return json(503, { verdict: "REFUSE", reason: "busy", detail: "try again shortly; nothing was charged", charged: false });
+        }
+      } else ok = allowedQuote(req);
+      if (!ok) return json(429, { verdict: "REFUSE", reason: "rate_limited", detail: `at most ${o.quotesPerMinute ?? QUOTES_PER_MINUTE} requests per minute`, charged: false });
+      if (pay) return paid(target, pay);
       return unpaid(req, target);
     },
   };

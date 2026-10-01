@@ -476,7 +476,10 @@ export function topLead(chains: readonly string[]): string {
  * packages/check/src/verdict.ts: pay = most paid calls answered, avoid = most did not, unknown = too
  * little data, or vet402 never bought from the seller.
  */
-export const VERDICT_LINE = "pay: most paid calls answered. avoid: most did not. unknown: little or no data.";
+export const VERDICT_LINE = "pay: most paid calls answered. avoid: most did not. unknown: not enough to say pay or avoid.";
+
+/** Said the same way for every seller (rule in the JSON, the answer page, use.html): when avoid can be said. */
+export const AVOID_TOLD_LINE = "avoid is said only after vet402 has told the seller; until then the verdict is unknown.";
 
 type Lanes = { robinhood?: LanePublic; arbitrum?: LanePublic };
 
@@ -566,7 +569,7 @@ export const VERDICT_CSS =
 function topCheckForm(): string {
   return `<form id="check" class="checkbox" method="get" action="${escapeHtml(CHECK_ENDPOINT)}" aria-label="Check a seller before you pay">
 <style>.checkbox{display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 6px}.checkbox label{flex-basis:100%;font-weight:600}.checkbox input[type=url]{flex:1 1 220px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}.checkbox p{flex-basis:100%;margin:0}.examples{margin:0 0 14px}.examples li{padding:6px 0}${VERDICT_CSS}</style>
-<label for="check-url">API URL to check</label>
+<label for="check-url">URL to check</label>
 <input id="check-url" name="url" type="url" required maxlength="2048" placeholder="https://api.example.com/paid/endpoint" autocomplete="off" spellcheck="false">
 <input type="hidden" name="format" value="html">
 <button type="submit">Check</button>
@@ -790,9 +793,9 @@ ${siteNav("use")}
 <ul>
 <li>${verdictBadge("pay")} Most of vet402's paid calls to this seller were answered: the 95% interval of answered / counted is at or above ${GRADE_LOWER_C} (the line for grade C), over ${MIN_DAYS_VERDICT} or more days.</li>
 <li>${verdictBadge("avoid")} vet402 paid, and most paid calls were not answered: the interval's upper bound is below ${D_UPPER_LINE} (the line for grade D), over ${MIN_DAYS_VERDICT} or more days.</li>
-<li>${verdictBadge("unknown")} Too little data, or vet402 never bought from this seller. With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
+<li>${verdictBadge("unknown")} Not enough to say pay or avoid: too little data, or vet402 never bought from this seller. With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
 </ul>
-<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown.</p>
+<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. ${escapeHtml(AVOID_TOLD_LINE)}</p>
 <p class="meta">On Robinhood Chain and Arbitrum, a purchase whose result is held until the seller is told is never used: the verdict comes from the published purchases, and the answer adds <code>heldPurchases</code> and <code>heldNote</code>. A seller with nothing but held purchases is unknown. <a href="${escapeHtml(GH("packages/check/src/verdict.ts"))}" rel="noopener noreferrer nofollow">The rule in code</a></p>
 ${laneLine ? `<p class="meta">${escapeHtml(laneLine)}</p>` : ""}
 

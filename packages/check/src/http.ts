@@ -9,7 +9,7 @@
  * verdict.ts, the function the CLI, the MCP tool and the fetch hook read. The numbers in `why` are the
  * fields right after it (`tried`, `settled`, `counted`, `answered`, `days`, `notCounted`).
  */
-import { CHECK_ENDPOINT, checkForm, escapeHtml, publicPage, VERDICT_CSS, VERDICT_LINE, verdictBadge } from "../../../src/rank/html.js";
+import { CHECK_ENDPOINT, checkForm, escapeHtml, publicPage, AVOID_TOLD_LINE, VERDICT_CSS, VERDICT_LINE, verdictBadge } from "../../../src/rank/html.js";
 import { checkBody } from "./body.js";
 import { lookup, normalizeChain } from "./check.js";
 import { PUBLIC_SITE_URL } from "./sources.js";
@@ -145,7 +145,7 @@ function htmlPage(q: CheckQuery | null, body: ReturnType<typeof checkBody> | nul
 <style>${VERDICT_CSS}</style>
 <p class="big">${verdictBadge(body.verdict)}</p>
 <p class="lead">${escapeHtml(body.why)}</p>
-<p class="meta">${escapeHtml(VERDICT_LINE)}</p>
+<p class="meta">${escapeHtml(VERDICT_LINE)} ${escapeHtml(AVOID_TOLD_LINE)}</p>
 <table>${rows.join("")}</table>
 ${body.sellerPage ? `<p><a href="${escapeHtml(body.sellerPage)}">Every purchase vet402 made from this seller</a></p>` : ""}
 <p class="meta">${escapeHtml(body.rule)}</p>

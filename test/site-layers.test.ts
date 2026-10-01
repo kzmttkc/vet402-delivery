@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadLanePublic } from "../src/evm/site.js";
-import { BUY_README_LINES, escapeHtml, laneVerdictLine, mdInline, MIN_VERDICT_COUNTED, PUBLIC_LEAD, publicPage, renderPublicSite, SITE_NAV, siteSlugs, TOP_HEADING, USE_EXAMPLE_URL, VERDICT_LINE } from "../src/rank/html.js";
+import { AVOID_TOLD_LINE, BUY_README_LINES, escapeHtml, laneVerdictLine, mdInline, MIN_VERDICT_COUNTED, PUBLIC_LEAD, publicPage, renderPublicSite, SITE_NAV, siteSlugs, TOP_HEADING, USE_EXAMPLE_URL, VERDICT_LINE } from "../src/rank/html.js";
 import { handleCheck } from "../packages/check/src/http.js";
 import { buildReport, DELIVERED_LINE, MONEY_LINE, REBUY_PLAN, type RankReport } from "../src/rank/report.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
@@ -168,7 +168,8 @@ test("Use it: the verdict first, the live answer built from the data, the hook's
   assert.ok(use.includes("so it works under any x402 client that pays through <code>fetch</code>"));
   assert.ok(use.includes("the hook is not Solana-only"));
   assert.ok(use.includes("On Robinhood Chain and Arbitrum, a purchase whose result is held until the seller is told is never used: the verdict comes from the published purchases, and the answer adds <code>heldPurchases</code> and <code>heldNote</code>. A seller with nothing but held purchases is unknown."));
-  assert.ok(!use.includes("seller_not_told") && !/has told the seller/.test(use), "no word on verdicts held back from sellers not told");
+  assert.ok(!use.includes("seller_not_told"), "no held mark");
+  assert.ok(use.includes(escapeHtml(AVOID_TOLD_LINE)), "the same sentence for every seller: when avoid can be said");
   const line = laneVerdictLine(pub, recordsIndex, lanes, notified);
   assert.match(line, /^As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown:/);
   assert.ok(use.includes(escapeHtml(line)));
