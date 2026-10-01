@@ -10,7 +10,10 @@
  * checks, Merkle inclusion in the day's root, and (unless --offline) the payment on chain and, once the
  * root is written, the anchor memo (sent by vet402's anchor wallet; a memo from any other wallet is not an
  * anchor), and, when the records index names one for the day (days[].tempoAnchor), the same root in
- * vet402's Tempo memo (anchor-tempo). The index is --index, else data/records/index.json next to a local
+ * vet402's Tempo memo (anchor-tempo), and, when it names the observation-roots program's day account
+ * (days[].programRoot), the program's own answer: a simulated `verify` of this record on Solana mainnet
+ * (nothing signed or sent) must succeed with the record's day, verdict, sequence and digest (program).
+ * The index is --index, else data/records/index.json next to a local
  * record (<records>/<day>/<id>.json), else the published one for a record read over https. Exit 0 only
  * when every check that could run passed. "RESULT: OK (not yet anchored)" says the day's root is not on chain
  * yet, and the next line says what that leaves unproven.
@@ -24,6 +27,8 @@ import { VET402_OBSERVER_KEYS } from "../src/receipt/observers.js";
 import { verifyOffline } from "../src/receipt/verify.js";
 import { dirname, join } from "node:path";
 import { checkTempoDayAnchor, TEMPO_ANCHOR_NETWORK, tempoAnchorFromIndex } from "../src/receipt/tempo-anchor.js";
+import { programRootFromIndex, programVerify, ROOTS_INDEX_NETWORK } from "../src/receipt/roots-index.js";
+import { MAINNET_GENESIS, ROOTS_DEPLOYMENTS_BY_GENESIS } from "../src/receipt/roots-program.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -173,6 +178,18 @@ if (!process.argv.includes("--offline")) {
           lines.push([c.ok, "anchor-tempo", c.detail]);
         } catch (e) {
           lines.push([false, "anchor-tempo", `could not read Tempo: ${e instanceof Error ? e.message : String(e)}`]);
+        }
+      }
+      // The same root in the observation-roots program: ask the program itself (a simulation, nothing signed).
+      const p = await programRootFromIndex(idx, obs);
+      if (p.problem) lines.push([false, "program", `${idxSrc}: ${p.problem}`]);
+      else if (p.entry) {
+        try {
+          // The simulation's fee payer only has to exist; the posting key's public address is used, and nothing is signed.
+          const v = await programVerify(jsonRpc(DEFAULT_RPC[ROOTS_INDEX_NETWORK] ?? ""), p.entry, obs, ROOTS_DEPLOYMENTS_BY_GENESIS[MAINNET_GENESIS]!.poster);
+          lines.push([v.ok, "program", v.detail]);
+        } catch (e) {
+          lines.push([false, "program", `could not read Solana: ${e instanceof Error ? e.message : String(e)}`]);
         }
       }
     }

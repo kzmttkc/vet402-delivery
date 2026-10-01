@@ -7,6 +7,8 @@
  * No score, no badge, no lock or shield. Shape carries the verdict as well as colour.
  * Every value from the record goes through `esc`; nothing from the record is placed in a script.
  */
+import type { ProgramRootEntry } from "./roots-index.js";
+import type { TempoDayAnchor } from "./tempo-anchor.js";
 import type { Observation, VerdictCode } from "./types.js";
 
 export function esc(v: unknown): string {
@@ -125,6 +127,28 @@ export interface RenderOptions {
    * script and no copy buttons, a navigation line, and where vet402's key is published.
    */
   site?: { nav: string; keyHref: string };
+  /**
+   * Where else the record's daily root is written, from the records index (data/records/index.json,
+   * days[].programRoot and days[].tempoAnchor). Not part of the signed record. Shown only for an anchored
+   * record of that day.
+   */
+  dayRoot?: { day: string; programRoot?: ProgramRootEntry; tempoAnchor?: TempoDayAnchor };
+}
+
+/** The Record row's further places of the same root: the observation-roots program account, then Tempo. */
+function moreRootPlaces(o: Observation, opts: RenderOptions): string {
+  const d = opts.dayRoot;
+  if (!d || !o.anchor || o.anchor.status !== "anchored" || !o.anchor.tx || o.anchor.day !== d.day) return "";
+  const lines: string[] = [];
+  if (d.programRoot) {
+    const url = `https://solscan.io/account/${encodeURIComponent(d.programRoot.account)}`;
+    lines.push(`also in the observation_roots program on Solana · <a href="${esc(url)}" rel="noopener noreferrer">${esc(shortHash(d.programRoot.account))} ↗</a>`);
+  }
+  if (d.tempoAnchor) {
+    const url = explorerUrl("eip155:4217", d.tempoAnchor.tx);
+    lines.push(`and on Tempo · ${url ? `<a href="${esc(url)}" rel="noopener noreferrer">${esc(shortHash(d.tempoAnchor.tx))} ↗</a>` : esc(d.tempoAnchor.tx)}`);
+  }
+  return lines.map((l) => `\n      <span class="sub">${l}</span>`).join("");
 }
 
 const SITE_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">`;
@@ -251,7 +275,7 @@ ${negative ? seller : ""}
       <span class="sub">from ${hashOf(o.payment.payer)} to ${hashOf(o.payment.payTo)}</span></li>
     <li><span class="mark">${w.shape}</span><span class="k">Response</span><span class="v">${esc(respDetail)}</span>
       <span class="sub">${esc(o.verdict.reason)}<br>${hashLine}</span></li>
-    <li>${recordRow}</li>
+    <li>${recordRow}${moreRootPlaces(o, opts)}</li>
   </ul>
 </section>
 

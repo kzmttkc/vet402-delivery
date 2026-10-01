@@ -10,6 +10,11 @@
  *
  * --post-root (off by default) copies an already anchored day's root into the observation-roots program
  * (src/receipt/roots-post.ts), after checking the day's memo on chain. The memo stays the primary record.
+ * With --send, once the day's account is on chain (posted now, or already there) and reads back with
+ * exactly the memo's root, count, sequence range and observer, <day>/anchor-program-sent.json records the
+ * program, the account, the post_root transaction and its slot (src/receipt/roots-index.ts), and
+ * publish-records puts them in data/records/index.json (days[].programRoot). Exit 3: the posting key holds
+ * too little SOL for one more day, and nothing was signed.
  * VET402_ROOTS_RPC selects the cluster (default SOLANA_RPC_URL); the program and the posting key are the
  * ones pinned for that cluster's genesis in ROOTS_DEPLOYMENTS_BY_GENESIS, and any other cluster is refused.
  * post_root is signed and paid (fee and the day account's rent) by the posting key
@@ -27,6 +32,7 @@
  * 600, must be the anchor wallet) signs a memo-only transaction; the network fee is the only thing that
  * leaves the wallet, and above MAX_FEE_LAMPORTS nothing is signed. RPC: SOLANA_RPC_URL.
  */
+import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +41,8 @@ import { jsonRpc } from "../src/chain.js";
 import { PAYER_ADDRESS } from "../src/constants.js";
 import { dayRoot, plan, readDay, resume, send, type AnchorDeps } from "../src/receipt/anchor-run.js";
 import { checkAnchorOnChain } from "../src/receipt/chain.js";
-import { loadKeyFile, planPostRoot, postRootArgsFromRecord, sendPostRoot, type PostRootDeps } from "../src/receipt/roots-post.js";
+import { dayRootOnChain, PROGRAM_ROOT_FILE } from "../src/receipt/roots-index.js";
+import { loadKeyFile, planPostRoot, PosterBalanceTooLow, postRootArgsFromRecord, sendPostRoot, type PostRootDeps } from "../src/receipt/roots-post.js";
 import { ROOTS_DEPLOYMENTS_BY_GENESIS } from "../src/receipt/roots-program.js";
 import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
 import { RM_PROD_DIR } from "../src/remeasure/constants.js";
@@ -120,13 +127,32 @@ if (args.includes("--post-root")) {
     log: deps.log,
   };
   const a = postRootArgsFromRecord(obs[0]!);
-  if (doSend) {
-    console.log(JSON.stringify(await sendPostRoot(rootsDeps, a), null, 2));
-  } else {
-    const p = await planPostRoot(rootsDeps, a);
-    const { tx: _tx, ...shown } = p as typeof p & { tx?: unknown };
-    console.log(JSON.stringify(shown, null, 2));
-    console.log("simulate only: nothing was signed or sent (pass --post-root --send to write it)");
+  try {
+    if (doSend) {
+      console.log(JSON.stringify(await sendPostRoot(rootsDeps, a), null, 2));
+      // Posted now or before: read the account back and record where the root is, for the records index.
+      // The RPC's signature index can trail the account by a few seconds after a fresh post: read again before giving up.
+      let entry: Awaited<ReturnType<typeof dayRootOnChain>> | null = null;
+      for (let i = 0; entry === null; i++) {
+        try {
+          entry = await dayRootOnChain(rootsRpc, { program: deployment.program, poster: deployment.poster }, a, "confirmed");
+        } catch (e) {
+          if (i >= 9 || /differs from the day's root|owned by|paid by/.test(String(e))) throw e;
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+      writeFileSync(join(deps.dayDir, PROGRAM_ROOT_FILE), `${JSON.stringify({ status: "posted", ...entry }, null, 2)}\n`);
+      console.log(`${day}: ${PROGRAM_ROOT_FILE} names ${entry.account} (tx ${entry.tx}, slot ${entry.slot})`);
+    } else {
+      const p = await planPostRoot(rootsDeps, a);
+      const { tx: _tx, ...shown } = p as typeof p & { tx?: unknown };
+      console.log(JSON.stringify(shown, null, 2));
+      console.log("simulate only: nothing was signed or sent (pass --post-root --send to write it)");
+    }
+  } catch (e) {
+    if (!(e instanceof PosterBalanceTooLow)) throw e;
+    console.error(`not posting: ${e.message}`);
+    process.exit(3);
   }
 } else if (doResume) {
   console.log(JSON.stringify(await resume(deps, { send: doSend }), null, 2));

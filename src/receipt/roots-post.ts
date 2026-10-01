@@ -44,6 +44,16 @@ import type { Observation } from "./types.js";
 /** One signature, no priority fee. */
 export const MAX_POST_ROOT_FEE_LAMPORTS = 10_000;
 
+/** The posting key cannot pay one more day (rent + fee) and keep the rent-exempt minimum of an empty account. */
+export class PosterBalanceTooLow extends Error {
+  constructor(
+    readonly balanceLamports: number,
+    readonly needLamports: number,
+  ) {
+    super(`the posting key holds ${balanceLamports} lamports, less than one day needs (${needLamports}: the day account's rent, the fee and the empty account's rent-exempt minimum); nothing was signed`);
+  }
+}
+
 export interface PostRootDeps {
   /** RPC of the cluster the program is deployed on. */
   rpc: Rpc;
@@ -177,6 +187,10 @@ export async function planPostRoot(d: PostRootDeps, a: PostRootArgs): Promise<Po
   const fee = (await d.rpc("getFeeForMessage", [Buffer.from(tx.messageBytes).toString("base64"), { commitment: "confirmed" }])) as { value: number | null };
   if (fee.value === null || fee.value > MAX_POST_ROOT_FEE_LAMPORTS) throw new Error(`fee ${fee.value} lamports is over ${MAX_POST_ROOT_FEE_LAMPORTS}`);
   const before = (await d.rpc("getBalance", [d.feePayer, { commitment: "confirmed" }])) as { value: number };
+  // Checked before the simulation: a key that would drop below the rent-exempt minimum is not used at all.
+  const keepLamports = (await d.rpc("getMinimumBalanceForRentExemption", [0])) as number;
+  const needLamports = rentLamports + fee.value + keepLamports;
+  if (before.value < needLamports) throw new PosterBalanceTooLow(before.value, needLamports);
   const sim = (await d.rpc("simulateTransaction", [
     getBase64EncodedWireTransaction(tx),
     { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: [d.feePayer] } },

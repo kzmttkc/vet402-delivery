@@ -11,8 +11,9 @@
  *
  * data/records/ layout:
  *   index.json            the list of published records, each with its sha256, and one line per daily root
- *                         (with days[].tempoAnchor when the root is also written on Tempo; the records
- *                         themselves are never rewritten for it)
+ *                         (with days[].programRoot when the root is also in the observation-roots
+ *                         program on Solana, and days[].tempoAnchor when it is also written on Tempo;
+ *                         the records themselves are never rewritten for either)
  *   notified.json         sellers told about their records, so their negative records may be published
  *   <day>/<id>.json       the signed record, byte for byte as vet402 wrote it
  */
@@ -20,6 +21,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VET402_OBSERVER_KEYS } from "./observers.js";
+import { programRootShape, type ProgramRootEntry } from "./roots-index.js";
 import { tempoDayAnchorShape, type TempoDayAnchor } from "./tempo-anchor.js";
 import { verifyOffline } from "./verify.js";
 import { UNSIGNED_FIELDS, VERDICTS, type Observation, type VerdictCode } from "./types.js";
@@ -63,6 +65,8 @@ export interface DayEntry {
   sequenceRange: [number, number];
   observerAddress: string;
   anchor: { status: "pending" | "anchored"; network: string; tx: string | null };
+  /** The same root in the observation-roots program's day account (src/receipt/roots-index.ts). Absent = memo only. */
+  programRoot?: ProgramRootEntry;
   /** The same root in a Tempo TIP-20 memo (src/receipt/tempo-anchor.ts). Absent = Solana only. */
   tempoAnchor?: TempoDayAnchor;
 }
@@ -203,6 +207,10 @@ export async function loadPublishedRecords(dir: string): Promise<LoadedRecords> 
   for (const d of index.days) {
     const n = index.records.filter((r) => r.day === d.day).length;
     if (n !== d.published) problems.push(`day ${d.day}: published ${d.published}, index lists ${n}`);
+    if (d.programRoot !== undefined) {
+      if (d.anchor.status !== "anchored") problems.push(`day ${d.day}: programRoot on a day whose memo anchor is not written`);
+      for (const x of await programRootShape(d.programRoot, d.day)) problems.push(`day ${d.day}: ${x}`);
+    }
     if (d.tempoAnchor !== undefined) for (const x of tempoDayAnchorShape(d.tempoAnchor, d.root)) problems.push(`day ${d.day}: ${x}`);
   }
   for (const f of walk(dir)) if (!listed.has(f)) problems.push(`${f}: not listed in index.json`);

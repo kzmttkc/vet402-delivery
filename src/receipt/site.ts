@@ -58,8 +58,11 @@ export function renderRecordsSite(loaded: LoadedRecords, opts: RecordsSiteOption
   const sellers = [...bySeller.keys()].sort((a, b) => a.localeCompare(b));
   const anchorId = (key: string) => `s-${(opts.sellerSlug(key) ?? key).replace(/[^A-Za-z0-9._-]+/g, "_")}`;
 
+  const dayLines = new Map(loaded.index.days.map((d) => [d.day, d]));
   for (const r of loaded.records) {
     const slug = opts.sellerSlug(r.entry.seller);
+    const d = dayLines.get(r.entry.day);
+    const dayRoot = d ? { day: d.day, programRoot: d.programRoot, tempoAnchor: d.tempoAnchor } : undefined;
     const nav = [
       `<a href="index.html#${esc(anchorId(r.entry.seller))}">All records</a>`,
       slug ? `<a href="../seller/${esc(slug)}.html">This seller in the ranking</a>` : "",
@@ -69,7 +72,7 @@ export function renderRecordsSite(loaded: LoadedRecords, opts: RecordsSiteOption
       .join(" · ");
     out.set(
       `records/${r.entry.id}.html`,
-      renderObservationPage(r.obs, { jsonHref: `${r.entry.id}.json`, verifyCommand: verifyCommandFor(r.entry.id), site: { nav, keyHref: OBSERVER_KEYS_URL } }),
+      renderObservationPage(r.obs, { jsonHref: `${r.entry.id}.json`, verifyCommand: verifyCommandFor(r.entry.id), site: { nav, keyHref: OBSERVER_KEYS_URL }, dayRoot }),
     );
   }
 

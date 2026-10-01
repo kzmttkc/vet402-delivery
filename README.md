@@ -59,11 +59,11 @@ The x402 fetch hook, the output fields and the options: `packages/check/README.m
 | Robinhood Chain | Buys, in USDG, every seller whose live 402 lists Robinhood Chain (one purchase per payTo), and checks stock prices sold over x402 against the Chainlink feed of the Stock Token: age against the heartbeat, `oraclePaused()`, and the ERC-8056 multiplier between share price and token price | `scripts/evm-lane.ts`, `src/robinhood/`, `src/evm/`, `site/robinhood.html` |
 | Arbitrum One | Buys each seller that lists Arbitrum One with the same payTo as its Base accept, once on Arbitrum and once on Base, and shows per seller whether each chain settled and came back, and why not | `scripts/evm-lane.ts`, `src/evm/`, `site/arbitrum.html` |
 | Daily root on EVM chains | One transaction a day on the chain the lane bought on, carrying the Merkle root of that day's purchase records; `contracts/DeliveryRoots.sol` holds the same root for other contracts to verify in one call (tested, not deployed) | `scripts/evm-anchor.ts`, `src/evm/evm-anchor.ts`, `contracts/` |
-| Proxy buy | An agent pays vet402 the seller's price + 0.005 (x402 on Solana, MPP on Tempo); after that payment settles, vet402 pays a seller it already paid before and returns the answer with both transactions and a record, or refunds the agent when it did not pay the seller. State in Postgres; runs on Vercel Functions. Not deployed yet | `src/proxy-buy/`, `api/`, `scripts/proxy-buy-serve.ts` |
+| Proxy buy | An agent pays vet402 the seller's price + 0.005 (x402 on Solana, MPP on Tempo); after that payment settles, vet402 pays a seller it already paid before and returns the answer with both transactions and a record, or refunds the agent when it did not pay the seller. State in Postgres; runs on Vercel Functions. Running since 2026-10-01 at https://vet402-delivery.vercel.app/v1/buy, Solana only | `src/proxy-buy/`, `api/`, `scripts/proxy-buy-serve.ts` |
 
 ## Money safety
 
-Every paying script signs exactly one transfer per purchase, to the payTo locked from the seller's own 402, within a per-purchase cap and a persistent total cap, and refuses anything else before signing. Keys live in `.keys/` (git-ignored) and never appear in logs or results. The Tempo, Base, delivery-record and first-buyer paths were reviewed independently (the fixes are in the commit log). The first Solana runs (gate 1 and the census) ran before an independent review; they stayed within the caps above. Proxy buy (below) reads its keys from environment variables instead, uses wallets of its own, and has not passed an independent review yet.
+Every paying script signs exactly one transfer per purchase, to the payTo locked from the seller's own 402, within a per-purchase cap and a persistent total cap, and refuses anything else before signing. Keys live in `.keys/` (git-ignored) and never appear in logs or results. The Tempo, Base, delivery-record and first-buyer paths were reviewed independently (the fixes are in the commit log). The first Solana runs (gate 1 and the census) ran before an independent review; they stayed within the caps above. Proxy buy (below) reads its keys from environment variables instead, uses wallets of its own, and went on main after eleven rounds of independent review.
 
 ## First-buyer mode (Solana)
 
@@ -112,6 +112,8 @@ npx tsx scripts/verify-receipt.ts https://kzmttkc.github.io/vet402-delivery/reco
 ```
 
 It checks the signer against vet402's key, the signature, that the verdict follows from the recorded checks, the Merkle proof and the payment on chain. Change any signed field, even by one character, and it fails.
+
+When the records index (`--index`, else `data/records/index.json` next to a local record, else the published one) names the day's account in the observation-roots program (`days[].programRoot`), it also asks the program itself: a simulated `verify` of the record on Solana mainnet (`simulateTransaction` with signature checks off and the blockhash replaced; nothing is signed or sent). The line `program  verify: DELIVERED (2026-09-30, sequence 599); digest 0x… is the record's` appears only when the simulation succeeds and the program's return data names the record's day, verdict, sequence and digest. A changed record makes the program refuse it, and the run fails.
 
 The anchor counts only when vet402's anchor wallet (`VET402_ANCHOR_SIGNERS` in `src/receipt/observers.ts`) paid for and signed the memo; a memo from any other wallet is ignored, whatever root it names. Until the day's root is on chain the result reads `RESULT: OK (not yet anchored)`, and the script says what that leaves unproven: the Merkle line then only shows that the proof and the root inside the record agree, not that the record belongs to the day vet402 committed to.
 
@@ -173,12 +175,12 @@ npm run remeasure -- --chain tempo --dry-run
 
 An agent asks vet402 to buy a seller's answer for it. vet402 pays the seller from its own wallet only after the agent's payment has settled, and returns the seller's answer together with both transactions and a public record of the purchase.
 
-Status on 2026-09-30: the code and its tests are in this repository; no public endpoint runs it yet, and it has not passed an independent review yet.
+Status on 2026-10-01: it runs at https://vet402-delivery.vercel.app/v1/buy, for Solana only (Tempo is switched off on that deployment, so no Tempo price is offered and a Tempo payment is refused). The code went on main after eleven rounds of independent review, the last of which returned SHIP. The first purchase through it settled on 2026-10-01 at 04:50 UTC. Purchases per UTC day stay within the cap the deployment is configured with.
 
 Use:
 
 ```bash
-curl -i 'https://<host>/v1/buy?url=<seller endpoint>'   # free: shows the price, charges nothing
+curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=<seller endpoint>'   # free: shows the price, charges nothing
 ```
 
 The answer is a 402 with the price on every chain vet402 can pay that seller on:
@@ -309,6 +311,7 @@ The plists start `~/.config/vet402-daily/launch.sh`, which lives outside the che
 
 ### Tempo anchor and the Tempo access key (off by default)
 
+- After the memo (and Tempo), the records job puts each day's root into the observation-roots program on Solana (`anchor-receipts --day <day> --post-root --send`, signed and paid by the posting key `.keys/mainnet/roots-poster.json`, never by the purchase wallet; see `solana-program/README.md`). A day already posted is not sent again. The posting key's balance is read first: below one day's rent and fee plus the empty account's rent-exempt minimum, nothing is signed and the alert file gets one line. Any failure is alerted and the records are published without it. Once the account reads back with the memo's root, count, sequence range and observer, `<day>/anchor-program-sent.json` names the program, the account, the transaction and its slot, and `records:publish` copies them into `data/records/index.json` (`days[].programRoot`). Each record page then shows the account next to the memo. Days posted before that file existed are filled in with `npx tsx scripts/backfill-program-roots.ts --write`, which reads the chain only and refuses any account that differs from the index.
 - The records job also writes each day's root on Tempo only after `touch ~/.config/vet402-daily/tempo-anchor-enabled`: one TIP-20 `transferWithMemo` of 0.000001 USDC.e from the Tempo anchor key (`VET402_TEMPO_ANCHOR_SENDERS` in `src/receipt/observers.ts`) to the observation key's address, with the root as the memo (`scripts/anchor-receipts-tempo.ts`). The signed records are not changed: `records:publish` puts the tx, the memo and the block in `data/records/index.json` (`days[].tempoAnchor`), and `verify-receipt` checks the Tempo memo when the index names one.
 - **Fund the Tempo anchor key from any address except the Tempo payer (`PAYER_ADDRESS` in `src/tempo/constants.ts`).** USDC.e that leaves the payer outside a purchase ledger stops every Tempo purchase run (`chain_spend_exceeds_ledger`, `src/tempo/key-ledgers.ts`). About 0.10 USDC.e covers the access key registration and the anchors to 2026-10-09.
 - Tempo purchases can sign with an AccountKeychain access key instead of the payer's root key (`src/tempo/access-key.ts`): 1.00 USDC.e per 24 hours on chain, calls only to USDC.e `transfer` and `transferWithMemo`, expiry 2026-10-09 23:59:59 UTC. `npx tsx scripts/tempo-access-key.ts` simulates the registration, `--status` reads the key back (limit, expiry, allowed calls), `--send` registers it with the anchor key paying the fee. Then `VET402_EVM_KEY_FILE=~/vet402-solana/.keys/tempo-access.json` in `~/.config/vet402-daily/env` switches the purchases to it. Before each signature the key's state and allowed calls are read from the chain, and a key that does not match is not used.

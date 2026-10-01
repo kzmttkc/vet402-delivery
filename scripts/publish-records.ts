@@ -20,6 +20,10 @@
  *  - its payment tx is a purchase in the ranking inputs (data/), and for DELIVERED the ranking also
  *    counts it as delivered, so the record and the ranking never disagree
  * Anything else in <out>/<day>/ is removed, so a record taken off the list leaves the site.
+ * When <from>/<day>/anchor-program-sent.json is "posted", the day's line in index.json also names the
+ * observation-roots program's day account (days[].programRoot: network, program, account, tx, slot);
+ * without that file a programRoot already in <out>/index.json for the same day and root is kept
+ * (scripts/backfill-program-roots.ts wrote it after reading the account from chain).
  * When <from>/<day>/anchor-tempo-sent.json is "sent", the day's line in index.json also names the Tempo
  * anchor (days[].tempoAnchor: tx, memo, block). The records are copied as they are.
  */
@@ -48,6 +52,7 @@ import {
   type RecordEntry,
   type RecordIndex,
 } from "../src/receipt/publish.js";
+import { programRootOfDay, programRootShape, type ProgramRootEntry } from "../src/receipt/roots-index.js";
 import type { Observation } from "../src/receipt/types.js";
 import { verifyOffline } from "../src/receipt/verify.js";
 
@@ -147,6 +152,12 @@ if (days.length === 0) throw new Error(`${from}: no day folders${onlyDay ? ` for
 }
 // --day: the other days already published stay as they are, once they pass the site build's checks.
 const kept = onlyDay !== undefined && existsSync(join(outDir, "index.json")) ? (await loadPublishedRecords(outDir)).index : null;
+// A programRoot the index already names (a backfilled day has no anchor-program-sent.json): kept for the same day and root.
+const priorProgramRoot = new Map<string, { root: string; programRoot: ProgramRootEntry }>();
+if (existsSync(join(outDir, "index.json"))) {
+  const prior = JSON.parse(readFileSync(join(outDir, "index.json"), "utf8")) as Partial<RecordIndex>;
+  for (const d of prior.days ?? []) if (d?.programRoot && typeof d.root === "string") priorProgramRoot.set(d.day, { root: d.root, programRoot: d.programRoot });
+}
 const entries: RecordEntry[] = [];
 const dayEntries: DayEntry[] = [];
 const refused: string[] = [];
@@ -216,6 +227,12 @@ for (const day of days) {
   if (dayInfo) {
     if (files.length !== dayInfo.inRoot) throw new Error(`${day}: ${files.length} records on disk, the root covers ${dayInfo.inRoot}`);
     dayInfo.published = published;
+    let program = await programRootOfDay(join(from, day), day);
+    if (!program) {
+      const p = priorProgramRoot.get(day);
+      if (p && p.root === dayInfo.root && (await programRootShape(p.programRoot, day)).length === 0) program = p.programRoot;
+    }
+    if (program && dayInfo.anchor.status === "anchored") dayInfo.programRoot = program;
     const tempo = tempoAnchorOfDay(join(from, day), dayInfo.root);
     if (tempo) dayInfo.tempoAnchor = tempo;
     dayEntries.push(dayInfo);

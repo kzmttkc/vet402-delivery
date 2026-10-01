@@ -42,6 +42,7 @@ import {
   type ObservationFields,
   type StringFieldName,
 } from "../../src/receipt/roots-program.js";
+import { programVerify, ROOTS_INDEX_NETWORK } from "../../src/receipt/roots-index.js";
 import { planPostRoot, postRootArgsFromRecord, sendPostRoot } from "../../src/receipt/roots-post.js";
 import { customError, sendIxs, simulateIxs } from "../../src/receipt/roots-tx.js";
 import type { Observation } from "../../src/receipt/types.js";
@@ -235,6 +236,30 @@ describe("verify", () => {
     }
     assert.equal(n, DAYS.reduce((t, d) => t + records[d].length, 0));
     console.log(`verified ${n} records; max compute units ${maxUnits}`);
+  });
+
+  test("verify-receipt's program check (programVerify): a published record passes, the same record with one field changed is refused", async () => {
+    const genesis = (await rpc("getGenesisHash", [])) as string;
+    for (const day of DAYS) {
+      const o = records[day][records[day].length - 1]!;
+      const entry = { network: ROOTS_INDEX_NETWORK, program: ROOTS, account: await dayRootPda(ROOTS, day), tx: "1".repeat(64), slot: 1 };
+      const ok = await programVerify(rpc, entry, o, poster.address, { genesis });
+      assert.equal(ok.ok, true, ok.detail);
+      assert.match(ok.detail, new RegExp(`^verify: ${o.verdict.code} \\(${day}, sequence ${o.observer.sequence}\\)`));
+      for (const tampered of [
+        { ...o, payment: { ...o.payment, amount: `${o.payment.amount}1` } },
+        { ...o, verdict: { ...o.verdict, code: o.verdict.code === "DELIVERED" ? ("NOT_DELIVERED" as const) : ("DELIVERED" as const) } },
+        { ...o, observer: { ...o.observer, sequence: o.observer.sequence + 1 } },
+      ]) {
+        const bad = await programVerify(rpc, entry, tampered, poster.address, { genesis });
+        assert.equal(bad.ok, false, `${o.id}: a changed record must not pass`);
+        assert.match(bad.detail, /verify refused the record/);
+      }
+      // Another day's account: refused before anything is simulated.
+      const other = DAYS.find((d) => d !== day)!;
+      const wrong = await programVerify(rpc, { ...entry, account: await dayRootPda(ROOTS, other) }, o, poster.address, { genesis });
+      assert.equal(wrong.ok, false);
+    }
   });
 
   test("a landed verify transaction carries the verdict in its return data", async () => {

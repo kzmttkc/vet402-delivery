@@ -10,6 +10,10 @@
 #                                            ~/.config/vet402-daily/records-enabled exists.
 #                                            With ~/.config/vet402-daily/tempo-anchor-enabled, the same root is also
 #                                            written on Tempo (anchor-receipts-tempo --day --send) after the Solana anchor.
+#                                            Then the root goes into the observation-roots program on Solana
+#                                            (anchor-receipts --day --post-root --send, posting key
+#                                            .keys/mainnet/roots-poster.json); a failure there is alerted and the
+#                                            records are still published.
 #   scripts/daily/run.sh board    19:05 JST  watches kzmttkc/vet402-algorand's board workflow from outside: when
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
@@ -592,6 +596,7 @@ record_day() {
     run "anchor $day --send" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --send || { alert "anchor-receipts --day $day --send failed (not retried)" halt; return 1; }
   fi
   tempo_anchor_day "$day" "$R" "$@"
+  program_root_day "$day" "$R" "$@"
   run "publish-records $day" in_repo "$TSX" scripts/publish-records.ts --from "$R" --data "$PUB/data" --day "$day" || {
     alert "publish-records --day $day refused after the anchor" halt
     return 1
@@ -621,6 +626,45 @@ tempo_anchor_day() {
   else
     run "anchor $day on Tempo --send" in_repo "$TSX" scripts/anchor-receipts-tempo.ts --day "$day" --key "$KEYS/tempo-anchor.json" --send ||
       alert "anchor-receipts-tempo --day $day --send failed (not retried; the Solana anchor stands)"
+  fi
+  return 0
+}
+
+# program_root_day <day> <receipts dir> [--from <dir>]: the same root in the observation-roots program
+# (scripts/anchor-receipts.ts --post-root). Only for a day whose memo is on chain. anchor-receipts reads the
+# day's account first: a day already posted is not sent again, it is only recorded in
+# <day>/anchor-program-sent.json, which publish-records puts in data/records/index.json (days[].programRoot).
+# Exit 3 = the posting key holds too little SOL for one day, nothing signed. Any failure is alerted and the
+# records are published without a programRoot; the day is resumed by hand (--post-root --send is safe to rerun).
+program_root_day() {
+  local day="$1" R="$2" rc=0
+  shift 2
+  if ! grep -q -- "--post-root" "$REPO/scripts/anchor-receipts.ts" 2>/dev/null; then
+    log "anchor-receipts --post-root is not on $BRANCH: no program root for $day"
+    return 0
+  fi
+  if [ -f "$R/$day/anchor-program-sent.json" ] && grep -q '"status": *"posted"' "$R/$day/anchor-program-sent.json"; then
+    log "$day root already in the observation-roots program"
+    return 0
+  fi
+  if ! { [ -f "$R/$day/anchor-sent.json" ] && grep -q '"status": *"sent"' "$R/$day/anchor-sent.json"; }; then
+    log "$day memo is not on chain$([ "$DRY" = 1 ] && echo ' (dry run)'): no program root"
+    return 0
+  fi
+  if [ "$DRY" = 1 ]; then
+    run "post_root $day (simulate)" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --post-root "$@" ||
+      alert "post_root simulation for $day failed (the memo stands)"
+    return 0
+  fi
+  if [ ! -f "$REPO/.keys/mainnet/roots-poster.json" ]; then
+    alert "no posting key at $REPO/.keys/mainnet/roots-poster.json: the $day root is not in the observation-roots program (the memo stands)"
+    return 0
+  fi
+  run "post_root $day --send" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --post-root --send || rc=$?
+  if [ "$rc" -eq 3 ]; then
+    alert "the posting key Ew2RYGSWQygVoPTgp1kQzQUcyAfsQ6n5RPZYr2B7CsxW holds too little SOL for one day: the $day root is not in the observation-roots program (nothing signed; the memo stands)"
+  elif [ "$rc" -ne 0 ]; then
+    alert "anchor-receipts --day $day --post-root --send failed (exit $rc; the memo stands; rerun by hand, a posted day is not sent twice)"
   fi
   return 0
 }

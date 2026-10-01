@@ -675,7 +675,10 @@ writeFileSync(v("--data") + "/records/" + v("--day") + "/index.json", JSON.strin
   "anchor-receipts.ts": `import { appendFileSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
 appendFileSync(process.env.FAKE_CALLS!, "anchor-receipts " + a.join(" ") + "\\n");
-if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-sent.json", JSON.stringify({ status: "sent" }, null, 2));
+if (a.includes("--post-root")) {
+  if (process.env.FAKE_POST_ROOT_EXIT) process.exit(Number(process.env.FAKE_POST_ROOT_EXIT));
+  if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-program-sent.json", JSON.stringify({ status: "posted" }, null, 2));
+} else if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-sent.json", JSON.stringify({ status: "sent" }, null, 2));
 `,
   "anchor-receipts-tempo.ts": `import { appendFileSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
@@ -934,6 +937,9 @@ function recordsBox() {
   mkdirSync(join(sb.receipts, "2026-09-29"), { recursive: true });
   writeFileSync(join(sb.receipts, "2026-09-29", "anchor-sent.json"), JSON.stringify({ status: "sent" }, null, 2));
   mkdirSync(join(sb.repo, "data", "records", "2026-09-29"), { recursive: true }); // anchored and published: done
+  // The posting key's file (git-ignored in the real checkout); run.sh only checks that it is there.
+  mkdirSync(join(sb.repo, ".keys", "mainnet"), { recursive: true });
+  writeFileSync(join(sb.repo, ".keys", "mainnet", "roots-poster.json"), "[]");
   return sb;
 }
 
@@ -958,15 +964,74 @@ test("records: with records-enabled, each open day is built, verified, anchored 
   writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
   assert.equal(r.status, 0, logs(sb));
-  const anchors = calls(sb).split("\n").filter((l) => l.startsWith("anchor-receipts"));
+  const anchors = calls(sb).split("\n").filter((l) => l.startsWith("anchor-receipts") && !l.includes("--post-root"));
   assert.deepEqual(anchors, ["anchor-receipts --day 2026-09-30 --send", "anchor-receipts --day 2026-10-01 --send", "anchor-receipts --day 2026-10-02 --send"]);
   assert.match(git(sb.origin, "log", "-1", "--format=%s", "main"), /^records: 2026-09-30,2026-10-01,2026-10-02 delivery records and each day's root, anchored on Solana$/);
   // The next run finds nothing left: every closed day is anchored.
   const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:20:00Z") });
   assert.equal(r2.status, 0, logs(sb));
   assert.match(logs(sb), /no closed day with purchases waits for its records/);
-  assert.equal(calls(sb).split("\n").filter((l) => l.includes("--send")).length, 3);
+  assert.equal(calls(sb).split("\n").filter((l) => l.includes("--send") && !l.includes("--post-root")).length, 3);
   rmSync(sb.dir, { recursive: true });
+});
+
+test("records: each day's root also goes into the observation-roots program with --post-root --send, after the memo and Tempo and before the last publish, once", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "tempo-anchor-enabled"), "");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  const lines = calls(sb).split("\n");
+  const days = ["2026-09-30", "2026-10-01", "2026-10-02"];
+  assert.deepEqual(lines.filter((l) => l.includes("--post-root")), days.map((d) => `anchor-receipts --day ${d} --post-root --send`));
+  for (const d of days) {
+    const sol = lines.indexOf(`anchor-receipts --day ${d} --send`);
+    const tem = lines.findIndex((l) => l.startsWith(`tempo-anchor --day ${d}`));
+    const prog = lines.indexOf(`anchor-receipts --day ${d} --post-root --send`);
+    const pubAfter = lines.findIndex((l, i) => i > prog && l.startsWith("publish-records") && l.includes(`--day ${d}`));
+    assert.ok(sol >= 0 && tem > sol && prog > tem && pubAfter > prog, `${d}: memo, Tempo, program, then publish-records\n${lines.join("\n")}`);
+    assert.ok(existsSync(join(sb.receipts, d, "anchor-program-sent.json")), d);
+  }
+  assert.equal(alerts(sb), "", "no alert");
+  runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:20:00Z") });
+  assert.equal(calls(sb).split("\n").filter((l) => l.includes("--post-root")).length, 3, "a done day is not posted again");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a failed post_root is alerted, not retried, and the records are still published; exit 3 (posting key too low) has its own line", () => {
+  for (const [code, re] of [
+    ["1", /anchor-receipts --day 2026-09-30 --post-root --send failed \(exit 1; the memo stands; rerun by hand, a posted day is not sent twice\)/],
+    ["3", /the posting key Ew2RYGSWQygVoPTgp1kQzQUcyAfsQ6n5RPZYr2B7CsxW holds too little SOL for one day: the 2026-09-30 root is not in the observation-roots program \(nothing signed; the memo stands\)/],
+  ] as const) {
+    const sb = recordsBox();
+    writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+    const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), FAKE_POST_ROOT_EXIT: code });
+    assert.equal(r.status, 0, logs(sb));
+    assert.match(alerts(sb), re);
+    assert.equal(alerts(sb).trim().split("\n").filter((l) => l.trim()).length, 1, alerts(sb));
+    assert.match(git(sb.origin, "log", "-1", "--format=%s", "main"), /^records: 2026-09-30 delivery records and each day's root, anchored on Solana$/);
+    assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT for a post_root failure");
+    assert.equal(calls(sb).split("\n").filter((l) => l.includes("--post-root")).length, 1);
+    rmSync(sb.dir, { recursive: true });
+  }
+});
+
+test("records: without the posting key file nothing is posted and one alert says so; a dry run only simulates post_root for a day whose memo is on chain", () => {
+  const sb = recordsBox();
+  rmSync(join(sb.repo, ".keys"), { recursive: true });
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /no posting key at .*roots-poster\.json: the 2026-09-30 root is not in the observation-roots program/);
+  assert.ok(!calls(sb).includes("--post-root"), calls(sb));
+  rmSync(sb.dir, { recursive: true });
+
+  const dry = recordsBox();
+  const r2 = runSh(dry, ["records", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r2.status, 0, logs(dry));
+  assert.ok(!calls(dry).includes("--post-root"), "the memo was only simulated, so nothing to post");
+  assert.match(logs(dry), /2026-09-30 memo is not on chain \(dry run\): no program root/);
+  rmSync(dry.dir, { recursive: true });
 });
 
 test("records: without tempo-anchor-enabled (the default) nothing is written on Tempo", () => {
