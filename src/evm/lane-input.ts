@@ -203,10 +203,17 @@ export type LaneInputProblem = "path_placeholder" | "missing_input";
  * request only on its own words, so another key of the same JSON ("url", "query", "payment") never decides it:
  *   - MISSING_TEXT ("is required", "field required", "cannot be empty", ...), or
  *   - "missing" with an input word (INPUT_WORD), or with a parameter the listing declares after it, or
- *   - "missing" followed by a quoted identifier that is a declared parameter or an input word, or that is not
- *     written like an environment variable (ALL_CAPS),
+ *   - "missing" followed by a quoted name read by quotedNameSide (a declared parameter, or an input word when it
+ *     names nothing of the seller's own and the listing declares nothing else),
+ *   - a validator's standard text: Fastify "querystring|body|params|headers must have required property 'x'" (a
+ *     header named authorization, payment or x-payment stays the seller's), Zod "Required" (an issue whose path
+ *     names such a header, a secret or a key stays the seller's),
  * and never when the same piece speaks of the seller's own side (SELLER_SIDE: env, config, upstream, server,
- * response, an API key) or of payment or authentication (NOT_INPUT).
+ * response, an API key, a secret, a password, a private key, a mnemonic, a JWT, the facilitator, the payTo) or of
+ * payment or authentication (NOT_INPUT).
+ *
+ * Calling vet402's request wrong stops the listing for good until the request changes (holdAfter4xx); calling it
+ * the seller's re-buys it every 7 days. So a name that could be the seller's own setting is read as the seller's.
  */
 const MISSING_TEXT = /\b(is required|are required|(field|url|value|param|parameter|query|body|input|argument)s? required|required (field|param|parameter|query|argument)|cannot be empty|must not be empty|must be provided|empty (json )?body|no (query|input|body) (given|provided|sent))\b/i;
 const MISSING_WORD = /\bmissing\b/i;
@@ -214,7 +221,14 @@ const INPUT_WORD = /\b(quer(y|ies)|bod(y|ies)|param\w*|fields?|inputs?|arguments
 /** "missing" followed by a quoted identifier: Missing "address", missing: 'wallet'. */
 const MISSING_QUOTED = /\bmissing\s*:?\s*\\?["'`]([A-Za-z_]\w*)\\?["'`]/i;
 /** The seller's own side: its environment, configuration, upstream, server or response, or its API key. */
-const SELLER_SIDE = /(\b(env|environment|config\w*|upstream|server|response|misconfigur\w*)\b|api[ _-]?key)/i;
+const SELLER_SIDE = /(\b(env|environment|config\w*|upstream|server|response|misconfigur\w*|secrets?|passwords?|passwd|mnemonic|jwt|facilitator\w*|pay_?to)\b|api[ _-]?key|private[ _-]?key)/i;
+/** Words that make a quoted name the seller's own setting (split from camelCase and snake_case first). */
+const SELLER_NAME_WORDS = new Set(["secret", "secrets", "password", "passwd", "pwd", "mnemonic", "seed", "token", "tokens", "jwt", "rpc", "url", "uri", "dsn", "facilitator", "credential", "credentials", "apikey", "privatekey", "payto"]);
+const SELLER_NAME_PAIRS: readonly [string, string][] = [["private", "key"], ["api", "key"], ["pay", "to"], ["secret", "key"], ["access", "key"]];
+/** Header names whose absence is about payment or authentication: never vet402's input. */
+const AUTH_HEADER = /^(authorization|proxy-authorization|payment|payment-signature|x-payment(-[\w-]+)?|x-api-key|api-key|cookie)$/i;
+/** Fastify's standard validation text. */
+const FASTIFY_REQUIRED = /\b(querystring|body|params|headers)\s+must have required property\s+\\?['"`]?([A-Za-z0-9_$.-]+)/i;
 const NOT_INPUT = /\b(payment|x-payment|authori[sz]ation|authenticat\w*|auth token|bearer|signature|header|login|subscription)\b/i;
 /** A seller's validation error that quotes a path slot vet402 sent as the value. */
 const SLOT_ECHO = /"input"\s*:\s*":[A-Za-z_]/;
@@ -255,20 +269,54 @@ function declaredAfterMissing(piece: string, declared: readonly string[]): boole
   return new RegExp(`(^|[^A-Za-z0-9_])(${names.map((n) => n.replace(/-/g, "\\-")).join("|")})([^A-Za-z0-9_]|$)`).test(after.slice("missing".length));
 }
 
+/** The words of a name: rpcUrl -> rpc url, stripe_secret_key -> stripe secret key, Supabase_Url -> supabase url. */
+function nameWords(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase());
+}
+
+/** Pure. A name the seller's own setup would hold: a secret, a key, a token, an RPC or URL, the payTo, the facilitator. */
+export function sellerSettingName(name: string): boolean {
+  const w = nameWords(name);
+  if (w.some((x) => SELLER_NAME_WORDS.has(x))) return true;
+  return SELLER_NAME_PAIRS.some(([a, b]) => w.some((x, i) => x === a && w[i + 1] === b));
+}
+
+/**
+ * Pure. Whose is a quoted name in "missing 'x'"? "input" (vet402's request) only when the listing declares it, or
+ * when it is not a seller setting, not written like an environment variable, and the listing declares no other
+ * parameters (then nothing says what the seller takes: an input word or a plain field name is read as the request).
+ */
+export function quotedNameSide(name: string, declared: readonly string[] = []): "input" | "seller" {
+  if (declared.some((d) => d.toLowerCase() === name.toLowerCase())) return "input";
+  if (sellerSettingName(name)) return "seller";
+  if (/^[A-Z][A-Z0-9_]*$/.test(name) && /[A-Z]{2}/.test(name)) return "seller";
+  if (declared.length) return "seller";
+  return "input";
+}
+
 /** Pure. What in one piece says vet402's request was wrong, or null. */
 export function inputErrorIn(piece: string, declared: readonly string[] = []): string | null {
+  const f = FASTIFY_REQUIRED.exec(piece);
+  if (f) {
+    const where = f[1]!.toLowerCase();
+    const name = f[2]!;
+    if (where === "headers" && AUTH_HEADER.test(name)) return null;
+    if (SELLER_SIDE.test(name)) return null;
+    return f[0];
+  }
   if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece)) return null;
+  // Zod's message for a value that was not sent.
+  if (/^required\.?$/i.test(piece.trim())) return piece.trim();
   const m = MISSING_TEXT.exec(piece);
   if (m) return m[0];
   if (!MISSING_WORD.test(piece)) return null;
   const q = MISSING_QUOTED.exec(piece);
-  if (q) {
-    const name = q[1]!;
-    const known = declared.includes(name) || INPUT_WORD.test(name);
-    const envLike = /^[A-Z][A-Z0-9_]*$/.test(name) && /[A-Z]{2}/.test(name);
-    if (known || !envLike) return q[0];
-    return null;
-  }
+  if (q) return quotedNameSide(q[1]!, declared) === "input" ? q[0] : null;
   if (INPUT_WORD.test(piece)) return piece.match(MISSING_WORD)![0];
   if (declaredAfterMissing(piece, declared)) return piece.match(MISSING_WORD)![0];
   return null;
@@ -286,11 +334,34 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   if (slot) return { kind: "path_placeholder", detail: `the URL vet402 sent still had the slot ${slot === "*" ? "*" : `:${slot}`} in its path` };
   if (status === 404) return null;
   if (SLOT_ECHO.test(text)) return { kind: "path_placeholder", detail: "the seller's error quotes a path slot vet402 sent as the value" };
+  // Zod issues are read whole: a "Required" whose path names an auth header or a seller setting is the seller's.
+  const zodSeller = zodRequiredPaths(text).some((path) => path.some((x) => AUTH_HEADER.test(x) || sellerSettingName(x) || SELLER_SIDE.test(x)));
   for (const piece of answerPieces(text)) {
+    if (zodSeller && /^required\.?$/i.test(piece.trim())) continue;
     const hit = inputErrorIn(piece, r.declaredParams ?? []);
     if (hit) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${hit}")` };
   }
   return null;
+}
+
+/** Pure. The path of every Zod-shaped issue in a JSON answer whose message is "Required". */
+export function zodRequiredPaths(text: string): string[][] {
+  let j: unknown;
+  try {
+    j = JSON.parse(text.trim());
+  } catch {
+    return [];
+  }
+  const out: string[][] = [];
+  const walk = (v: unknown, depth: number): void => {
+    if (depth > 8 || !v || typeof v !== "object") return;
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
+    const o = v as Record<string, unknown>;
+    if (typeof o.message === "string" && /^required\.?$/i.test(o.message.trim()) && Array.isArray(o.path)) out.push(o.path.map(String));
+    for (const x of Object.values(o)) walk(x, depth + 1);
+  };
+  walk(j, 0);
+  return out;
 }
 
 // ---------- the seller said it did not charge ----------

@@ -468,3 +468,52 @@ test("review of 7a967b8 [low]: a catalog date equal to today is a value, not <to
   assert.equal(laneRequestKey(req, { date: "2026-10-01", params: [] }), laneRequestKey(req));
   assert.equal(laneRequestKey(req, { date: "2026-10-01", params: ["date"] }), laneRequestKey({ ...req, query: { date: "<today>" } }));
 });
+
+// ---------- review of 60bcce8: the seller's setting names, and the validators' standard texts ----------
+
+test("names: a quoted name that is the seller's own setting stays the seller's, whatever the listing declares", () => {
+  const names = ["secret_token", "db_password", "privateKey", "rpcUrl", "jwt_secret", "stripe_secret_key", "access_token", "Supabase_Url", "mnemonic", "payTo", "facilitatorUrl"];
+  for (const n of names) {
+    const body = `missing "${n}"`;
+    for (const declared of [undefined, ["q", "address"]]) {
+      assert.equal(answer400(body, declared), null, `${body} (declared ${declared?.join(",") ?? "none"})`);
+      assert.equal(answer400(JSON.stringify({ error: body }), declared), null, `${body} in JSON`);
+      const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body, ...(declared ? { declaredParams: declared } : {}) };
+      assert.equal(classifyRecord(rec).cause, "seller_config", body);
+    }
+  }
+  // A quoted name the listing does not declare, when it declares others, is not vet402's request either.
+  assert.equal(answer400('missing "chain"', ["q", "address"]), null);
+  assert.equal(answer400('missing "address"', ["q", "address"])?.kind, "missing_input", "declared: vet402's");
+  // The earlier seven stay vet402's.
+  for (const m of ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"']) {
+    assert.equal(answer400(JSON.stringify({ error: m }))?.kind, "missing_input", m);
+    assert.equal(answer400(m)?.kind, "missing_input", `${m} (plain)`);
+  }
+});
+
+test("validators: Fastify's 'must have required property' and Zod's 'Required' are vet402's request, except for an auth or payment header", () => {
+  for (const where of ["querystring", "body", "params", "headers"]) {
+    const body = JSON.stringify({ statusCode: 400, code: "FST_ERR_VALIDATION", error: "Bad Request", message: `${where} must have required property 'address'` });
+    assert.equal(answer400(body)?.kind, "missing_input", where);
+    assert.equal(classifyRecord({ ...bazaar, settledOnChain: true, response: resp(400, body), body }).rule, "input:missing_input:settled", where);
+  }
+  for (const h of ["authorization", "payment", "x-payment"]) {
+    const body = JSON.stringify({ message: `headers must have required property '${h}'` });
+    assert.equal(answer400(body), null, h);
+  }
+  assert.equal(answer400('{"message":"Required"}')?.kind, "missing_input");
+  assert.equal(answer400('[{"code":"invalid_type","expected":"string","received":"undefined","path":["address"],"message":"Required"}]')?.kind, "missing_input");
+  assert.equal(answer400('[{"code":"invalid_type","expected":"string","received":"undefined","path":["headers","authorization"],"message":"Required"}]'), null);
+  assert.equal(answer400('[{"code":"invalid_type","expected":"string","received":"undefined","path":["apiSecret"],"message":"Required"}]'), null);
+  // A plain "Payment Required" is never this.
+  assert.equal(answer400('{"error":"Payment Required"}'), null);
+});
+
+test("a seller-side reading re-buys every 7 days; only vet402's own wrong request stops for good", () => {
+  const body = 'missing "secret_token"';
+  const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body };
+  const last = lastPaidByListing([rec]).get(bazaar.resource)!;
+  assert.equal(last.inputError, false);
+  assert.equal(holdAfter4xx(last, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null, "bought again after 7 days");
+});
