@@ -479,12 +479,17 @@ const Q = String.raw`\\?["'\x60]?`;
  */
 const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|transactions?|records?|results?|info|information|prices?|quotes?|liquidity|holders?|activity|metadata|stats|statistics|coverage)\b/i;
 
+/** Nouns for what a wallet holds: a "required to" phrase is the seller's condition on content only with one of them. */
+const ASSET = String.raw`(?:tokens?|nfts?|funds?|transactions?|balance|eth|usdc|usdg|sol|coins?|shares?|stake)\b`;
+/** A quantity before an asset noun: a number, one, a, an, optionally after "at least". */
+const QTY = String.raw`(?:at\s+least\s+)?(?:\d[\d,.]*|one|a|an)\s+`;
 /**
- * "x is required to <phrase>": only these phrases make it a condition on what x holds (the seller's content). Every
- * other phrase, a doubtful one included ("to have access", "to be verified", "to contain 42 characters"), reads x as
- * the missing input: a doubt falls on vet402's side, never against the seller.
+ * "x is required to <phrase>": only these phrases, each with an asset noun, make it a condition on what x holds (the
+ * seller's content). Every other phrase, a doubtful one included ("to have at least one query parameter", "to own
+ * the request", "to be verified"), reads x as the missing input: a doubt falls on vet402's side, never against the
+ * seller.
  */
-const CONTENT_CONDITION = String.raw`(?:own\b|hold\b|stake\b|be\s+whitelisted\b|be\s+on\s+the\s+allowlist\b|have\s+at\s+least\b|have\s+an?\s+(?:minimum|positive|non-zero|sufficient)\s+balance\b|contain\s+at\s+least\s+\S+\s+(?:tokens?|nfts?|funds|transactions?)\b)`;
+const CONTENT_CONDITION = String.raw`(?:have\s+at\s+least\s+(?:\d[\d,.]*|one|a|an)\s+${ASSET}|own\s+${QTY}${ASSET}|hold\s+${QTY}${ASSET}|stake(?:\s+(?:\d[\d,.]*|at\s+least)\b|\s+tokens?\b|\s*[.!]?\s*$)|be\s+whitelisted\b|be\s+on\s+the\s+allowlist\b|have\s+an?\s+(?:minimum|positive|non-zero|sufficient)\s+balance\b|contain\s+at\s+least\s+(?:\S+\s+){0,2}?${ASSET})`;
 
 /** A validator's fixed message for one field (marshmallow, webargs, DRF, FastAPI, Zod): the field is the JSON key. */
 const VALIDATOR_FIELD_MESSAGE = /^(missing data for required field|this field is required|this field may not be (?:null|blank)|field required|required)\.?$/i;
@@ -514,8 +519,9 @@ function inputForNames(piece: string): string[] {
  * Pure. The names a sentence gives in a form that leaves no doubt that this input is what is missing: "required
  * property 'x'", "x is required" (not "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
  * "'x' is missing", not after "for"). "x is required to <phrase>" counts unless the phrase is a condition on content
- * (CONTENT_CONDITION: own, hold, stake, be whitelisted, be on the allowlist, have at least, have a minimum /
- * positive / non-zero / sufficient balance, contain at least N tokens / NFTs / funds / transactions). With one of these, the sentence's content words (data, price, history) are
+ * with an asset noun (CONTENT_CONDITION: have at least N <asset>, own / hold N <asset>, stake N / stake tokens / a
+ * closing "stake", be whitelisted, be on the allowlist, have a minimum / positive / non-zero / sufficient balance,
+ * contain at least ... <asset>). With one of these, the sentence's content words (data, price, history) are
  * not read as the seller's missing content.
  */
 export function strongNamesInSentence(piece: string): string[] {

@@ -1131,7 +1131,7 @@ test("Rails, marshmallow, webargs, DRF, and '<input word> for x', 'x is required
     assert.equal(answer400(t, d)?.kind, "missing_input", t);
   }
   // ("contain funds" alone is a doubtful phrase since d02bbaa's review: vet402's; "contain at least ... funds" is the seller's.)
-  for (const t of ["Data for 'wallet' is missing", "The wallet is required to have at least one transaction", "The wallet is required to contain at least 10 funds", "The pool is required to hold liquidity"]) {
+  for (const t of ["Data for 'wallet' is missing", "The wallet is required to have at least one transaction", "The wallet is required to contain at least 10 funds", "The pool is required to hold 100 USDC"]) { // ("hold liquidity" has no asset noun: vet402's since 99344e5's review)
     assert.equal(answer400(t, ["wallet", "pool"]), null, t);
   }
   // A field message whose key is the request itself, or a message with no key, names nothing.
@@ -1184,7 +1184,7 @@ test("'x is required to <verb>' is the seller's only for a condition on content;
       assert.notEqual(status, "settled_no_answer");
     }
   }
-  for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake", "wallet is required to hold USDC"]) {
+  for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake", "wallet is required to hold 100 USDC"]) {
     assert.equal(answer400(t, ["wallet", "address"]), null, t);
   }
 });
@@ -1212,10 +1212,37 @@ test("'x is required to <phrase>' is the seller's only for the listed content co
       assert.equal(statusOf({ ...rec, cause } as never), "settled_vet402_input", t);
     }
   }
-  const seller = ["own at least one NFT", "be on the allowlist", "be whitelisted", "stake", "hold", "have at least one transaction", "have a sufficient balance", "contain at least 1 token"];
+  const seller = ["own at least one NFT", "be on the allowlist", "be whitelisted", "stake", "hold 100 USDC", "hold at least 1 token", "have at least one transaction", "have a sufficient balance", "contain at least 1 token"];
   for (const phrase of seller) {
     const t = `wallet is required to ${phrase}`;
     assert.equal(answer400(t, ["wallet"]), null, t);
     assert.equal(answer400(t), null, `${t} (no declarations)`);
+  }
+});
+
+
+// ---------- review of 99344e5: a seller-side phrase needs an asset noun ----------
+
+test("'required to' phrases: the seller's only with an asset noun; settled, the seller's is a negative settled_no_answer and vet402's never is (statusOf, isNegative)", () => {
+  const vet = ["have at least one query parameter", "have at least one of the following parameters", "have at least 1 character", "own the request", "hold the request", "have at least 3 characters", "have at least one letter"];
+  const sentences = [...vet.map((p) => `wallet is required to ${p}`), "query is required to have at least 3 characters", "symbol is required to have at least one letter"];
+  for (const t of [...sentences, ...sentences.map((x) => x.toUpperCase())]) {
+    const name = (/(wallet|query|symbol)/i.exec(t) ?? [])[1]!.toLowerCase();
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: [name] };
+    assert.equal(answer400(t, [name])?.kind, "missing_input", t);
+    const cause = classifyRecord(rec);
+    const status = statusOf({ ...rec, cause } as never);
+    assert.equal(status, "settled_vet402_input", t);
+    assert.equal(isNegative(status, cause), false, t);
+  }
+  const seller = ["own at least one NFT", "hold 100 USDC", "hold at least 1 token", "stake", "stake 100 tokens", "have at least one transaction", "have a sufficient balance", "contain at least 1 token", "be whitelisted", "be on the allowlist"];
+  for (const t of [...seller.map((p) => `wallet is required to ${p}`), ...seller.map((p) => `WALLET IS REQUIRED TO ${p.toUpperCase()}`)]) {
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: ["wallet"] };
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const cause = classifyRecord(rec);
+    assert.equal(cause.cause, "seller_config", t);
+    const status = statusOf({ ...rec, cause } as never);
+    assert.equal(status, "settled_no_answer", t);
+    assert.equal(isNegative(status, cause), true, t);
   }
 });
