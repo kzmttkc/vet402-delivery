@@ -432,6 +432,12 @@ export interface MissingName {
   soft?: boolean;
   /** Which sentence of the answer it came from (text names only). */
   piece?: number;
+  /** The answer wrote it in quotes. */
+  quoted?: boolean;
+  /** Named as a header in prose ("checked headers 'x'", "'x' header"): S only when vet402 does not send it. */
+  proseHeader?: boolean;
+  /** Right before "environment variable" / "env var": S only when vet402 does not send it. */
+  envVar?: boolean;
 }
 
 /**
@@ -489,22 +495,51 @@ export function missingNameSide(m: MissingName, declared: readonly string[] = []
   return "seller";
 }
 
+/** An environment variable's form: capitals with an underscore (DATABASE_URL, DB_HOST, NODE_ENV). */
+const ENV_FORM = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+/** Words that make a quoted name a secret or a connection setting (rule 5 of nameClass). */
+const SECRET_WORDS = new Set(["secret", "secrets", "password", "passwords", "passwd", "mnemonic", "jwt", "dsn", "privatekey", "apikey", "rpcurl"]);
+/** The same, written as two words (private_key, seed_phrase, api_key, access_token, rpc_url, database_url). */
+const SECRET_PAIRS = new Set(["privatekey", "seedphrase", "apikey", "accesstoken", "rpcurl", "databaseurl"]);
+
+/** Pure. A name that holds one of SECRET_WORDS or SECRET_PAIRS as words (split at camelCase, _ and -). */
+export function secretWordName(name: string): boolean {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase());
+  if (SECRET_PAIRS.has(canon(name))) return true;
+  return words.some((w, i) => SECRET_WORDS.has(w) || (i + 1 < words.length && SECRET_PAIRS.has(w + words[i + 1])));
+}
+
 /**
- * Pure. The kind of one missing name (review of 8a4a23f: the rule's shape, so that a misread word never blames a
- * seller):
- *   "S" the seller's own setting: a header (also "(in: header)"), a name under config, env, settings or secrets, a
- *       setting name (sellerSettingName: DATABASE_URL, rpcUrl, ACCESSTOKEN), or an auth or seller-side word
+ * Pure. The kind of one missing name (reviews of 8a4a23f and 82606e3: S only on strong evidence):
+ *   "S" the seller's own setting, only when one of these holds:
+ *       1. capitals with an underscore (DATABASE_URL, DB_HOST, NODE_ENV), quoted or not
+ *       2. a known setting run together (JOINED_SETTING: ACCESSTOKEN, RPCURL, ...), exactly
+ *       3. a structural place under config, env, settings or secrets (JSON key path, Zod path, pydantic loc)
+ *       4. a structural header (Fastify headers, pydantic loc header, Zod path headers, "(in: header)",
+ *          "(location: header)", "Missing required header: 'x'"); a header named in prose ("checked headers 'x'")
+ *          only when quoted and not vet402's input
+ *       5. a name written as a name (quoted, or an identifier with _ or camelCase: secret_token, dbPassword) that
+ *          holds a secret word (SECRET_WORDS, SECRET_PAIRS)
+ *       6. the name right before "environment variable" / "env var", when not vet402's input
  *   "A" vet402's input: declared by the listing (any case, snake or camel), or an allowed word when it declares nothing
- *   "U" anything else: an ordinary word the reading picked up ("expected", "request", "ENS", "fields")
+ *   "U" anything else (an ordinary word, the first word of an explanation: "token", "host", "public")
+ * A declared name is S only by rule 3 or 4 (structural).
  */
 export function nameClass(m: MissingName, declared: readonly string[] = []): "A" | "S" | "U" {
   if (m.header) return "S";
   if (m.path.some((x) => SELLER_PATH.test(x))) return "S";
   const c = canon(m.name);
-  if (declared.some((d) => canon(d) === c)) return "A";
-  if (declared.length === 0 && (ALLOWED.has(c) || ALLOWED.has(singular(c)))) return "A";
-  if (sellerSettingName(m.name)) return "S";
-  if (SELLER_SIDE.test(m.name) || NOT_INPUT.test(m.name)) return "S";
+  const input = declared.some((d) => canon(d) === c) || (declared.length === 0 && (ALLOWED.has(c) || ALLOWED.has(singular(c))));
+  if (input) return "A";
+  if ((m.proseHeader && m.quoted) || m.envVar) return "S";
+  if (ENV_FORM.test(m.name) || JOINED_SETTING.test(m.name)) return "S";
+  // Rule 5 needs the name written as a name: quoted, or as an identifier (secret_token, dbPassword), never a prose word.
+  if ((m.quoted || /_|[a-z][A-Z]/.test(m.name)) && secretWordName(m.name)) return "S";
   return "U";
 }
 
@@ -664,7 +699,12 @@ export function listNames(piece: string): { name: string; strong: boolean }[] {
             i += more[0].length;
           }
           got.push(words[0]!);
-          if (words.length > 1 && sellerSettingName(words.join(" "))) got.push(words.join(" "));
+          // An item of several words gives only its first word (an ordinary word unless declared), and the whole item
+          // when its words run together make a known setting exactly ("RPC url" is RPCURL).
+          const joined = words.join("").toUpperCase();
+          if (words.length > 1 && JOINED_SETTING.test(joined)) got.push(joined);
+          // A later word in an environment variable's form or a known joined setting is a name of its own ("wallet DB_HOST").
+          for (const w of words.slice(1)) if (ENV_FORM.test(w) || JOINED_SETTING.test(w)) got.push(w);
         }
         const wasQuoted = !!q;
         eat(/^\s*\]/);
@@ -689,6 +729,11 @@ export function listNames(piece: string): { name: string; strong: boolean }[] {
  * required") and the part of the request before an input word ("Missing required query parameter 'wallet'"). The
  * part (query, body, path) is where the name goes, not a name.
  */
+/** Pure. A sentence without its format and type notes ("(format: 'ETH_ADDRESS')", "(type: 'HEX_STRING')"). */
+export function withoutTypeNotes(piece: string): string {
+  return piece.replace(/\s*\(\s*(?:type|format)\s*:[^()]*\)/gi, "");
+}
+
 export function plainSentence(piece: string): string {
   return piece
     .replace(/\s*\(\s*(?:type|format|in|location|expected)\s*:[^()]*\)/gi, "")
@@ -881,16 +926,26 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // signature") alone counts only when the sentence names no input of vet402's (laneInputProblem).
     if (SELLER_SIDE.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
     else if (NOT_INPUT.test(piece)) authPieces.push(pi);
-    // A name marked as a header ("'x' (in: header)", "'x' header", "header 'x'") or put under the seller's settings
-    // ("'x' in config", "'x' environment variable").
+    // Headers (rule 4 of nameClass). Structural: an annotation "(in: header)" / "(location: header)" (on the name, or
+    // anywhere in the sentence), and a list the answer gives as missing headers ("Missing required header: 'x'").
+    // In prose ("checked headers 'x'", "'x' header"): quoted only, and S only when vet402 does not send x.
     const headerNames = new Set<string>();
     for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s*\(\s*(?:in|location)\s*:\s*${Q}headers?${Q}\s*\)`, "gi"))) headerNames.add(q[1]!);
-    for (const q of raw.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+headers?\b`, "gi"))) headerNames.add(q[1]!);
-    for (const q of raw.matchAll(new RegExp(String.raw`\bheaders?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) headerNames.add(q[1]!);
-    // "(in: header)" or "(location: header)" anywhere in the sentence: the names it gives are headers.
     const headerSentence = new RegExp(String.raw`\(\s*(?:in|location)\s*:\s*${Q}headers?${Q}\s*\)`, "i").test(raw);
-    const placed = new Set<string>();
-    for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:in|from|under)\s+(?:the\s+)?(?:config\w*|env|environment|settings?|secrets?)\b|(?:environment|env)\s+var)`, "gi"))) placed.add(q[1]!);
+    const headerList: string[] = [];
+    for (const q of raw.matchAll(new RegExp(String.raw`\b(?:missing|required)\s+(?:required\s+)?(?:(?:request|http)\s+)?headers?\b\s*:?\s*(${QUOTED_LIST}|${ID}(?:\s*,\s*${ID})*)`, "gi"))) {
+      for (const x of q[1]!.split(/\s*(?:,|\band\b|\bor\b)\s*/)) {
+        const n = x.replace(/^\\?["'\x60]|\\?["'\x60]$/g, "");
+        if (new RegExp(String.raw`^${ID}$`).test(n) && !STOP.has(n.toLowerCase())) headerList.push(n);
+      }
+    }
+    headerList.forEach((n) => headerNames.add(n));
+    const proseHeader = new Set<string>();
+    for (const q of raw.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+headers?\b`, "gi"))) proseHeader.add(q[1]!);
+    for (const q of raw.matchAll(new RegExp(String.raw`\bheaders?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) proseHeader.add(q[1]!);
+    // Rule 6: the name right before "environment variable" / "env var" (S only when vet402 does not send it).
+    const envVar = new Set<string>();
+    for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:environment\s+variable|env\s+var)`, "gi"))) envVar.add(q[1]!);
     const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
     // A sentence written all in capitals ("WALLET IS REQUIRED TO PROCEED") is read without case: its unquoted names
     // are not ALL_CAPS setting names. A quoted name keeps its case (\"DATABASE_URL\" is required).
@@ -908,16 +963,36 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       const keepsSpelling = n.includes("_") && (CAPS_SETTING_WORD.test(n) || ENV_PREFIX.test(n));
       const settingCheck = shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n;
       const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(settingCheck);
-      names.push({ name: shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n, header: (!!f && f[1]!.toLowerCase() === "headers") || headerNames.has(n) || headerSentence, path: placed.has(n) ? ["config"] : [], source: "text", piece: pi, ...(isSoft ? { soft: true } : {}) });
+      names.push({
+        name: shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n,
+        header: (!!f && f[1]!.toLowerCase() === "headers") || headerNames.has(n) || headerSentence,
+        path: [],
+        source: "text",
+        piece: pi,
+        ...(quoted(n) ? { quoted: true } : {}),
+        ...(proseHeader.has(n) ? { proseHeader: true } : {}),
+        ...(envVar.has(n) ? { envVar: true } : {}),
+        ...(isSoft ? { soft: true } : {}),
+      });
     }
     // Every quoted name of the sentence that is one of the seller's own settings or a header counts, wherever it
     // stands ("(and 'DB_HOST')", "(also check 'DATABASE_URL')", "(expected: 'DATABASE_URL')").
+    // A format or type note ("(format: 'ETH_ADDRESS')", "(type: 'HEX_STRING')") describes a value; it is not read.
     const read = new Set(names.filter((x) => x.piece === pi).map((x) => x.name));
-    for (const q of raw.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]`, "g"))) {
+    for (const q of withoutTypeNotes(raw).matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]`, "g"))) {
       const n = q[1]!;
       if (read.has(n)) continue;
-      const m: MissingName = { name: n, header: headerNames.has(n) || headerSentence, path: placed.has(n) ? ["config"] : [], source: "quoted-setting", piece: pi };
-      if (m.header || m.path.length || sellerSettingName(n)) {
+      const m: MissingName = {
+        name: n,
+        header: headerNames.has(n) || headerSentence,
+        path: [],
+        source: "quoted-setting",
+        piece: pi,
+        quoted: true,
+        ...(proseHeader.has(n) ? { proseHeader: true } : {}),
+        ...(envVar.has(n) ? { envVar: true } : {}),
+      };
+      if (m.header || m.proseHeader || m.envVar || ENV_FORM.test(n) || JOINED_SETTING.test(n) || secretWordName(n)) {
         names.push(m);
         read.add(n);
       }
