@@ -14,7 +14,7 @@ import type { Comparison, CompareRow } from "./compare.js";
 import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY_PLAN, rebuyFacts, rebuySeller, type GroupId, type GroupReport, type RankReport } from "./report.js";
 import { D_UPPER, GRADE_LOWER, MIN_DAYS, wilsonLower, wilsonUpper, type ChainFigures, type Grade, type RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
-import { renderArbitrumPage, renderRobinhoodPage, type LanePublic } from "../evm/site.js";
+import { BOUGHT_STATUSES, SETTLED_STATUSES, renderArbitrumPage, renderRobinhoodPage, type LanePublic } from "../evm/site.js";
 import { lookup } from "../../packages/check/src/check.js";
 import { checkBody } from "../../packages/check/src/body.js";
 
@@ -499,7 +499,8 @@ interface TotalsPart {
 /**
  * The first page's three numbers, over every page, all starting from a payment that settled: Solana, Tempo
  * and Base (rank.json "main"), Algorand (rank.json "algorand", where settled is the facilitator's receipt),
- * Robinhood Chain and Arbitrum (data/evm/<lane>.json: settled = delivered + settled_no_answer). A withheld
+ * Robinhood Chain and Arbitrum (data/evm/<lane>.json: settled = delivered + settled_no_answer + settled_vet402_input,
+ * read on chain). A free call (free_delivered: nothing paid) is not a try here. A withheld
  * row is left out of all three: its result is not published yet. Tries that never settled are not shown
  * on the first page (they are on the Method page), so the numbers do not read as "and the rest?".
  * Sellers: hosts with at least one settled payment, counted once across pages.
@@ -518,9 +519,10 @@ export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; s
   for (const lane of ["arbitrum", "robinhood"] as const) {
     const l = lanes[lane];
     if (!l) continue;
-    const boughtRows = l.rows.filter((x) => x.status === "delivered" || x.status === "settled_no_answer" || x.status === "not_settled" || x.status === "withheld");
+    const boughtRows = l.rows.filter((x) => BOUGHT_STATUSES.has(x.status) && x.status !== "unconfirmed" && x.status !== "free_delivered");
     if (!boughtRows.length) continue;
-    const settledRows = boughtRows.filter((x) => x.status === "delivered" || x.status === "settled_no_answer");
+    // Settled is read from the chain (src/evm/chaincheck.ts).
+    const settledRows = boughtRows.filter((x) => SETTLED_STATUSES.has(x.status));
     for (const x of settledRows) {
       let h: string | null = null;
       try {
@@ -536,7 +538,8 @@ export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; s
       tried: boughtRows.length,
       settled: settledRows.length,
       delivered: boughtRows.filter((x) => x.status === "delivered").length,
-      settledNothing: boughtRows.filter((x) => x.status === "settled_no_answer").length,
+      // As on Solana, Tempo and Base (report.ts settledNotDelivered): every settled purchase that did not come back.
+      settledNothing: settledRows.filter((x) => x.status !== "delivered").length,
       period: `run of ${l.generatedAt.slice(0, 10)}`,
     });
   }
@@ -780,7 +783,7 @@ export function laneVerdictLine(r: RankReport, recordsIndex: unknown, lanes: Lan
   for (const l of raw) {
     const hosts = new Set<string>();
     for (const row of l!.rows) {
-      if (!row.resource || !["delivered", "settled_no_answer", "not_settled", "unconfirmed", "withheld"].includes(row.status)) continue;
+      if (!row.resource || !BOUGHT_STATUSES.has(row.status)) continue;
       try {
         hosts.add(new URL(row.resource).hostname.toLowerCase());
       } catch {

@@ -76,7 +76,8 @@ test("Check page: the verdict labels differ by word and by frame style, not by c
 function sellersWithSettled(): number {
   const hosts = new Set<string>();
   for (const g of pub.groups) if (g.id === "main" || g.id === "algorand") for (const s of g.ranking) if (s.settled > 0) hosts.add(s.host.toLowerCase());
-  for (const l of [lanes.arbitrum, lanes.robinhood]) for (const r of l?.rows ?? []) if ((r.status === "delivered" || r.status === "settled_no_answer") && r.resource) hosts.add(new URL(r.resource).hostname.toLowerCase());
+  // Settled on the lane pages is read on chain: delivered, settled with no answer, or settled after vet402's own wrong request.
+  for (const l of [lanes.arbitrum, lanes.robinhood]) for (const r of l?.rows ?? []) if ((r.status === "delivered" || r.status === "settled_no_answer" || r.status === "settled_vet402_input") && r.resource) hosts.add(new URL(r.resource).hostname.toLowerCase());
   return hosts.size;
 }
 
@@ -85,9 +86,9 @@ test("Check page numbers add up every page (main and Algorand from rank.json, Ar
   const algo = pub.groups.find((g) => g.id === "algorand")!.totals;
   const laneRows = [...(lanes.arbitrum?.rows ?? []), ...(lanes.robinhood?.rows ?? [])];
   const n = (st: string) => laneRows.filter((r) => r.status === st).length;
-  const settled = main.settled + algo.settled + n("delivered") + n("settled_no_answer");
+  const settled = main.settled + algo.settled + n("delivered") + n("settled_no_answer") + n("settled_vet402_input");
   const delivered = main.delivered + algo.delivered + n("delivered");
-  const nothing = main.settledNotDelivered + algo.settledNotDelivered + n("settled_no_answer");
+  const nothing = main.settledNotDelivered + algo.settledNotDelivered + n("settled_no_answer") + n("settled_vet402_input");
   const top = site("index.html");
   assert.ok(top.includes(`<p>${settled} paid calls to ${sellersWithSettled()} sellers. ${nothing} returned nothing usable. As of ${pub.date}. <a href="method.html#totals">Sources</a></p>`));
   assert.ok(!/\btried\b/.test(visibleWords(top).join(" ")), "no count of tries on the Check page");

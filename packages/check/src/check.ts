@@ -283,7 +283,7 @@ interface LaneView {
 
 const LANE_LABEL = { arbitrum: "Arbitrum One", robinhood: "Robinhood Chain" } as const;
 /** The statuses in which vet402 sent a payment (the lane pages count these as "bought by vet402"). */
-const LANE_BOUGHT = new Set(["delivered", "settled_no_answer", "not_settled", "unconfirmed", "withheld"]);
+const LANE_BOUGHT = new Set(["delivered", "settled_no_answer", "not_settled", "unconfirmed", "withheld", "free_delivered", "vet402_input", "settled_vet402_input"]);
 
 export function readLanes(raw: unknown[]): LaneView[] {
   const out: LaneView[] = [];
@@ -316,7 +316,17 @@ function laneFacts(l: LaneView, u: URL): SellerFacts | null {
   const noAnswer = n("settled_no_answer");
   const held = n("withheld");
   const unclear = n("not_settled") + n("unconfirmed");
-  const tried = delivered + noAnswer + unclear;
+  // Never against the seller: vet402's own wrong request (settled or not), and a call the seller said was free.
+  const inputSettled = n("settled_vet402_input");
+  const inputUnsettled = n("vet402_input");
+  const free = n("free_delivered");
+  // A free call is listed by rule only: nothing was paid, so it is neither a try counted for nor against the seller.
+  const tried = delivered + noAnswer + unclear + inputSettled + inputUnsettled;
+  const settled = delivered + noAnswer + inputSettled;
+  const byRule: Record<string, number> = {};
+  if (unclear) byRule.not_settled = unclear;
+  if (inputSettled + inputUnsettled) byRule.vet402_input = inputSettled + inputUnsettled;
+  if (free) byRule.seller_said_free = free;
   const at = l.generatedAt || null;
   const shown = rows.filter((r) => r.status !== "withheld");
   const lastRow = shown.find((r) => sameUrl(r.resource, u.href)) ?? shown[0] ?? null;
@@ -329,15 +339,15 @@ function laneFacts(l: LaneView, u: URL): SellerFacts | null {
     grade: "measuring",
     rank: null,
     tried,
-    settled: delivered + noAnswer,
+    settled,
     delivered,
     counted: delivered + noAnswer,
     days: delivered + noAnswer > 0 ? 1 : 0,
-    byChain: { [l.lane]: { tried, settled: delivered + noAnswer, counted: delivered + noAnswer, delivered, lastAt: at } },
+    byChain: { [l.lane]: { tried, settled, counted: delivered + noAnswer, delivered, lastAt: at } },
     firstAt: at,
     lastAt: at,
     sellerSideFailures: noAnswer ? { settled_no_answer: noAnswer } : {},
-    notCountedAgainstSeller: { vet402OrFacilitator: 0, causeUnknown: unclear, byRule: unclear ? { not_settled: unclear } : {} },
+    notCountedAgainstSeller: { vet402OrFacilitator: inputSettled + inputUnsettled, causeUnknown: unclear, byRule },
     last: lastRow ? { at: at ?? "", chain: l.lane, url: lastRow.resource, category: lastRow.status, httpStatus: null, tx: lastRow.tx, explorer: explorerFor(l.lane, lastRow.tx) } : null,
     lastSellerSideFailure: null,
     sameUrlInRecent: { listed: shown.length, tried: same.length, delivered: same.filter((r) => r.status === "delivered").length },

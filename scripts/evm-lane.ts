@@ -29,6 +29,7 @@ import { readUsdcTransfer } from "../src/evm/erc8004.js";
 import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
 import { DEXTER_DISCOVERY, STOCK_SELLER, confirmLive, groupByPayTo, laneEntries, mirrorEntries, stockEntries, type LiveChoice, type Probe } from "../src/evm/lane-plan.js";
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
+import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { CHAINLINK_DIRECTORY, STOCK_REFS, checkAgainstDirectory, compareStockAnswer, readStockReference, type StockReference } from "../src/robinhood/stock-check.js";
 
 const argv = process.argv.slice(2);
@@ -239,8 +240,24 @@ function choiceSummary(ch: LiveChoice[]) {
   }));
 }
 
+/** Status of vet402's last paid answer per listing on these lanes (an input error is not sent again unchanged). */
+function lastPaidStatus(laneIds: LaneId[]): Map<string, number | null> {
+  const m = new Map<string, number | null>();
+  for (const id of laneIds) {
+    const f = `results/evm/${id}-purchases.jsonl`;
+    if (!existsSync(f)) continue;
+    for (const line of readFileSync(f, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      const r = JSON.parse(line) as ChainBuyRecord;
+      if (r.outcome === "sent") m.set(r.resource, r.response?.status ?? null);
+    }
+  }
+  return m;
+}
+
 // ---------- main ----------
 const cat = await catalogs();
+const today = new Date().toISOString().slice(0, 10);
 const summary: Record<string, unknown> = { generatedAt: new Date().toISOString(), mode: pay ? "pay" : "dry-run", lane: laneArg, payer, catalogs: cat.sources };
 const results: LaneResult[] = [];
 
@@ -248,7 +265,7 @@ if (laneArg === "robinhood") {
   const rh = EVM_CHAINS.robinhood;
   const lane = LANES.robinhood;
   await checkDomain(rh);
-  const groups = groupByPayTo(cat.items, rh, { maxPerAtomic: lane.maxPerAtomic, ownHosts: OWN_HOSTS });
+  const groups = groupByPayTo(cat.items, rh, { maxPerAtomic: lane.maxPerAtomic, ownHosts: OWN_HOSTS, today, lastStatus: lastPaidStatus(["robinhood"]) });
   const choices = await confirmLive(groups, rh, probe, { payer, maxPerAtomic: lane.maxPerAtomic });
   const raw402 = new Map(choices.flatMap((c) => (c.chosen ? [[c.chosen.resource, c.chosen.raw402] as const] : [])));
   let entries = laneEntries(choices, rh);
@@ -287,7 +304,7 @@ if (laneArg === "robinhood") {
   await checkDomain(arb);
   await checkDomain(base);
   const lane = LANES.arbitrum;
-  const groups = groupByPayTo(cat.items, arb, { sameOn: base, maxPerAtomic: lane.maxPerAtomic, ownHosts: OWN_HOSTS });
+  const groups = groupByPayTo(cat.items, arb, { sameOn: base, maxPerAtomic: lane.maxPerAtomic, ownHosts: OWN_HOSTS, today, lastStatus: lastPaidStatus(["arbitrum", "base-compare"]) });
   const choices = await confirmLive(groups, arb, probe, { payer, maxPerAtomic: lane.maxPerAtomic, sameOn: base });
   const raw402 = new Map(choices.flatMap((c) => (c.chosen ? [[c.chosen.resource, c.chosen.raw402] as const] : [])));
   const arbEntries = laneEntries(choices, arb, base);
@@ -300,6 +317,20 @@ if (laneArg === "robinhood") {
   }
   results.push(await runLane(lane, arbEntries, raw402, new Map()));
   results.push(await runLane(LANES["base-compare"], baseEntries, raw402, new Map()));
+}
+
+// ---- the chain check: whether each purchase settled is read from the chain, not from the seller's header ----
+if (pay) {
+  for (const r of results) {
+    try {
+      const c = await checkLaneFiles(r.lane, payer);
+      console.error(`[chain check] ${r.lane}: ${JSON.stringify(c.tally)}${c.failed ? " (unmatched, ambiguous or pending: run scripts/evm-chaincheck.ts again after the windows close)" : ""}`);
+      if (c.failed) process.exitCode = 1;
+    } catch (err) {
+      console.error(`[chain check] ${r.lane} failed: ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  }
 }
 
 // ---- funding: what 0x9B59 needs on each chain for these purchases (the facilitator pays the gas) ----

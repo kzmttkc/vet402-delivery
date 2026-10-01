@@ -295,6 +295,48 @@ export interface ChainBuyRecord {
   paidRequestMs?: number;
   /** Dry run only: the wallet's balance is below the price, so a paying run would refuse this purchase. */
   balanceShort?: boolean;
+  /**
+   * The EIP-3009 authorization vet402 signed, without the signature: its nonce is what the token's
+   * AuthorizationUsed(payer, nonce) event carries when it settles, so the chain check finds this purchase's
+   * transfer exactly. Public once settled; the signature is never recorded.
+   */
+  authorization?: { nonce: string; validAfter: string; validBefore: string };
+  /**
+   * What the paid response carried as a settlement header, read raw (no secret in it): which header was there,
+   * whether the x402 library decoded it, and whether it named a transaction. settlementTx and settledOnChain are
+   * decided by the chain (src/evm/chaincheck.ts), never by the presence of this header.
+   */
+  paymentResponseHeader?: PaymentResponseHeaderNote;
+  /** The chain check's reading of this purchase (src/evm/chaincheck.ts). */
+  chainCheck?: ChainCheckNote;
+}
+
+export interface PaymentResponseHeaderNote {
+  /** The header that was present: PAYMENT-RESPONSE (x402 v2), X-PAYMENT-RESPONSE (v1), both, or none; "not_recorded" on rows from before 2026-10-01. */
+  present: "PAYMENT-RESPONSE" | "X-PAYMENT-RESPONSE" | "both" | "none" | "not_recorded";
+  /** The x402 library decoded it into a settle response. On old rows: whether settleResponse was kept. */
+  decoded: boolean;
+  /** The decoded response named a 0x + 64 hex transaction. */
+  namedTx: boolean;
+  /** Why decoding failed, cut short. */
+  error?: string;
+}
+
+export interface ChainCheckNote {
+  checkedAt: string;
+  /**
+   * transfer_found  a transfer of the price from the payer to the payTo was read on chain inside the authorization's
+   *                 validity window and belongs to this purchase
+   * no_transfer     no transfer from the payer to the payTo for the price is on chain inside that window
+   * ambiguous       a transfer fits, but more than one purchase could own it (left for a human)
+   * pending         nothing found yet and the window has not closed when the chain was read: read again later
+   */
+  result: "transfer_found" | "no_transfer" | "ambiguous" | "pending";
+  /** How the transfer was tied to this purchase: the EIP-3009 nonce, the tx the seller named, payTo + price + window, or the receipt read at purchase time. */
+  by: "nonce" | "named_tx" | "payto_amount_window" | "receipt" | null;
+  tx: string | null;
+  windowFrom: string;
+  windowTo: string;
 }
 
 const parser = new x402HTTPClient(new x402Client());
@@ -412,6 +454,7 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
   }
   deps.budget.commit(res.id);
   if (deps.dryRun) return { ...rec, outcome: "would_pay" };
+  rec.authorization = { nonce: created.authorization.nonce, validAfter: String(created.authorization.validAfter), validBefore: String(created.authorization.validBefore) };
 
   rec.outcome = "sent";
   let paid: Response | null = null;
@@ -431,13 +474,18 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
     rec.response = { status: paid.status, contentType: paid.headers.get("content-type"), bytes: text.length, first300: text.slice(0, 300) };
     if (opts.keepSettleResponse) rec.paidRequestMs = Date.now() - t0;
     if (opts.keepBodyBytes) rec.body = text.slice(0, opts.keepBodyBytes);
+    const v2 = paid.headers.get("payment-response") !== null;
+    const v1 = paid.headers.get("x-payment-response") !== null;
+    const present: PaymentResponseHeaderNote["present"] = v2 && v1 ? "both" : v2 ? "PAYMENT-RESPONSE" : v1 ? "X-PAYMENT-RESPONSE" : "none";
     try {
       const s = parser.getPaymentSettleResponse((n: string) => paid!.headers.get(n)) as SettleResponse;
       rec.settlementTx = typeof s.transaction === "string" && /^0x[0-9a-fA-F]{64}$/.test(s.transaction) ? s.transaction : null;
       if (opts.keepSettleResponse) rec.settleResponse = { success: s.success, transaction: s.transaction, network: s.network, errorReason: s.errorReason, payer: s.payer };
-    } catch {
+      rec.paymentResponseHeader = { present, decoded: true, namedTx: rec.settlementTx !== null };
+    } catch (err) {
       rec.settlementTx = null;
       if (opts.keepSettleResponse) rec.settleResponse = null;
+      rec.paymentResponseHeader = { present, decoded: false, namedTx: false, ...(present !== "none" ? { error: (err as Error).message.slice(0, 160) } : {}) };
     }
   }
   if (rec.settlementTx) {
