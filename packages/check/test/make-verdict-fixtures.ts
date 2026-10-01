@@ -15,6 +15,7 @@
  *   api.nativebtc.org              Arbitrum only, one purchase, came back
  *   x402.quickintel.io             Arbitrum only, result held until the seller is told
  *   x402-mesh-gateway.fly.dev      Algorand, 4 tries, 0 settled, 4 seller-side 5xx with no settlement
+ *   api.syraa.fun, blocksearch.dev 0 of 6 paid calls answered, not in notified.json (held, not avoid)
  * and fixtures/verdict-lane-<lane>.json: data/evm/arbitrum.json and robinhood.json with only those hosts' rows.
  */
 import { readFileSync, writeFileSync } from "node:fs";
@@ -22,7 +23,7 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const OUT = join(import.meta.dirname, "fixtures");
-export const VERDICT_SELLERS = ["api.xona-agent.com", "brasil-dados-api.onrender.com", "agents.datamancer.io", "api.exa.ai", "scvd.store", "algorandtracker.com", "x402-mesh-gateway.fly.dev"];
+export const VERDICT_SELLERS = ["api.xona-agent.com", "brasil-dados-api.onrender.com", "agents.datamancer.io", "api.exa.ai", "scvd.store", "algorandtracker.com", "x402-mesh-gateway.fly.dev", "api.syraa.fun", "blocksearch.dev"];
 const LANE_HOSTS = ["scvd.store", "api.nativebtc.org", "x402.quickintel.io"];
 
 type Obj = Record<string, any>;
@@ -52,6 +53,8 @@ const lanes = ["arbitrum", "robinhood"].map((l) => {
   return { kind: j.kind, lane: j.lane, chain: j.chain, generatedAt: j.generatedAt, source: j.source, rows: j.rows.filter((r: Obj) => LANE_HOSTS.includes(hostOf(r.resource) ?? "")) };
 });
 
+// notified.json as it is: only sellers on it can be "avoid".
+writeFileSync(join(OUT, "verdict-notified.json"), readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8"));
 for (const l of lanes) writeFileSync(join(OUT, `verdict-lane-${l.lane}.json`), `${JSON.stringify(l, null, 2)}\n`);
 writeFileSync(join(OUT, "verdict-rank.json"), `${JSON.stringify(small, null, 2)}\n`);
 writeFileSync(join(OUT, "verdict-records-index.json"), `${JSON.stringify(smallIndex, null, 2)}\n`);

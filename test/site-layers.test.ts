@@ -24,7 +24,8 @@ const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as
 const lanes = loadLanePublic(join(ROOT, "data"));
 const loaded = await loadPublishedRecords(join(ROOT, "data", "records"));
 const recordsIndex = JSON.parse(readFileSync(join(ROOT, "data", "records", "index.json"), "utf8")) as unknown;
-const pages = renderPublicSite(pub, { records: recordsBySeller(loaded), lanes, recordsIndex });
+const notified = JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8")) as unknown;
+const pages = renderPublicSite(pub, { records: recordsBySeller(loaded), lanes, recordsIndex, notified });
 // The records pages too (scripts/build-site.ts adds them the same way).
 const slugs = siteSlugs(pub);
 for (const [rel, html] of renderRecordsSite(loaded, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);
@@ -161,12 +162,13 @@ test("Use it: the verdict first, the live answer built from the data, the hook's
   assert.ok(use.includes(`With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown`));
   // The JSON shown is what api/check.ts answers for the same files.
   const lanesRaw = ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8")));
-  const res = await handleCheck(new Request(`https://h.example/v1/check?url=${encodeURIComponent(USE_EXAMPLE_URL)}`), () => ({ rank: pub, recordsIndex, lanes: lanesRaw }));
+  const res = await handleCheck(new Request(`https://h.example/v1/check?url=${encodeURIComponent(USE_EXAMPLE_URL)}`), () => ({ rank: pub, recordsIndex, lanes: lanesRaw, notified }));
   const live = (await res.json()) as unknown;
   assert.ok(use.includes(`<pre class="cmd">${escapeHtml(JSON.stringify(live, null, 2))}</pre>`), "the answer on use.html is the endpoint's, byte for byte");
   assert.ok(use.includes("so it works under any x402 client that pays through <code>fetch</code>"));
   assert.ok(use.includes("the hook is not Solana-only"));
-  const line = laneVerdictLine(pub, recordsIndex, lanes);
+  assert.ok(use.includes('avoid is given only once vet402 has told the seller, the same rule as for its signed records of failures. Until then the verdict is unknown, the JSON says <code>"held": "seller_not_told"</code>, and the fetch hook does not stop on it.'));
+  const line = laneVerdictLine(pub, recordsIndex, lanes, notified);
   assert.match(line, /^As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown:/);
   assert.ok(use.includes(escapeHtml(line)));
 });

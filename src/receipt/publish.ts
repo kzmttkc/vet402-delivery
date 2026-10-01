@@ -113,6 +113,15 @@ export function sellerOfHost(seller: string, host: string): boolean {
 export function isPublishable(o: Pick<Observation, "verdict" | "resourceUrl">, seller: string, notified: ReadonlySet<string>): boolean {
   if (!sellerOfHost(seller, hostOfUrl(o.resourceUrl))) return false;
   if (o.verdict.code === "DELIVERED") return true;
+  return sellerWasTold(seller, notified);
+}
+
+/**
+ * Has vet402 told this seller (its exact ranking key, host or host#service) about its results? The one
+ * test for every negative result vet402 publishes: signed records here, and the "avoid" verdict of
+ * packages/check (verdict.ts).
+ */
+export function sellerWasTold(seller: string, notified: ReadonlySet<string>): boolean {
   return notified.has(seller);
 }
 

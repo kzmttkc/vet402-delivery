@@ -36,12 +36,17 @@
  *    their purchases are on one day and alone never reach pay or avoid. A purchase there whose negative
  *    result is held until the seller is told ("withheld") is never used: such a seller is "unknown", and
  *    "pay" from another page becomes "unknown" too, with the reason the lane pages give.
+ *  - "avoid" is given only for a seller vet402 has told about its results (data/records/notified.json,
+ *    matched by src/receipt/publish.ts sellerWasTold, the same test that gates negative signed records).
+ *    For any other seller a would-be "avoid" is "unknown" with held = "seller_not_told", and its why
+ *    gives the numbers (already public on the Sellers page) but not the word.
  *  - Several sellers can answer one URL (a seller on the Solana, Tempo and Base page and on the Algorand
  *    page, or several services behind one host). "avoid" if any of them is "avoid" and none is "pay";
  *    "pay" if any is "pay" and none is "avoid"; both at once is "unknown" (pass a chain to choose).
  */
 import { D_UPPER, GRADE_LOWER, MIN_DAYS, wilsonLower, wilsonUpper } from "../../../src/rank/score.js";
 import type { CheckResult, SellerFacts } from "./check.js";
+import { sellerWasTold } from "../../../src/receipt/publish.js";
 
 export type Verdict = "pay" | "avoid" | "unknown";
 export const VERDICTS: readonly Verdict[] = ["pay", "avoid", "unknown"];
@@ -70,7 +75,12 @@ export interface VerdictBasis {
   verdict: Verdict;
 }
 
+/** Why a verdict is "unknown" although vet402 holds a negative result: the seller has not been told yet. */
+export type Held = "seller_not_told" | null;
+
 export interface VerdictOut {
+  /** Set when a negative result is held until the seller has been told (then verdict is "unknown"). */
+  held: Held;
   verdict: Verdict;
   /** One English sentence; every number in it is a field of `basis`. */
   why: string;
@@ -151,7 +161,7 @@ function notCountedClause(b: VerdictBasis): string {
  * The verdict for a lookup. Pure: reads only the result's own figures, so the sentence and the numbers
  * beside it cannot disagree.
  */
-export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">): VerdictOut {
+export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, told: ReadonlySet<string> = new Set()): VerdictOut {
   const chain = r.asked.chain;
   if (!r.sellers.length) {
     const why = r.found
@@ -159,12 +169,17 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
       : chain
       ? `vet402 has not bought from this seller on ${chainName(chain)}, so there is no record to go on.`
       : "vet402 has not bought from this seller, so there is no record to go on.";
-    return { verdict: "unknown", why, basis: null, bases: [] };
+    return { verdict: "unknown", why, basis: null, bases: [], held: null };
   }
-  const bases = r.sellers.map((f) => basisOf(f, chain));
+  const raw = r.sellers.map((f) => basisOf(f, chain));
+  // "avoid" only for a seller vet402 has told (data/records/notified.json, the same test as for negative
+  // signed records: src/receipt/publish.ts sellerWasTold). Any other would-be avoid is held: "unknown".
+  const heldAvoid = new Set(raw.filter((b) => b.verdict === "avoid" && !sellerWasTold(b.seller, told)));
+  const bases = raw.map((b) => (heldAvoid.has(b) ? { ...b, verdict: "unknown" as const } : b));
   const factsOf = (b: VerdictBasis) => r.sellers.find((f) => f.key === b.seller && f.page === b.page);
   const pays = bases.filter((b) => b.verdict === "pay");
   const avoids = bases.filter((b) => b.verdict === "avoid");
+  const heldOnes = bases.filter((b, i) => heldAvoid.has(raw[i]!));
 
   if (pays.length && avoids.length) {
     const b = avoids[0]!;
@@ -173,11 +188,23 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
       why: `${paidClause(b)}, but other purchases from it on ${joinAnd(pays.flatMap((p) => p.chains).map(chainName))} came back, so name the chain to get one answer.`,
       basis: b,
       bases,
+      held: null,
     };
   }
   if (avoids.length) {
     const b = avoids[0]!;
-    return { verdict: "avoid", why: `${paidClause(b)}${newestStatus(factsOf(b), b)}${notCountedClause(b)}.`, basis: b, bases };
+    return { verdict: "avoid", why: `${paidClause(b)}${newestStatus(factsOf(b), b)}${notCountedClause(b)}.`, basis: b, bases, held: null };
+  }
+  if (heldOnes.length) {
+    const b = heldOnes[0]!;
+    const on = b.chains.length ? ` on ${joinAnd(b.chains.map(chainName))}` : "";
+    return {
+      verdict: "unknown",
+      why: `vet402's paid calls to this seller mostly got no usable answer (${b.answered} of ${b.counted}${on}); the verdict is held until the seller has been told.`,
+      basis: b,
+      bases,
+      held: "seller_not_told",
+    };
   }
   const heldOne = bases.find((b) => b.held > 0);
   if (heldOne) {
@@ -186,13 +213,14 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
       why: `vet402 bought from this seller on ${joinAnd(heldOne.chains.map(chainName))}; results for this seller are held until the seller is told.`,
       basis: heldOne,
       bases,
+      held: "seller_not_told",
     };
   }
   if (pays.length) {
     const b = pays[0]!;
     if (r.payTo && !r.payTo.sameAsRecorded)
-      return { verdict: "unknown", why: `${paidClause(b)}, but those payments went to another payTo than the one in this 402.`, basis: b, bases };
-    return { verdict: "pay", why: `${paidClause(b)}${notCountedClause(b)}.`, basis: b, bases };
+      return { verdict: "unknown", why: `${paidClause(b)}, but those payments went to another payTo than the one in this 402.`, basis: b, bases, held: null };
+    return { verdict: "pay", why: `${paidClause(b)}${notCountedClause(b)}.`, basis: b, bases, held: null };
   }
   // Nothing decisive: the seller with the most counted purchases speaks for the rest.
   const b = [...bases].sort((x, y) => y.counted - x.counted || y.settled - x.settled)[0]!;
@@ -208,7 +236,7 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
     b.settled === 0
       ? `vet402 tried to buy from this seller ${times(b.tried)}${b.chains.length ? ` on ${joinAnd(b.chains.map(chainName))}` : ""}, and none of its payments settled, so there is nothing to go on.`
       : `${paidClause(b)}${reason}${notCountedClause(b)}.`;
-  return { verdict: "unknown", why, basis: b, bases };
+  return { verdict: "unknown", why, basis: b, bases, held: null };
 }
 
 /** The first line of every answer, CLI and MCP alike: the verdict and its one-sentence reason. */

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { CHECK_ENDPOINT } from "../../../src/rank/html.js";
-import { lookup, PAID_SELLER_RULES, UNPAID_SELLER_RULES, type CheckResult } from "../src/check.js";
+import { lookup, PAID_SELLER_RULES, toldSet, UNPAID_SELLER_RULES, type CheckResult } from "../src/check.js";
 import { formatCheck } from "../src/cli.js";
 import { CheckBlockedError, wrapFetchWithCheck } from "../src/hook.js";
 import { checkBody, handleCheck, MAX_URL_LENGTH, USE_WAIT_MS, type CheckData, type OnUse } from "../src/http.js";
@@ -26,7 +26,9 @@ const LANES = ["arbitrum", "robinhood"].map((l) => join(FX, `verdict-lane-${l}.j
 const rank = JSON.parse(readFileSync(RANK, "utf8")) as Record<string, any>;
 const index = JSON.parse(readFileSync(INDEX, "utf8")) as unknown;
 const lanes = LANES.map((f) => JSON.parse(readFileSync(f, "utf8")) as unknown);
-const data: CheckData = { rank, recordsIndex: index, lanes };
+const NOTIFIED = join(FX, "verdict-notified.json");
+const notified = JSON.parse(readFileSync(NOTIFIED, "utf8")) as { note: string; sellers: { seller: string; notifiedAt: string }[] };
+const data: CheckData = { rank, recordsIndex: index, lanes, notified };
 const load = (): CheckData => data;
 
 const XONA = "https://api.xona-agent.com/token/pumpfun-trending";
@@ -42,7 +44,7 @@ const body = async (res: Response | Promise<Response>) => (await (await res).jso
 // ---- 1. the four real examples ----
 
 test("verdict, real data: XONA pumpfun-trending (paid 6 times, 0 answers, HTTP 500) is avoid", () => {
-  const r = lookup(rank, index, { url: XONA });
+  const r = lookup(rank, index, { url: XONA }, [], lanes, notified);
   assert.equal(r.verdict, "avoid");
   assert.equal(r.basis?.seller, "api.xona-agent.com");
   assert.deepEqual([r.basis?.settled, r.basis?.counted, r.basis?.answered], [6, 6, 0]);
@@ -51,7 +53,7 @@ test("verdict, real data: XONA pumpfun-trending (paid 6 times, 0 answers, HTTP 5
 });
 
 test("verdict, real data: brasil-dados-api.onrender.com/cambio (paid 6 times, 6 answers) is pay", () => {
-  const r = lookup(rank, index, { url: BRASIL });
+  const r = lookup(rank, index, { url: BRASIL }, [], lanes, notified);
   assert.equal(r.verdict, "pay");
   assert.deepEqual([r.basis?.settled, r.basis?.counted, r.basis?.answered], [6, 6, 6]);
   assert.ok(r.basis!.lower >= 0.5, `lower bound ${r.basis!.lower}`);
@@ -59,17 +61,17 @@ test("verdict, real data: brasil-dados-api.onrender.com/cambio (paid 6 times, 6 
 });
 
 test("verdict, real data: a URL vet402 never bought from is unknown", () => {
-  const r = lookup(rank, index, { url: UNKNOWN });
+  const r = lookup(rank, index, { url: UNKNOWN }, [], lanes, notified);
   assert.equal(r.verdict, "unknown");
   assert.equal(r.basis, null);
   assert.equal(r.why, "vet402 has not bought from this seller, so there is no record to go on.");
-  const onTempo = lookup(rank, index, { url: BRASIL, chain: "tempo" });
+  const onTempo = lookup(rank, index, { url: BRASIL, chain: "tempo" }, [], lanes, notified);
   assert.equal(onTempo.verdict, "unknown", "bought on Solana only: nothing on Tempo");
   assert.match(onTempo.why, /not bought from this seller on Tempo/);
 });
 
 test("verdict, real data: datamancer vin, whose failures are not counted against it (404 after paying), is never avoid", () => {
-  const r = lookup(rank, index, { url: DATAMANCER });
+  const r = lookup(rank, index, { url: DATAMANCER }, [], lanes, notified);
   const f = r.sellers[0]!;
   assert.deepEqual(f.sellerSideFailures, {}, "no failure on the seller's side");
   assert.equal(f.notCountedAgainstSeller.causeUnknown, 4);
@@ -82,13 +84,13 @@ test("verdict, real data: datamancer vin, whose failures are not counted against
   const s = onlyNotCounted.groups[0].ranking.find((x: any) => x.key === "agents.datamancer.io");
   Object.assign(s, { delivered: 0, counted: 0, days: [] });
   s.chains.solana = { ...s.chains.solana, delivered: 0, counted: 0 };
-  const r2 = lookup(onlyNotCounted, index, { url: DATAMANCER });
+  const r2 = lookup(onlyNotCounted, index, { url: DATAMANCER }, [], lanes, notified);
   assert.equal(r2.verdict, "unknown");
   assert.match(r2.why, /0 of the 0 that count/);
 });
 
 test("BLOCK fix: a seller with no settled payment is never avoid (x402-mesh-gateway.fly.dev: 4 seller-side 5xx, none settled, 2 days)", () => {
-  const r = lookup(rank, index, { url: "https://x402-mesh-gateway.fly.dev/v1/inference" });
+  const r = lookup(rank, index, { url: "https://x402-mesh-gateway.fly.dev/v1/inference" }, [], lanes, notified);
   const f = r.sellers[0]!;
   assert.deepEqual([f.page, f.settled, f.counted, f.sellerSideFailures], ["algorand", 0, 4, { server_error_5xx: 4 }], "the shape that was wrongly avoid");
   assert.equal(r.verdict, "unknown");
@@ -100,16 +102,25 @@ test("BLOCK fix: a seller with no settled payment is never avoid (x402-mesh-gate
 test("BLOCK fix, every seller in site/rank.json: avoid only with settled payments, and why never says paid more than settled", () => {
   const real = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as { groups: { id: string; chains: string[]; ranking: { key: string; host: string; last: { url: string } | null; recent: { url: string }[]; chains: Record<string, unknown> }[] }[] };
   const realIndex = JSON.parse(readFileSync(join(ROOT, "data", "records", "index.json"), "utf8"));
-  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0 };
+  const realLanes = ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8")));
+  const realNotified = JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8"));
+  const told = toldSet(realNotified);
+  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0, held: 0 };
+  const helds: string[] = [];
   const avoids: string[] = [];
   for (const g of real.groups)
     for (const s of g.ranking)
       for (const chain of Object.keys(s.chains)) {
         const url = s.last?.url ?? s.recent[0]?.url ?? `https://${s.host}/`;
-        const r = lookup(real, realIndex, { url, chain });
-        const b = verdictFor(r).bases.find((x) => x.seller === s.key && x.page === g.id) ?? r.basis!;
+        const r = lookup(real, realIndex, { url, chain }, [], realLanes, realNotified);
+        const b = verdictFor(r, toldSet(realNotified)).bases.find((x) => x.seller === s.key && x.page === g.id) ?? r.basis!;
         dist[b.verdict]!++;
+        if (r.held === "seller_not_told" && r.basis?.seller === s.key && r.basis.page === g.id) {
+          dist.held!++;
+          helds.push(`${s.key} (${chain}): settled ${r.basis.settled}, answered ${r.basis.answered} of ${r.basis.counted}`);
+        }
         if (b.verdict === "avoid") {
+          assert.ok(told.has(s.key), `${s.key}: avoid only for a seller in notified.json`);
           avoids.push(`${s.key} (${chain}): settled ${b.settled}, answered ${b.answered} of ${b.counted}`);
           assert.ok(b.settled > 0 && b.counted > 0 && b.counted <= b.settled, `${s.key}: avoid rests on settled payments`);
         }
@@ -117,11 +128,38 @@ test("BLOCK fix, every seller in site/rank.json: avoid only with settled payment
         if (m) assert.ok((m[1] === "once" ? 1 : Number(m[1])) <= (r.basis?.settled ?? 0), `${s.key}: ${r.why}`);
       }
   assert.equal(avoids.filter((a) => / settled 0,/.test(a)).length, 0);
-  console.log(`rank.json scan, per seller and chain: ${JSON.stringify(dist)}; avoid: ${avoids.join("; ") || "none"}`);
+  console.log(`rank.json scan, per seller and chain: ${JSON.stringify(dist)}; avoid: ${avoids.join("; ") || "none"}; held: ${helds.join("; ") || "none"}`);
+});
+
+test("avoid only for a seller vet402 has told: syraa and blocksearch (not told) are unknown and held; XONA (told) is avoid; telling them makes them avoid", async () => {
+  for (const url of ["https://api.syraa.fun/insights/gas-oracle", "https://blocksearch.dev/"]) {
+    const r = lookup(rank, index, { url, chain: "solana" }, [], lanes, notified);
+    assert.equal(r.verdict, "unknown", url);
+    assert.equal(r.held, "seller_not_told", url);
+    assert.match(r.why, /^vet402's paid calls to this seller mostly got no usable answer \(0 of 6 on Solana\); the verdict is held until the seller has been told\.$/, url);
+    assert.ok(!/\bavoid\b/.test(r.why), "the word is not said");
+    assert.equal(r.basis?.verdict, "unknown", "the basis does not say avoid either");
+    assert.ok(!JSON.stringify(r).includes('"avoid"'), `${url}: no "avoid" anywhere in the result`);
+    const b = await body(get(q(url, "&chain=solana")));
+    assert.deepEqual([b.verdict, b.held], ["unknown", "seller_not_told"]);
+    const told = { ...notified, sellers: [...notified.sellers, { seller: new URL(url).hostname, notifiedAt: "2026-10-01" }] };
+    assert.equal(lookup(rank, index, { url, chain: "solana" }, [], lanes, told).verdict, "avoid", `${url}: avoid once told`);
+  }
+  const xona = lookup(rank, index, { url: XONA }, [], lanes, notified);
+  assert.deepEqual([xona.verdict, xona.held], ["avoid", null]);
+  assert.equal(lookup(rank, index, { url: XONA }, [], lanes, null).verdict, "unknown", "no notified.json: nobody counts as told");
+  assert.equal(lookup(rank, index, { url: XONA }, [], lanes, { sellers: [{ seller: "api.xona-agent.com#other", notifiedAt: "2026-09-30" }] }).verdict, "unknown", "the exact seller key, as for records");
+});
+
+test('hook block: "avoid" does not stop a held seller (unknown); it stops XONA', async () => {
+  const spy = spyClient();
+  const pay = wrapFetchWithPayment(wrapFetchWithCheck(x402Server("https://api.syraa.fun/insights/gas-oracle", "11111111111111111111111111111111"), { block: "avoid", data: verdictData() }) as typeof fetch, spy.client);
+  assert.equal((await pay("https://api.syraa.fun/insights/gas-oracle")).status, 200);
+  assert.equal(spy.signed(), 1);
 });
 
 test("per chain: days come from that chain's own listed purchases; no split, no verdict", () => {
-  const solana = lookup(rank, index, { url: "https://scvd.store/api/buy/spot_check", chain: "solana" });
+  const solana = lookup(rank, index, { url: "https://scvd.store/api/buy/spot_check", chain: "solana" }, [], lanes, notified);
   const f = solana.sellers.find((x) => x.page === "main")!;
   assert.ok(Object.keys(f.byChain).length > 1, "scvd.store is on Solana and Base");
   assert.equal(solana.basis?.days, f.paid.byChain.solana!.days);
@@ -129,7 +167,7 @@ test("per chain: days come from that chain's own listed purchases; no split, no 
   const mixed = structuredClone(rank);
   const s = mixed.groups[0].ranking.find((x: any) => x.key === "scvd.store");
   s.failuresByRule = { ...s.failuresByRule, server_error_5xx: 1 };
-  const r = lookup(mixed, index, { url: "https://scvd.store/api/buy/spot_check", chain: "solana" });
+  const r = lookup(mixed, index, { url: "https://scvd.store/api/buy/spot_check", chain: "solana" }, [], lanes, notified);
   assert.equal(r.verdict, "unknown");
   assert.equal(r.basis?.counted, 0, "a page with an unsettled seller-side failure cannot be split by chain");
 });
@@ -164,7 +202,7 @@ test("verdict rule: rank.json's grade lines on the Wilson interval, 2+ days, MIN
           paid: { counted, answered: delivered, days, byChain: { solana: { counted, answered: delivered, days } } },
         },
       ],
-    }).verdict;
+    }, new Set(["x.example"])).verdict;
   assert.equal(facts(3, 3, 2), "unknown", "3 of 3: lower bound 0.44");
   assert.equal(facts(4, 4, 2), "pay", "4 of 4: lower bound 0.51");
   assert.equal(facts(0, 3, 2), "unknown", "0 of 3: upper bound 0.56");
@@ -175,12 +213,12 @@ test("verdict rule: rank.json's grade lines on the Wilson interval, 2+ days, MIN
 });
 
 test("verdict: a payTo vet402 never paid turns pay into unknown; avoid stays", () => {
-  const other = lookup(rank, index, { url: BRASIL, payTo: "11111111111111111111111111111111" });
+  const other = lookup(rank, index, { url: BRASIL, payTo: "11111111111111111111111111111111" }, [], lanes, notified);
   assert.equal(other.verdict, "unknown");
   assert.match(other.why, /another payTo than the one in this 402/);
-  const same = lookup(rank, index, { url: BRASIL, payTo: "yUdt7ThMbP5mvtLtURiwK3wgnhexuFtbKC9LEgb1Q8e" });
+  const same = lookup(rank, index, { url: BRASIL, payTo: "yUdt7ThMbP5mvtLtURiwK3wgnhexuFtbKC9LEgb1Q8e" }, [], lanes, notified);
   assert.equal(same.verdict, "pay");
-  assert.equal(lookup(rank, index, { url: XONA, payTo: "11111111111111111111111111111111" }).verdict, "avoid");
+  assert.equal(lookup(rank, index, { url: XONA, payTo: "11111111111111111111111111111111" }, [], lanes, notified).verdict, "avoid");
 });
 
 // ---- 2. the endpoint: verdict and why first, why's numbers are the fields beside it ----
@@ -308,7 +346,7 @@ function spyClient(): { client: x402Client; signed: () => number } {
   return { client, signed: () => n };
 }
 
-const verdictData = () => new PublicData({ sources: { rank: RANK, recordsIndex: INDEX, recordsBase: join(FX, "records"), lanes: LANES }, fetch: () => Promise.reject(new Error("no network in tests")) });
+const verdictData = () => new PublicData({ sources: { rank: RANK, recordsIndex: INDEX, recordsBase: join(FX, "records"), lanes: LANES, notified: NOTIFIED }, fetch: () => Promise.reject(new Error("no network in tests")) });
 
 test('hook block: "avoid" stops XONA before the signer is called; pay and unknown sellers are paid (real @x402/fetch)', async () => {
   const xona = spyClient();
@@ -346,7 +384,7 @@ test("hook: without block, onCheck alone still decides (the old use is unchanged
 // ---- the CLI and MCP lead with the same line ----
 
 test("CLI and MCP: the first line is the verdict and why from the same function", async () => {
-  const r = lookup(rank, index, { url: XONA });
+  const r = lookup(rank, index, { url: XONA }, [], lanes, notified);
   assert.equal(formatCheck(r).split("\n")[0], `verdict: avoid. ${r.why}`);
   const call = await handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "check_before_paying", arguments: { url: BRASIL } } }, { data: verdictData() });
   const res = call!.result as { content: { text: string }[]; structuredContent: CheckResult };
@@ -387,7 +425,7 @@ test("site/index.html: the two example answers are computed from the published d
     lanes: ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8"))),
   };
   for (const url of [XONA, BRASIL]) {
-    const r = lookup(real.rank, real.index, { url }, [], real.lanes);
+    const r = lookup(real.rank, real.index, { url }, [], real.lanes, JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8")));
     const href = `${CHECK_ENDPOINT}?url=${encodeURIComponent(url)}&amp;format=html`;
     const short = url.replace(/^https:\/\//, "");
     assert.ok(index.includes(`<li><span class="v v-${r.verdict}">${r.verdict}</span> <a class="mono" href="${href}">${short}</a> ${r.basis!.answered} of ${r.basis!.settled} paid calls answered.</li>`), url);
@@ -419,7 +457,7 @@ test("verdict on every page's data: Tempo, Base, Algorand, Arbitrum, and a resul
   const held = await body(get(q("https://x402.quickintel.io/v1/scan/full")));
   assert.equal(held.verdict, "unknown");
   assert.equal(held.why, "vet402 bought from this seller on Arbitrum; results for this seller are held until the seller is told.");
-  assert.deepEqual([held.tried, held.settled, held.answered, held.counted, held.held, held.newest], [0, 0, 0, 0, 1, null], "nothing about the held result leaks");
+  assert.deepEqual([held.tried, held.settled, held.answered, held.counted, held.heldPurchases, held.held, held.newest], [0, 0, 0, 0, 1, "seller_not_told", null], "nothing about the held result leaks");
   const heldHtml = await (await get(q("https://x402.quickintel.io/v1/scan/full", "&format=html"))).text();
   assert.ok(heldHtml.includes("<tr><td>Held</td><td>1 purchase, shown after the seller is told</td></tr>"));
   assert.ok(!heldHtml.includes("Tried / settled"), "no 1 / 0 shown for a held seller");

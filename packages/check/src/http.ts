@@ -20,6 +20,8 @@ export { checkBody };
 export interface CheckData {
   rank: unknown;
   recordsIndex: unknown;
+  /** data/records/notified.json: only sellers on it can be "avoid". */
+  notified?: unknown;
   /** data/evm/arbitrum.json and robinhood.json. */
   lanes?: unknown[];
 }
@@ -126,14 +128,14 @@ function htmlPage(q: CheckQuery | null, body: ReturnType<typeof checkBody> | nul
   const rows = [
     row("Seller", body.seller ? `<span class="mono">${escapeHtml(body.seller)}</span>` : "none in the record"),
     row("Chains", escapeHtml(body.chains.join(", ") || "none")),
-    ...(body.held && body.tried === 0
-      ? [row("Held", `${body.held} purchase${body.held === 1 ? "" : "s"}, shown after the seller is told`)]
+    ...(body.heldPurchases && body.tried === 0
+      ? [row("Held", `${body.heldPurchases} purchase${body.heldPurchases === 1 ? "" : "s"}, shown after the seller is told`)]
       : [
           row("Tried / settled", `${body.tried} / ${body.settled}`),
           row("Came back with an answer / paid calls that count", `${body.answered} / ${body.counted}`),
           row("Not counted against the seller", String(body.notCounted)),
           row("Days with paid calls that count", String(body.days)),
-          ...(body.held ? [row("Held", `${body.held} more, shown after the seller is told`)] : []),
+          ...(body.heldPurchases ? [row("Held", `${body.heldPurchases} more, shown after the seller is told`)] : []),
         ]),
     body.newest
       ? row(
@@ -186,7 +188,7 @@ function answerCheck(request: Request, load: () => CheckData): Response {
     const message = "vet402's record could not be read right now. Try again in a minute.";
     return q.format === "html" ? html(503, htmlPage(q, null, message), "no-store") : json(503, { error: "data_unavailable", message }, "no-store");
   }
-  const r = lookup(data.rank, data.recordsIndex, { url: q.url, ...(q.chain ? { chain: q.chain } : {}), ...(q.payTo ? { payTo: q.payTo } : {}) }, [], data.lanes ?? []);
+  const r = lookup(data.rank, data.recordsIndex, { url: q.url, ...(q.chain ? { chain: q.chain } : {}), ...(q.payTo ? { payTo: q.payTo } : {}) }, [], data.lanes ?? [], data.notified ?? null);
   const body = checkBody(r);
   const res = q.format === "html" ? html(200, htmlPage(q, body, null)) : json(200, body);
   return request.method === "HEAD" ? new Response(null, { status: res.status, headers: res.headers }) : res;

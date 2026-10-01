@@ -249,7 +249,7 @@ test("data/: every file matches the manifest sha256, and rank --data reproduces 
     assert.deepEqual(fresh, pub);
     for (const i of fresh.inputs) assert.ok(i.location.startsWith("data/"), `${i.label} read from data/`);
     const recordsIndex = JSON.parse(readFileSync(join(ROOT, "data", "records", "index.json"), "utf8")) as unknown;
-    const pages = renderPublicSite(fresh, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))), lanes: loadLanePublic(join(ROOT, "data")), recordsIndex });
+    const pages = renderPublicSite(fresh, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))), lanes: loadLanePublic(join(ROOT, "data")), recordsIndex, notified: JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8")) });
     for (const [rel, html] of pages) assert.equal(html, readFileSync(join(ROOT, "site", rel), "utf8"), `site/${rel} is up to date`);
   } finally {
     rmSync(out, { recursive: true, force: true });

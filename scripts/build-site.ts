@@ -50,7 +50,8 @@ const records = existsSync(join(recordsDir, "index.json")) ? await loadPublished
 const slugs = siteSlugs(report);
 const lanes = loadLanePublic(join(ROOT, "data"));
 const recordsIndex = existsSync(join(recordsDir, "index.json")) ? (JSON.parse(readFileSync(join(recordsDir, "index.json"), "utf8")) as unknown) : undefined;
-const pages = renderPublicSite(report, { records: records ? recordsBySeller(records) : undefined, lanes, recordsIndex });
+const notified = existsSync(join(recordsDir, "notified.json")) ? (JSON.parse(readFileSync(join(recordsDir, "notified.json"), "utf8")) as unknown) : undefined;
+const pages = renderPublicSite(report, { records: records ? recordsBySeller(records) : undefined, lanes, recordsIndex, notified });
 const jsonFiles = new Map<string, string>();
 if (records) {
   for (const [rel, html] of renderRecordsSite(records, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);

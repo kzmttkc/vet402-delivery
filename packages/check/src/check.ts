@@ -9,7 +9,8 @@
  */
 import { type PublicData } from "./sources.js";
 import { PUBLIC_SITE_URL } from "./sources.js";
-import { verdictFor, type Verdict, type VerdictBasis } from "./verdict.js";
+import { verdictFor, type Held, type Verdict, type VerdictBasis } from "./verdict.js";
+import { notifiedSellers, type NotifiedFile } from "../../../src/receipt/publish.js";
 
 export interface CheckInput {
   /** The resource URL about to be paid. */
@@ -108,6 +109,8 @@ export interface CheckResult {
   why: string;
   /** The seller figures the verdict rests on; null when vet402 has no record. */
   basis: VerdictBasis | null;
+  /** "seller_not_told": a negative result exists but is held until the seller has been told; the verdict is then "unknown". */
+  held: Held;
   kind: "vet402-check-before-paying";
   version: 0;
   asked: { url: string; host: string; chain: string | null; payTo: string | null };
@@ -518,7 +521,7 @@ function sellerLine(f: SellerFacts, chain: string | null): string {
  * The lookup itself, over data already read. Pure. `lanesRaw`: data/evm/arbitrum.json and robinhood.json
  * (Arbitrum and Robinhood Chain), optional.
  */
-export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, sources: string[] = [], lanesRaw: unknown[] = []): CheckResult {
+export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, sources: string[] = [], lanesRaw: unknown[] = [], notifiedRaw: unknown = null): CheckResult {
   const u = parseUrl(input.url);
   const host = u.hostname.toLowerCase();
   const chain = input.chain ? normalizeChain(input.chain) : null;
@@ -594,11 +597,12 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
   }
 
   const asked = { url: u.href, host, chain, payTo };
-  const v = verdictFor({ found, sellers, asked, payTo: payToFact });
+  const v = verdictFor({ found, sellers, asked, payTo: payToFact }, toldSet(notifiedRaw));
   return {
     verdict: v.verdict,
     why: v.why,
     basis: v.basis,
+    held: v.held,
     kind: "vet402-check-before-paying",
     version: 0,
     asked,
@@ -613,8 +617,18 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
   };
 }
 
+/** notified.json as the records loader reads it (src/receipt/publish.ts); unreadable or absent: nobody told. */
+export function toldSet(raw: unknown): ReadonlySet<string> {
+  if (!raw) return new Set();
+  try {
+    return notifiedSellers(raw as NotifiedFile);
+  } catch {
+    return new Set();
+  }
+}
+
 /** Read the public data (or the sources `data` names) and look the URL up. Read-only. */
 export async function checkBeforePaying(input: CheckInput, data: PublicData): Promise<CheckResult> {
-  const [rankRaw, indexRaw, lanesRaw] = await Promise.all([data.rank(), data.recordsIndex(), data.lanes()]);
-  return lookup(rankRaw, indexRaw, input, [data.sources.rank, data.sources.recordsIndex, ...data.sources.lanes], lanesRaw);
+  const [rankRaw, indexRaw, lanesRaw, notifiedRaw] = await Promise.all([data.rank(), data.recordsIndex(), data.lanes(), data.notified()]);
+  return lookup(rankRaw, indexRaw, input, [data.sources.rank, data.sources.recordsIndex, ...data.sources.lanes, ...(data.sources.notified ? [data.sources.notified] : [])], lanesRaw, notifiedRaw);
 }

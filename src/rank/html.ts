@@ -584,9 +584,9 @@ export function paidCallsLine(c: { basis: { answered: number; settled: number } 
 }
 
 /** Each example links to the check itself (the answer page fills the field and shows the verdict). */
-function topExamples(r: RankReport, lanes: Lanes): string {
+function topExamples(r: RankReport, lanes: Lanes, notified: unknown): string {
   const items = TOP_EXAMPLES.map((url) => {
-    const c = lookup(r, NO_RECORDS, { url }, [], [lanes.arbitrum, lanes.robinhood].filter(Boolean));
+    const c = lookup(r, NO_RECORDS, { url }, [], [lanes.arbitrum, lanes.robinhood].filter(Boolean), notified);
     const href = `${CHECK_ENDPOINT}?url=${encodeURIComponent(url)}&format=html`;
     return `<li>${verdictBadge(c.verdict)} <a class="mono" href="${escapeHtml(href)}">${escapeHtml(url.replace(/^https:\/\//, ""))}</a> ${escapeHtml(paidCallsLine(c))}</li>`;
   });
@@ -619,7 +619,7 @@ function useEveryTime(): string {
  * the navigation (labels, button and examples included) at 120 or fewer. Everything else is one click
  * away: Sellers, Use it, Method.
  */
-function renderTopIndex(r: RankReport, lanes: Lanes = {}): string {
+function renderTopIndex(r: RankReport, lanes: Lanes = {}, notified: unknown = null): string {
   const all = siteTotals(r, lanes);
   const body = `
 ${siteNav("check")}
@@ -628,7 +628,7 @@ ${siteNav("check")}
 <p class="lead">${escapeHtml(topLead(all.chains))}</p>
 </header>
 ${topCheckForm()}
-${topExamples(r, lanes)}
+${topExamples(r, lanes, notified)}
 ${topNumbers(all, r.date)}
 ${useEveryTime()}
 `;
@@ -744,7 +744,7 @@ export const USE_EXAMPLE_URL = TOP_EXAMPLES[0];
  * Robinhood Chain and Arbitrum, measured on the data the page is built from: how many of the sellers vet402
  * bought from there get each verdict (they were bought in one run, so today all are unknown).
  */
-export function laneVerdictLine(r: RankReport, recordsIndex: unknown, lanes: Lanes): string {
+export function laneVerdictLine(r: RankReport, recordsIndex: unknown, lanes: Lanes, notified: unknown = null): string {
   const parts: string[] = [];
   let date = "";
   const raw = [lanes.arbitrum, lanes.robinhood].filter(Boolean);
@@ -761,7 +761,7 @@ export function laneVerdictLine(r: RankReport, recordsIndex: unknown, lanes: Lan
     if (!hosts.size) continue;
     const counts: Record<string, number> = {};
     for (const h of hosts) {
-      const v = lookup(r, recordsIndex, { url: `https://${h}/`, chain: l!.lane }, [], raw).verdict;
+      const v = lookup(r, recordsIndex, { url: `https://${h}/`, chain: l!.lane }, [], raw, notified).verdict;
       counts[v] = (counts[v] ?? 0) + 1;
     }
     const label = CHAIN_LABEL[l!.lane];
@@ -772,11 +772,11 @@ export function laneVerdictLine(r: RankReport, recordsIndex: unknown, lanes: Lan
   return `As of the ${date} run, ${parts.join(" and ")}: vet402 bought from them in one run, on one day, which is too little to say pay or avoid.`;
 }
 
-function renderUsePage(r: RankReport, lanes: Lanes, recordsIndex: unknown): string {
+function renderUsePage(r: RankReport, lanes: Lanes, recordsIndex: unknown, notified: unknown): string {
   const spec = (href: string, label: string) => `<p class="meta"><a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${escapeHtml(label)}</a></p>`;
   const laneArr = [lanes.arbitrum, lanes.robinhood].filter(Boolean);
-  const example = checkBody(lookup(r, recordsIndex, { url: USE_EXAMPLE_URL }, [], laneArr));
-  const laneLine = laneVerdictLine(r, recordsIndex, lanes);
+  const example = checkBody(lookup(r, recordsIndex, { url: USE_EXAMPLE_URL }, [], laneArr, notified));
+  const laneLine = laneVerdictLine(r, recordsIndex, lanes, notified);
   const body = `
 ${siteNav("use")}
 <header>
@@ -792,7 +792,8 @@ ${siteNav("use")}
 <li>${verdictBadge("avoid")} vet402 paid, and most paid calls were not answered: the interval's upper bound is below ${D_UPPER_LINE} (the line for grade D), over ${MIN_DAYS_VERDICT} or more days.</li>
 <li>${verdictBadge("unknown")} Too little data, or vet402 never bought from this seller. With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
 </ul>
-<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. A result held until the seller is told is never used: unknown. <a href="${escapeHtml(GH("packages/check/src/verdict.ts"))}" rel="noopener noreferrer nofollow">The rule in code</a></p>
+<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. A result held until the seller is told is never used: unknown.</p>
+<p class="meta">avoid is given only once vet402 has told the seller, the same rule as for its signed records of failures. Until then the verdict is unknown, the JSON says <code>"held": "seller_not_told"</code>, and the fetch hook does not stop on it. <a href="${escapeHtml(GH("packages/check/src/verdict.ts"))}" rel="noopener noreferrer nofollow">The rule in code</a></p>
 ${laneLine ? `<p class="meta">${escapeHtml(laneLine)}</p>` : ""}
 
 <h2 id="http">HTTP: GET /v1/check</h2>
@@ -1138,13 +1139,15 @@ export function renderPublicSite(
     lanes?: { robinhood?: LanePublic; arbitrum?: LanePublic };
     /** data/records/index.json as published, for the /v1/check answer shown on use.html. */
     recordsIndex?: unknown;
+    /** data/records/notified.json: only sellers on it can be shown as "avoid". */
+    notified?: unknown;
   } = {},
 ): Map<string, string> {
   const slugs = siteSlugs(r);
   const out = new Map<string, string>();
-  out.set("index.html", renderTopIndex(r, opts.lanes));
+  out.set("index.html", renderTopIndex(r, opts.lanes, opts.notified ?? null));
   out.set("sellers.html", renderSellersMain(r, groupById(r, "main"), slugs));
-  out.set("use.html", renderUsePage(r, opts.lanes ?? {}, opts.recordsIndex ?? NO_RECORDS));
+  out.set("use.html", renderUsePage(r, opts.lanes ?? {}, opts.recordsIndex ?? NO_RECORDS, opts.notified ?? null));
   out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs));
   out.set("robinhood.html", renderRobinhoodPage(r, groupById(r, "robinhood"), opts.lanes?.robinhood));
   out.set("arbitrum.html", renderArbitrumPage(r, groupById(r, "arbitrum"), opts.lanes?.arbitrum));

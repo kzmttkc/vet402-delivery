@@ -260,7 +260,7 @@ test("MCP: tools/list and tools/call over handleMessage", async () => {
 function mcpSession(messages: object[]): Promise<Record<string, unknown>[]> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [join(PKG, "bin", "vet402-check.mjs"), "--mcp"], {
-      env: { ...process.env, VET402_CHECK_RANK: join(FX, "rank.json"), VET402_CHECK_RECORDS_INDEX: join(FX, "records-index.json"), VET402_CHECK_RECORDS_BASE: join(FX, "records"), VET402_CHECK_LANES: "" },
+      env: { ...process.env, VET402_CHECK_RANK: join(FX, "rank.json"), VET402_CHECK_RECORDS_INDEX: join(FX, "records-index.json"), VET402_CHECK_RECORDS_BASE: join(FX, "records"), VET402_CHECK_LANES: "", VET402_CHECK_NOTIFIED: "" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let out = "";

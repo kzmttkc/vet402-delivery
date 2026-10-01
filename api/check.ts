@@ -1,7 +1,7 @@
 /**
  * Vercel Function (Node.js runtime, Web handler): GET /v1/check?url=<seller URL> (rewrite in vercel.json).
  * Free and read-only for the caller: no key, no payment. The answer comes only from the files bundled with
- * the function (vercel.json includeFiles): site/rank.json, data/records/index.json and data/evm/*.json, the
+ * the function (vercel.json includeFiles): site/rank.json, data/records/index.json, data/records/notified.json and data/evm/*.json, the
  * same commit as the site. The logic is packages/check/src/http.ts.
  *
  * Each call is also counted in Postgres (src/usage/count.ts: per day, hashed caller, no raw IP). Counting is
@@ -22,6 +22,7 @@ function load(): CheckData {
     data = {
       rank: json("site", "rank.json"),
       recordsIndex: json("data", "records", "index.json"),
+      notified: existsSync(join(root, "data", "records", "notified.json")) ? json("data", "records", "notified.json") : null,
       lanes: ["arbitrum", "robinhood"].filter((l) => existsSync(join(root, "data", "evm", `${l}.json`))).map((l) => json("data", "evm", `${l}.json`)),
     };
   }

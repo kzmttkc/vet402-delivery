@@ -12,6 +12,8 @@ export const PUBLIC_REPO_URL = "https://github.com/kzmttkc/vet402-delivery";
 export const RANK_URL = `${PUBLIC_SITE_URL}/rank.json`;
 export const RECORDS_INDEX_URL = "https://raw.githubusercontent.com/kzmttkc/vet402-delivery/main/data/records/index.json";
 export const RECORDS_BASE_URL = `${PUBLIC_SITE_URL}/records`;
+/** The sellers vet402 has told about their results (an "avoid" verdict needs the seller to be on it). */
+export const NOTIFIED_URL = "https://raw.githubusercontent.com/kzmttkc/vet402-delivery/main/data/records/notified.json";
 /** Arbitrum and Robinhood Chain purchases (one per payTo), as their pages show them. */
 export const LANE_URLS = ["arbitrum", "robinhood"].map((l) => `https://raw.githubusercontent.com/kzmttkc/vet402-delivery/main/data/evm/${l}.json`);
 
@@ -26,6 +28,8 @@ export interface Sources {
   recordsBase: string;
   /** data/evm/arbitrum.json and robinhood.json: https URLs or local paths. Empty: none read. */
   lanes: string[];
+  /** data/records/notified.json: https URL or local path. Empty: no seller counts as told (no "avoid"). */
+  notified: string;
 }
 
 /** The public sources, unless VET402_CHECK_RANK, VET402_CHECK_RECORDS_INDEX or VET402_CHECK_RECORDS_BASE name others. */
@@ -34,6 +38,7 @@ export function defaultSources(env: NodeJS.ProcessEnv = process.env): Sources {
     rank: env.VET402_CHECK_RANK || RANK_URL,
     recordsIndex: env.VET402_CHECK_RECORDS_INDEX || RECORDS_INDEX_URL,
     recordsBase: env.VET402_CHECK_RECORDS_BASE || RECORDS_BASE_URL,
+    notified: env.VET402_CHECK_NOTIFIED !== undefined ? env.VET402_CHECK_NOTIFIED.trim() : NOTIFIED_URL,
     lanes: env.VET402_CHECK_LANES !== undefined ? env.VET402_CHECK_LANES.split(",").map((x) => x.trim()).filter(Boolean) : LANE_URLS,
   };
 }
@@ -117,6 +122,16 @@ export class PublicData {
         ),
       );
       return got.filter((x) => x !== null);
+    });
+  }
+
+  /** notified.json, or null when there is none or it cannot be read (then no seller counts as told). */
+  notified(): Promise<unknown> {
+    return this.cached("notified", async () => {
+      if (!this.sources.notified) return null;
+      return readText(this.sources.notified, MAX_BYTES.lane, this.f)
+        .then((t) => JSON.parse(t) as unknown)
+        .catch(() => null);
     });
   }
 
