@@ -266,8 +266,10 @@ function choiceSummary(ch: LiveChoice[]) {
 
 /**
  * vet402's last paid answer per listing on these lanes (src/evm/lane-input.ts lastPaidByListing), read the way the
- * pages read it: the records with rule 0's material applied (src/evm/lane-records.ts), so a purchase that lacked a
- * required input stays stopped instead of being bought again with the same request.
+ * pages read it: the records with rule 0's material applied (src/evm/lane-records.ts). It decides which listing the
+ * plan offers (a 400/404/422 holds the same request 30 or 7 days). It does not decide whether a seller is paid
+ * again: with --pay the lane's ledger allows each seller once (Budget, already_bought), so an ended hold buys
+ * nothing unless the ledger has been changed.
  */
 function lastPaid(laneIds: LaneId[]): Map<string, LastPaid> {
   return lastPaidByListing(recordsRead.rows.filter((r) => laneIds.includes(r.lane as LaneId)));

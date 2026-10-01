@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -27,6 +27,8 @@ import { lookup } from "../packages/check/src/check.js";
  * is the seller's: url is not one of the allowed names (ALLOWED_NAMES), so it is asserted on its own below.
  */
 const EARLIER_SEVEN_KEPT = ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "missing queries", 'Missing "address"'];
+/** A last answer from now: within every hold (a fixed date would age out of the 30-day hold). */
+const NOW_ISO = new Date().toISOString();
 const PAYER = getAddress("0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51");
 const ARB = EVM_CHAINS.arbitrum;
 
@@ -151,25 +153,25 @@ test("vet402's request: socialintel (:username), carbon-cashmere (:netuid), open
 
 test("next purchase: the slot and the inputs are filled from the listing; an input vet402 cannot fill after a 400/404/422 is not bought again", () => {
   const social = { resource: "https://socialintel.dev/v1/user/:username", extensions: { bazaar: { info: { input: { method: "GET", pathParams: { username: "test" }, queryParams: { username: "yoga_with_adriene" }, type: "http" } } } } };
-  const r1 = repairLaneRequest(social, { resource: social.resource, method: "GET", query: { username: "yoga_with_adriene" }, body: null }, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true, declaredCount: 1 });
+  const r1 = repairLaneRequest(social, { resource: social.resource, method: "GET", query: { username: "yoga_with_adriene" }, body: null }, "2026-10-01", { status: 404, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 });
   assert.ok(r1.ok && r1.request.resource === "https://socialintel.dev/v1/user/yoga_with_adriene");
   const carbon = { resource: "https://api.carbon-cashmere.de/v1/bittensor-derivatives/alpha-price-history/:netuid", extensions: { bazaar: { info: { input: { method: "GET", pathParams: { netuid: "1" }, type: "http" } } } } };
-  const r2 = repairLaneRequest(carbon, { resource: carbon.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 422, requestKey: null, at: null, inputError: true, declaredCount: 1 });
+  const r2 = repairLaneRequest(carbon, { resource: carbon.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 422, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 });
   assert.ok(r2.ok && r2.request.resource.endsWith("/alpha-price-history/1"));
   const noValue = repairLaneRequest({ resource: "https://x.test/u/:id" }, { resource: "https://x.test/u/:id", method: "GET", query: null, body: null }, "2026-10-01");
   assert.deepEqual(noValue, { ok: false, reason: "path_placeholder", param: "id" });
   // quickintel's Dexter listing declares the body (chain, tokenAddress): sent instead of {}.
   const qi = { resource: "https://x402.quickintel.io/v1/scan/full", accepts: [{ outputSchema: { input: { method: "POST", body: { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" } } } }] };
-  const r3 = repairLaneRequest(qi as never, { resource: qi.resource, method: "POST", query: null, body: {} }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true, declaredCount: 1 });
+  const r3 = repairLaneRequest(qi as never, { resource: qi.resource, method: "POST", query: null, body: {} }, "2026-10-01", { status: 400, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 });
   assert.ok(r3.ok);
   assert.deepEqual(r3.ok && r3.request.body, { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" });
   // openwebninja: email_domain is required and nothing names a value: not bought again after the 400.
   const ow = { resource: "https://x402.openwebninja.com/email-search/search-emails", inputSchema: { properties: { email_domain: { type: "string" }, query: { type: "string" } }, required: ["email_domain", "query"] }, extensions: { bazaar: { info: { input: { method: "GET", queryParams: { type: "object", properties: { email_domain: { type: "string" }, query: { type: "string" } }, required: ["email_domain", "query"] } } } } } };
-  const r4 = repairLaneRequest(ow, { resource: ow.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true, declaredCount: 1 });
+  const r4 = repairLaneRequest(ow, { resource: ow.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 400, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 });
   assert.equal(r4.ok, false);
   // Plan: the listing goes to the group's input skips, and the row says so in neutral words.
   const accept = { scheme: "exact", network: ARB.caip2, amount: "3000", asset: ARB.asset, payTo: openweb.payTo, maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
-  const g = groupByPayTo([{ ...ow, accepts: [accept] }], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[ow.resource, { status: 400, requestKey: null, at: null, inputError: true, declaredCount: 1 }]]) });
+  const g = groupByPayTo([{ ...ow, accepts: [accept] }], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[ow.resource, { status: 400, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 }]]) });
   assert.equal(g[0]!.options.length, 0);
   assert.match(g[0]!.inputSkipped![0]!.why, /^input_unfillable: /);
 });
@@ -239,21 +241,21 @@ test("records keep the raw settlement header (which one, decoded, named a tx) an
 test("follow-up 1: a filled request that still got 400/404/422 is not bought again; the lookup is by the catalog URL", () => {
   const social = { resource: "https://socialintel.dev/v1/user/:username", extensions: { bazaar: { info: { input: { method: "GET", queryParams: { username: "yoga_with_adriene" }, type: "http" } } } } };
   const req = { resource: social.resource, method: "GET" as const, query: { username: "yoga_with_adriene" }, body: null };
-  const first = repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true, declaredCount: 1 });
+  const first = repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 });
   assert.ok(first.ok && first.changed, "the old record sent the catalog's request: the filled one is new, so it is bought once");
   const sent = first.ok ? first.requestKey : "";
   // That filled request answered 404 too: the next run fills it the same way and does not buy it.
-  assert.deepEqual(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: sent, at: null, inputError: true, declaredCount: 1 }), { ok: false, reason: "input_unchanged_after_input_error", param: null });
+  assert.deepEqual(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: sent, at: NOW_ISO, inputError: true, declaredCount: 1 }), { ok: false, reason: "input_unchanged_after_input_error", param: null });
   // A 200 last time, or a different request now: bought.
-  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 200, requestKey: sent, at: null, inputError: false }).ok, true);
-  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: "f".repeat(64), at: null, inputError: true, declaredCount: 1 }).ok, true);
+  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 200, requestKey: sent, at: NOW_ISO, inputError: false }).ok, true);
+  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: "f".repeat(64), at: NOW_ISO, inputError: true, declaredCount: 1 }).ok, true);
   // The plan looks the listing up by its catalog URL and carries it to the entry and the record.
   const accept = { scheme: "exact", network: ARB.caip2, amount: "10000", asset: ARB.asset, payTo: social.resource && "0xB1Acd9E0269023546074400A434e703B646AaBBa", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
   const listing = { ...social, accepts: [accept] };
-  const g1 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: null, at: null, inputError: true, declaredCount: 1 }]]) });
+  const g1 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: null, at: NOW_ISO, inputError: true, declaredCount: 1 }]]) });
   assert.equal(g1[0]!.options[0]!.listingResource, social.resource);
   assert.equal(g1[0]!.options[0]!.resource, "https://socialintel.dev/v1/user/yoga_with_adriene");
-  const g2 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: sent, at: null, inputError: true, declaredCount: 1 }]]) });
+  const g2 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: sent, at: NOW_ISO, inputError: true, declaredCount: 1 }]]) });
   assert.equal(g2[0]!.options.length, 0);
   assert.match(g2[0]!.inputSkipped![0]!.why, /input_unchanged_after_input_error/);
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
@@ -1081,4 +1083,28 @@ test("a purchase whose every line is unreadable is withheld and counted, never '
   } finally {
     rmSync(dir, { recursive: true });
   }
+});
+
+
+// ---------- review of 9449a11 ----------
+
+test("validator texts name the input even with a content word in them; the seller's missing content stays the seller's", () => {
+  for (const [t, d] of [["data must have required property 'wallet'", ["wallet"]], ["data/body must have required property 'wallet'", ["wallet"]], ["Invalid request data: wallet is required", ["wallet"]], ["price is required", ["price"]], ["quote is required", ["quote"]], ['"history" is required', ["history"]], ["Missing required field: wallet (wallet address for balance lookup)", ["wallet"]]] as [string, string[]][]) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", t);
+  }
+  for (const t of ["Missing data for wallet", "missing wallet data", "Missing wallet history", "Missing chain support", "missing address balance", "Missing data for address 0xabc", "Data for 'wallet' is missing", "The wallet is required to have at least one transaction"]) {
+    assert.equal(answer400(t, ["wallet", "address", "chain"]), null, t);
+  }
+  assert.deepEqual(strongNamesInSentence("Data for 'wallet' is missing"), [], "after 'for', the quoted name only says whose data");
+  assert.deepEqual(strongNamesInSentence("The wallet is required to have at least one transaction"), [], "'required to' is a condition, not a missing input");
+});
+
+test("a last answer with no readable time is never a hold without end: not held, and said", () => {
+  const said: string[] = [];
+  for (const at of [null, "not a date"]) {
+    assert.equal(holdAfter4xx({ status: 400, requestKey: null, at, inputError: true, declaredCount: 1 }, Date.now(), (x) => said.push(x)), null);
+    assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, Date.now(), (x) => said.push(x)), null);
+  }
+  assert.equal(said.length, 4);
+  assert.match(said[0]!, /^ALERT holdAfter4xx: the last answer \(400\) has no readable time \(null\); not held$/);
 });

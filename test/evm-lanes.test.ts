@@ -660,3 +660,38 @@ test("the Base column follows the listing the paying run bought, even when the d
   assert.equal(out.rows[0]!.status, "delivered");
   assert.equal(out.compare!.find((c) => c.resource === "https://f.test/x")?.status, "delivered");
 });
+
+
+test("the ledger, not the hold, limits money: after a hold ends, the same seller is refused as already_bought by the real ledger (nothing signed, nothing paid)", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { holdAfter4xx, lastPaidByListing, INPUT_4XX_RETRY_MS, repairLaneRequest } = await import("../src/evm/lane-input.js");
+  const dir = mkdtempSync(join(tmpdir(), "vet402-ledger-once-"));
+  try {
+    const ledger = join(dir, "robinhood-ledger.json");
+    const body = '"address" is required';
+    const s = fake402([acc()], { status: 400, body, settle: { success: true, transaction: TX, network: RH.caip2 } });
+    // First paying run: the purchase goes through the real ledger file, and the seller's 400 reads as vet402's own wrong request.
+    const run1 = deps(s.f, { budget: new Budget(ledger, LANES.robinhood.maxTotalAtomic, LANES.robinhood.maxCount, LANES.robinhood.maxPerAtomic) });
+    const e = entry({ declaredParams: ["address"] });
+    const first = await buyOneOnChain(RH, e, run1.d);
+    assert.equal(first.outcome, "sent");
+    assert.equal(s.paid(), 1);
+    const last = lastPaidByListing([first]).get(first.resource)!;
+    assert.equal(last.inputError, true);
+    // 31 days later the hold has ended, and the plan would offer the same request again...
+    const later = Date.parse(first.at) + INPUT_4XX_RETRY_MS + 86_400_000;
+    assert.equal(holdAfter4xx(last, later), null);
+    assert.equal(repairLaneRequest({ resource: e.resource } as never, { resource: e.resource, method: "GET", query: null, body: null }, "2026-11-01", last, later).ok, true);
+    // ...but the next paying run reads the same ledger and refuses the seller before any signature.
+    const run2 = deps(s.f, { budget: new Budget(ledger, LANES.robinhood.maxTotalAtomic, LANES.robinhood.maxCount, LANES.robinhood.maxPerAtomic) });
+    const again = await buyOneOnChain(RH, e, run2.d);
+    assert.equal(again.outcome, "refused");
+    assert.equal(again.refusal?.refused, "already_bought");
+    assert.equal(run2.signs(), 0, "nothing signed");
+    assert.equal(s.paid(), 1, "nothing paid again");
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});

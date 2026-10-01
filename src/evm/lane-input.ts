@@ -9,8 +9,14 @@
  *   query / body  src/inputs/fill.ts fillParams against the listing's declared input (src/inputs/spec.ts
  *           fromBazaar): placeholders, required parameters left out, and, when nothing is sent, the seller's
  *           own documented defaults
- * A listing whose path slot cannot be filled is not bought. A listing whose earlier paid answer was 400, 404 or
- * 422 is not bought again unless the fill changed the request (vet402 has nothing better to send).
+ * A listing whose path slot cannot be filled is not bought. After a paid 400, 404 or 422 the same request is held
+ * (holdAfter4xx: 30 days when the answer reads as vet402's own wrong request, 7 days otherwise).
+ *
+ * The hold is not what limits money. A paying lane run (scripts/evm-lane.ts --pay) buys each seller once in its
+ * life: the lane's ledger (src/guard.ts Budget, results/evm/<lane>-ledger.json, key <chain>-payto:<payTo>) refuses a
+ * second purchase as already_bought, before any signature. So when a hold ends, nothing is bought again; a real
+ * second purchase happens only when the ledger is changed (a new ledger, or the entry removed), which is not done
+ * by any script. A misread 4xx therefore changes a page's label, never the money spent.
  *
  * Why: on 2026-09-30 the Arbitrum and Robinhood lanes sent "/v1/user/:username" (404), ":netuid" (422), a GET
  * without the required `query` (400) and an empty JSON object to an endpoint that needs a token (400, after the
@@ -103,23 +109,30 @@ export function lastPaidByListing(rows: readonly ChainBuyRecord[]): Map<string, 
 }
 
 /**
- * vet402's own wrong request (read as such, on a listing that declares parameters) is bought again, unchanged,
- * once this long after it: a misreading costs at most one small purchase every 30 days, never a seller dropped.
+ * How long vet402's own wrong request (read as such, on a listing that declares parameters) is held before the
+ * same request may be planned again. With --pay the lane's ledger still allows each seller once only (see the top
+ * of this file), so the end of a hold buys nothing unless the ledger has been changed.
  */
 export const INPUT_4XX_RETRY_MS = 30 * 86_400_000;
 
-/** A seller-side 400/404/422 to an unchanged request is bought again once this long after it. */
-export const SELLER_4XX_RETRY_MS = 7 * 86_400_000; // every 7 days: the record of that listing stays fresh
+/** How long a seller-side 400/404/422 to an unchanged request is held (the ledger still allows one purchase per seller). */
+export const SELLER_4XX_RETRY_MS = 7 * 86_400_000;
 
 /**
- * Pure. Why the same (or an unfillable) request must not be sent again after `last`, or null. vet402's own wrong
- * request to a listing that declares at least one parameter: never again until the request changes. Every other
- * 400/404/422 (the seller's, or vet402's on a listing that declares nothing, where the reading rests on the fixed
- * word list only): bought again every 7 days (SELLER_4XX_RETRY_MS after the last answer).
+ * Pure. Why the same (or an unfillable) request must not be planned again after `last`, or null. vet402's own wrong
+ * request to a listing that declares parameters: held 30 days (INPUT_4XX_RETRY_MS). Every other 400/404/422 (the
+ * seller's, or vet402's on a listing that declares nothing): held 7 days (SELLER_4XX_RETRY_MS). A record whose time
+ * cannot be read is not held (and said on stderr). A hold that ends does not by itself buy again: with --pay the
+ * lane's ledger allows each seller once (already_bought), so a second purchase needs the ledger changed.
  */
-export function holdAfter4xx(last: LastPaid | null, nowMs: number): string | null {
+export function holdAfter4xx(last: LastPaid | null, nowMs: number, warn: (s: string) => void = (s) => console.error(s)): string | null {
   if (!last || last.status === null || !INPUT_STATUSES.has(last.status)) return null;
   const at = last.at ? Date.parse(last.at) : NaN;
+  // A record whose time cannot be read is never a hold without end: not held, and said.
+  if (!Number.isFinite(at)) {
+    warn(`ALERT holdAfter4xx: the last answer (${last.status}) has no readable time (${JSON.stringify(last.at)}); not held`);
+    return null;
+  }
   if (last.inputError && (last.declaredCount ?? 0) > 0) return Number.isFinite(at) && nowMs - at >= INPUT_4XX_RETRY_MS ? null : "input_unchanged_after_input_error";
   if (Number.isFinite(at) && nowMs - at >= SELLER_4XX_RETRY_MS) return null;
   return "unchanged_after_seller_4xx_within_7_days";
@@ -469,6 +482,25 @@ const GENERIC = /^(fields?|params?|parameters?|arguments?|args?|propert(y|ies)|k
 const STOP = new Set(["for", "in", "from", "of", "to", "the", "a", "an", "this", "that", "data", "when", "with", "or", "and", "is", "are", "was", "be", "at", "on"]);
 
 /** Pure. The missing names one sentence gives (empty when it names nothing). */
+/**
+ * Pure. The names a sentence gives in a form that leaves no doubt that this input is what is missing: "required
+ * property 'x'", "x is required" (not "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
+ * "'x' is missing", not after "for"). With one of these, the sentence's content words (data, price, history) are
+ * not read as the seller's missing content.
+ */
+export function strongNamesInSentence(piece: string): string[] {
+  const out = new Set<string>();
+  const add = (n: string | undefined) => {
+    if (n && !STOP.has(n.toLowerCase())) out.add(n);
+  };
+  for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+property\s+${Q}(${ID})`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\b)`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`(?<!\bfor\s{1,3})\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) add(q[1]);
+  return [...out];
+}
+
 export function namesInSentence(piece: string): string[] {
   const out: string[] = [];
   const push = (n: string | undefined) => {
@@ -490,16 +522,18 @@ export function namesInSentence(piece: string): string[] {
     } else if (head) push(head);
     else list.slice(0, 1).forEach(push);
   }
-  // "... for x" after a missing value/parameter
-  if ((m = new RegExp(String.raw`\bmissing\b[^.]*?\bfor\s+(?:the\s+)?${Q}(${ID})`, "i").exec(piece))) push(m[1]);
+  // "missing value for x", "missing parameter for x": only right after an input word ("Missing data for wallet"
+  // names the seller's data, and "(… for balance lookup)" is a note, not a name).
+  if ((m = new RegExp(String.raw`\bmissing\s+(?:value|parameter|param|argument|field|input)s?\s+for\s+(?:the\s+)?${Q}(${ID})`, "i").exec(piece))) push(m[1]);
   // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\b)`, "gi"))) push(q[1]);
   // "required field(s): x, y" / "required property 'x'"
   // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
   // "'x' is missing", "\"x\" is missing", "parameter x is missing": a quoted name, or one right after an input word.
   // "Data for this wallet is missing" names no missing input: the seller's data is missing.
-  for (const q of piece.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
+  // Not after "for": in "Data for 'wallet' is missing" the data is what is missing, 'wallet' only says whose.
+  for (const q of piece.matchAll(new RegExp(String.raw`(?<!\bfor\s{1,3})\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`\b(?:parameter|param|property|field|argument|key)\s+(${ID})\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
   // "the wallet parameter is missing", "wallet parameter is missing"
   for (const q of piece.matchAll(new RegExp(String.raw`(${ID})\s+(?:parameter|param|property|field|argument|key)\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
@@ -553,7 +587,9 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
   if (j !== undefined) walk(j, [], 0);
   for (const piece of answerPieces(text)) {
     if (!CUE.test(piece)) continue;
-    if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece) || CONTENT_WORDS.test(piece)) tainted = true;
+    // A content word (data, history, price...) makes the sentence about the seller's missing content, unless the
+    // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence).
+    if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
     const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
     for (const n of namesInSentence(piece)) names.push({ name: n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text" });
   }
