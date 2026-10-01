@@ -695,3 +695,55 @@ test("the ledger, not the hold, limits money: after a hold ends, the same seller
     rmSync(dir, { recursive: true });
   }
 });
+
+
+test("--pay keeps its ledger beside the key: from another working tree it uses that ledger, and stops when the ledger holds fewer purchases than the records sent", async () => {
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const { laneLedgerPath, ledgerBehindRecords, payResultsDir } = await import("../src/evm/run-dir.js");
+  assert.equal(payResultsDir({}, "/home/x/vet402-solana/.keys"), "/home/x/vet402-solana/results/evm");
+  assert.equal(payResultsDir({ VET402_EVM_RESULTS_DIR: "/elsewhere" }, "/home/x/vet402-solana/.keys"), "/elsewhere");
+  assert.equal(laneLedgerPath(LANES.robinhood, "/r"), "/r/robinhood-ledger.json");
+  // A production-like root (keys and results side by side) and another working tree as the cwd.
+  const root = mkdtempSync(join(tmpdir(), "vet402-prod-root-"));
+  const other = mkdtempSync(join(tmpdir(), "vet402-other-tree-"));
+  try {
+    const keys = join(root, ".keys");
+    const results = join(root, "results", "evm");
+    mkdirSync(keys, { recursive: true }); // empty: no evm.pub, so nothing can be signed whatever happens
+    mkdirSync(results, { recursive: true });
+    const sent = (i: number) => JSON.stringify({ lane: "robinhood", agentId: `payto:0x${String(i).padStart(40, "0")}`, at: `2026-09-30T12:0${i}:00Z`, resource: `https://s${i}.test/x`, method: "GET", outcome: "sent" });
+    writeFileSync(join(results, "robinhood-purchases.jsonl"), [sent(1), sent(2)].join("\n") + "\n");
+    assert.match(ledgerBehindRecords([LANES.robinhood], results)!, /robinhood-ledger\.json does not exist/);
+    const script = new URL("../scripts/evm-lane.ts", import.meta.url).pathname;
+    const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+    // Without VET402_EVM_RESULTS_DIR the root is the key's: the records there say 2 sent, the ledger is missing: stop.
+    const env = { ...process.env, VET402_EVM_PAY: "robinhood", EVM_KEY_DIR: keys } as Record<string, string | undefined>;
+    delete env.VET402_EVM_RESULTS_DIR;
+    const stop = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: other, encoding: "utf8", env: env as NodeJS.ProcessEnv, timeout: 60_000 });
+    assert.equal(stop.status, 5, stop.stderr);
+    assert.ok(stop.stderr.includes(`ALERT ${join(results, "robinhood-purchases.jsonl")} has 2 purchase(s) sent, but ${join(results, "robinhood-ledger.json")} does not exist`), stop.stderr);
+    assert.match(stop.stderr, /--pay stops before any purchase/);
+    // A ledger with fewer purchases than were sent: stop too.
+    writeFileSync(join(results, "robinhood-ledger.json"), JSON.stringify({ baselineAtomic: null, spentAtomic: "1000", purchases: [{ key: "robinhood-payto:0x1", amount: "1000", at: "x" }] }));
+    const short = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: other, encoding: "utf8", env: env as NodeJS.ProcessEnv, timeout: 60_000 });
+    assert.equal(short.status, 5, short.stderr);
+    assert.match(short.stderr, /holds 1 purchase\(s\), fewer than the 2 sent/);
+    // A whole ledger: the run goes on with the production results directory (and stops at the empty key directory,
+    // before any purchase: the purchase function is never reached in this test).
+    writeFileSync(join(results, "robinhood-ledger.json"), JSON.stringify({ baselineAtomic: null, spentAtomic: "2000", purchases: [{ key: "a", amount: "1000", at: "x" }, { key: "b", amount: "1000", at: "x" }] }));
+    const go = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: other, encoding: "utf8", env: env as NodeJS.ProcessEnv, timeout: 60_000 });
+    assert.ok(go.stderr.includes(`[pay] results and ledgers: ${results}`), go.stderr);
+    assert.notEqual(go.status, 0);
+    assert.match(go.stderr, /evm\.pub/, "it stopped at reading the payer's address: nothing was bought");
+  } finally {
+    rmSync(root, { recursive: true });
+    rmSync(other, { recursive: true });
+  }
+  const src = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(src, /new Budget\(pay \? laneLedgerPath\(lane, resultsDir\) : null/);
+  assert.match(src, /appendFileSync\(join\(resultsDir, `\$\{lane\.id\}-purchases\.jsonl`\)/);
+  assert.ok(src.indexOf("process.exit(5)") < src.indexOf("const payer: Address = readPublicAddress();"), "the ledger check comes before the key");
+});

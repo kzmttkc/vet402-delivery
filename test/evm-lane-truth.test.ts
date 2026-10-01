@@ -227,7 +227,7 @@ test("publish: one reading per purchase (the later wins), and a sent purchase th
   assert.match(src, /-chaincheck\.jsonl/);
   assert.match(src, /uncheckedPurchases\(raw\)/);
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /checkLaneFiles\(r\.lane, payer\)/, "every paying run ends with the chain check");
+  assert.match(lane, /checkLaneFiles\(r\.lane, payer, resultsDir\)/, "every paying run ends with the chain check");
 });
 
 test("records keep the raw settlement header (which one, decoded, named a tx) and the EIP-3009 nonce, never the signature", () => {
@@ -990,13 +990,17 @@ test("--pay stops before any purchase when a line of the lane's records does not
   try {
     mkdirSync(join(dir, "results", "evm"), { recursive: true });
     writeFileSync(join(dir, "results", "evm", "robinhood-purchases.jsonl"), JSON.stringify(und0930) + "\n{broken\n");
+    // A ledger that holds the purchases (the ledger check passes), so the unreadable line is what stops the run.
+    writeFileSync(join(dir, "results", "evm", "robinhood-ledger.json"), JSON.stringify({ baselineAtomic: null, spentAtomic: "0", purchases: [{ key: "a", amount: "0", at: "x" }, { key: "b", amount: "0", at: "x" }] }));
     const script = new URL("../scripts/evm-lane.ts", import.meta.url).pathname;
     const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
-    const r = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: dir, encoding: "utf8", env: { ...process.env, VET402_EVM_PAY: "robinhood", EVM_KEY_DIR: keys }, timeout: 60_000 });
+    // --pay reads its records where its ledger is (src/evm/run-dir.ts); here the copy, named explicitly.
+    const results = join(dir, "results", "evm");
+    const r = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: dir, encoding: "utf8", env: { ...process.env, VET402_EVM_PAY: "robinhood", EVM_KEY_DIR: keys, VET402_EVM_RESULTS_DIR: results }, timeout: 60_000 });
     assert.equal(r.status, 4, r.stderr);
-    assert.match(r.stderr, /ALERT results\/evm\/robinhood-purchases\.jsonl:2: not JSON/);
+    assert.ok(r.stderr.includes(`ALERT ${join(results, "robinhood-purchases.jsonl")}:2: not JSON`), r.stderr);
     assert.match(r.stderr, /--pay stops before any purchase/);
-    assert.doesNotMatch(r.stderr + r.stdout, /\[pay\]|evm\.pub|catalog /, "stopped before the key, the catalogs and the preflight");
+    assert.doesNotMatch(r.stderr + r.stdout, /\[pay\] lane |evm\.pub|catalog /, "stopped before the key, the catalogs and the preflight ([pay] lane ...)");
   } finally {
     rmSync(dir, { recursive: true });
     rmSync(keys, { recursive: true });
@@ -1107,4 +1111,29 @@ test("a last answer with no readable time is never a hold without end: not held,
   }
   assert.equal(said.length, 4);
   assert.match(said[0]!, /^ALERT holdAfter4xx: the last answer \(400\) has no readable time \(null\); not held$/);
+});
+
+
+// ---------- review of 32f98e0 ----------
+
+test("Rails, marshmallow, webargs, DRF, and '<input word> for x', 'x is required to <verb>': vet402's when declared; the seller's content stays the seller's", () => {
+  for (const [t, d] of [
+    ["Value for 'wallet' is missing", ["wallet"]],
+    ["Missing required parameter for 'wallet'", ["wallet"]],
+    ["'wallet' is required to proceed", ["wallet"]],
+    ['"address" is required to continue', ["address"]],
+    ["wallet is required to be a 0x address", ["wallet"]],
+    ["Missing a value for symbol", ["symbol"]],
+    ["param is missing or the value is empty: wallet", ["wallet"]],
+    ['{"wallet":["Missing data for required field."]}', ["wallet"]],
+    ['{"wallet":["This field is required."]}', ["wallet"]],
+  ] as [string, string[]][]) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", t);
+  }
+  for (const t of ["Data for 'wallet' is missing", "The wallet is required to have at least one transaction", "The wallet is required to contain funds", "The pool is required to hold liquidity"]) {
+    assert.equal(answer400(t, ["wallet", "pool"]), null, t);
+  }
+  // A field message whose key is the request itself, or a message with no key, names nothing.
+  assert.equal(answer400('{"non_field_errors":["This field is required."]}'), null);
+  assert.equal(answer400('{"error":"Required"}'), null);
 });

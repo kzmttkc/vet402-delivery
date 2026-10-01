@@ -13,8 +13,11 @@
  * (holdAfter4xx: 30 days when the answer reads as vet402's own wrong request, 7 days otherwise).
  *
  * The hold is not what limits money. A paying lane run (scripts/evm-lane.ts --pay) buys each seller once in its
- * life: the lane's ledger (src/guard.ts Budget, results/evm/<lane>-ledger.json, key <chain>-payto:<payTo>) refuses a
- * second purchase as already_bought, before any signature. So when a hold ends, nothing is bought again; a real
+ * life: the lane's ledger (src/guard.ts Budget) refuses a second purchase as already_bought, before any signature.
+ * Its key is <chain>-payto:<payTo>; the stock-price seller on Robinhood Chain is keyed per ticker
+ * (robinhood-stock:<host>:<ticker>), so it is bought once per ticker. The ledger is <lane>-ledger.json in the
+ * results directory beside the key (src/evm/run-dir.ts: ~/vet402-solana/results/evm unless VET402_EVM_RESULTS_DIR
+ * is set), whatever directory --pay is started from. So when a hold ends, nothing is bought again; a real
  * second purchase happens only when the ledger is changed (a new ledger, or the entry removed), which is not done
  * by any script. A misread 4xx therefore changes a page's label, never the money spent.
  *
@@ -476,12 +479,30 @@ const Q = String.raw`\\?["'\x60]?`;
  */
 const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|transactions?|records?|results?|info|information|prices?|quotes?|liquidity|holders?|activity|metadata|stats|statistics|coverage)\b/i;
 
+/** A validator's fixed message for one field (marshmallow, webargs, DRF, FastAPI, Zod): the field is the JSON key. */
+const VALIDATOR_FIELD_MESSAGE = /^(missing data for required field|this field is required|this field may not be (?:null|blank)|field required|required)\.?$/i;
+/** Keys that hold such messages for the whole request, not for a field named by the key. */
+const FIELD_MESSAGE_KEYS_NOT_NAMES = new Set(["formErrors", "fieldErrors", "errors", "non_field_errors", "detail", "message", "messages", "error", "msg"]);
+
 /** A sentence that says something is missing or required. */
 const CUE = /\b(missing|required|cannot be empty|must not be empty|must be provided)\b/i;
 const GENERIC = /^(fields?|params?|parameters?|arguments?|args?|propert(y|ies)|keys?|values?|inputs?)$/i;
 const STOP = new Set(["for", "in", "from", "of", "to", "the", "a", "an", "this", "that", "data", "when", "with", "or", "and", "is", "are", "was", "be", "at", "on"]);
 
-/** Pure. The missing names one sentence gives (empty when it names nothing). */
+/**
+ * Names given as "<input word> for x": "missing value for x", "Missing required parameter for 'x'", "Missing a value
+ * for x", "Value for 'x' is missing", and Rails' "param is missing or the value is empty: x". After a content word
+ * ("Data for 'x' is missing") the name only says whose content is missing, and is not read here.
+ */
+function inputForNames(piece: string): string[] {
+  const out: string[] = [];
+  const W = String.raw`(?:value|parameter|param|argument|field|input)s?`;
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:(?:a|an|the)\s+)?${W}\s+for\s+(?:the\s+)?${Q}(${ID})`, "gi"))) out.push(q[1]!);
+  for (const q of piece.matchAll(new RegExp(String.raw`\b${W}\s+for\s+(?:the\s+)?${Q}(${ID})${Q}\s+(?:is|are)\s+missing\b`, "gi"))) out.push(q[1]!);
+  for (const q of piece.matchAll(new RegExp(String.raw`\bparam is missing or the value is empty:\s*${Q}(${ID})`, "gi"))) out.push(q[1]!);
+  return out.filter((n) => !STOP.has(n.toLowerCase()));
+}
+
 /**
  * Pure. The names a sentence gives in a form that leaves no doubt that this input is what is missing: "required
  * property 'x'", "x is required" (not "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
@@ -494,13 +515,19 @@ export function strongNamesInSentence(piece: string): string[] {
     if (n && !STOP.has(n.toLowerCase())) out.add(n);
   };
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+property\s+${Q}(${ID})`, "gi"))) add(q[1]);
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\b)`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?:have|contain|hold)\b)`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
+  for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`(?<!\bfor\s{1,3})\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) add(q[1]);
   return [...out];
 }
 
+/**
+ * Pure. Every missing name one sentence gives (empty when it names nothing), in any of the forms read here: the
+ * strong ones (strongNamesInSentence) and the weaker ones ("Missing required fields: a, b", "missing x", "parameter x
+ * is missing", "x cannot be empty"). namesInAnswer decides, with the content words, whether the sentence counts.
+ */
 export function namesInSentence(piece: string): string[] {
   const out: string[] = [];
   const push = (n: string | undefined) => {
@@ -524,9 +551,9 @@ export function namesInSentence(piece: string): string[] {
   }
   // "missing value for x", "missing parameter for x": only right after an input word ("Missing data for wallet"
   // names the seller's data, and "(… for balance lookup)" is a note, not a name).
-  if ((m = new RegExp(String.raw`\bmissing\s+(?:value|parameter|param|argument|field|input)s?\s+for\s+(?:the\s+)?${Q}(${ID})`, "i").exec(piece))) push(m[1]);
+  for (const n of inputForNames(piece)) push(n);
   // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\b)`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?:have|contain|hold)\b)`, "gi"))) push(q[1]);
   // "required field(s): x, y" / "required property 'x'"
   // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
@@ -576,6 +603,11 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       const last = loc.at(-1);
       if (last) names.push({ name: last, header: /^headers?$/i.test(loc[0] ?? ""), path: [...keys, ...loc], source: "pydantic" });
     }
+    // marshmallow / webargs / DRF: {"wallet": ["Missing data for required field."]}, {"wallet": ["This field is required."]}
+    for (const [k, v] of Object.entries(o)) {
+      if (FIELD_MESSAGE_KEYS_NOT_NAMES.has(k) || !Array.isArray(v)) continue;
+      if (v.some((x) => typeof x === "string" && VALIDATOR_FIELD_MESSAGE.test(x.trim()))) names.push({ name: k, header: false, path: [...keys, k], source: "field-messages" });
+    }
     // Zod .flatten()
     if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
       for (const [k, msgs] of Object.entries(o.fieldErrors as Record<string, unknown>)) {
@@ -587,6 +619,8 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
   if (j !== undefined) walk(j, [], 0);
   for (const piece of answerPieces(text)) {
     if (!CUE.test(piece)) continue;
+    // A validator's fixed message for one field ("Missing data for required field.") is read with its key above.
+    if (VALIDATOR_FIELD_MESSAGE.test(piece.trim())) continue;
     // A content word (data, history, price...) makes the sentence about the seller's missing content, unless the
     // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence).
     if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;

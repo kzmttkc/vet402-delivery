@@ -13,7 +13,10 @@
  *   (lanes "arbitrum" and "base-compare", separate ledgers and caps).
  *
  * The real key (.keys/evm.json) is read only with --pay AND VET402_EVM_PAY=<lane>.
- * Outputs: results/evm/<lane>-dryrun.json | results/evm/<lane>-purchases.jsonl (+ the lanes' ledgers) with --pay.
+ * Outputs: results/evm/<lane>-dryrun.json (here) | with --pay, in the results directory beside the key
+ * (src/evm/run-dir.ts: ~/vet402-solana/results/evm unless VET402_EVM_RESULTS_DIR is set): <lane>-purchases.jsonl,
+ * <lane>-paid-run.json and the lanes' ledgers. --pay stops first when a lane's ledger holds fewer purchases than its
+ * records sent (exit 5), or when a line of the records does not parse (exit 4).
  * Options: --catalogs <dir> reads catalog_cdp.json / catalog_dexter.json / catalog_payai.json instead of fetching.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -32,6 +35,7 @@ import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
 import { loadLaneRecordsChecked, payStopForUnreadableLines } from "../src/evm/lane-records.js";
+import { laneLedgerPath, ledgerBehindRecords, payResultsDir } from "../src/evm/run-dir.js";
 import { CHAINLINK_DIRECTORY, STOCK_REFS, checkAgainstDirectory, compareStockAnswer, readStockReference, type StockReference } from "../src/robinhood/stock-check.js";
 
 const argv = process.argv.slice(2);
@@ -49,10 +53,22 @@ if (pay) {
 }
 const catalogsDir = arg("--catalogs");
 
+// Where this run reads and writes. A paying run: the results directory beside the key (src/evm/run-dir.ts), so its
+// ledger is the production ledger whatever the working directory; a dry run: results/evm here.
+const resultsDir = pay ? payResultsDir() : "results/evm";
+const recordLanes = RUN_LANES[laneArg];
+if (pay) {
+  // The ledger must hold at least every purchase the records sent, before anything else.
+  const behind = ledgerBehindRecords(recordLanes.map((l) => LANES[l]), resultsDir);
+  if (behind) {
+    console.error(behind);
+    process.exit(5);
+  }
+  console.error(`[pay] results and ledgers: ${resultsDir}`);
+}
 // The records this run reads (what not to buy again, and rule 0's material) must be whole before anything else:
 // a paying run with an unreadable line stops here, before the key, the catalogs or any purchase.
-const recordLanes = RUN_LANES[laneArg];
-const recordsRead = loadLaneRecordsChecked(recordLanes);
+const recordsRead = loadLaneRecordsChecked(recordLanes, resultsDir);
 if (recordsRead.problems.length) {
   const stop = payStopForUnreadableLines(recordsRead.problems)!;
   if (pay) {
@@ -200,12 +216,12 @@ async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<str
   const c = EVM_CHAINS[lane.chain];
   const signer: TypedDataSigner = pay ? loadEvmAccount() : privateKeyToAccount(generatePrivateKey()); // dry run: throwaway, pays nobody
   if (pay && !eqAddr(signer.address, payer)) throw new Error("key address != evm.pub");
-  const budget = new Budget(pay ? lane.ledger : null, lane.maxTotalAtomic, lane.maxCount, lane.maxPerAtomic);
+  const budget = new Budget(pay ? laneLedgerPath(lane, resultsDir) : null, lane.maxTotalAtomic, lane.maxCount, lane.maxPerAtomic);
   const lastAt = new Map<string, number>();
   const perSeller = new Map<string, number>();
   const out: LaneResult["records"] = [];
   let would = 0n;
-  mkdirSync("results/evm", { recursive: true });
+  mkdirSync(resultsDir, { recursive: true });
   for (const e of entries) {
     const k = e.lock.payTo.toLowerCase();
     if ((perSeller.get(k) ?? 0) >= MEASURE_MAX_PER_SELLER) continue;
@@ -242,7 +258,7 @@ async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<str
       row.stock = rec.delivered && rec.body ? { ...compareStockAnswer(ticker, rec.body, refNow, rec.at), reference: refNow } : { ticker, verdict: "not_bought_yet", reference: refNow };
     }
     out.push(row);
-    if (pay) appendFileSync(`results/evm/${lane.id}-purchases.jsonl`, JSON.stringify(row) + "\n");
+    if (pay) appendFileSync(join(resultsDir, `${lane.id}-purchases.jsonl`), JSON.stringify(row) + "\n");
   }
   return {
     lane: lane.id,
@@ -343,7 +359,7 @@ if (laneArg === "robinhood") {
 if (pay) {
   for (const r of results) {
     try {
-      const c = await checkLaneFiles(r.lane, payer);
+      const c = await checkLaneFiles(r.lane, payer, resultsDir);
       console.error(`[chain check] ${r.lane}: ${JSON.stringify(c.tally)}${c.failed ? " (unmatched, ambiguous or pending: run scripts/evm-chaincheck.ts again after the windows close)" : ""}`);
       if (c.failed) process.exitCode = 1;
     } catch (err) {
@@ -373,9 +389,9 @@ for (const r of results) {
 summary.funding = funding;
 summary.results = results;
 const text = JSON.stringify(summary, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n";
-mkdirSync("results/evm", { recursive: true });
+mkdirSync(resultsDir, { recursive: true });
 // A paying run plans again from live 402s; its plan is what the published rows must be read against.
-writeFileSync(pay ? `results/evm/${laneArg}-paid-run.json` : `results/evm/${laneArg}-dryrun.json`, text);
+writeFileSync(join(resultsDir, pay ? `${laneArg}-paid-run.json` : `${laneArg}-dryrun.json`), text);
 const brief = results.map((r) => ({
   lane: r.lane,
   entries: r.entries,
@@ -385,4 +401,4 @@ const brief = results.map((r) => ({
   wouldPay: atomicToUsdc(r.wouldPayAtomic),
 }));
 console.log(JSON.stringify({ mode: summary.mode, lane: laneArg, catalogs: cat.sources, funding, brief }, null, 2));
-if (!existsSync("results/evm")) mkdirSync("results/evm", { recursive: true });
+if (!existsSync(resultsDir)) mkdirSync(resultsDir, { recursive: true });
