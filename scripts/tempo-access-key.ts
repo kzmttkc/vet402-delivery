@@ -1,7 +1,7 @@
 /**
  * Authorize the Tempo purchase access key in the AccountKeychain precompile (src/tempo/access-key.ts).
  *
- *   npx tsx scripts/tempo-access-key.ts --keygen     # create .keys/tempo-access.json (prints the key id only)
+ *   npx tsx scripts/tempo-access-key.ts --keygen --file <name>   # create .keys/<name> (mode 600; prints the key id only)
  *   npx tsx scripts/tempo-access-key.ts              # plan: eth_call + eth_estimateGas of authorizeKey from the payer. Signs nothing.
  *   npx tsx scripts/tempo-access-key.ts --status     # the key's state on chain (getKey, remaining limit, getAllowedCalls)
  *   npx tsx scripts/tempo-access-key.ts --send       # the payer's root key signs authorizeKey once; the Tempo anchor key pays the fee
@@ -14,8 +14,9 @@
  *
  * Do not run --send while a Tempo purchase run is in progress: both use the payer's nonce.
  *
- * After it lands, purchases switch to the access key by pointing VET402_EVM_KEY_FILE (or --key) at
- * .keys/tempo-access.json; src/tempo/chain.ts loadSigner reads either file kind. RPC: TEMPO_RPC_URL.
+ * The key it plans, checks and sends for is TEMPO_ACCESS_KEY_ID, read from its file in TEMPO_ACCESS_KEYS
+ * (src/tempo/access-key.ts). After it lands, purchases switch to it by pointing VET402_EVM_KEY_FILE (or --key)
+ * at that file; src/tempo/chain.ts loadSigner reads either file kind. RPC: TEMPO_RPC_URL.
  */
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -39,6 +40,7 @@ import {
   readKeyState,
   scopeProblem,
   TEMPO_ACCESS_KEY_ID,
+  TEMPO_ACCESS_KEYS,
 } from "../src/tempo/access-key.js";
 import { PAYER_ADDRESS, TEMPO_MAINNET_CHAIN_ID, TEMPO_RPC_URL, USDC_E, normAddr } from "../src/tempo/constants.js";
 import { maxFeeAtomic, TEMPO_BASE_FEE_CAP } from "../src/receipt/tempo-anchor.js";
@@ -54,7 +56,8 @@ const argValue = (name: string): string | undefined => {
   return v;
 };
 const keysDir = resolve(argValue("--keys-dir") ?? join(ROOT, ".keys"));
-const accessFile = join(keysDir, "tempo-access.json");
+const current = TEMPO_ACCESS_KEYS.find((k) => normAddr(k.id) === normAddr(TEMPO_ACCESS_KEY_ID))!;
+const accessFile = join(keysDir, current.file);
 const rpc = process.env.TEMPO_RPC_URL ?? TEMPO_RPC_URL;
 const client = createPublicClient({ chain: tempoChain, transport: http(rpc, { timeout: 20_000, retryCount: 1 }) });
 const BALANCE_OF = parseAbiItem("function balanceOf(address) view returns (uint256)");
@@ -62,10 +65,16 @@ const usdc = (a: string) => client.readContract({ address: USDC_E as Hex, abi: [
 const iso = (s: bigint) => new Date(Number(s) * 1000).toISOString();
 
 if (args.includes("--keygen")) {
+  const name = argValue("--file");
+  if (!name || !/^tempo-access[\w.-]*\.json$/.test(name)) {
+    console.error("--keygen needs --file tempo-access-<something>.json (an existing file is never overwritten)");
+    process.exit(2);
+  }
+  const out = join(keysDir, name);
   const pk = generatePrivateKey();
   const f = { kind: ACCESS_KEY_FILE_KIND, accessKey: pk, account: PAYER_ADDRESS };
-  writeFileSync(accessFile, `${JSON.stringify(f)}\n`, { flag: "wx", mode: 0o600 });
-  console.log(`wrote ${accessFile} (mode 600). Access key id: ${accessKeyIdOf(f as never)} (account ${PAYER_ADDRESS})`);
+  writeFileSync(out, `${JSON.stringify(f)}\n`, { flag: "wx", mode: 0o600 });
+  console.log(`wrote ${out} (mode 600). Access key id: ${accessKeyIdOf(f as never)} (account ${PAYER_ADDRESS}). Add it to TEMPO_ACCESS_KEYS with this file name.`);
   process.exit(0);
 }
 

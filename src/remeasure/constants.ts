@@ -3,8 +3,8 @@
  *
  * Remeasure buys again from sellers vet402 already paid and whose payment settled, so the ranking
  * (src/rank, method v2) gets purchases on more than one day. It never buys from a new seller. It runs every
- * day from 2026-09-29 to 2026-10-08, twice on Solana and once on Tempo (by hand on 2026-09-29, then from the
- * daily runner scripts/daily/run.sh); the ledger allows one purchase per payTo per slot per UTC day
+ * day from 2026-09-29 with no end date, twice on Solana and once on Tempo (by hand on 2026-09-29, then from the
+ * daily runner scripts/daily/run.sh), bounded by the month caps below; the ledger allows one purchase per payTo per slot per UTC day
  * (ledger key <date>|<payTo>|<slot>, budget.ts).
  */
 import { MAX_PER_PURCHASE_ATOMIC, MEASURE_MAX_PER_SELLER } from "../constants.js";
