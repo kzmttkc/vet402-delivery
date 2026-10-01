@@ -747,3 +747,34 @@ test("--pay keeps its ledger beside the key: from another working tree it uses t
   assert.match(src, /appendFileSync\(join\(resultsDir, `\$\{lane\.id\}-purchases\.jsonl`\)/);
   assert.ok(src.indexOf("process.exit(5)") < src.indexOf("const payer: Address = readPublicAddress();"), "the ledger check comes before the key");
 });
+
+
+test("VET402_EVM_RESULTS_DIR that is empty, relative or missing stops --pay before any purchase (exit 6, ALERT)", async () => {
+  const { mkdtempSync, mkdirSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const { payResultsDirProblem } = await import("../src/evm/run-dir.js");
+  assert.equal(payResultsDirProblem({}), null, "unset: the key's root");
+  assert.match(payResultsDirProblem({ VET402_EVM_RESULTS_DIR: "" })!, /is set but empty/);
+  assert.match(payResultsDirProblem({ VET402_EVM_RESULTS_DIR: "results/evm" })!, /is a relative path/);
+  assert.match(payResultsDirProblem({ VET402_EVM_RESULTS_DIR: "/no/such/vet402/dir" })!, /does not exist/);
+  const root = mkdtempSync(join(tmpdir(), "vet402-override-"));
+  try {
+    const keys = join(root, ".keys");
+    mkdirSync(keys); // empty: nothing could be signed even if the stop did not happen
+    const script = new URL("../scripts/evm-lane.ts", import.meta.url).pathname;
+    const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+    for (const [v, why] of [["", /is set but empty/], ["results/evm", /is a relative path/], [join(root, "missing", "results", "evm"), /does not exist/]] as [string, RegExp][]) {
+      const r = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: root, encoding: "utf8", env: { ...process.env, VET402_EVM_PAY: "robinhood", EVM_KEY_DIR: keys, VET402_EVM_RESULTS_DIR: v }, timeout: 60_000 });
+      assert.equal(r.status, 6, `${JSON.stringify(v)}: ${r.stderr}`);
+      assert.match(r.stderr, why);
+      assert.match(r.stderr, /^ALERT VET402_EVM_RESULTS_DIR .*--pay stops before any purchase/m);
+      assert.doesNotMatch(r.stderr, /\[pay\] results and ledgers|\[pay\] lane |evm\.pub/, "stopped before the ledger, the key and any purchase");
+    }
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+  const src = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.ok(src.indexOf("process.exit(6)") < src.indexOf("const resultsDir = pay ? payResultsDir()"), "checked before the directory is used");
+});

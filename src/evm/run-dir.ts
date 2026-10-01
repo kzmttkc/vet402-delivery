@@ -9,12 +9,24 @@
  * production checkout, so both are the same there).
  */
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { KEY_DIR } from "./key.js";
 import type { LaneSpec } from "./chains.js";
 
 export function payResultsDir(env: NodeJS.ProcessEnv = process.env, keyDir: string = KEY_DIR): string {
   return env.VET402_EVM_RESULTS_DIR ?? join(dirname(keyDir), "results", "evm");
+}
+
+/**
+ * Why VET402_EVM_RESULTS_DIR cannot be used for a paying run, or null (unset is fine: the key's root is used). An
+ * empty value, a relative path (it would follow the working directory again) and a directory that does not exist
+ * are refused: a paying run with any of them would start on a ledger that is not the production one.
+ */
+export function payResultsDirProblem(env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = env.VET402_EVM_RESULTS_DIR;
+  if (v === undefined) return null;
+  const why = v === "" ? "is set but empty" : !isAbsolute(v) ? `is a relative path (${v})` : !existsSync(v) ? `names a directory that does not exist (${v})` : null;
+  return why ? `ALERT VET402_EVM_RESULTS_DIR ${why}: --pay stops before any purchase (unset it to use the key's root, or give an existing absolute path)` : null;
 }
 
 /** The ledger file of a lane inside a results directory. */

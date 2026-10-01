@@ -35,7 +35,7 @@ import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
 import { loadLaneRecordsChecked, payStopForUnreadableLines } from "../src/evm/lane-records.js";
-import { laneLedgerPath, ledgerBehindRecords, payResultsDir } from "../src/evm/run-dir.js";
+import { laneLedgerPath, ledgerBehindRecords, payResultsDir, payResultsDirProblem } from "../src/evm/run-dir.js";
 import { CHAINLINK_DIRECTORY, STOCK_REFS, checkAgainstDirectory, compareStockAnswer, readStockReference, type StockReference } from "../src/robinhood/stock-check.js";
 
 const argv = process.argv.slice(2);
@@ -55,6 +55,14 @@ const catalogsDir = arg("--catalogs");
 
 // Where this run reads and writes. A paying run: the results directory beside the key (src/evm/run-dir.ts), so its
 // ledger is the production ledger whatever the working directory; a dry run: results/evm here.
+if (pay) {
+  // An override that would put the ledger anywhere but an existing absolute directory stops the run first.
+  const dirProblem = payResultsDirProblem();
+  if (dirProblem) {
+    console.error(dirProblem);
+    process.exit(6);
+  }
+}
 const resultsDir = pay ? payResultsDir() : "results/evm";
 const recordLanes = RUN_LANES[laneArg];
 if (pay) {

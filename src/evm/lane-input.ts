@@ -506,7 +506,8 @@ function inputForNames(piece: string): string[] {
 /**
  * Pure. The names a sentence gives in a form that leaves no doubt that this input is what is missing: "required
  * property 'x'", "x is required" (not "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
- * "'x' is missing", not after "for"). With one of these, the sentence's content words (data, price, history) are
+ * "'x' is missing", not after "for"). "x is required to <verb>" counts only for proceed, continue, be a/an (a valid
+ * ...) and be provided; any other verb is a condition on content ("required to own an NFT"). With one of these, the sentence's content words (data, price, history) are
  * not read as the seller's missing content.
  */
 export function strongNamesInSentence(piece: string): string[] {
@@ -515,7 +516,7 @@ export function strongNamesInSentence(piece: string): string[] {
     if (n && !STOP.has(n.toLowerCase())) out.add(n);
   };
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+property\s+${Q}(${ID})`, "gi"))) add(q[1]);
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?:have|contain|hold)\b)`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?!(?:proceed|continue|be\s+an?|be\s+provided)\b))`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
   for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
@@ -553,7 +554,7 @@ export function namesInSentence(piece: string): string[] {
   // names the seller's data, and "(… for balance lookup)" is a note, not a name).
   for (const n of inputForNames(piece)) push(n);
   // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?:have|contain|hold)\b)`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?!(?:proceed|continue|be\s+an?|be\s+provided)\b))`, "gi"))) push(q[1]);
   // "required field(s): x, y" / "required property 'x'"
   // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
@@ -606,7 +607,8 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // marshmallow / webargs / DRF: {"wallet": ["Missing data for required field."]}, {"wallet": ["This field is required."]}
     for (const [k, v] of Object.entries(o)) {
       if (FIELD_MESSAGE_KEYS_NOT_NAMES.has(k) || !Array.isArray(v)) continue;
-      if (v.some((x) => typeof x === "string" && VALIDATOR_FIELD_MESSAGE.test(x.trim()))) names.push({ name: k, header: false, path: [...keys, k], source: "field-messages" });
+      // Under "headers": a header vet402 does not send, never its input.
+      if (v.some((x) => typeof x === "string" && VALIDATOR_FIELD_MESSAGE.test(x.trim()))) names.push({ name: k, header: keys.some((x) => /^headers?$/i.test(x)), path: [...keys, k], source: "field-messages" });
     }
     // Zod .flatten()
     if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {

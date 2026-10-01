@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyDeclaredPatches, loadLaneRecords, loadLaneRecordsChecked, payStopForUnreadableLines, readDeclaredPatches, readJsonl, type DeclaredPatch } from "../src/evm/lane-records.js";
@@ -1136,4 +1136,32 @@ test("Rails, marshmallow, webargs, DRF, and '<input word> for x', 'x is required
   // A field message whose key is the request itself, or a message with no key, names nothing.
   assert.equal(answer400('{"non_field_errors":["This field is required."]}'), null);
   assert.equal(answer400('{"error":"Required"}'), null);
+});
+
+
+// ---------- review of 38edafe ----------
+
+test("'x is required to <verb>' is an input only for proceed, continue, be a/an, be provided; a field message under headers is the seller's", () => {
+  for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake"]) {
+    assert.equal(answer400(t, ["wallet", "address"]), null, t);
+  }
+  for (const [t, d] of [["'wallet' is required to proceed", ["wallet"]], ['"address" is required to continue', ["address"]], ["wallet is required to be a 0x address", ["wallet"]], ["wallet is required to be a valid address", ["wallet"]], ["wallet is required to be provided", ["wallet"]]] as [string, string[]][]) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", t);
+  }
+  assert.equal(answer400('{"headers":{"wallet":["Missing data for required field."]}}', ["wallet"]), null);
+  assert.equal(answer400('{"wallet":["Missing data for required field."]}', ["wallet"])?.kind, "missing_input");
+});
+
+test("no control character other than tab, newline and carriage return in src, scripts and test", () => {
+  const bad: string[] = [];
+  const walk = (d: string) => {
+    for (const e of readdirSync(d)) {
+      if (e === "node_modules") continue;
+      const p = join(d, e);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(readFileSync(p, "utf8"))) bad.push(p);
+    }
+  };
+  for (const d of ["src", "scripts", "test"]) walk(new URL(`../${d}`, import.meta.url).pathname);
+  assert.deepEqual(bad, []);
 });
