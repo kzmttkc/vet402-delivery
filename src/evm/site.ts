@@ -323,7 +323,7 @@ export function loadLanePublic(dataDir: string): { robinhood?: LanePublic; arbit
     if (bad.length) throw new Error(`${f}: negative results for sellers not in notified.json: ${bad.join("; ")}`);
     const rf = join(dataDir, "evm", "roots", `${lane}.json`);
     const roots = existsSync(rf) ? (JSON.parse(readFileSync(rf, "utf8")) as RootsFile) : undefined;
-    const rbad = roots ? rootsFileProblems(roots, lane, notified) : [];
+    const rbad = roots ? rootsFileProblems(roots, lane, notified, { rows: j.rows }) : [];
     if (rbad.length) throw new Error(`${rf}: ${rbad.join("; ")}`);
     out[lane] = roots ? { ...j, roots } : j;
   }

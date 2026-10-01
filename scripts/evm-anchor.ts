@@ -21,7 +21,7 @@
  * "sending" day whose root is on chain is completed from the RootRecorded log; otherwise it is left to a person.
  * Exit 4: the day on chain holds another root, or the code at the registry is not DeliveryRoots(writer).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createPublicClient, createWalletClient, formatEther, http, keccak256, stringToBytes, type Hex, type PublicClient } from "viem";
 import { buildTree } from "../src/receipt/merkle.js";
@@ -53,6 +53,11 @@ const readLines = (): string[] =>
     ["purchases", "reverify", "chaincheck"].map((k) => `${resultsDir}/${lane}-${k}.jsonl`).map((f) => (existsSync(f) ? readFileSync(f, "utf8") : "")),
   );
 const sentFileOf = (day: string) => `${anchorsDir}/${lane}-${day}.sent.json`;
+/** Plan, salts and sent files hold the salts: owner-only, also when the file already existed. */
+const writePrivate = (f: string, text: string): void => {
+  writeFileSync(f, text, { mode: 0o600 });
+  chmodSync(f, 0o600);
+};
 const readJson = <T>(f: string): T => JSON.parse(readFileSync(f, "utf8")) as T;
 
 // ---- days that wait (no network) ----
@@ -145,8 +150,8 @@ const planFile = `${anchorsDir}/${lane}-${r.day}.plan.json`;
 const sentFile = sentFileOf(r.day);
 if (!send) {
   // The salts first: a root is shown only once the salts that make it are kept.
-  writeFileSync(saltsFile(r.day), JSON.stringify(salts, null, 2) + "\n", { mode: 0o600 });
-  writeFileSync(planFile, JSON.stringify({ ...plan, leaves: r.leaves, digests: r.digests, proofs: r.proofs }, null, 2) + "\n");
+  writePrivate(saltsFile(r.day), JSON.stringify(salts, null, 2) + "\n");
+  writePrivate(planFile, JSON.stringify({ ...plan, leaves: r.leaves, digests: r.digests, proofs: r.proofs }, null, 2) + "\n");
   process.exit(0);
 }
 
@@ -163,7 +168,7 @@ if (existsSync(sentFile)) {
   const logs = await client.getContractEvents({ address: registry, abi: deliveryRootsReadAbi, eventName: "RootRecorded", args: { day: dayNumber(r.day) }, fromBlock: 0n, strict: true });
   const log = logs.find((l) => l.args.root?.toLowerCase() === r.root.toLowerCase());
   if (!log?.transactionHash) throw new Error(`the root is on chain but no RootRecorded log was found for ${r.day}: look by hand`);
-  writeFileSync(sentFile, JSON.stringify({ ...s, status: "sent", hash: log.transactionHash, block: log.blockNumber?.toString() ?? null, readBack: true, completedFromLog: true }, null, 2) + "\n");
+  writePrivate(sentFile, JSON.stringify({ ...s, status: "sent", hash: log.transactionHash, block: log.blockNumber?.toString() ?? null, readBack: true, completedFromLog: true }, null, 2) + "\n");
   console.log(`sent (completed from the log) ${spec.explorerTx}${log.transactionHash}`);
   process.exit(0);
 }
@@ -177,13 +182,13 @@ const fees = anchorFees({ label: spec.label, anchorMaxGas: dep.recordMaxGas, anc
 console.log(`record limits: gas ${fees.gas}, maxFeePerGas ${fees.maxFeePerGas}, bound ${formatEther(fees.boundWei)} ETH (cap ${formatEther(dep.recordMaxFeeWei)})`);
 const account = loadRootsPoster();
 const sending: SentDay = { lane, day: r.day, root: r.root, n: r.n, status: "sending", registry, leaves: r.leaves as SentDay["leaves"] };
-writeFileSync(sentFile, JSON.stringify({ ...sending, at: new Date().toISOString() }, null, 2) + "\n");
+writePrivate(sentFile, JSON.stringify({ ...sending, at: new Date().toISOString() }, null, 2) + "\n");
 const wallet = createWalletClient({ account, transport: http(rpc) });
 const hash = await wallet.sendTransaction({ chain: null, to: tx.to, value: 0n, data: tx.data, gas: fees.gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
-writeFileSync(sentFile, JSON.stringify({ ...sending, hash, at: new Date().toISOString() }, null, 2) + "\n");
+writePrivate(sentFile, JSON.stringify({ ...sending, hash, at: new Date().toISOString() }, null, 2) + "\n");
 const rc = await client.waitForTransactionReceipt({ hash });
 const back = rc.status === "success" ? await client.readContract({ address: registry, abi: deliveryRootsReadAbi, functionName: "rootOf", args: [dayNumber(r.day)] }) : null;
 const ok = back !== null && back.toLowerCase() === r.root.toLowerCase();
-writeFileSync(sentFile, JSON.stringify({ ...sending, status: ok ? "sent" : "failed", hash, block: rc.blockNumber.toString(), readBack: ok, at: new Date().toISOString() }, null, 2) + "\n");
+writePrivate(sentFile, JSON.stringify({ ...sending, status: ok ? "sent" : "failed", hash, block: rc.blockNumber.toString(), readBack: ok, at: new Date().toISOString() }, null, 2) + "\n");
 console.log(`${ok ? "sent" : "FAILED"} ${spec.explorerTx}${hash}`);
 process.exit(ok ? 0 : 1);

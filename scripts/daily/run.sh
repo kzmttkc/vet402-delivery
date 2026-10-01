@@ -606,7 +606,11 @@ records_lane() {
   [ -z "$days" ] || msg="records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
   if [ -n "$evm_days" ]; then
     evm_roots "$evm_days"
-    msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots $(printf '%s\n' "$evm_days" | tr ' ' ':' | paste -sd, -)$([ "$DRY" = 1 ] && echo ' (simulated)')"
+    if [ "$evm_days" = "refresh -" ]; then
+      msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots judged again with today's rules"
+    else
+      msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots $(printf '%s\n' "$evm_days" | tr ' ' ':' | paste -sd, -)$([ "$DRY" = 1 ] && echo ' (simulated)')"
+    fi
   fi
   publish "$msg"
 }
@@ -616,8 +620,10 @@ records_lane() {
 # evm_root_days: "<lane> <day>" for each closed UTC day with purchases on the lane whose root is not written into
 # DeliveryRoots yet, or not in data/evm/roots/<lane>.json on main. The lanes buy on some days only; a day with no
 # purchase is never listed. Off unless $CONF/evm-roots-enabled exists and scripts/evm-anchor.ts on main knows it.
+# With nothing to write, "refresh -" when data/evm/roots on main is not what today's rules make of it (a verdict
+# changed: the leaves are facts and never change, the published verdicts and what is withheld can).
 evm_root_days() {
-  local lane out
+  local lane out all="" rc=0
   [ -f "$CONF/evm-roots-enabled" ] || return 0
   grep -q -- "--open-days" "$REPO/scripts/evm-anchor.ts" 2>/dev/null || return 0
   for lane in robinhood arbitrum; do
@@ -626,8 +632,19 @@ evm_root_days() {
       continues "EVM root" "evm-anchor --lane $lane --open-days failed: no $lane root this run" >&2
       continue
     fi
-    printf '%s\n' "$out" | while read -r d; do [ -z "$d" ] || echo "$lane $d"; done
+    all="$all$(printf '%s\n' "$out" | while read -r d; do [ -z "$d" ] || echo "$lane $d"; done)"$'\n'
   done
+  all="$(printf '%s' "$all" | grep -v '^$' || true)"
+  if [ -n "$all" ]; then
+    printf '%s\n' "$all"
+    return 0
+  fi
+  in_repo "$TSX" scripts/evm-roots-publish.ts --data "$REPO/data" --check >&2 || rc=$?
+  if [ "$rc" -eq 10 ]; then
+    echo "refresh -"
+  elif [ "$rc" -ne 0 ]; then
+    continues "EVM root" "evm-roots-publish --check exited $rc: data/evm/roots is not judged again this run" >&2
+  fi
 }
 
 # evm_roots <"lane day" lines>: plan and write each day's root (scripts/evm-anchor.ts), then write
@@ -637,6 +654,7 @@ evm_roots() {
   local lane day rc
   while read -r lane day; do
     [ -n "$day" ] || continue
+    [ "$lane" != refresh ] || continue
     if [ "$DRY" = 1 ]; then
       run "EVM root $lane $day (plan, scratch)" in_repo "$TSX" scripts/evm-anchor.ts --lane "$lane" --day "$day" --anchors-dir "$STATE/dry-evm-anchors" ||
         continues "EVM root" "the plan for $lane $day did not pass (dry run)"

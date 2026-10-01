@@ -383,6 +383,10 @@ npx tsx scripts/evm-publish.ts --lane robinhood && npx tsx scripts/build-site.ts
 cd contracts && forge test                                # DeliveryRoots against Merkle vectors from src/receipt/merkle.ts
 ```
 
+The daily root holds facts, not verdicts: each leaf is one purchase's payment, the settlement the chain check read, the HTTP status, and the size and sha256 of the answer. Whether it counts as delivered, and whose side a failure is on, is decided again with the current rules each time `data/evm/roots/<lane>.json` is written (run `scripts/evm-roots-publish.ts` after every `scripts/evm-publish.ts`), so a rule change never leaves an old verdict on chain.
+
+Rebuilding a leaf in another language: digest = keccak256 of the UTF-8 bytes of the record's canonical JSON, which is what `JSON.stringify` gives after the object keys are sorted (JavaScript's default sort, by UTF-16 code unit) and with no whitespace. Strings must be escaped exactly as `JSON.stringify` escapes them: only `"`, `\` and control characters (`\b \f \n \r \t`, the rest as `\u00xx` in lowercase hex). Non-ASCII characters and `/` are written as they are, so a library that escapes them (Python's `json.dumps` without `ensure_ascii=False`, PHP's `json_encode` without `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`) gives another digest. `null` fields are kept; numbers are integers in plain decimal. `src/evm/evm-anchor.ts` `canonicalJson` is the reference.
+
 One wallet (0x9B59…4E51) pays on Base, Arbitrum One and Robinhood Chain, so the same buyer is compared across chains. Each lane has its own ledger and caps (`src/evm/chains.ts`). Payment is x402 exact with EIP-3009 only; a 402 that asks for Permit2 is refused. When a paid purchase does not come back, `src/evm/settle-cause.ts` assigns one cause (facilitator, seller setup, vet402, unknown) from the seller's response and the chain, and a fix the seller can apply; a cause that rests only on a facilitator's `/supported` page is marked as a lead.
 
 ## Scope and prior work

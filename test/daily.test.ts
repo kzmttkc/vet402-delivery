@@ -876,7 +876,16 @@ if (a.includes("--send")) {
 `,
   "evm-roots-publish.ts": `import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), data = a[a.indexOf("--data") + 1];
+// FAKE_EVM_REFRESH: today's rules judge a published purchase differently until the file is written once.
+if (a.includes("--check")) {
+  appendFileSync(process.env.FAKE_CALLS!, "evm-roots-publish --check\\n");
+  process.exit(process.env.FAKE_EVM_REFRESH && !existsSync(data + "/evm/roots/refreshed") ? 10 : 0);
+}
 appendFileSync(process.env.FAKE_CALLS!, "evm-roots-publish\\n");
+if (process.env.FAKE_EVM_REFRESH) {
+  mkdirSync(data + "/evm/roots", { recursive: true });
+  writeFileSync(data + "/evm/roots/refreshed", "1\\n");
+}
 const files = existsSync("results/evm/anchors") ? readdirSync("results/evm/anchors") : [];
 for (const lane of ["robinhood", "arbitrum"]) {
   const days = files.filter((f) => f.startsWith(lane + "-")).map((f) => f.slice(lane.length + 1, lane.length + 11));
@@ -1579,7 +1588,7 @@ test("records: with evm-roots-enabled, each lane-day with purchases is planned, 
   const before = evmCalls(sb).length;
   const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), ...EVM_DAYS });
   assert.equal(r2.status, 0, logs(sb));
-  assert.ok(evmCalls(sb).slice(before).every((l) => l.includes("--open-days")), evmCalls(sb).join("\n"));
+  assert.ok(evmCalls(sb).slice(before).every((l) => l.includes("--open-days") || l.includes("--check")), evmCalls(sb).join("\n"));
   rmSync(sb.dir, { recursive: true });
 });
 
@@ -1614,5 +1623,19 @@ test("records: a lane with no purchases file is not asked", () => {
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS });
   assert.equal(r.status, 0, logs(sb));
   assert.ok(!evmCalls(sb).some((l) => l.includes("robinhood")), evmCalls(sb).join("\n"));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: with no day to write, a published roots file that today's rules judge differently is written again (and only then)", () => {
+  const sb = evmBox();
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), FAKE_EVM_REFRESH: "1" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", "evm-roots-publish"]);
+  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots judged again with today's rules");
+  const before = evmCalls(sb).length;
+  const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:20:00Z"), FAKE_EVM_REFRESH: "1" });
+  assert.equal(r2.status, 0, logs(sb));
+  assert.deepEqual(evmCalls(sb).slice(before).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check"], "nothing to judge again");
+  assert.match(logs(sb), /no closed day with purchases waits for its records/);
   rmSync(sb.dir, { recursive: true });
 });
