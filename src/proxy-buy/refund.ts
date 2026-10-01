@@ -35,10 +35,10 @@ import { COMPUTE_BUDGET_PROGRAM, TOKEN_PROGRAM, USDC_DECIMALS, USDC_MINT } from 
 import { maxFeeAtomic, TEMPO_BASE_FEE_CAP } from "../receipt/tempo-anchor.js";
 import { usdcAta } from "../txcheck.js";
 import type { SettlementCheck } from "../tempo/chain.js";
-import { FEE_RESERVE_ATOMIC, TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../tempo/constants.js";
+import { TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../tempo/constants.js";
 import { checkSignedTransfer } from "../tempo/txcheck.js";
 import type { ProxyChain } from "./allowlist.js";
-import { REFUND_ACCOUNT_CREATIONS_PER_DAY } from "./constants.js";
+import { REFUND_ACCOUNT_CREATIONS_PER_DAY, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import { decodeSolanaTx } from "./fate.js";
 import { MAX_REFUND_ATTEMPTS, type RefundRecord, type Store } from "./store.js";
 
@@ -216,7 +216,7 @@ export interface TempoRefundDeps {
 /**
  * The Tempo refund, the way the Tempo anchor sends (src/receipt/anchor-tempo-run.ts): eth_call it first,
  * eth_estimateGas x 1.25 as the gas limit, the base-fee cap as maxFeePerGas, the fee in USDC.e and its bound
- * within the fee reserve, plus a validBefore so a transaction that never lands is provably dead.
+ * within TEMPO_REFUND_FEE_BOUND_ATOMIC, plus a validBefore so a transaction that never lands is provably dead.
  */
 export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bigint, beforeSend: BeforeSend): Promise<RefundOutcome> {
   const payer = d.account.address;
@@ -230,7 +230,7 @@ export async function sendTempoRefund(d: TempoRefundDeps, to: string, amount: bi
     await call(d.client, { account: payer, to: USDC_E as Hex, data });
     const estimate = await estimateGas(d.client, { account: payer, to: USDC_E as Hex, data });
     const gas = (estimate * 5n + 3n) / 4n;
-    if (maxFeeAtomic(gas, TEMPO_BASE_FEE_CAP) > FEE_RESERVE_ATOMIC) return { status: "failed", reason: "refund_fee_over_reserve", tx: null };
+    if (maxFeeAtomic(gas, TEMPO_BASE_FEE_CAP) > TEMPO_REFUND_FEE_BOUND_ATOMIC) return { status: "failed", reason: "refund_fee_over_reserve", tx: null };
     const block = await getBlock(d.client);
     validBefore = block.timestamp + BigInt(d.validForSeconds ?? 120);
     fromBlock = block.number ?? 0n;

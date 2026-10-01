@@ -42,6 +42,18 @@ export const REFUND_ACCOUNT_CREATIONS_PER_DAY = 10;
 /** A Tempo payment's validBefore may be at most this far ahead (mppx signs 25 s ahead): past it, it is refused. */
 export const TEMPO_MAX_VALID_AHEAD_SECONDS = 600;
 
+/**
+ * The most a Tempo refund may pay in network fees (USDC.e, bounded at the base-fee cap, src/receipt/tempo-anchor.ts):
+ * 0.01. A plain TIP-20 transfer is about 33k gas, but Tempo charges about 250k more gas for a transaction from an
+ * account with no transaction yet (nonce 0) and about 250k more for a transfer to an address holding no USDC.e
+ * (both read with eth_estimateGas on mainnet, 2026-10-01: 285,714 and 288,879). A refund can be one or both: the proxy
+ * payer's first transaction, to an agent that paid its whole balance. With the census reserve (0.002) as the
+ * bound, such a refund was refused before sending every time and ended "stuck". 10,000 atomic covers a gas limit
+ * of 833k (estimate x 1.25) at the cap. The fee actually paid is the base fee's (0.6 gwei on 2026-10-01, about
+ * 0.0003 for 450k gas). Every Tempo purchase reserves this much more in the payer wallet, for its refund.
+ */
+export const TEMPO_REFUND_FEE_BOUND_ATOMIC = 10_000n;
+
 /** Chain transaction reads one reconcile run may make in all (the cron's RPC bill has a ceiling). */
 export const RECONCILE_MAX_TX_READS = 1000;
 

@@ -15,6 +15,7 @@ import { tempo as tempoChain } from "viem/chains";
 import { Transaction } from "viem/tempo";
 import { SOLANA_MAINNET, USDC_MINT } from "../src/constants.js";
 import { USDC_E } from "../src/tempo/constants.js";
+import { TEMPO_REFUND_FEE_BOUND_ATOMIC } from "../src/proxy-buy/constants.js";
 import { loadAllowlist, makeAllowlist } from "../src/proxy-buy/allowlist.js";
 import { configFromEnv, describeConfig } from "../src/proxy-buy/config.js";
 import { decodeSolanaTx, decodeTempoTx, EXPIRY_MARGIN_BLOCKS, solanaTxFate, tempoTxFate } from "../src/proxy-buy/fate.js";
@@ -803,13 +804,67 @@ test("tempo: the same credential twice at once, re-encoded, or on another instan
   assert.equal((await r2.buy.handle(tPaid(cred))).status, 409);
 });
 
-test("L5 tempo: the balance must cover a refund and its fee, not only the seller price", async () => {
+test("L5 tempo: the balance must cover a refund and its fee bound, not only the seller price", async () => {
   const r = await tRig();
-  r.state.balance = 13_000n + 1_999n; // total + fee reserve - 1
+  r.state.balance = 13_000n + TEMPO_REFUND_FEE_BOUND_ATOMIC - 1n; // total + the refund's fee bound - 1
   const cred = await agentPaysTempo(r);
   const j = await body(await r.buy.handle(tPaid(cred)));
   assert.equal(j.reason, "insufficient_balance");
   assert.equal(r.chain.broadcasts, 0);
+  // exactly enough: admitted, and the purchase reserved the refund's whole fee bound
+  const ok = await tRig();
+  ok.state.balance = 13_000n + TEMPO_REFUND_FEE_BOUND_ATOMIC;
+  assert.equal((await ok.buy.handle(tPaid(await agentPaysTempo(ok)))).status, 200);
+  assert.equal(TEMPO_REFUND_FEE_BOUND_ATOMIC, 10_000n);
+});
+
+test("tempo refund fee bound: the payer's first transaction (nonce 0) to an address holding no USDC.e is sent; past the bound it is refused before signing", async () => {
+  // Gas read on Tempo mainnet with eth_estimateGas on 2026-10-01: a USDC.e transfer from an account with no
+  // transaction yet 285,714; to an address holding no USDC.e 288,879; a plain transfer about 33k.
+  const run = async (estimate: bigint) => {
+    let raw: Hex | null = null;
+    const rpc = custom({
+      async request({ method, params }: { method: string; params?: unknown[] }) {
+        switch (method) {
+          case "eth_chainId":
+            return "0x1079";
+          case "eth_call":
+            return "0x";
+          case "eth_estimateGas":
+            return `0x${estimate.toString(16)}`;
+          case "eth_getTransactionCount":
+            return "0x0";
+          case "eth_getBlockByNumber":
+            return { baseFeePerGas: "0x23c34600", number: "0x10", timestamp: "0x68000000", hash: `0x${"11".repeat(32)}`, transactions: [] };
+          case "eth_sendRawTransactionSync":
+            raw = (params as [Hex])[0];
+            throw new Error("not sending in this test");
+          default:
+            throw new Error(`unhandled ${method}`);
+        }
+      },
+    });
+    const written: unknown[] = [];
+    const out = await sendTempoRefund(
+      { account: tProxy, client: createClient({ chain: tempoChain, transport: rpc }), verify: async () => ({ settled: false, detail: "receipt not found", feePaid: null }) },
+      tAgent.address,
+      105_000n,
+      async (f) => (written.push(f), true),
+    );
+    return { out, raw: raw as Hex | null, written: written.length };
+  };
+  // both extra costs at once (about 33k + 250k + 250k): sent
+  const both = await run(535_000n);
+  assert.equal(both.out.status, "unknown", "handed to the chain, then read back");
+  assert.equal(both.written, 1);
+  assert.equal((Transaction.deserialize(both.raw! as never) as { gas: bigint }).gas, 668_750n);
+  // the largest estimate inside the bound: 666,666 x 1.25 = 833,333 gas, 9,999.996 -> 10,000 atomic at the cap
+  assert.equal((await run(666_666n)).out.status, "unknown");
+  // one past it: refused before anything is signed or written
+  const over = await run(666_667n);
+  assert.deepEqual(over.out, { status: "failed", reason: "refund_fee_over_reserve", tx: null });
+  assert.equal(over.raw, null);
+  assert.equal(over.written, 0);
 });
 
 test("tempo: a push credential is refused; flag off does nothing", async () => {

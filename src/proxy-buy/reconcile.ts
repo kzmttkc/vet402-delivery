@@ -12,13 +12,12 @@
  * with), so two reconcilers, or a reconciler and a request, never act twice on one purchase.
  * Actions starting with "ALERT" need a human (the cron logs them).
  */
-import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS } from "./constants.js";
+import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import { tempoTxFate, type Fate, type TempoFateFacts } from "./fate.js";
 import { refundOwed, windowPatch, type Common } from "./flow.js";
 import { redact } from "./reasons.js";
 import { ACCOUNT_CREATION_WAIT } from "./refund.js";
 import { REFUND_SOL_MIN_LAMPORTS, type SolanaSide } from "./solana.js";
-import { FEE_RESERVE_ATOMIC } from "../tempo/constants.js";
 import type { PurchaseRecord, PurchaseRow } from "./store.js";
 import { KNOWN_TX_WINDOW_MS, type TempoSide } from "./tempo.js";
 
@@ -156,7 +155,7 @@ async function walletAlerts(ctx: ReconcileContext): Promise<ReconcileAction[]> {
       const bal = await ctx.tempo.pay.balance();
       const w = await ctx.store.wallet("tempo");
       if (w && bal < w.floor) say("tempo", `ALERT chain_spend_exceeds_ledger: payer balance ${bal} < floor ${w.floor}; every purchase is refused`);
-      if (w && w.floor < ctx.maxRefund + FEE_RESERVE_ATOMIC) say("tempo", `ALERT insufficient_balance: floor ${w.floor} < one purchase's worst case ${ctx.maxRefund + FEE_RESERVE_ATOMIC}; top up the payer`);
+      if (w && w.floor < ctx.maxRefund + TEMPO_REFUND_FEE_BOUND_ATOMIC) say("tempo", `ALERT insufficient_balance: floor ${w.floor} < one purchase's worst case ${ctx.maxRefund + TEMPO_REFUND_FEE_BOUND_ATOMIC}; top up the payer`);
     } catch {
       say("tempo", "wallet: the payer's balance could not be read this run");
     }

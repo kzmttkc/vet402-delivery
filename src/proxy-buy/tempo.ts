@@ -22,7 +22,7 @@ import { atomicToUnits, FEE_RESERVE_ATOMIC } from "../tempo/constants.js";
 import { Ledger } from "../tempo/ledger.js";
 import { payOne, type PayDeps, type PayOutcome } from "../tempo/pay.js";
 import type { Signer } from "../tempo/chain.js";
-import { ANSWER_LIMIT_NOTE, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY, TEMPO_MAX_VALID_AHEAD_SECONDS } from "./constants.js";
+import { ANSWER_LIMIT_NOTE, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY, TEMPO_MAX_VALID_AHEAD_SECONDS, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import { decodeTempoTx, tempoTxFate, type Fate, type TempoReads, type TempoTxFacts } from "./fate.js";
 import { noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
 import { refusalReason } from "./reasons.js";
@@ -149,8 +149,8 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     return noCharge(503, "ledger_unreadable", "the proxy wallet could not be read on chain; nothing was charged");
   }
   const day = utcDay(now);
-  // The wallet reservation is the most this purchase can take out: a refund of the total plus its fee (>= the seller price + fee).
-  const need = total + FEE_RESERVE_ATOMIC > seller + feeReserve ? total + FEE_RESERVE_ATOMIC : seller + feeReserve;
+  // The wallet reservation is the most this purchase can take out: a refund of the total plus its fee bound (>= the seller price + fee).
+  const need = total + TEMPO_REFUND_FEE_BOUND_ATOMIC > seller + feeReserve ? total + TEMPO_REFUND_FEE_BOUND_ATOMIC : seller + feeReserve;
   const room = await store.admit(id, { chain: "tempo", payer: side.payer, day, caps: ctx.caps, need, balance: bal, balanceReadAt, now });
   if (!room.ok) {
     await store.release(id);
