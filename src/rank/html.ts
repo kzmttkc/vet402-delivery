@@ -739,6 +739,32 @@ export function mdInline(md: string): string {
     .join("");
 }
 
+/**
+ * use.html#python: the check in Python with the standard library only. `seller_url` and `pay` are the
+ * caller's. A test runs it against /v1/check's own handler (packages/check/test/no-node.test.ts).
+ */
+export const PYTHON_SNIPPET = `import json, urllib.parse, urllib.request
+
+def vet402_verdict(url):
+    q = urllib.parse.urlencode({"url": url})
+    with urllib.request.urlopen("${CHECK_ENDPOINT}?" + q, timeout=10) as r:
+        return json.load(r)["verdict"]
+
+if vet402_verdict(seller_url) != "avoid":
+    pay(seller_url)`;
+
+/**
+ * use.html#curl: one line with jq and one without. `pay` stands for the caller's command that pays; it runs
+ * only when /v1/check answered and the verdict is not avoid. Run by the same test, under bash.
+ */
+export const CURL_LINES = [
+  `URL='https://api.xona-agent.com/token/pumpfun-trending'`,
+  `# with jq`,
+  `curl -fsSG -m 10 ${CHECK_ENDPOINT} --data-urlencode "url=$URL" | jq -e '.verdict != "avoid"' >/dev/null && pay "$URL"`,
+  `# without jq`,
+  `curl -fsSG -m 10 ${CHECK_ENDPOINT} --data-urlencode "url=$URL" | grep -Eq '"verdict": *"(pay|unknown)"' && pay "$URL"`,
+] as const;
+
 /** The Use it page (use.html), for developers: each way in, with a minimal example and the full spec. */
 /** The URL whose /v1/check answer use.html shows in full. */
 export const USE_EXAMPLE_URL = TOP_EXAMPLES[0];
@@ -806,6 +832,18 @@ ${laneLine ? `<p class="meta">${escapeHtml(laneLine)}</p>` : ""}
 <p>The answer for that URL, built by the same code from the same data as the live endpoint (rank.json of ${escapeHtml(r.date)}):</p>
 <pre class="cmd">${escapeHtml(JSON.stringify(example, null, 2))}</pre>
 ${spec(GH("packages/check/src/http.ts"), "Spec: packages/check/src/http.ts")}
+
+<h2 id="python">Python</h2>
+<p>Standard library only: ask before paying, and pay only when the verdict is not avoid.</p>
+<pre class="cmd">${escapeHtml(PYTHON_SNIPPET)}</pre>
+<p class="meta">With the x402 Python client, register the example file's hook: <code>client.on_before_payment_creation(vet402_before_payment)</code> runs before the client signs, and on avoid the payment is never created. The file also sends the chain and payTo of the 402, and, like the fetch hook, goes on when the record cannot be read.</p>
+${spec(GH("examples/python/check_before_paying.py"), "Spec: examples/python/check_before_paying.py")}
+
+<h2 id="curl">Shell: curl</h2>
+<p>One line before the command that pays. <code>pay</code> stands for that command: it runs only when vet402 answered and the verdict is not avoid.</p>
+<pre class="cmd">${escapeHtml(CURL_LINES.join("\n"))}</pre>
+<p class="meta"><code>--data-urlencode</code> sends the seller URL with its query string intact. If the check cannot be read (no network, or no answer in 10 seconds), <code>pay</code> does not run.</p>
+${spec("#http", "Spec: GET /v1/check")}
 
 <h2 id="hook">At the payment: the x402 fetch hook</h2>
 <p>Wrap the fetch your x402 client pays through. Every 402 is looked up before the client signs; with <code>block: "avoid"</code> the payment is never created for a seller whose answer is avoid.</p>

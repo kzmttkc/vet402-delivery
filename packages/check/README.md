@@ -26,6 +26,13 @@ As an MCP server in Claude Code (run the line above once first, so the install i
 claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp
 ```
 
+## Without Node: Python and curl
+
+The same lookup over HTTP, free and with no key: `GET https://vet402-delivery.vercel.app/v1/check?url=<seller URL>` (optional `chain` and `payTo`). The answer starts with `verdict` and `why` ([what the verdict means](https://kzmttkc.github.io/vet402-delivery/use.html#verdict)).
+
+- Python, standard library only: [`examples/python/check_before_paying.py`](https://github.com/kzmttkc/vet402-delivery/blob/main/examples/python/check_before_paying.py). A command, a `pay_after_check(url, pay)` function, and a hook for the x402 Python client (`client.on_before_payment_creation(vet402_before_payment)`) that runs before the client signs.
+- curl, one line each with jq and without: [use.html#curl](https://kzmttkc.github.io/vet402-delivery/use.html#curl).
+
 ## The command line
 
 ```
@@ -100,5 +107,7 @@ Each record is signed by vet402's observation key (EIP-712). Each day's records 
 ## Tests
 
 `npm test` runs `packages/check/test/check.test.ts` with no network, on fixtures cut from the public data by `packages/check/test/make-fixtures.ts`: a seller with seller-side failures and negative records, a seller that delivered, an unknown seller, chain and payTo filters, a shared host, record verification that passes, and records changed by one character, a Merkle proof and a memo from another wallet that fail.
+
+`packages/check/test/no-node.test.ts` runs the Python example and the Python and curl lines of use.html against `/v1/check`'s own handler on loopback. `packages/check/test/package.test.ts` builds the npm package (`scripts/build.mjs`) and runs it from a folder outside the repository.
 
 Prior work: the placement of the hook under the payment wrapper follows [probe402-check](https://github.com/probe402/probe402-check), which checks a different public record (probe402's).

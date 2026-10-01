@@ -131,10 +131,11 @@ test("everything the first page used to say is on the second layer (Sellers or M
   assert.ok(method.includes('<h2 id="verify">Verify a record</h2>') && method.includes('<a href="records/index.html">All signed records, by day</a>'));
   // Use it: each way in, with an example and its spec on GitHub.
   const use = site("use.html");
-  for (const id of ["http", "hook", "mcp", "cli", "verify", "program"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
+  for (const id of ["http", "python", "curl", "hook", "mcp", "cli", "verify", "program"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
   for (const id of ["buy"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
-  assert.equal((use.match(/<pre class="cmd">/g) ?? []).length, 8, "a minimal example for each, and the live answer");
-  assert.equal((use.match(/>Spec: /g) ?? []).length, 7, "a spec link for each");
+  assert.ok(use.indexOf('<h2 id="http">') < use.indexOf('<h2 id="python">') && use.indexOf('<h2 id="curl">') < use.indexOf('<h2 id="hook">'), "Python and curl right after the HTTP spec");
+  assert.equal((use.match(/<pre class="cmd">/g) ?? []).length, 10, "a minimal example for each, and the live answer");
+  assert.equal((use.match(/>Spec: /g) ?? []).length, 9, "a spec link for each");
 });
 
 test("Use it, proxy buy: every line is word for word in the README's Proxy buy section (the README is the source), and the Check page links to it", () => {

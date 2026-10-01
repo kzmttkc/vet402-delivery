@@ -1,0 +1,52 @@
+{
+  "name": "vet402-check",
+  "version": "0.1.0",
+  "description": "Look an x402 or MPP seller up in vet402's public record before an agent pays it: a CLI, an MCP server and an x402 fetch hook. Read-only.",
+  "type": "module",
+  "bin": {
+    "vet402-check": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/packages/check/src/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "x402",
+    "mpp",
+    "agent",
+    "payments",
+    "mcp",
+    "solana",
+    "base"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzmttkc/vet402-delivery.git",
+    "directory": "packages/check"
+  },
+  "homepage": "https://kzmttkc.github.io/vet402-delivery/use.html",
+  "bugs": "https://github.com/kzmttkc/vet402-delivery/issues",
+  "license": "MIT",
+  "author": "Sen",
+  "dependencies": {
+    "@solana/kit": "5.5.1",
+    "@x402/core": "2.27.0",
+    "mppx": "0.11.0",
+    "viem": "2.56.9"
+  }
+}

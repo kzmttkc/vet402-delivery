@@ -192,6 +192,30 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 }</pre>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/blob/main/packages/check/src/http.ts" rel="noopener noreferrer nofollow">Spec: packages/check/src/http.ts</a></p>
 
+<h2 id="python">Python</h2>
+<p>Standard library only: ask before paying, and pay only when the verdict is not avoid.</p>
+<pre class="cmd">import json, urllib.parse, urllib.request
+
+def vet402_verdict(url):
+    q = urllib.parse.urlencode({&quot;url&quot;: url})
+    with urllib.request.urlopen(&quot;https://vet402-delivery.vercel.app/v1/check?&quot; + q, timeout=10) as r:
+        return json.load(r)[&quot;verdict&quot;]
+
+if vet402_verdict(seller_url) != &quot;avoid&quot;:
+    pay(seller_url)</pre>
+<p class="meta">With the x402 Python client, register the example file's hook: <code>client.on_before_payment_creation(vet402_before_payment)</code> runs before the client signs, and on avoid the payment is never created. The file also sends the chain and payTo of the 402, and, like the fetch hook, goes on when the record cannot be read.</p>
+<p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/blob/main/examples/python/check_before_paying.py" rel="noopener noreferrer nofollow">Spec: examples/python/check_before_paying.py</a></p>
+
+<h2 id="curl">Shell: curl</h2>
+<p>One line before the command that pays. <code>pay</code> stands for that command: it runs only when vet402 answered and the verdict is not avoid.</p>
+<pre class="cmd">URL=&#39;https://api.xona-agent.com/token/pumpfun-trending&#39;
+# with jq
+curl -fsSG -m 10 https://vet402-delivery.vercel.app/v1/check --data-urlencode &quot;url=$URL&quot; | jq -e &#39;.verdict != &quot;avoid&quot;&#39; &gt;/dev/null &amp;&amp; pay &quot;$URL&quot;
+# without jq
+curl -fsSG -m 10 https://vet402-delivery.vercel.app/v1/check --data-urlencode &quot;url=$URL&quot; | grep -Eq &#39;&quot;verdict&quot;: *&quot;(pay|unknown)&quot;&#39; &amp;&amp; pay &quot;$URL&quot;</pre>
+<p class="meta"><code>--data-urlencode</code> sends the seller URL with its query string intact. If the check cannot be read (no network, or no answer in 10 seconds), <code>pay</code> does not run.</p>
+<p class="meta"><a href="#http" rel="noopener noreferrer nofollow">Spec: GET /v1/check</a></p>
+
 <h2 id="hook">At the payment: the x402 fetch hook</h2>
 <p>Wrap the fetch your x402 client pays through. Every 402 is looked up before the client signs; with <code>block: "avoid"</code> the payment is never created for a seller whose answer is avoid.</p>
 <pre class="cmd">npm install github:kzmttkc/vet402-delivery
