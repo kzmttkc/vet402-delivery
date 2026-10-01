@@ -64,7 +64,8 @@ export function mergeReadings<T extends Pick<ChainBuyRecord, "agentId" | "at" | 
 
 /** Pure. Sent purchases whose settlement the chain check has not decided (a receipt read at purchase time counts). */
 export function uncheckedPurchases(rows: readonly (ChainBuyRecord & { lane?: string })[]): string[] {
-  return rows.filter((r) => r.outcome === "sent" && r.settledOnChain !== true && (!r.chainCheck || r.chainCheck.result === "pending")).map((r) => `${r.lane ?? ""} ${r.resource}`);
+  // A purchase withheld because its lines did not parse (materialLost) is not published either way: not asked for here.
+  return rows.filter((r) => r.outcome === "sent" && !r.materialLost && r.settledOnChain !== true && (!r.chainCheck || r.chainCheck.result === "pending")).map((r) => `${r.lane ?? ""} ${r.resource}`);
 }
 
 /** [from, to) in ms during which this purchase's authorization could have settled. */

@@ -62,6 +62,7 @@ console.log(`${dataDir}/evm/${lane}.json: ${out.source}, ${out.payTosInCatalogs}
 const alertFile = `results/evm/${lane}-publish-alert.txt`;
 if (loaded.problems.length) {
   const where = [...new Set(loaded.problems.map((p) => `${p.file}:${p.line}`))].join(", ");
-  writeFileSync(alertFile, `wrote ${dataDir}/evm/${lane}.json with ${lost} purchase(s) withheld: unreadable line(s) in ${where}\n`);
+  const unnamed = loaded.unnamedLines ? ` and ${loaded.unnamedLines} unreadable record line(s) that name no purchase` : "";
+  writeFileSync(alertFile, `wrote ${dataDir}/evm/${lane}.json with ${lost} purchase(s) withheld${unnamed}: unreadable line(s) in ${where}\n`);
   process.exitCode = 3;
 } else if (existsSync(alertFile)) rmSync(alertFile);

@@ -102,6 +102,12 @@ export function lastPaidByListing(rows: readonly ChainBuyRecord[]): Map<string, 
   return m;
 }
 
+/**
+ * vet402's own wrong request (read as such, on a listing that declares parameters) is bought again, unchanged,
+ * once this long after it: a misreading costs at most one small purchase every 30 days, never a seller dropped.
+ */
+export const INPUT_4XX_RETRY_MS = 30 * 86_400_000;
+
 /** A seller-side 400/404/422 to an unchanged request is bought again once this long after it. */
 export const SELLER_4XX_RETRY_MS = 7 * 86_400_000; // every 7 days: the record of that listing stays fresh
 
@@ -113,8 +119,8 @@ export const SELLER_4XX_RETRY_MS = 7 * 86_400_000; // every 7 days: the record o
  */
 export function holdAfter4xx(last: LastPaid | null, nowMs: number): string | null {
   if (!last || last.status === null || !INPUT_STATUSES.has(last.status)) return null;
-  if (last.inputError && (last.declaredCount ?? 0) > 0) return "input_unchanged_after_input_error";
   const at = last.at ? Date.parse(last.at) : NaN;
+  if (last.inputError && (last.declaredCount ?? 0) > 0) return Number.isFinite(at) && nowMs - at >= INPUT_4XX_RETRY_MS ? null : "input_unchanged_after_input_error";
   if (Number.isFinite(at) && nowMs - at >= SELLER_4XX_RETRY_MS) return null;
   return "unchanged_after_seller_4xx_within_7_days";
 }
@@ -258,6 +264,18 @@ function partNames(part: unknown): { declared: string[]; required: string[] } {
 const isDescriptor = (v: unknown): boolean =>
   isObjD(v) && (v.type === "http" || v.type === "mcp") && ["inputSchema", "toolName", "method", "queryParams", "bodyFields"].some((k) => k in v);
 
+/**
+ * A JSON schema of an input description (x402 Bazaar's extensions.bazaar.schema.properties.input, or such a schema
+ * nested in a part): its `type` property is fixed to "http" or "mcp" (const or enum). Its own properties and
+ * required (type, method, toolName, inputSchema, transport, description, example, mcpServerUrl, ...) describe the
+ * request; only what is inside its queryParams, body, bodyFields and inputSchema are parameters.
+ */
+const isDescriptorSchema = (v: unknown): boolean => {
+  if (!isObjD(v) || !isObjD(v.properties) || !isObjD(v.properties.type)) return false;
+  const t = v.properties.type;
+  return t.const === "http" || t.const === "mcp" || (Array.isArray(t.enum) && t.enum.some((x) => x === "http" || x === "mcp"));
+};
+
 /** A property of an input schema that is itself a part (holds the body's or the query's parameters). */
 const isPartSchema = (v: unknown) => isObjD(v) && (isObjD(v.properties) || v.type === "object");
 
@@ -291,8 +309,17 @@ export function declarationFrom(doc: unknown, label: string): InputDeclaration {
       if (isObjD(x.inputSchema)) take(x.inputSchema, `${where}.inputSchema`);
       return;
     }
-    // A part that is itself an input description ({"type":"http","method":"GET",...}): read as one, not as a map.
-    const part = (v: unknown, w: string) => (isDescriptor(v) ? input(v, w, depth + 1) : take(v, w));
+    // A part that is itself an input description ({"type":"http","method":"GET",...}, or the schema of one): read as
+    // one, not as a map.
+    const part = (v: unknown, w: string) => (isDescriptor(v) || isDescriptorSchema(v) ? input(v, w, depth + 1) : take(v, w));
+    if (isDescriptorSchema(x)) {
+      const props = x.properties as Record<string, unknown>;
+      part(props.queryParams, `${where}.properties.queryParams`);
+      if (isPartSchema(props.body) || isDescriptorSchema(props.body)) part(props.body, `${where}.properties.body`);
+      part(props.bodyFields, `${where}.properties.bodyFields`);
+      if (isObjD(props.inputSchema) && isObjD(props.inputSchema.properties)) take(props.inputSchema, `${where}.properties.inputSchema`);
+      return;
+    }
     part(x.queryParams, `${where}.queryParams`);
     if (isObjD(x.body)) part(x.body, `${where}.body`);
     part(x.bodyFields, `${where}.bodyFields`);
@@ -430,6 +457,12 @@ function sentences(s: string): string[] {
 
 const ID = String.raw`[A-Za-z_$][\w$.-]*`;
 const Q = String.raw`\\?["'\x60]?`;
+/**
+ * Words for what an answer holds (data, history, a balance...). A sentence with one of them names the seller's
+ * missing content ("Missing data for wallet", "Missing wallet history"), not an input vet402 left out.
+ */
+const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|transactions?|records?|results?|info|information|prices?|quotes?|liquidity|holders?|activity|metadata|stats|statistics|coverage)\b/i;
+
 /** A sentence that says something is missing or required. */
 const CUE = /\b(missing|required|cannot be empty|must not be empty|must be provided)\b/i;
 const GENERIC = /^(fields?|params?|parameters?|arguments?|args?|propert(y|ies)|keys?|values?|inputs?)$/i;
@@ -453,7 +486,7 @@ export function namesInSentence(piece: string): string[] {
     const list = (q[3] ?? "").split(/\s*(?:,|\band\b)\s*/).filter(Boolean);
     if (head && GENERIC.test(head)) {
       if (list.length && !STOP.has(list[0]!.toLowerCase())) list.forEach(push);
-      else push(head);
+      else if (list[0]?.toLowerCase() !== "for") push(head); // "missing value for x": x is the name (below), not value
     } else if (head) push(head);
     else list.slice(0, 1).forEach(push);
   }
@@ -467,7 +500,11 @@ export function namesInSentence(piece: string): string[] {
   // "'x' is missing", "\"x\" is missing", "parameter x is missing": a quoted name, or one right after an input word.
   // "Data for this wallet is missing" names no missing input: the seller's data is missing.
   for (const q of piece.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
-  for (const q of piece.matchAll(new RegExp(String.raw`\b(?:parameter|param|property|field|argument)s?\s+(${ID})\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`\b(?:parameter|param|property|field|argument|key)\s+(${ID})\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
+  // "the wallet parameter is missing", "wallet parameter is missing"
+  for (const q of piece.matchAll(new RegExp(String.raw`(${ID})\s+(?:parameter|param|property|field|argument|key)\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
+  // "Parameters wallet and symbol are missing", "fields a, b are missing"
+  for (const q of piece.matchAll(new RegExp(String.raw`\b(?:parameters|params|properties|fields|arguments|keys)\s+(${ID}(?:\s*(?:,|\band\b)\s*${ID})*)\s+(?:is|are)\s+missing\b`, "gi"))) q[1]!.split(/\s*(?:,|\band\b)\s*/).filter(Boolean).forEach(push);
   // "x cannot be empty", "x must not be empty", "x must be provided"
   for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:cannot be empty|must not be empty|must be provided)`, "gi"))) push(q[1]);
   return [...new Set(out)];
@@ -516,7 +553,7 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
   if (j !== undefined) walk(j, [], 0);
   for (const piece of answerPieces(text)) {
     if (!CUE.test(piece)) continue;
-    if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece)) tainted = true;
+    if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece) || CONTENT_WORDS.test(piece)) tainted = true;
     const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
     for (const n of namesInSentence(piece)) names.push({ name: n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text" });
   }

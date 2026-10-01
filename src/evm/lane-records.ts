@@ -82,10 +82,33 @@ export function readDeclaredPatches(laneIds: readonly string[], dir = "results/e
  * materialLost (the pages withhold it rather than read its 4xx without the material): the purchase the line names
  * when its key can still be read, else every 4xx purchase of these lanes that has no material.
  */
-export function loadLaneRecordsChecked(laneIds: readonly string[], dir = "results/evm", kinds: readonly string[] = ["purchases", "reverify", "chaincheck"]): { rows: LaneRecord[]; problems: LineProblem[] } {
+export function loadLaneRecordsChecked(
+  laneIds: readonly string[],
+  dir = "results/evm",
+  kinds: readonly string[] = ["purchases", "reverify", "chaincheck"],
+): { rows: LaneRecord[]; problems: LineProblem[]; /** Broken record lines that name no purchase that could be read. */ unnamedLines: number } {
   const reads = laneIds.flatMap((l) => kinds.map((k) => readJsonl<LaneRecord>(join(dir, `${l}-${k}.jsonl`))));
   const decl = readDeclaredPatches(laneIds, dir);
   let rows = applyDeclaredPatches(mergeReadings(reads.flatMap((r) => r.rows)), decl.patches);
+  // A purchase whose every reading was on a broken line: kept as a withheld placeholder when its key can be read
+  // from the line (so it is counted and never shown as "not bought yet"), else counted as an unnamed line.
+  const have = new Set(rows.map((r) => recordKey(r)));
+  let unnamedLines = 0;
+  const placeholders = new Map<string, LaneRecord>();
+  for (const p of reads.flatMap((r) => r.problems)) {
+    const text = readFileSync(p.file, "utf8").split("\n")[p.line - 1] ?? "";
+    const field = (k: string) => new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(text)?.[1];
+    const [lane, agentId, at, resource] = ["lane", "agentId", "at", "resource"].map(field);
+    if (!(lane && agentId && at && resource)) {
+      unnamedLines++;
+      continue;
+    }
+    const key = recordKey({ lane, agentId, at, resource });
+    if (have.has(key) || placeholders.has(key)) continue;
+    const payTo = field("payTo") ?? (agentId.startsWith("payto:") ? agentId.slice(6) : undefined);
+    placeholders.set(key, { lane, agentId, at, resource, method: field("method") === "POST" ? "POST" : "GET", outcome: "sent", materialLost: true, ...(payTo ? { payTo } : {}) } as LaneRecord);
+  }
+  rows = [...rows, ...placeholders.values()];
   if (decl.problems.length) {
     const keys = decl.problems.map((p) => keyOfBrokenLine(p.file, p.line));
     const named = new Set(keys.filter((k): k is string => k !== null));
@@ -95,7 +118,7 @@ export function loadLaneRecordsChecked(laneIds: readonly string[], dir = "result
       return named.has(recordKey(r)) || (unknown && lacks) ? { ...r, materialLost: true } : r;
     });
   }
-  return { rows, problems: [...reads.flatMap((r) => r.problems), ...decl.problems] };
+  return { rows, problems: [...reads.flatMap((r) => r.problems), ...decl.problems], unnamedLines };
 }
 
 /**

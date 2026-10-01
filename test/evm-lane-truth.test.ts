@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { SCHEMA_KEYWORDS, declarationFrom, namesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -332,10 +332,11 @@ test("review of a44d5aa [mid]: a request filled with today's date has the same f
   assert.match(buy, /requestKey: laneRequestKey\(e, e\.inputDate \? \{ date: e\.inputDate, params: e\.datedParams \?\? \[\] \} : null\)/);
 });
 
-test("review of a44d5aa [mid]: vet402's own wrong request stops for good; a seller-side 4xx is bought again every 7 days", () => {
+test("review of a44d5aa [mid]: vet402's own wrong request is held (30 days since 2292a17's review); a seller-side 4xx is bought again every 7 days", () => {
   const at = "2026-10-01T00:00:00Z";
   const t0 = Date.parse(at);
-  assert.equal(holdAfter4xx({ status: 400, requestKey: null, at, inputError: true, declaredCount: 1 }, t0 + 30 * 86_400_000), "input_unchanged_after_input_error");
+  // vet402's own wrong request: held for 30 days (review of 2292a17: no stop is for good any more).
+  assert.equal(holdAfter4xx({ status: 400, requestKey: null, at, inputError: true, declaredCount: 1 }, t0 + 29 * 86_400_000), "input_unchanged_after_input_error");
   assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, t0 + SELLER_4XX_RETRY_MS - 1), "unchanged_after_seller_4xx_within_7_days");
   assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, t0 + SELLER_4XX_RETRY_MS), null);
   assert.equal(holdAfter4xx({ status: 500, requestKey: null, at, inputError: false }, t0), null);
@@ -670,7 +671,7 @@ test("turned rule, declarations: a declared name (city) missing is vet402's in J
   assert.equal(answer400('"token_address" is required', ["tokenAddress"])?.kind, "missing_input");
 });
 
-test("turned rule, stopping: vet402's 4xx stops for good only on a listing that declares parameters; one that declares none is re-bought every 7 days", () => {
+test("turned rule, stopping: vet402's 4xx is held (30 days) only on a listing that declares parameters; one that declares none is re-bought every 7 days", () => {
   const body = '"address" is required';
   const noDecl = { ...bazaar, settledOnChain: true, response: resp(400, body), body };
   const withDecl = { ...noDecl, declaredParams: ["address"] };
@@ -680,7 +681,7 @@ test("turned rule, stopping: vet402's 4xx stops for good only on a listing that 
   assert.equal(holdAfter4xx(a, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null, "no declarations: bought again after 7 days");
   assert.equal(holdAfter4xx(a, Date.parse(bazaar.at) + 86_400_000), "unchanged_after_seller_4xx_within_7_days");
   const b = lastPaidByListing([withDecl]).get(bazaar.resource)!;
-  assert.equal(holdAfter4xx(b, Date.parse(bazaar.at) + 365 * 86_400_000), "input_unchanged_after_input_error", "declared: stopped until the request changes");
+  assert.equal(holdAfter4xx(b, Date.parse(bazaar.at) + 29 * 86_400_000), "input_unchanged_after_input_error", "declared: held until the request changes, or 30 days");
 });
 
 // ---------- rule 0: a required input vet402 did not send (review of b6601a3) ----------
@@ -729,13 +730,13 @@ test("rule 0: quickintel (sent {}, lacking chain and tokenAddress) and the-undes
   assert.deepEqual(missingRequired({ requiredParams: ["tokenAddress"], sentParams: ["token_address"] }), [], "snake and camel are one name");
 });
 
-test("rule 0: the stop for good is lifted when vet402 fills the input (the request changes)", () => {
+test("rule 0: the hold is lifted when vet402 fills the input (the request changes)", () => {
   const qi = mergeDeclarations([declarationFrom(QI_DEXTER, "catalog"), declarationFrom(QI_402, "402")]);
   const rec = { ...byHost("quickintel"), requiredParams: qi.required, declaredParams: qi.declared, sentParams: [] as string[] };
   const last = lastPaidByListing([rec]).get(rec.resource)!;
   assert.equal(last.inputError, true);
   assert.ok((last.declaredCount ?? 0) > 0);
-  assert.equal(holdAfter4xx(last, Date.parse(rec.at) + 365 * 86_400_000), "input_unchanged_after_input_error");
+  assert.equal(holdAfter4xx(last, Date.parse(rec.at) + 29 * 86_400_000), "input_unchanged_after_input_error");
   // The same {} again: not bought. Filled from the listing (chain, tokenAddress): a different request, bought.
   const same = repairLaneRequest({ resource: QI_DEXTER.resource }, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last);
   assert.equal(same.ok, false);
@@ -1007,8 +1008,77 @@ test("--pay stops before any purchase when a line of the lane's records does not
 
 test("evm-publish exit 3: the daily run says what happened (wrote the page, N withheld, which lines), and does not HALT", () => {
   const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
-  assert.match(pub, /wrote \$\{dataDir\}\/evm\/\$\{lane\}\.json with \$\{lost\} purchase\(s\) withheld: unreadable line\(s\) in \$\{where\}/);
+  assert.match(pub, /wrote \$\{dataDir\}\/evm\/\$\{lane\}\.json with \$\{lost\} purchase\(s\) withheld\$\{unnamed\}: unreadable line\(s\) in \$\{where\}/);
   const sh = readFileSync(new URL("../scripts/daily/run.sh", import.meta.url), "utf8");
   assert.match(sh, /if \[ "\$rc" -eq 3 \]; then\n\s+# The page is written; some line of the lane's records did not parse/);
   assert.match(sh, /notice "EVM lane page: \$\(cat "\$REPO\/results\/evm\/\$lane-publish-alert\.txt"/);
+});
+
+
+// ---------- review of 2292a17: a misreading costs at most a small purchase every 30 days ----------
+
+test("no stop is for good: vet402's own 4xx on a listing that declares parameters holds on day 29 and lifts on day 30; the seller's, 7 days", () => {
+  assert.equal(INPUT_4XX_RETRY_MS, 30 * 86_400_000);
+  const body = '"address" is required';
+  const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body, declaredParams: ["address"] };
+  const last = lastPaidByListing([rec]).get(bazaar.resource)!;
+  assert.equal(last.inputError, true);
+  const t0 = Date.parse(bazaar.at);
+  assert.equal(holdAfter4xx(last, t0 + 29 * 86_400_000), "input_unchanged_after_input_error", "day 29: held");
+  assert.equal(holdAfter4xx(last, t0 + 30 * 86_400_000), null, "day 30: the same request is bought once more");
+  // The request itself: the same unchanged request is refused on day 29 and bought on day 30.
+  const listing = { resource: bazaar.resource, method: "GET" };
+  const req = { resource: bazaar.resource, method: "GET" as const, query: null, body: null };
+  assert.equal(repairLaneRequest(listing as never, req, "2026-10-29", last, t0 + 29 * 86_400_000).ok, false);
+  assert.equal(repairLaneRequest(listing as never, req, "2026-10-30", last, t0 + 30 * 86_400_000).ok, true);
+  // The seller's 4xx: 7 days, as before.
+  const seller = lastPaidByListing([{ ...rec, body: "upstream data missing", response: resp(400, "upstream data missing") }]).get(bazaar.resource)!;
+  assert.equal(holdAfter4xx(seller, t0 + SELLER_4XX_RETRY_MS), null);
+});
+
+/** CDP api.loopholetape.com/mcp#launches_since#launches_since (accepts eip155:4663), 2026-10-02: an MCP listing. */
+const LOOPHOLE = { resource: "https://api.loopholetape.com/mcp#launches_since#launches_since", extensions: { bazaar: { info: { input: { type: "mcp", toolName: "launches_since", transport: "streamable-http", description: "New pump.fun memecoin launches since a cursor", example: { limit: 100, since: null }, inputSchema: { properties: { limit: { default: 100, type: "integer" }, min_p_grad: { default: 0, type: "number" }, no_avoid: { default: false, type: "boolean" }, since: { type: "number" } }, type: "object" } } }, schema: { properties: { input: { additionalProperties: false, properties: { description: { type: "string" }, example: { type: "object" }, inputSchema: { type: "object" }, toolName: { type: "string" }, transport: { enum: ["streamable-http", "sse"], type: "string" }, type: { const: "mcp", type: "string" } }, required: ["type", "toolName", "inputSchema"], type: "object" } } } } } };
+/** CDP x402.freeq.one/tools/token_price, 2026-10-02: an http description schema with toolName, transport, description, mcpServerUrl. */
+const FREEQ = { resource: "https://x402.freeq.one/tools/token_price", extensions: { bazaar: { schema: { properties: { input: { additionalProperties: false, properties: { body: { description: "JSON request body. See GET /tools for the parameter catalog.", properties: { symbol: { description: "Token symbol, e.g. ETH", example: "ETH", type: "string" } }, type: "object" }, bodyType: { enum: ["json", "form-data", "text"], type: "string" }, description: { type: "string" }, headers: { additionalProperties: { type: "string" }, type: "object" }, mcpServerUrl: { type: "string" }, method: { enum: ["POST"], type: "string" }, queryParams: { additionalProperties: { type: "string" }, type: "object" }, toolName: { type: "string" }, transport: { type: "string" }, type: { const: "http", type: "string" } }, required: ["type", "method", "bodyType", "body"], type: "object" } } } } } };
+
+test("a schema of an input description (type fixed to http or mcp) names nothing itself: loopholetape, freeq", () => {
+  const lt = declarationFrom(LOOPHOLE, "catalog");
+  assert.deepEqual(lt.required, [], "toolName and inputSchema are not required parameters");
+  assert.deepEqual(lt.declared.sort(), ["limit", "min_p_grad", "no_avoid", "since"]);
+  const fq = declarationFrom(FREEQ, "catalog");
+  assert.deepEqual(fq.declared, ["symbol"]);
+  for (const w of ["toolName", "transport", "description", "mcpServerUrl", "body", "type", "method"]) assert.ok(!fq.declared.includes(w) && !fq.required.includes(w), w);
+  // Nested in a part, with type as an enum.
+  const nested = { extensions: { bazaar: { schema: { properties: { input: { type: "object", properties: { type: { enum: ["http"] }, method: { enum: ["GET"] }, queryParams: { type: "object", properties: { type: { enum: ["http"] }, queryParams: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } } } } } } } } } };
+  assert.deepEqual(declarationFrom(nested, "catalog").required, ["city"]);
+});
+
+test("content words: the seller's missing data stays the seller's even with the name declared; the input forms are vet402's", () => {
+  for (const t of ["Missing data for wallet", "missing wallet data", "Missing wallet history", "Missing chain support", "missing address balance", "Missing data for address 0xabc", "Data for 'wallet' is missing", "The wallet is required to have at least one transaction"]) {
+    assert.equal(answer400(t, ["wallet", "address", "chain"]), null, t);
+  }
+  for (const [t, d] of [["The wallet parameter is missing", ["wallet"]], ["wallet parameter is missing", ["wallet"]], ["Parameters wallet and symbol are missing", ["wallet", "symbol"]], ["Key wallet is missing", ["wallet"]], ["Missing value for wallet", ["wallet"]]] as [string, string[]][]) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", t);
+  }
+  assert.deepEqual(namesInSentence("Missing value for wallet"), ["wallet"], "value is not a name when 'for x' follows");
+});
+
+test("a purchase whose every line is unreadable is withheld and counted, never 'not bought yet'; a line naming nothing is counted apart", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vet402-all-lines-broken-"));
+  try {
+    const qi = { ...byHost("quickintel"), lane: "arbitrum" };
+    const cut = JSON.stringify(qi).slice(0, -40);
+    writeFileSync(join(dir, "arbitrum-purchases.jsonl"), cut + "\n");
+    writeFileSync(join(dir, "arbitrum-chaincheck.jsonl"), cut + "\n{x\n");
+    const got = loadLaneRecordsChecked(["arbitrum"], dir);
+    assert.equal(got.rows.length, 1);
+    assert.equal(got.rows[0]!.materialLost, true);
+    assert.equal(got.unnamedLines, 1, "the {x line names no purchase");
+    assert.deepEqual(uncheckedPurchases(got.rows), [], "a withheld placeholder does not ask for a chain check");
+    const dry = { generatedAt: "2026-09-30T06:20:02Z", catalogs: {}, arbitrum: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: qi.payTo!, catalogListings: 1, hosts: ["x402.quickintel.io"], chosen: { resource: qi.resource, liveAmount: qi.amountAtomic! } }] } };
+    const l = buildLanePublic2("arbitrum", dry, got.rows.map((r) => ({ ...r, cause: classifyRecord(r) })) as never);
+    assert.equal(l.rows[0]!.status, "withheld");
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
 });
