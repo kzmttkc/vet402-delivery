@@ -1372,3 +1372,24 @@ test("a seller setting name before 'is required to' counts and is the seller's, 
   for (const n of ["secret_token", "DATABASE_URL", "db_password", "rpcUrl", "apiKey", "DB_HOST", "jwt_secret"]) assert.ok(sellerSettingName(n), n);
   for (const n of ["token_address", "wallet", "It", "Account", "Request", "symbol"]) assert.ok(!sellerSettingName(n), n);
 });
+
+
+// ---------- review of a828160: capitals and abbreviations are not setting names ----------
+
+test("a pronoun in a sentence all in capitals, and an abbreviation without an underscore, are not setting names: vet402's, not negative", () => {
+  const cases = [
+    ...["IT", "THEY", "EACH", "ONE", "BODY", "ACCOUNT", "REQUEST", "BOTH"].map((x) => `wallet is required. ${x} IS REQUIRED TO HAVE A 0X PREFIX.`),
+    "WALLET IS REQUIRED. IT IS REQUIRED TO HAVE A 0X PREFIX.",
+    ...["NFT", "ID", "ETH", "USDC", "API", "IP", "ENS", "EVM", "JSON"].map((x) => `wallet is required. ${x} is required to access this endpoint.`),
+  ];
+  for (const t of cases) {
+    for (const d of [["wallet"], undefined]) {
+      assert.equal(answer400(t, d)?.kind, "missing_input", `${t} (declared ${d ?? "none"})`);
+      const got = settledAs(t, d);
+      assert.equal(got.status, "settled_vet402_input", t);
+      assert.equal(got.negative, false, t);
+    }
+  }
+  for (const n of ["NFT", "ID", "ETH", "USDC", "API", "IP", "ENS", "EVM", "JSON", "IT"]) assert.ok(!sellerSettingName(n), n);
+  for (const n of ["DATABASE_URL", "DB_HOST", "STRIPE_SECRET_KEY"]) assert.ok(sellerSettingName(n), n);
+});
