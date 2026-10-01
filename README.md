@@ -58,7 +58,7 @@ The x402 fetch hook, the output fields and the options: `packages/check/README.m
 | Solana feedback | Writes the outcome of a paid Solana purchase to the 8004-solana reputation registry (the Solana port of ERC-8004), from the wallet that paid, with the published delivery record as the feedback file | `scripts/solana-feedback.ts`, `src/solana-feedback/` |
 | Robinhood Chain | Buys, in USDG, every seller whose live 402 lists Robinhood Chain (one purchase per payTo), and checks stock prices sold over x402 against the Chainlink feed of the Stock Token: age against the heartbeat, `oraclePaused()`, and the ERC-8056 multiplier between share price and token price | `scripts/evm-lane.ts`, `src/robinhood/`, `src/evm/`, `site/robinhood.html` |
 | Arbitrum One | Buys each seller that lists Arbitrum One with the same payTo as its Base accept, once on Arbitrum and once on Base, and shows per seller whether each chain settled and came back, and why not | `scripts/evm-lane.ts`, `src/evm/`, `site/arbitrum.html` |
-| Daily root on EVM chains | One transaction a day on the chain the lane bought on, carrying the Merkle root of that day's purchase records; `contracts/DeliveryRoots.sol` holds the same root for other contracts to verify in one call (tested, not deployed) | `scripts/evm-anchor.ts`, `src/evm/evm-anchor.ts`, `contracts/` |
+| Daily root on EVM chains | After each UTC day with purchases on the Robinhood Chain or Arbitrum lane, that day's Merkle root goes into `contracts/DeliveryRoots.sol` on that chain: written once per day, never changed, only by its own key (not the payer wallet). Each leaf is a public record of one purchase (no seller answer, only its sha256), published in `data/evm/roots/<lane>.json` with its proof, so anyone, or another contract, can call `verify(day, digest, proof)`. Once deployed, the contract is at `0x84DB4733f8F9e6803Af811fD9E438aEBc0b90145` on both chains (the key's first transaction); the days written so far are the ones in `data/evm/roots/` | `scripts/evm-roots-deploy.ts`, `scripts/evm-anchor.ts`, `scripts/evm-roots-publish.ts`, `src/evm/roots.ts`, `contracts/` |
 | Proxy buy | An agent pays vet402 the seller's price + 0.005 (x402 on Solana, MPP on Tempo); after that payment settles, vet402 pays a seller it already paid before and returns the answer with both transactions and a record, or refunds the agent when it did not pay the seller. State in Postgres; runs on Vercel Functions. Running since 2026-10-01 at https://vet402-delivery.vercel.app/v1/buy, Solana only | `src/proxy-buy/`, `api/`, `scripts/proxy-buy-serve.ts` |
 
 ## Money safety
@@ -375,10 +375,30 @@ Published data is corrected only toward what the chain shows, and every correcti
 ```bash
 npx tsx scripts/evm-lane.ts --lane robinhood --dry-run   # catalogs, unpaid 402s, Chainlink reads; signs with a throwaway key
 npx tsx scripts/evm-lane.ts --lane arbitrum --dry-run    # the same listings on Arbitrum One and on Base
-npx tsx scripts/evm-anchor.ts --lane robinhood --sample 18   # quote the daily root transaction (eth_estimateGas only)
+npx tsx scripts/evm-roots-deploy.ts --chain robinhood     # simulate deploying DeliveryRoots (eth_call, eth_estimateGas); --send deploys
+npx tsx scripts/evm-chaincheck.ts --lane robinhood        # settled is read from the chain; a day's root waits for this
+npx tsx scripts/evm-anchor.ts --lane robinhood --day 2026-09-30   # plan the day's root: public leaves, record() and its gas; --send writes it
+npx tsx scripts/evm-roots-publish.ts --data data          # data/evm/roots/<lane>.json from the days written
 npx tsx scripts/evm-publish.ts --lane robinhood && npx tsx scripts/build-site.ts --out site
 cd contracts && forge test                                # DeliveryRoots against Merkle vectors from src/receipt/merkle.ts
 ```
+
+Every morning the records run (`scripts/daily/run.sh records`, 09:05 JST) reads each lane's purchases against its chain before it makes the lane pages: `scripts/evm-chaincheck.ts` for Robinhood Chain, Arbitrum One and Arbitrum's Base side, read-only (`eth_getLogs` and `eth_getBlockByNumber`, nothing signed), around each run of purchases and in block chunks a public RPC answers (10,000 blocks on Arbitrum and Robinhood Chain, 2,000 on Base; `EVM_LOG_CHUNK` overrides). Its files, `results/evm/<lane>-chaincheck.jsonl`, stay in the checkout and are ignored by git. This runs with or without `evm-roots-enabled`; a failure is alerted and the rest is published, and an unchanged page publishes nothing. Exit 3 means a transfer out of the payer with no purchase, or a purchase ambiguous or still pending: the file is written, and a person looks.
+
+Purchases made before the daily chain check (the lanes' runs up to 2026-09-30), once, by hand, in the runner's checkout (`~/vet402-solana` on main):
+
+```bash
+npx tsx scripts/evm-chaincheck.ts --lane robinhood      # each prints its tally; exit 3: look before going on
+npx tsx scripts/evm-chaincheck.ts --lane arbitrum
+npx tsx scripts/evm-chaincheck.ts --lane base-compare   # the Arbitrum page needs its Base side too
+git status --porcelain --untracked-files=no             # nothing: the chain check only wrote ignored results/
+```
+
+The next records run makes the pages from them (and, with `evm-roots-enabled` and DeliveryRoots deployed, writes each closed day's root, 2026-09-30 included). Running them again is harmless: every run reads the same windows again and replaces the file.
+
+The daily root holds facts, not verdicts: each leaf is one purchase's payment, the settlement the chain check read, the HTTP status, and the size and sha256 of the answer. Whether it counts as delivered, and whose side a failure is on, is decided again with the current rules each time `data/evm/roots/<lane>.json` is written (run `scripts/evm-roots-publish.ts` after every `scripts/evm-publish.ts`), so a rule change never leaves an old verdict on chain.
+
+Rebuilding a leaf in another language: digest = keccak256 of the UTF-8 bytes of the record's canonical JSON, which is what `JSON.stringify` gives after the object keys are sorted (JavaScript's default sort, by UTF-16 code unit) and with no whitespace. Strings must be escaped exactly as `JSON.stringify` escapes them: only `"`, `\` and control characters (`\b \f \n \r \t`, the rest as `\u00xx` in lowercase hex). A lone UTF-16 surrogate (half of a pair, which UTF-8 cannot carry) is written as `\udxxx` in lowercase hex, as `JSON.stringify` does since ES2019; a language that keeps it raw or replaces it with U+FFFD gives another digest. Non-ASCII characters and `/` are written as they are, so a library that escapes them (Python's `json.dumps` without `ensure_ascii=False`, PHP's `json_encode` without `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`) gives another digest. `null` fields are kept; numbers are integers in plain decimal. `src/evm/evm-anchor.ts` `canonicalJson` is the reference.
 
 One wallet (0x9B59…4E51) pays on Base, Arbitrum One and Robinhood Chain, so the same buyer is compared across chains. Each lane has its own ledger and caps (`src/evm/chains.ts`). Payment is x402 exact with EIP-3009 only; a 402 that asks for Permit2 is refused. When a paid purchase does not come back, `src/evm/settle-cause.ts` assigns one cause (facilitator, seller setup, vet402, unknown) from the seller's response and the chain, and a fix the seller can apply; a cause that rests only on a facilitator's `/supported` page is marked as a lead.
 

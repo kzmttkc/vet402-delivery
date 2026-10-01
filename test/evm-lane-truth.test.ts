@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyDeclaredPatches, loadLaneRecords, type DeclaredPatch } from "../src/evm/lane-records.js";
 import { getAddress, type Hex } from "viem";
-import { chainCheckRecords, mergeReadings, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
+import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
 import { SCHEMA_KEYWORDS, declarationFrom, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
@@ -847,4 +847,14 @@ test("evm-declare: a 402 header that does not decode does not hide the body's de
   const src = readFileSync(new URL("../scripts/evm-declare.ts", import.meta.url), "utf8");
   assert.match(src, /try \{\s*if \(h\) docs\.push\(JSON\.parse\(Buffer\.from\(h, "base64"\)\.toString\("utf8"\)\)\);\s*\} catch/);
   assert.match(src, /results\/evm\/\$\{DECLARED_INPUTS_FILE\}/, "writes the tracked file");
+});
+
+test("chain check ranges: one range per run of purchases; a lane that buys again weeks later is not read over every block in between", () => {
+  const sent = (at: string, outcome = "sent") => ({ agentId: "a", resource: `https://s.test/${at}`, method: "GET", at, outcome }) as unknown as ChainBuyRecord;
+  const r = readRanges([sent("2026-09-30T12:00:00.000Z"), sent("2026-09-30T12:40:00.000Z"), sent("2026-09-30T08:00:00.000Z"), sent("2026-10-20T01:00:00.000Z"), sent("2026-10-21T00:00:00.000Z", "refused")]);
+  assert.equal(r.length, 3, JSON.stringify(r));
+  assert.deepEqual(r.map((x) => new Date(x.fromMs).toISOString()), ["2026-09-30T08:00:00.000Z", "2026-09-30T12:00:00.000Z", "2026-10-20T01:00:00.000Z"]);
+  assert.ok(r[1]!.toMs > Date.parse("2026-09-30T12:40:00.000Z"), "two purchases 40 minutes apart are one range");
+  assert.ok(r.every((x) => x.toMs - x.fromMs < 3 * 3_600_000), "no range spans the weeks between");
+  assert.deepEqual(readRanges([sent("2026-09-30T12:00:00.000Z", "refused")]), []);
 });

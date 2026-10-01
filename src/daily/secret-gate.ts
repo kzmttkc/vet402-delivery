@@ -418,6 +418,9 @@ const OWN_FIELDS: { path: RegExp; key: string; ok: (v: unknown) => boolean }[] =
   { path: /^signature\.signature$/, key: "signature", ok: (v) => typeof v === "string" && /^0x[0-9a-f]{130}$/.test(v) },
   // the x402 memo vet402 put on its own payment (16 random bytes, hex), as sent and as read back
   { path: /^records\[\d+\](?:\.onChain)?\.memo$/, key: "memo", ok: (v) => typeof v === "string" && /^[0-9a-f]{32}$/.test(v) },
+  // the salt vet402 drew for its own daily-root leaf (data/evm/roots/<lane>.json, src/evm/roots.ts): 32 random
+  // bytes that keep an unpublished leaf hash from being guessed back into its record (published with the record)
+  { path: /^days\[\d+\]\.leaves\[\d+\]\.record\.salt$/, key: "salt", ok: (v) => typeof v === "string" && /^0x[0-9a-f]{64}$/.test(v) },
   // the census judgement's list of the JSON keys a seller's example promised (field names, not secrets)
   { path: /^records\[\d+\]\.judgement\.(?:exampleKeys|expectedKeys|missingKeys|unseenExampleKeys)(?:\[\d+\])?$/, key: "", ok: (v) => (Array.isArray(v) ? v : [v]).every((x) => typeof x === "string" && /^[A-Za-z0-9_.$-]{1,80}$/.test(x)) },
   // the token symbols the Tempo census saw in 402 challenges

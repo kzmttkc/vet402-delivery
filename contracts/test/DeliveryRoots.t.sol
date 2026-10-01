@@ -69,27 +69,32 @@ contract DeliveryRootsTest {
         require(!c.check(DAY, D2, _p0()), "consumer rejects a bad proof");
     }
 
+    /// Each refusal is the contract's own error, compared byte for byte (selector and argument).
+    function _expectRevert(bytes memory call_, bytes memory want, string memory what) internal {
+        (bool ok, bytes memory got) = address(roots).call(call_);
+        require(!ok, what);
+        require(keccak256(got) == keccak256(want), what);
+    }
+
     function test_only_writer_once_per_day_nonempty() public {
         (bool ok,) = address(new Stranger()).call(abi.encodeWithSignature("tryRecord(address)", address(roots)));
         require(ok, "stranger call ran");
         require(roots.rootOf(DAY + 5) == bytes32(0), "stranger could not record");
-        try roots.record(DAY, ROOT, 3) {
-            revert("second record of a day must fail");
-        } catch {}
-        try roots.record(DAY + 2, bytes32(0), 3) {
-            revert("empty root must fail");
-        } catch {}
-        try roots.record(DAY + 3, ROOT, 0) {
-            revert("n = 0 must fail");
-        } catch {}
-        require(roots.countOf(DAY) == 3, "count kept");
+        bytes memory again = abi.encodeWithSelector(DeliveryRoots.AlreadyRecorded.selector, DAY);
+        _expectRevert(abi.encodeCall(DeliveryRoots.record, (DAY, ROOT, 3)), again, "second record of a day, same root");
+        _expectRevert(abi.encodeCall(DeliveryRoots.record, (DAY, keccak256("another root"), 7)), again, "second record of a day, another root");
+        require(roots.rootOf(DAY) == ROOT && roots.countOf(DAY) == 3, "the first record stands");
+        bytes memory empty = abi.encodeWithSelector(DeliveryRoots.EmptyRoot.selector);
+        _expectRevert(abi.encodeCall(DeliveryRoots.record, (DAY + 2, bytes32(0), 3)), empty, "empty root");
+        _expectRevert(abi.encodeCall(DeliveryRoots.record, (DAY + 3, ROOT, 0)), empty, "n = 0");
+        require(roots.rootOf(DAY + 2) == bytes32(0) && roots.rootOf(DAY + 3) == bytes32(0), "nothing recorded");
     }
 }
 
 contract Stranger {
     function tryRecord(address r) external {
-        try DeliveryRoots(r).record(20368, bytes32(uint256(1)), 1) {
-            revert("stranger recorded");
-        } catch {}
+        (bool ok, bytes memory got) = r.call(abi.encodeCall(DeliveryRoots.record, (20368, bytes32(uint256(1)), 1)));
+        require(!ok, "stranger recorded");
+        require(keccak256(got) == keccak256(abi.encodeWithSelector(DeliveryRoots.NotWriter.selector)), "not NotWriter");
     }
 }

@@ -6,7 +6,9 @@
  *
  * Writes results/evm/<lane>-chaincheck.jsonl (src/evm/chaincheck-run.ts). scripts/evm-publish.ts reads that file
  * last and refuses to publish a sent purchase the chain check has not decided.
- * Exit code 1 when a transfer out of the payer has no purchase, or a purchase is ambiguous or still pending.
+ * Exit code 3 when a transfer out of the payer has no purchase, or a purchase is ambiguous or still pending (the file is
+ * written; a person looks). Any other failure (an RPC error) exits 1 and writes nothing. scripts/daily/run.sh runs it
+ * every morning before the lane pages (records), and alerts on either without stopping.
  */
 import type { Address } from "viem";
 import { LANES, type LaneId } from "../src/evm/chains.js";
@@ -20,4 +22,4 @@ const payer: Address = readPublicAddress();
 const out = await checkLaneFiles(laneId, payer);
 const s = out.summary;
 console.log(JSON.stringify({ lane: out.lane, rpc: out.rpc, sent: out.sent, transfersOut: out.transfersOut, tally: out.tally, added: s?.added ?? [], ambiguous: s?.ambiguous ?? [], pending: s?.pending ?? [], unmatched: s?.unmatched ?? [] }, null, 2));
-if (out.failed) process.exitCode = 1;
+if (out.failed) process.exitCode = 3;

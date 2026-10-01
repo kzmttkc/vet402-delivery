@@ -251,8 +251,9 @@ const line = (at: string, outcome = "sent", n = 1) => JSON.stringify({ at, outco
 
 test("daily root: only sent purchases of a closed UTC day; the root proves each record; the text parses back", () => {
   const lines = [line("2026-10-04T01:00:00Z", "sent", 1), line("2026-10-04T02:00:00Z", "refused", 2), line("2026-10-04T03:00:00Z", "sent", 3), line("2026-10-05T00:00:01Z", "sent", 4)];
-  assert.throws(() => dayRoot(RH, "2026-10-04", lines, "2026-10-04T23:59:59Z"), /not over/);
-  const r = dayRoot(RH, "2026-10-04", lines, "2026-10-05T00:10:00Z");
+  const raw = (rec: unknown) => rec;
+  assert.throws(() => dayRoot(RH, "2026-10-04", lines, "2026-10-04T23:59:59Z", raw), /not over/);
+  const r = dayRoot(RH, "2026-10-04", lines, "2026-10-05T00:10:00Z", raw);
   assert.equal(r.n, 2);
   assert.ok(verifyInclusion(recordDigest(JSON.parse(lines[2]!)), r.proofs[1]!, r.root));
   assert.equal(recordDigest({ b: 1, a: 2 }), recordDigest({ a: 2, b: 1 }), "canonical: key order does not matter");
@@ -260,11 +261,11 @@ test("daily root: only sent purchases of a closed UTC day; the root proves each 
   assert.equal(tx.to, PAYER);
   assert.deepEqual(parseAnchorText(hexToString(tx.data)), { chain: RH.caip2, day: "2026-10-04", root: r.root, n: 2 });
   assert.equal(hexToString(tx.data), anchorText(r));
-  assert.throws(() => dayRoot(RH, "2026-10-03", lines, "2026-10-05T00:10:00Z"), /no sent purchase/);
+  assert.throws(() => dayRoot(RH, "2026-10-03", lines, "2026-10-05T00:10:00Z", raw), /no sent purchase/);
 });
 
 test("anchor transaction: value 0, to itself with exactly the text, or record() on the named registry; anything else refused", () => {
-  const r = dayRoot(ARB, "2026-10-04", [line("2026-10-04T01:00:00Z")], "2026-10-05T00:00:00Z");
+  const r = dayRoot(ARB, "2026-10-04", [line("2026-10-04T01:00:00Z")], "2026-10-05T00:00:00Z", (rec) => rec);
   const tx = buildAnchorTx(r, PAYER);
   assert.doesNotThrow(() => assertAnchorOnly(tx, r));
   assert.throws(() => assertAnchorOnly({ ...tx, value: 1n as 0n }, r), /value/);
@@ -334,8 +335,10 @@ test("the lane script reads the key only on --pay with VET402_EVM_PAY; the ancho
   assert.equal(lane.match(/loadEvmAccount\(\)/g)?.length, 1);
   assert.match(lane, /pay \? loadEvmAccount\(\) : privateKeyToAccount\(generatePrivateKey\(\)\)/);
   const anchor = readFileSync(new URL("../scripts/evm-anchor.ts", import.meta.url), "utf8");
-  assert.match(anchor, /if \(send && process\.env\.VET402_ANCHOR_SEND !== laneId\) throw/);
-  assert.ok(anchor.indexOf("loadEvmAccount()") > anchor.indexOf("if (!send)"), "the key is read after the no-send exit");
+  assert.match(anchor, /if \(send && process\.env\.VET402_ANCHOR_SEND !== lane\) throw/);
+  assert.ok(!anchor.includes("loadEvmAccount"), "the daily root is never signed by the payer wallet");
+  assert.equal(anchor.match(/loadRootsPoster\(\)/g)?.length, 1);
+  assert.ok(anchor.indexOf("loadRootsPoster()") > anchor.indexOf("if (!send)"), "the key is read after the no-send exit");
 });
 
 // ---------- fixes before paying and publishing (review 2026-09-30) ----------
@@ -397,7 +400,7 @@ test("4: the anchor is signed only within the chain's gas and fee caps and the w
   assert.throws(() => anchorFees(rh, 23_686n, { maxFeePerGas: 30_000_000n, maxPriorityFeePerGas: 0n }, 1n), /ETH/);
   const src = readFileSync(new URL("../scripts/evm-anchor.ts", import.meta.url), "utf8");
   assert.match(src, /sendTransaction\(\{[^}]*gas: fees\.gas, maxFeePerGas: fees\.maxFeePerGas/);
-  assert.ok(src.indexOf("anchorFees(") < src.indexOf("loadEvmAccount()"), "caps before the key is read");
+  assert.ok(src.indexOf("anchorFees(") < src.indexOf("loadRootsPoster()"), "caps before the key is read");
 });
 
 test("5: a paying run never signs a purchase the wallet cannot cover; a lane with a daily root keeps ETH for it", async () => {

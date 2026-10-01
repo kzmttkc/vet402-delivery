@@ -9,6 +9,19 @@ import { join } from "node:path";
 import { getAddress, isAddressEqual, type Address } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
+/**
+ * The key file as JSON. A parse error is replaced by a fixed message and the original is dropped: JSON.parse's
+ * message quotes part of the text, which here is the key.
+ */
+function readKeyJson(file: string): { privateKey?: string } {
+  const text = readFileSync(file, "utf8");
+  try {
+    return JSON.parse(text) as { privateKey?: string };
+  } catch {
+    throw new Error(`${file} is not valid JSON (its content is not shown)`);
+  }
+}
+
 export const KEY_DIR = process.env.EVM_KEY_DIR ?? join(homedir(), "vet402-solana", ".keys");
 export const EXPECTED_ADDRESS: Address = getAddress("0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51");
 
@@ -22,9 +35,28 @@ export function loadEvmAccount(dir = KEY_DIR): PrivateKeyAccount {
   const file = `${dir}/evm.json`;
   const mode = statSync(file).mode & 0o777;
   if (mode & 0o077) throw new Error(`key file must be mode 600 (is ${mode.toString(8)})`);
-  const pk = (JSON.parse(readFileSync(file, "utf8")) as { privateKey?: string }).privateKey;
+  const pk = readKeyJson(file).privateKey;
   if (typeof pk !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(pk)) throw new Error("key file has no 32-byte privateKey");
   const account = privateKeyToAccount(pk as `0x${string}`);
   if (!isAddressEqual(account.address, readPublicAddress(dir))) throw new Error("key file address != evm.pub");
+  return account;
+}
+
+/**
+ * The DeliveryRoots key (contracts/src/DeliveryRoots.sol): it deploys the contract on Arbitrum One and Robinhood
+ * Chain and is its only `writer`. A key of its own, never the payer wallet above: it holds only the ETH for the
+ * daily root, and losing it cannot move any USDC or USDG. Read only by scripts/evm-roots-deploy.ts --send and
+ * scripts/evm-anchor.ts --send. The file must be mode 600 and its address must be this one.
+ */
+export const ROOTS_POSTER_ADDRESS: Address = getAddress("0xd326A383a2DEAA47aE3f055a70704175Aa9FF611");
+
+export function loadRootsPoster(dir = KEY_DIR): PrivateKeyAccount {
+  const file = `${dir}/evm-roots-poster.json`;
+  const mode = statSync(file).mode & 0o777;
+  if (mode & 0o077) throw new Error(`key file must be mode 600 (is ${mode.toString(8)})`);
+  const pk = readKeyJson(file).privateKey;
+  if (typeof pk !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(pk)) throw new Error("key file has no 32-byte privateKey");
+  const account = privateKeyToAccount(pk as `0x${string}`);
+  if (!isAddressEqual(account.address, ROOTS_POSTER_ADDRESS)) throw new Error(`${file} is not the DeliveryRoots key ${ROOTS_POSTER_ADDRESS}`);
   return account;
 }
