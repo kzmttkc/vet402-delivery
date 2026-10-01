@@ -12,6 +12,7 @@
  * The signer handed to the x402 client can only sign that one TransferWithAuthorization (fencedChainSigner).
  * It has no transaction-sending capability at all.
  */
+import { createHash } from "node:crypto";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired } from "@x402/core/types";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
@@ -244,6 +245,10 @@ export interface ChainBuyEntry {
   ledgerKey?: string;
   /** From the unpaid 402 at plan time. */
   lock: { payTo: string; amount: string };
+  /** The catalog's URL of the listing, when vet402 filled the request (src/evm/lane-input.ts). Default: resource. */
+  listingResource?: string;
+  /** Parameter names the listing declares (they make a seller's "missing" an input error; src/evm/lane-input.ts). */
+  declaredParams?: string[];
 }
 
 export interface ChainBuyDeps {
@@ -309,6 +314,12 @@ export interface ChainBuyRecord {
   paymentResponseHeader?: PaymentResponseHeaderNote;
   /** The chain check's reading of this purchase (src/evm/chaincheck.ts). */
   chainCheck?: ChainCheckNote;
+  /** The catalog's URL of the listing bought (the request may differ: vet402 fills slots and inputs). */
+  listingResource?: string;
+  /** sha256 of the request vet402 sent (method, URL with query, JSON body): the next run does not send the same one after a 400/404/422. */
+  requestKey?: string;
+  /** Parameter names the listing declares. */
+  declaredParams?: string[];
 }
 
 export interface PaymentResponseHeaderNote {
@@ -340,6 +351,12 @@ export interface ChainCheckNote {
 }
 
 const parser = new x402HTTPClient(new x402Client());
+
+/** sha256 of the request exactly as sent: method, URL with query, and the JSON body of a POST. */
+export function laneRequestKey(e: Pick<ChainBuyEntry, "resource" | "query" | "method" | "body">): string {
+  const body = e.method === "POST" ? JSON.stringify(e.body ?? {}) : "";
+  return createHash("sha256").update(`${e.method}\n${requestUrl(e)}\n${body}`).digest("hex");
+}
 
 export function requestUrl(e: Pick<ChainBuyEntry, "resource" | "query">): string {
   if (!e.query || Object.keys(e.query).length === 0) return e.resource;
@@ -390,7 +407,17 @@ export function payToOn(accepts: EvmAccept[], network: string, lockedPayTo: stri
 }
 
 export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: ChainBuyDeps, opts: { keepSettleResponse?: boolean; keepBodyBytes?: number } = {}): Promise<ChainBuyRecord> {
-  const rec: ChainBuyRecord = { agentId: e.agentId, resource: e.resource, method: e.method, at: new Date().toISOString(), outcome: "refused", payer: deps.payer };
+  const rec: ChainBuyRecord = {
+    agentId: e.agentId,
+    resource: e.resource,
+    method: e.method,
+    at: new Date().toISOString(),
+    outcome: "refused",
+    payer: deps.payer,
+    listingResource: e.listingResource ?? e.resource,
+    requestKey: laneRequestKey(e),
+    ...(e.declaredParams?.length ? { declaredParams: e.declaredParams } : {}),
+  };
   const refuse = (r: EvmRefusal): ChainBuyRecord => ({ ...rec, outcome: "refused", refusal: r });
   const maxPer = deps.maxPerAtomic ?? MAX_PER_PURCHASE_ATOMIC;
 

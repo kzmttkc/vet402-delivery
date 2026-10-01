@@ -114,23 +114,29 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
     return w.fromMs <= t.timeMs && t.timeMs < w.toMs;
   };
 
-  // 0. Settled at purchase time on the receipt of the tx the seller named: that tx is this record's.
-  for (const { r, i } of idx) if (r.settledOnChain === true && r.settlementTx && HEX_TX.test(r.settlementTx)) claim(i, r.settlementTx, byTx.has(norm(r.settlementTx)) ? "named_tx" : "receipt");
+  // 0. Settled at purchase time on the receipt of the tx the seller named: that tx is this record's. A tx a
+  // record earlier in the file already holds is not given to a second one: the later record is ambiguous.
+  const contested = new Set<number>();
+  for (const { r, i } of idx) {
+    if (r.settledOnChain !== true || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
+    if (owner.has(norm(r.settlementTx))) contested.add(i);
+    else claim(i, r.settlementTx, byTx.has(norm(r.settlementTx)) ? "named_tx" : "receipt");
+  }
   // 1. The nonce vet402 signed.
   for (const { r, i } of idx) {
-    if (found.has(i) || !r.authorization?.nonce) continue;
+    if (found.has(i) || contested.has(i) || !r.authorization?.nonce) continue;
     const t = txs.find((x) => x.nonces.some((n) => norm(n) === norm(r.authorization!.nonce)) && fits(x, r) && !owner.has(norm(x.tx)));
     if (t) claim(i, t.tx, "nonce");
   }
   // 2. The tx the seller named, when it moved the price from the payer to the payTo inside the window.
   for (const { r, i } of idx) {
-    if (found.has(i) || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
+    if (found.has(i) || contested.has(i) || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
     const t = byTx.get(norm(r.settlementTx));
     if (t && fits(t, r) && inWindow(t, r) && !owner.has(norm(t.tx))) claim(i, t.tx, "named_tx");
   }
   // 3. payTo + price + window, only when exactly one purchase can own the transfer. A record that has its
   // nonce is decided by step 1 alone (its transfer would carry its nonce).
-  const open = idx.filter(({ r, i }) => !found.has(i) && !r.authorization?.nonce);
+  const open = idx.filter(({ r, i }) => !found.has(i) && !contested.has(i) && !r.authorization?.nonce);
   const candidates: Candidate[] = open.map(({ r, i }) => ({ id: String(i), payTo: r.payTo!, amount: BigInt(r.amountAtomic!), ...settleWindow(r) }));
   const res = checkOutflows({
     txs,
@@ -174,6 +180,16 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
         rec.delivered = answered(r);
         summary.added.push({ key: recordKey(r), tx: f.tx, by: f.by });
       }
+      continue;
+    }
+    // Its receipt named a tx another purchase already holds: one tx cannot settle both. Not decided here, and
+    // not counted as settled (cause: vet402 could not confirm; never the seller's).
+    if (contested.has(i)) {
+      rec.chainCheck = note("ambiguous", null, null);
+      rec.settledOnChain = false;
+      rec.delivered = false;
+      rec.settlementCheck = "not verified: tx_held_by_another_purchase";
+      summary.ambiguous.push(recordKey(r));
       continue;
     }
     // Not found, and its window was still open when the chain was read: a settlement can still land.

@@ -12,7 +12,7 @@ import { normalizeAccept } from "../guard.js";
 import { STOCK_REFS } from "../robinhood/stock-check.js";
 import { EVM_CHAINS, chainByCaip2, type EvmChainSpec } from "./chains.js";
 import { checkChainAccept, eqAddr, payToOn, type ChainBuyEntry, type EvmAccept } from "./evm-buy.js";
-import { repairLaneRequest } from "./lane-input.js";
+import { repairLaneRequest, type LastPaid } from "./lane-input.js";
 
 export const DEXTER_DISCOVERY = "https://x402.dexter.cash/discovery/resources";
 
@@ -27,6 +27,10 @@ export interface ListingOption {
   simple: boolean;
   /** Parameters vet402 filled (src/evm/lane-input.ts); absent when nothing was filled. */
   filled?: { param: string; rule: string }[];
+  /** The catalog's URL of this listing (`resource` is the filled request's URL). */
+  listingResource: string;
+  /** Parameter names the listing declares. */
+  declaredParams: string[];
 }
 
 export interface PayToGroup {
@@ -68,7 +72,7 @@ const hostOf = (u: string): string => {
 export function groupByPayTo(
   catalog: Listing[],
   spec: EvmChainSpec,
-  opts: { sameOn?: EvmChainSpec; maxPerAtomic: bigint; ownHosts?: string[]; today?: string; lastStatus?: ReadonlyMap<string, number | null> },
+  opts: { sameOn?: EvmChainSpec; maxPerAtomic: bigint; ownHosts?: string[]; today?: string; lastPaid?: ReadonlyMap<string, LastPaid> },
 ): PayToGroup[] {
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const seen = new Set<string>();
@@ -93,9 +97,9 @@ export function groupByPayTo(
       if (BigInt(a.amount) > 0n && BigInt(a.amount) <= opts.maxPerAtomic) {
         // The request is filled the way the Solana and Tempo purchases are; one that cannot be is not bought.
         const req = requestOf(l);
-        const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastStatus?.get(l.resource) ?? null);
+        const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastPaid?.get(l.resource) ?? null);
         if (!fix.ok) (g.inputSkipped ??= []).push({ resource: l.resource, why: `input_unfillable: ${fix.reason.replace(/^input_unfillable:/, "")}${fix.param ? ` (${fix.param})` : ""}` });
-        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, ...(fix.changed ? { filled: fix.filled } : {}) });
+        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
       }
       groups.set(payTo.toLowerCase(), g);
     }
@@ -175,6 +179,8 @@ export function laneEntries(choices: LiveChoice[], spec: EvmChainSpec, sameOn?: 
         method: c.chosen.method,
         query: c.chosen.query,
         body: c.chosen.body,
+        listingResource: c.chosen.listingResource,
+        ...(c.chosen.declaredParams.length ? { declaredParams: c.chosen.declaredParams } : {}),
         ...(sameOn ? { sameSellerOn: sameOn.caip2 } : {}),
         lock: { payTo: c.payTo, amount },
       },

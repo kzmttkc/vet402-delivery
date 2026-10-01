@@ -19,7 +19,7 @@
 import type { Listing } from "../discovery.js";
 import { fillParams, isPlaceholder, type FilledParam } from "../inputs/fill.js";
 import { fromBazaar } from "../inputs/spec.js";
-import type { ChainBuyRecord } from "./evm-buy.js";
+import { laneRequestKey, type ChainBuyRecord } from "./evm-buy.js";
 
 export interface LaneRequest {
   resource: string;
@@ -29,7 +29,7 @@ export interface LaneRequest {
 }
 
 export type LaneRepair =
-  | { ok: true; changed: boolean; request: LaneRequest; filled: FilledParam[] }
+  | { ok: true; changed: boolean; request: LaneRequest; filled: FilledParam[]; declaredParams: string[] }
   | { ok: false; reason: string; param: string | null };
 
 /** HTTP statuses of a paid answer that point at the request rather than the seller. */
@@ -72,11 +72,19 @@ function concreteScalar(v: unknown): string | null {
   return null;
 }
 
+/** vet402's last paid answer to one listing (looked up by the catalog URL): its status and the request it sent. */
+export interface LastPaid {
+  status: number | null;
+  /** laneRequestKey of the request sent; null on records from before 2026-10-01 (they sent the catalog's request unfilled). */
+  requestKey: string | null;
+}
+
 /**
- * Pure. Fill one lane request from its listing. `lastStatus` is the status of vet402's earlier paid answer to
- * this listing (null when none).
+ * Pure. Fill one lane request from its listing. `last` is vet402's earlier paid answer to this listing (null when
+ * none). A request identical to the one that last got 400, 404 or 422 is not sent again.
  */
-export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, lastStatus: number | null = null): LaneRepair {
+export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, last: LastPaid | null = null): LaneRepair {
+  const lastStatus = last?.status ?? null;
   const input = (l.extensions?.bazaar?.info?.input ?? {}) as Obj;
   const pathParams = isObj(input.pathParams) ? input.pathParams : {};
   const filled: FilledParam[] = [];
@@ -135,21 +143,41 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
     }
   }
   const changed = filled.length > 0;
-  if (!changed && lastStatus !== null && INPUT_STATUSES.has(lastStatus)) return { ok: false, reason: "input_unchanged_after_input_error", param: null };
-  return {
-    ok: true,
-    changed,
-    request: { resource, method: req.method, query: Object.keys(query).length ? query : null, body: isPost ? body : null },
-    filled,
-  };
+  const request: LaneRequest = { resource, method: req.method, query: Object.keys(query).length ? query : null, body: isPost ? body : null };
+  // Compare with what was actually sent last time (old records: the catalog's request, unfilled), not with the
+  // catalog: a filled request that got 400/404/422 is filled the same way again and must not be bought again.
+  if (lastStatus !== null && INPUT_STATUSES.has(lastStatus)) {
+    const before = last?.requestKey ?? laneRequestKey(req);
+    if (laneRequestKey(request) === before) return { ok: false, reason: "input_unchanged_after_input_error", param: null };
+  }
+  return { ok: true, changed, request, filled, declaredParams: (spec?.params ?? []).map((p) => p.name) };
 }
 
 // ---------- reading a paid answer ----------
 
 export type LaneInputProblem = "path_placeholder" | "missing_input";
 
-/** The seller's error names an input that is missing, required or empty. Not authentication or payment. */
-const MISSING_TEXT = /\b(missing|is required|are required|(field|url|value|param|parameter|query|body|input|argument)s? required|required (field|param|parameter|query|argument)|cannot be empty|must not be empty|must be provided|empty (json )?body|no (query|input|body) (given|provided|sent))\b/i;
+/**
+ * The seller's error names an input that is required or empty. Not authentication or payment. A bare "missing"
+ * counts only next to an input word or a parameter the listing declares (MISSING_NEAR), so "missing data" or
+ * "resource missing" is not read as vet402's request.
+ */
+const MISSING_TEXT = /\b(is required|are required|(field|url|value|param|parameter|query|body|input|argument)s? required|required (field|param|parameter|query|argument)|cannot be empty|must not be empty|must be provided|empty (json )?body|no (query|input|body) (given|provided|sent))\b/i;
+const MISSING_WORD = /\bmissing\b/gi;
+const INPUT_WORD = /\b(query|body|param\w*|field)\b/i;
+/** Characters on each side of "missing" in which an input word or a declared name must appear. */
+export const MISSING_NEAR = 40;
+
+function missingNearInput(text: string, declared: readonly string[]): boolean {
+  const names = declared.filter((n) => /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(n));
+  const nameRe = names.length ? new RegExp(`(^|[^A-Za-z0-9_])(${names.map((n) => n.replace(/-/g, "\\-")).join("|")})([^A-Za-z0-9_]|$)`) : null;
+  for (const m of text.matchAll(MISSING_WORD)) {
+    const around = text.slice(Math.max(0, m.index - MISSING_NEAR), m.index + m[0].length + MISSING_NEAR);
+    if (INPUT_WORD.test(around) || (nameRe && nameRe.test(around))) return true;
+  }
+  return false;
+}
+
 const NOT_INPUT = /\b(payment|x-payment|api[ -]?key|authori[sz]ation|authenticat\w*|auth token|bearer|signature|header|login|subscription)\b/i;
 /** A seller's validation error that quotes a path slot vet402 sent as the value. */
 const SLOT_ECHO = /"input"\s*:\s*":[A-Za-z_]/;
@@ -158,7 +186,7 @@ const SLOT_ECHO = /"input"\s*:\s*":[A-Za-z_]/;
  * Pure. Was the paid answer about vet402's request? Only 400, 404 and 422 answers, and only on definite
  * evidence: a slot left in the URL vet402 requested, or the seller's error naming a missing or empty input.
  */
-export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response" | "body">): { kind: LaneInputProblem; detail: string } | null {
+export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response" | "body" | "declaredParams">): { kind: LaneInputProblem; detail: string } | null {
   const status = r.response?.status ?? null;
   if (status === null || !INPUT_STATUSES.has(status)) return null;
   const slot = pathPlaceholderIn(r.resource);
@@ -166,8 +194,10 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   if (slot) return { kind: "path_placeholder", detail: `the URL vet402 sent still had the slot ${slot === "*" ? "*" : `:${slot}`} in its path` };
   if (status === 404) return null;
   if (SLOT_ECHO.test(text)) return { kind: "path_placeholder", detail: "the seller's error quotes a path slot vet402 sent as the value" };
+  if (NOT_INPUT.test(text)) return null;
   const m = MISSING_TEXT.exec(text);
-  if (m && !NOT_INPUT.test(text)) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${m[0]}")` };
+  if (m) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${m[0]}")` };
+  if (missingNearInput(text, r.declaredParams ?? [])) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing` };
   return null;
 }
 
