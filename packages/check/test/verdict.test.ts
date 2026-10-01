@@ -16,7 +16,7 @@ import { checkBody, handleCheck, MAX_URL_LENGTH, USE_WAIT_MS, type CheckData, ty
 import { bearerOk, callerId, usageCounter } from "../../../src/usage/count.js";
 import { handleMessage } from "../src/mcp.js";
 import { PublicData } from "../src/sources.js";
-import { VERDICTS, verdictFor } from "../src/verdict.js";
+import { UNKNOWN_END, VERDICTS, verdictFor } from "../src/verdict.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const FX = join(import.meta.dirname, "fixtures");
@@ -64,7 +64,7 @@ test("verdict, real data: a URL vet402 never bought from is unknown", () => {
   const r = lookup(rank, index, { url: UNKNOWN }, [], lanes, notified);
   assert.equal(r.verdict, "unknown");
   assert.equal(r.basis, null);
-  assert.equal(r.why, "vet402 has not bought from this seller, so there is no record to go on.");
+  assert.equal(r.why, "vet402 has not bought from this seller; not enough to say pay or avoid.");
   const onTempo = lookup(rank, index, { url: BRASIL, chain: "tempo" }, [], lanes, notified);
   assert.equal(onTempo.verdict, "unknown", "bought on Solana only: nothing on Tempo");
   assert.match(onTempo.why, /not bought from this seller on Tempo/);
@@ -77,7 +77,7 @@ test("verdict, real data: datamancer vin, whose failures are not counted against
   assert.equal(f.notCountedAgainstSeller.causeUnknown, 4);
   assert.notEqual(r.verdict, "avoid");
   assert.equal(r.verdict, "unknown");
-  assert.equal(r.why, "vet402 paid this seller 6 times on Solana over 2 days; 2 of 2 paid calls answered, too few to tell either way, and 4 other failures that may be on vet402's side are left out.");
+  assert.equal(r.why, "vet402 paid this seller 6 times on Solana over 2 days; 2 of 2 paid calls answered, and 4 other failures that may be on vet402's side are left out; not enough to say pay or avoid.");
 
   // The same seller with its two answers taken out: only failures that are not the seller's are left.
   const onlyNotCounted = structuredClone(rank);
@@ -95,7 +95,7 @@ test("BLOCK fix: a seller with no settled payment is never avoid (x402-mesh-gate
   assert.deepEqual([f.page, f.settled, f.counted, f.sellerSideFailures], ["algorand", 0, 4, { server_error_5xx: 4 }], "the shape that was wrongly avoid");
   assert.equal(r.verdict, "unknown");
   assert.equal(r.basis?.counted, 0, "a 5xx with no settlement is not a paid call");
-  assert.equal(r.why, "vet402 tried to buy from this seller 4 times on Algorand, and none of its payments settled, so there is nothing to go on.");
+  assert.equal(r.why, "vet402 tried to buy from this seller 4 times on Algorand, and none of its payments settled; not enough to say pay or avoid.");
   assert.ok(!/paid this seller 0 times/.test(r.why));
 });
 
@@ -105,7 +105,7 @@ test("BLOCK fix, every seller in site/rank.json: avoid only with settled payment
   const realLanes = ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8")));
   const realNotified = JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8"));
   const told = toldSet(realNotified);
-  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0, notTold: 0, withHeldNote: 0 };
+  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0, notTold: 0, withHeldNote: 0, unknownSameEnding: 0 };
   const notTold: string[] = [];
   const avoids: string[] = [];
   for (const g of real.groups)
@@ -121,12 +121,19 @@ test("BLOCK fix, every seller in site/rank.json: avoid only with settled payment
         if (ifTold?.verdict === "avoid" && b.verdict !== "avoid") {
           dist.notTold!++;
           notTold.push(`${s.key} (${chain}): settled ${ifTold.settled}, answered ${ifTold.answered} of ${ifTold.counted}`);
-          assert.ok(!/\b(avoid|held)\b/.test(JSON.stringify(r)), `${s.key}: nothing reads as a held verdict`);
+          // The one ending every unknown shares names avoid; apart from it, nothing says avoid or held.
+          assert.ok(!/\b(avoid|held)\b/.test(JSON.stringify(r).split(UNKNOWN_END).join("")), `${s.key}: nothing reads as a held verdict`);
         }
         if (b.verdict === "avoid") {
           assert.ok(told.has(s.key), `${s.key}: avoid only for a seller in notified.json`);
           avoids.push(`${s.key} (${chain}): settled ${b.settled}, answered ${b.answered} of ${b.counted}`);
           assert.ok(b.settled > 0 && b.counted > 0 && b.counted <= b.settled, `${s.key}: avoid rests on settled payments`);
+        }
+        if (r.verdict === "unknown") {
+          const w = r.heldNote ? r.why.slice(0, -r.heldNote.length - 1) : r.why;
+          assert.ok(w.endsWith(`; ${UNKNOWN_END}`), `${s.key} (${chain}): ${r.why}`);
+          assert.ok(!r.why.includes("newest failed one"), `${s.key} (${chain}): ${r.why}`);
+          dist.unknownSameEnding!++;
         }
         const m = /paid this seller (\d+|once)/.exec(r.why);
         if (m) assert.ok((m[1] === "once" ? 1 : Number(m[1])) <= (r.basis?.settled ?? 0), `${s.key}: ${r.why}`);
@@ -139,9 +146,9 @@ test("avoid only for a seller vet402 has told: syraa and blocksearch (not told) 
   for (const url of ["https://api.syraa.fun/insights/gas-oracle", "https://blocksearch.dev/"]) {
     const r = lookup(rank, index, { url, chain: "solana" }, [], lanes, notified);
     assert.equal(r.verdict, "unknown", url);
-    // The same form as any other why: over N days, and the newest failed purchase's status.
-    assert.match(r.why, /^vet402 paid this seller 6 times on Solana over \d+ days; 0 of 6 paid calls answered( \(the newest failed one answered HTTP \d{3}\))?\.$/, url);
-    assert.equal(r.why, lookup(rank, index, { url, chain: "solana" }, [], lanes, { ...notified, sellers: [...notified.sellers, { seller: new URL(url).hostname, notifiedAt: "2026-10-01" }] }).why, `${url}: word for word the why it would have once told`);
+    // Worded like every other unknown: the facts, then the one ending; no newest failure (that is avoid's).
+    assert.match(r.why, /^vet402 paid this seller 6 times on Solana over \d+ days; 0 of 6 paid calls answered; not enough to say pay or avoid\.$/, url);
+    assert.notEqual(r.why, lookup(rank, index, { url, chain: "solana" }, [], lanes, { ...notified, sellers: [...notified.sellers, { seller: new URL(url).hostname, notifiedAt: "2026-10-01" }] }).why, `${url}: not the avoid wording`);
     assert.equal(r.basis?.verdict, "unknown", "the basis does not say avoid either");
     const b = await body(get(q(url, "&chain=solana")));
     assert.equal(b.verdict, "unknown");
@@ -151,10 +158,10 @@ test("avoid only for a seller vet402 has told: syraa and blocksearch (not told) 
       assert.ok(!out.includes('"avoid"'), `${url}: no "avoid" value`);
       assert.ok(!/"held"\s*:/.test(out) && !out.includes("seller_not_told"), `${url}: no held mark`);
     }
-    assert.ok(!/\b(avoid|held)\b/i.test(formatCheck(r)), `${url}: CLI text`);
+    assert.ok(!/\b(avoid|held)\b/i.test(formatCheck(r).split(UNKNOWN_END).join("")), `${url}: CLI text`);
     const html = await (await get(q(url, "&chain=solana&format=html"))).text();
     assert.ok(html.includes('<span class="v v-unknown">unknown</span>') && !html.includes('<span class="v v-avoid">') && !html.includes("seller_not_told"), `${url}: HTML`);
-    assert.ok(!/\bheld\b/.test(r.why) && !/\bavoid\b/.test(r.why));
+    assert.ok(!/\b(held|avoid)\b/.test(r.why.split(UNKNOWN_END).join("")));
     assert.equal(b.heldPurchases, 0);
     assert.ok(b.rule.endsWith("avoid is said only after vet402 has told the seller; until then the verdict is unknown."), "the fixed rule, the same for every seller, says when avoid is said");
     const told = { ...notified, sellers: [...notified.sellers, { seller: new URL(url).hostname, notifiedAt: "2026-10-01" }] };
@@ -482,7 +489,7 @@ test("verdict on every page's data: Tempo, Base, Algorand, Arbitrum, and a resul
   const base = await body(get(q("https://scvd.store/api/buy/spot_check", "&chain=eip155:8453")));
   assert.equal(base.verdict, "unknown", "one purchase on Base");
   assert.deepEqual([base.chains, base.settled, base.days], [["base"], 1, 1]);
-  assert.match(base.why, /^vet402 paid this seller once on Base on one day; 1 of 1 paid calls answered, all on one day/);
+  assert.equal(base.why, "vet402 paid this seller once on Base on one day; 1 of 1 paid calls answered; not enough to say pay or avoid.");
 
   const algo = await body(get(q("https://algorandtracker.com/api/x", "&chain=algorand")));
   assert.equal(algo.verdict, "pay");
@@ -495,7 +502,7 @@ test("verdict on every page's data: Tempo, Base, Algorand, Arbitrum, and a resul
 
   const held = await body(get(q("https://x402.quickintel.io/v1/scan/full")));
   assert.equal(held.verdict, "unknown");
-  assert.equal(held.why, "vet402 bought from this seller on Arbitrum; results for this seller are held until the seller is told.");
+  assert.equal(held.why, "vet402 bought from this seller on Arbitrum, and the results are held until the seller is told; not enough to say pay or avoid.");
   assert.deepEqual([held.tried, held.settled, held.answered, held.counted, held.heldPurchases, held.newest], [0, 0, 0, 0, 1, null], "nothing about the held result leaks");
   const heldHtml = await (await get(q("https://x402.quickintel.io/v1/scan/full", "&format=html"))).text();
   assert.ok(heldHtml.includes("<tr><td>Held</td><td>1 purchase, shown after the seller is told</td></tr>"));

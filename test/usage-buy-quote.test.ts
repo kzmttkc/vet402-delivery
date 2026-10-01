@@ -7,6 +7,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AWAKE_AFTER_CRON_MIN, countBuyQuote, databaseLikelyAwake, isBuyQuote, usageCounter, usageKey } from "../src/usage/count.js";
 import type { Sql } from "../src/proxy-buy/db.js";
+import { memoryRateLimit, MEMORY_RATE_MAX_KEYS } from "../src/proxy-buy/handler.js";
+import { paymentOf } from "../src/proxy-buy/payment-header.js";
 import { agentPaysSolana, buyUrl, paidReq, S_URL, solRig, testSql } from "./proxy-buy-fakes.js";
 
 const KEY = "salt-for-tests-0123456789";
@@ -104,7 +106,7 @@ test("usage counts wait in memory and are written only while the database is awa
   await c(req());
   await c(req());
   assert.equal(seen.length, 0, "12:15: the database may be stopped; nothing is sent");
-  assert.equal(databaseLikelyAwake(t, null), false);
+  assert.equal(databaseLikelyAwake(t), false);
   t = new Date("2026-10-02T12:31:00Z");
   await c(req());
   const inserts = seen.filter((x) => String(x[0]).startsWith("insert"));
@@ -113,11 +115,99 @@ test("usage counts wait in memory and are written only while the database is awa
   seen.length = 0;
   t = new Date("2026-10-02T12:38:30Z");
   await c(req());
-  assert.equal(seen.length, 0, "12:38:30: past the cron's window and 7.5 minutes after this instance's write");
+  assert.equal(seen.length, 0, "12:38:30: past the cron's window");
   t = new Date("2026-10-02T13:00:20Z");
   await c(req());
   assert.equal(seen.filter((x) => String(x[0]).startsWith("insert"))[0]![5], 2, "the waiting call and this one are written in the next window");
   // the windows follow the cron: every 30 minutes, a few minutes long
-  assert.deepEqual([0, 2, 6, 7, 29, 30, 36, 37].map((m) => databaseLikelyAwake(new Date(Date.UTC(2026, 9, 2, 12, m)), null)), [true, true, true, false, false, true, true, false]);
+  assert.deepEqual([0, 2, 6, 7, 29, 30, 36, 37].map((m) => databaseLikelyAwake(new Date(Date.UTC(2026, 9, 2, 12, m)))), [true, true, true, false, false, true, true, false]);
   assert.equal(AWAKE_AFTER_CRON_MIN, 6);
+});
+
+test("usage counts: calls every 3 minutes outside the window never write (no wake-up kept alive by the counter itself)", async () => {
+  const seen: unknown[][] = [];
+  const db = { query: async (text: string, params?: unknown[]) => (seen.push([text, ...(params ?? [])]), { rows: [] }) };
+  let t = Date.parse("2026-10-02T12:07:00Z");
+  const c = usageCounter("check", () => db, KEY, () => new Date(t));
+  for (; t < Date.parse("2026-10-02T12:30:00Z"); t += 3 * 60_000) await c(new Request("https://h.example/v1/check"));
+  assert.equal(seen.length, 0, "12:07 to 12:28, every 3 minutes: nothing written");
+  t = Date.parse("2026-10-02T12:31:00Z");
+  await c(new Request("https://h.example/v1/check"));
+  assert.equal(seen.filter((x) => String(x[0]).startsWith("insert"))[0]![5], 9, "all of them in the next window, added up");
+});
+
+test("usage counts: one write at a time; three calls at once are all counted; a failed write keeps its rows", async () => {
+  const rows: number[] = [];
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => (release = r));
+  let first = true;
+  const db = {
+    query: async (text: string, params?: unknown[]) => {
+      if (text.startsWith("insert")) {
+        if (first) {
+          first = false;
+          await gate;
+        }
+        rows.push(Number(params![4]));
+      }
+      return { rows: [] };
+    },
+  };
+  let t = new Date("2026-10-02T12:01:00Z");
+  const c = usageCounter("check", () => db, KEY, () => t);
+  const req = () => new Request("https://h.example/v1/check", { headers: { "x-forwarded-for": "198.51.100.9" } });
+  const a = c(req());
+  const b = c(req());
+  const d = c(req());
+  release();
+  await Promise.all([a, b, d]);
+  await c(req());
+  assert.equal(rows.reduce((n, k) => n + k, 0), 4, "three at once and one after: four counted, none twice");
+  // A write that fails: its rows come back and go out with the next write.
+  let fail = true;
+  const sent: number[] = [];
+  const flaky = { query: async (text: string, params?: unknown[]) => {
+    if (text.startsWith("insert")) {
+      if (fail) throw new Error("connect ECONNREFUSED");
+      sent.push(Number(params![4]));
+    }
+    return { rows: [] };
+  } };
+  const c2 = usageCounter("check", () => flaky, KEY, () => t);
+  await assert.rejects(c2(req()));
+  fail = false;
+  t = new Date("2026-10-02T12:02:00Z");
+  await c2(req());
+  assert.deepEqual(sent, [2], "the failed call is not lost");
+});
+
+test("the quote limit in memory: a new minute starts empty, distinct clients are capped, each call stays O(1)", () => {
+  const lim = memoryRateLimit(2, 60_000, 1000);
+  const t0 = Date.parse("2026-10-02T12:00:00Z");
+  let ok = 0;
+  const start = performance.now();
+  for (let i = 0; i < 200_000; i++) if (lim(`k${i}`, t0)) ok++;
+  assert.equal(ok, 1000, "past the cap a new client is refused (quotes are free)");
+  assert.ok(performance.now() - start < 1000, "200,000 distinct keys in well under a second");
+  assert.equal(lim("k1", t0), true);
+  assert.equal(lim("k1", t0), false, "the per-client limit");
+  assert.equal(lim("new", t0 + 60_000), true, "a new minute starts empty");
+  assert.equal(MEMORY_RATE_MAX_KEYS, 50_000);
+});
+
+test("free quote or paid: usage counting and the handler use the same test", () => {
+  const cases: [Record<string, string>, boolean][] = [
+    [{}, false],
+    [{ "PAYMENT-SIGNATURE": "x" }, true],
+    [{ "x-payment": "x" }, true],
+    [{ "PAYMENT-SIGNATURE": "" }, false],
+    [{ authorization: "Payment abc" }, true],
+    [{ authorization: "Bearer abc" }, false],
+    [{ authorization: " Payment abc" }, true], // Headers trims the value
+  ];
+  for (const [headers, paid] of cases) {
+    const req = new Request(buyUrl(S_URL), { headers });
+    assert.equal(paymentOf(req.headers) !== null, paid, JSON.stringify(headers));
+    assert.equal(isBuyQuote(req), !paid, JSON.stringify(headers));
+  }
 });

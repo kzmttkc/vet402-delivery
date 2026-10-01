@@ -13,6 +13,7 @@
  */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import pg from "pg";
+import { paymentOf } from "../proxy-buy/payment-header.js";
 
 export const USAGE_SCHEMA = `
 create table if not exists pc_usage (
@@ -63,12 +64,11 @@ export const USAGE_KEEP_DAYS = 90;
  * anyway: the cron's queries, then the operator's proxy-alerts read at :02 and :32, then Neon's 5 idle minutes.
  */
 export const AWAKE_AFTER_CRON_MIN = 6;
-/** After this instance's own write the database stays awake 5 minutes; write again only well inside that. */
-export const AWAKE_AFTER_WRITE_MS = 4 * 60_000;
-
-/** Would a query now find the database awake anyway (no wake-up of its own)? */
-export function databaseLikelyAwake(at: Date, lastWriteAt: number | null): boolean {
-  if (lastWriteAt !== null && at.getTime() - lastWriteAt >= 0 && at.getTime() - lastWriteAt < AWAKE_AFTER_WRITE_MS) return true;
+/**
+ * Would a query now find the database awake anyway (no wake-up of its own)? Only in the minutes after a cron
+ * run. Not after this instance's own write: writing then would keep the database awake by itself.
+ */
+export function databaseLikelyAwake(at: Date): boolean {
   return at.getUTCMinutes() % 30 <= AWAKE_AFTER_CRON_MIN;
 }
 
@@ -79,56 +79,69 @@ export const USAGE_BUFFER_MAX = 5_000;
  * A counter for one endpoint ("check", "buy_quote"). Without a database or a key it counts nothing.
  *
  * Counts are added up in this instance's memory and written only when the database is awake anyway (in the
- * minutes after a cron run, or soon after this instance's own last write), so counting never wakes a stopped
- * database (Neon's free plan: 100 CU-hours a month). The price: an instance that stops before such a moment
+ * minutes after a cron run), so counting never wakes a stopped database (Neon's free plan: 100 CU-hours a month). The price: an instance that stops before such a moment
  * loses its counts, so the table can only undercount.
  */
 export function usageCounter(endpoint: string, db: () => UsageDb | null, key: string | null, now: () => Date = () => new Date()): (req: Request) => Promise<void> {
   let ready: Promise<unknown> | null = null;
   let prunedOn = "";
-  let lastWriteAt: number | null = null;
-  const pending = new Map<string, { day: string; caller: string; own: boolean; calls: number }>();
+  let flushing = false;
+  type Row = { day: string; caller: string; own: boolean; calls: number };
+  const pending = new Map<string, Row>();
+  const add = (r: Row) => {
+    const k = `${r.day}|${r.caller}|${r.own}`;
+    const cur = pending.get(k);
+    if (cur) cur.calls += r.calls;
+    else if (pending.size < USAGE_BUFFER_MAX) pending.set(k, { ...r });
+  };
   return async (req: Request) => {
     const sql = db();
     if (!sql || !key) return;
     const at = now();
     const day = utcDay(at);
-    const caller = callerId(callerIp(req), day, key);
-    const own = isOwnCall(req);
-    const k = `${day}|${caller}|${own}`;
-    const cur = pending.get(k);
-    if (cur) cur.calls++;
-    else if (pending.size < USAGE_BUFFER_MAX) pending.set(k, { day, caller, own, calls: 1 });
-    if (!databaseLikelyAwake(at, lastWriteAt)) return;
-    ready ??= sql.query(USAGE_SCHEMA).catch((e) => {
-      ready = null;
+    add({ day, caller: callerId(callerIp(req), day, key), own: isOwnCall(req), calls: 1 });
+    // One write at a time; counts that arrive meanwhile wait for the next one.
+    if (flushing || !databaseLikelyAwake(at)) return;
+    flushing = true;
+    // Take the counts out first: a call that arrives during the write adds to a fresh buffer, never to rows
+    // already sent. Rows whose write failed go back.
+    const batch = [...pending.values()];
+    pending.clear();
+    let i = 0;
+    try {
+      ready ??= sql.query(USAGE_SCHEMA).catch((e) => {
+        ready = null;
+        throw e;
+      });
+      await ready;
+      for (; i < batch.length; i++) {
+        const row = batch[i]!;
+        await sql.query(
+          `insert into pc_usage (day, endpoint, caller, own, calls) values ($1, $2, $3, $4, $5)
+           on conflict (day, endpoint, caller, own) do update set calls = pc_usage.calls + excluded.calls`,
+          [row.day, endpoint, row.caller, row.own, row.calls],
+        );
+      }
+      if (prunedOn !== day) {
+        prunedOn = day;
+        await sql.query(`delete from pc_usage where day < $1::date - $2::int`, [day, USAGE_KEEP_DAYS]);
+      }
+    } catch (e) {
+      for (const row of batch.slice(i)) add(row);
       throw e;
-    });
-    await ready;
-    for (const [pk, row] of [...pending]) {
-      await sql.query(
-        `insert into pc_usage (day, endpoint, caller, own, calls) values ($1, $2, $3, $4, $5)
-         on conflict (day, endpoint, caller, own) do update set calls = pc_usage.calls + excluded.calls`,
-        [row.day, endpoint, row.caller, row.own, row.calls],
-      );
-      pending.delete(pk);
-    }
-    lastWriteAt = at.getTime();
-    if (prunedOn !== day) {
-      prunedOn = day;
-      await sql.query(`delete from pc_usage where day < $1::date - $2::int`, [day, USAGE_KEEP_DAYS]);
+    } finally {
+      flushing = false;
     }
   };
 }
 
 /**
- * A free /v1/buy quote: a GET that carries no payment (no PAYMENT-SIGNATURE, X-PAYMENT or Authorization:
- * Payment) and is not a record read (/v1/buy/records/<id> arrives as ?record=).
+ * A free /v1/buy quote: a GET that carries no payment (the handler's own test, src/proxy-buy/payment-header.ts)
+ * and is not a record read (/v1/buy/records/<id> arrives as ?record=).
  */
 export function isBuyQuote(req: Request): boolean {
   if (req.method !== "GET") return false;
-  const h = req.headers;
-  if (h.has("payment-signature") || h.has("x-payment") || /^\s*payment\s/i.test(h.get("authorization") ?? "")) return false;
+  if (paymentOf(req.headers)) return false;
   try {
     return !new URL(req.url).searchParams.has("record");
   } catch {

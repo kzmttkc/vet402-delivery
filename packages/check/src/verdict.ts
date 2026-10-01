@@ -180,7 +180,7 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
     const out = decide({ ...r, sellers: [only] }, told);
     return {
       verdict: "unknown",
-      why: `vet402 bought from this seller on ${joinAnd(Object.keys(only.byChain).map(chainName))}; results for this seller are held until the seller is told.`,
+      why: unknownWhy(`vet402 bought from this seller on ${joinAnd(Object.keys(only.byChain).map(chainName))}, and the results are held until the seller is told`),
       basis: out.basis ? { ...out.basis, verdict: "unknown" } : null,
       bases: out.bases,
       heldPurchases,
@@ -191,14 +191,25 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
   return { ...out, why: heldNote ? `${out.why} ${heldNote}` : out.why, heldPurchases, heldNote };
 }
 
+/**
+ * How every "unknown" why ends, whatever the reason (too little data, nothing settled, never bought, a payTo
+ * vet402 never paid, a seller not told yet): one ending, so the reason cannot be read from the wording.
+ * The newest failure's status is said only with avoid.
+ */
+export const UNKNOWN_END = "not enough to say pay or avoid.";
+
+function unknownWhy(facts: string): string {
+  return `${facts}; ${UNKNOWN_END}`;
+}
+
 function decide(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, told: ReadonlySet<string>): Omit<VerdictOut, "heldPurchases" | "heldNote"> {
   const chain = r.asked.chain;
   if (!r.sellers.length) {
     const why = r.found
-      ? "vet402 holds signed records for this host but no purchase counts for it, so there is nothing to count."
+      ? unknownWhy("vet402 holds signed records for this host but no purchase counts for it")
       : chain
-      ? `vet402 has not bought from this seller on ${chainName(chain)}, so there is no record to go on.`
-      : "vet402 has not bought from this seller, so there is no record to go on.";
+      ? unknownWhy(`vet402 has not bought from this seller on ${chainName(chain)}`)
+      : unknownWhy("vet402 has not bought from this seller");
     return { verdict: "unknown", why, basis: null, bases: [] };
   }
   const raw = r.sellers.map((f) => basisOf(f, chain));
@@ -215,7 +226,7 @@ function decide(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, t
     const b = avoids[0]!;
     return {
       verdict: "unknown",
-      why: `${paidClause(b)}, but other purchases from it on ${joinAnd(pays.flatMap((p) => p.chains).map(chainName))} came back, so name the chain to get one answer.`,
+      why: unknownWhy(`${paidClause(b)}; other purchases from it on ${joinAnd(pays.flatMap((p) => p.chains).map(chainName))} were answered (name the chain to get one answer)`),
       basis: b,
       bases,
     };
@@ -225,30 +236,22 @@ function decide(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, t
     return { verdict: "avoid", why: `${paidClause(b)}${newestStatus(factsOf(b), b)}${notCountedClause(b)}.`, basis: b, bases };
   }
   if (heldOnes.length) {
-    // The seller has not been told: the facts the Sellers page shows, and nothing that reads as a verdict.
+    // Not told yet: the same wording as any other unknown.
     const b = heldOnes[0]!;
-    return { verdict: "unknown", why: `${paidClause(b)}${newestStatus(factsOf(b), b)}${notCountedClause(b)}.`, basis: b, bases };
+    return { verdict: "unknown", why: unknownWhy(`${paidClause(b)}${notCountedClause(b)}`), basis: b, bases };
   }
   if (pays.length) {
     const b = pays[0]!;
     if (r.payTo && !r.payTo.sameAsRecorded)
-      return { verdict: "unknown", why: `${paidClause(b)}, but those payments went to another payTo than the one in this 402.`, basis: b, bases };
+      return { verdict: "unknown", why: unknownWhy(`${paidClause(b)}, to another payTo than the one in this 402`), basis: b, bases };
     return { verdict: "pay", why: `${paidClause(b)}${notCountedClause(b)}.`, basis: b, bases };
   }
   // Nothing decisive: the seller with the most counted purchases speaks for the rest.
   const b = [...bases].sort((x, y) => y.counted - x.counted || y.settled - x.settled)[0]!;
-  const reason =
-    b.counted === 0
-      ? b.settled
-        ? ", too few to tell anything"
-        : ""
-      : b.days < MIN_DAYS
-        ? ", all on one day, too early to tell"
-        : ", too few to tell either way";
   const why =
     b.settled === 0
-      ? `vet402 tried to buy from this seller ${times(b.tried)}${b.chains.length ? ` on ${joinAnd(b.chains.map(chainName))}` : ""}, and none of its payments settled, so there is nothing to go on.`
-      : `${paidClause(b)}${reason}${notCountedClause(b)}.`;
+      ? unknownWhy(`vet402 tried to buy from this seller ${times(b.tried)}${b.chains.length ? ` on ${joinAnd(b.chains.map(chainName))}` : ""}, and none of its payments settled`)
+      : unknownWhy(`${paidClause(b)}${notCountedClause(b)}`);
   return { verdict: "unknown", why, basis: b, bases };
 }
 

@@ -14,6 +14,7 @@
  * Requests per client are counted in the database, so the limit holds across serverless instances.
  */
 import { createHash } from "node:crypto";
+import { paymentOf } from "./payment-header.js";
 import { decodePaymentSignatureHeader } from "@x402/core/http";
 import { Credential } from "mppx";
 import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REFUND_POLICY } from "./constants.js";
@@ -83,22 +84,31 @@ function refusedResponse(r: Refused): Response {
   return json(r.status, { verdict: "REFUSE", reason: r.reason, detail: r.detail, charged: false });
 }
 
+/** Most distinct clients a quote limit holds in one window; past it, a new client's quote is refused (quotes are free). */
+export const MEMORY_RATE_MAX_KEYS = 50_000;
+
 /**
  * A per-key limit of `max` in each `windowMs`, in memory (a fixed window per key, like the database's per-minute
- * counter). Keys whose window has passed are dropped as new ones come, so the map stays small.
+ * counter). A new window starts from an empty map; within one, at most MEMORY_RATE_MAX_KEYS keys, so each call
+ * is O(1) and memory stays bounded.
  */
-export function memoryRateLimit(max: number, windowMs: number): (key: string, nowMs: number) => boolean {
-  const seen = new Map<string, { window: number; n: number }>();
+export function memoryRateLimit(max: number, windowMs: number, maxKeys = MEMORY_RATE_MAX_KEYS): (key: string, nowMs: number) => boolean {
+  const seen = new Map<string, number>();
+  let current = -1;
   return (key, nowMs) => {
     const window = Math.floor(nowMs / windowMs);
-    if (seen.size > 10_000) for (const [k, v] of seen) if (v.window !== window) seen.delete(k);
-    const cur = seen.get(key);
-    if (!cur || cur.window !== window) {
-      seen.set(key, { window, n: 1 });
-      return max >= 1;
+    if (window !== current) {
+      seen.clear();
+      current = window;
     }
-    if (cur.n >= max) return false;
-    cur.n++;
+    const n = seen.get(key);
+    if (n === undefined) {
+      if (seen.size >= maxKeys || max < 1) return false;
+      seen.set(key, 1);
+      return true;
+    }
+    if (n >= max) return false;
+    seen.set(key, n + 1);
     return true;
   };
 }
@@ -267,9 +277,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       // Every request below reads the seller's 402 at least once: limit them per client. A request that carries
       // a payment is limited in the database, as before; a free quote in this instance's memory.
       const target = u.searchParams.get("url");
-      const x402 = req.headers.get("payment-signature") ?? req.headers.get("x-payment");
-      const auth = req.headers.get("authorization");
-      const pay = x402 ? { chain: "solana" as const, header: x402 } : auth && /^Payment\s/i.test(auth) ? { chain: "tempo" as const, header: auth } : null;
+      const pay = paymentOf(req.headers);
       let ok: boolean;
       if (pay) {
         try {

@@ -291,7 +291,7 @@ test("MCP over stdio: the bin starts, lists both tools and answers a call", asyn
   assert.equal((byId.get(1)!.result as { serverInfo: { name: string } }).serverInfo.name, "vet402-check");
   assert.equal((byId.get(2)!.result as { tools: unknown[] }).tools.length, 2);
   const text = (byId.get(3)!.result as { content: { text: string }[] }).content[0]!.text;
-  assert.match(text, /^verdict: unknown\. vet402 has not bought from this seller, so there is no record to go on\.\nvet402 has no record of this seller/);
+  assert.match(text, /^verdict: unknown\. vet402 has not bought from this seller; not enough to say pay or avoid\.\nvet402 has no record of this seller/);
 });
 
 test("CLI: exit 0 for a lookup, found or not; 1 when a record fails; 2 on bad input", async () => {
