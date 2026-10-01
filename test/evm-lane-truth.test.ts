@@ -10,7 +10,8 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { laneInputProblem, repairLaneRequest, sellerSaidFree } from "../src/evm/lane-input.js";
+import { holdAfter4xx, laneInputProblem, lastPaidByListing, repairLaneRequest, sellerSaidFree, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
 import { buildLanePublic, isNegative, unpublishableRows, withholdUnnotified } from "../src/evm/site.js";
@@ -140,25 +141,25 @@ test("vet402's request: socialintel (:username), carbon-cashmere (:netuid), open
 
 test("next purchase: the slot and the inputs are filled from the listing; an input vet402 cannot fill after a 400/404/422 is not bought again", () => {
   const social = { resource: "https://socialintel.dev/v1/user/:username", extensions: { bazaar: { info: { input: { method: "GET", pathParams: { username: "test" }, queryParams: { username: "yoga_with_adriene" }, type: "http" } } } } };
-  const r1 = repairLaneRequest(social, { resource: social.resource, method: "GET", query: { username: "yoga_with_adriene" }, body: null }, "2026-10-01", 404);
+  const r1 = repairLaneRequest(social, { resource: social.resource, method: "GET", query: { username: "yoga_with_adriene" }, body: null }, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true });
   assert.ok(r1.ok && r1.request.resource === "https://socialintel.dev/v1/user/yoga_with_adriene");
   const carbon = { resource: "https://api.carbon-cashmere.de/v1/bittensor-derivatives/alpha-price-history/:netuid", extensions: { bazaar: { info: { input: { method: "GET", pathParams: { netuid: "1" }, type: "http" } } } } };
-  const r2 = repairLaneRequest(carbon, { resource: carbon.resource, method: "GET", query: null, body: null }, "2026-10-01", 422);
+  const r2 = repairLaneRequest(carbon, { resource: carbon.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 422, requestKey: null, at: null, inputError: true });
   assert.ok(r2.ok && r2.request.resource.endsWith("/alpha-price-history/1"));
   const noValue = repairLaneRequest({ resource: "https://x.test/u/:id" }, { resource: "https://x.test/u/:id", method: "GET", query: null, body: null }, "2026-10-01");
   assert.deepEqual(noValue, { ok: false, reason: "path_placeholder", param: "id" });
   // quickintel's Dexter listing declares the body (chain, tokenAddress): sent instead of {}.
   const qi = { resource: "https://x402.quickintel.io/v1/scan/full", accepts: [{ outputSchema: { input: { method: "POST", body: { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" } } } }] };
-  const r3 = repairLaneRequest(qi as never, { resource: qi.resource, method: "POST", query: null, body: {} }, "2026-10-01", 400);
+  const r3 = repairLaneRequest(qi as never, { resource: qi.resource, method: "POST", query: null, body: {} }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true });
   assert.ok(r3.ok);
   assert.deepEqual(r3.ok && r3.request.body, { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" });
   // openwebninja: email_domain is required and nothing names a value: not bought again after the 400.
   const ow = { resource: "https://x402.openwebninja.com/email-search/search-emails", inputSchema: { properties: { email_domain: { type: "string" }, query: { type: "string" } }, required: ["email_domain", "query"] }, extensions: { bazaar: { info: { input: { method: "GET", queryParams: { type: "object", properties: { email_domain: { type: "string" }, query: { type: "string" } }, required: ["email_domain", "query"] } } } } } };
-  const r4 = repairLaneRequest(ow, { resource: ow.resource, method: "GET", query: null, body: null }, "2026-10-01", 400);
+  const r4 = repairLaneRequest(ow, { resource: ow.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true });
   assert.equal(r4.ok, false);
   // Plan: the listing goes to the group's input skips, and the row says so in neutral words.
   const accept = { scheme: "exact", network: ARB.caip2, amount: "3000", asset: ARB.asset, payTo: openweb.payTo, maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
-  const g = groupByPayTo([{ ...ow, accepts: [accept] }], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastStatus: new Map([[ow.resource, 400]]) });
+  const g = groupByPayTo([{ ...ow, accepts: [accept] }], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[ow.resource, { status: 400, requestKey: null, at: null, inputError: true }]]) });
   assert.equal(g[0]!.options.length, 0);
   assert.match(g[0]!.inputSkipped![0]!.why, /^input_unfillable: /);
 });
@@ -217,4 +218,253 @@ test("records keep the raw settlement header (which one, decoded, named a tx) an
   assert.match(src, /paid\.headers\.get\("x-payment-response"\)/);
   assert.match(src, /rec\.authorization = \{ nonce: created\.authorization\.nonce, validAfter/);
   assert.doesNotMatch(src, /rec\.(authorization|paymentResponseHeader)[^\n]*signature/);
+});
+
+test("follow-up 1: a filled request that still got 400/404/422 is not bought again; the lookup is by the catalog URL", () => {
+  const social = { resource: "https://socialintel.dev/v1/user/:username", extensions: { bazaar: { info: { input: { method: "GET", queryParams: { username: "yoga_with_adriene" }, type: "http" } } } } };
+  const req = { resource: social.resource, method: "GET" as const, query: { username: "yoga_with_adriene" }, body: null };
+  const first = repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true });
+  assert.ok(first.ok && first.changed, "the old record sent the catalog's request: the filled one is new, so it is bought once");
+  const sent = first.ok ? first.requestKey : "";
+  // That filled request answered 404 too: the next run fills it the same way and does not buy it.
+  assert.deepEqual(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: sent, at: null, inputError: true }), { ok: false, reason: "input_unchanged_after_input_error", param: null });
+  // A 200 last time, or a different request now: bought.
+  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 200, requestKey: sent, at: null, inputError: false }).ok, true);
+  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: "f".repeat(64), at: null, inputError: true }).ok, true);
+  // The plan looks the listing up by its catalog URL and carries it to the entry and the record.
+  const accept = { scheme: "exact", network: ARB.caip2, amount: "10000", asset: ARB.asset, payTo: social.resource && "0xB1Acd9E0269023546074400A434e703B646AaBBa", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
+  const listing = { ...social, accepts: [accept] };
+  const g1 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: null, at: null, inputError: true }]]) });
+  assert.equal(g1[0]!.options[0]!.listingResource, social.resource);
+  assert.equal(g1[0]!.options[0]!.resource, "https://socialintel.dev/v1/user/yoga_with_adriene");
+  const g2 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: sent, at: null, inputError: true }]]) });
+  assert.equal(g2[0]!.options.length, 0);
+  assert.match(g2[0]!.inputSkipped![0]!.why, /input_unchanged_after_input_error/);
+  const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(lane, /return lastPaidByListing\(rows\)/);
+  const input = readFileSync(new URL("../src/evm/lane-input.ts", import.meta.url), "utf8");
+  assert.match(input, /const k = r\.listingResource \?\? r\.resource;/);
+  const buy = readFileSync(new URL("../src/evm/evm-buy.ts", import.meta.url), "utf8");
+  assert.match(buy, /listingResource: e\.listingResource \?\? e\.resource,\s+requestKey: laneRequestKey\(e, e\.inputDate/);
+});
+
+test("follow-up 2: a bare 'missing' is vet402's input only next to query/body/param/field or a parameter the listing declares", () => {
+  const r = (status: number, body: string, declaredParams?: string[]) => ({ resource: "https://s.test/a", response: resp(status, body), body, ...(declaredParams ? { declaredParams } : {}) });
+  assert.equal(laneInputProblem(r(400, '{"error":"upstream data missing for this symbol"}')), null);
+  assert.equal(laneInputProblem(r(400, '{"error":"resource missing"}')), null);
+  assert.equal(laneInputProblem(r(400, '{"error":"missing query parameter"}'))?.kind, "missing_input");
+  assert.equal(laneInputProblem(r(400, '{"error":"missing field"}'))?.kind, "missing_input");
+  assert.equal(laneInputProblem(r(400, '{"error":"missing: email_domain"}')), null, "an undeclared name is not enough");
+  assert.equal(laneInputProblem(r(400, '{"error":"missing: email_domain"}', ["email_domain", "query"]))?.kind, "missing_input");
+  assert.equal(laneInputProblem(r(400, '{"error":"missing API key query"}')), null, "authentication is never vet402's input");
+  // The 2026-09-30 answers still read as vet402's request.
+  assert.equal(laneInputProblem(byHost("openwebninja"))?.kind, "missing_input");
+  assert.equal(laneInputProblem(byHost("quickintel"))?.kind, "missing_input");
+});
+
+test("follow-up 3: a tx already held by an earlier record is not given to a later one; the later one is ambiguous, not settled", () => {
+  const a = { ...bazaar, settledOnChain: true, settlementTx: chainTxs[2]!.tx, delivered: true };
+  const b = { ...bazaar, agentId: "payto:other", at: "2026-09-30T12:46:00Z", settledOnChain: true, settlementTx: chainTxs[2]!.tx, delivered: true };
+  const r = chainCheckRecords([a, b], chainTxs.slice(2), { payer: PAYER, checkedAt: "x" });
+  assert.equal(r.records[0]!.chainCheck?.result, "transfer_found");
+  assert.equal(r.records[0]!.settledOnChain, true);
+  assert.equal(r.records[1]!.chainCheck?.result, "ambiguous");
+  assert.equal(r.records[1]!.settledOnChain, false);
+  assert.equal(r.summary.ambiguous.length, 1);
+  assert.equal(classifyRecord(r.records[1]!).cause, "unconfirmed", "never the seller's");
+});
+
+test("review of a44d5aa [high]: the seller's 'missing ...' answers to vet402's request are vet402's, settled or not", () => {
+  const msgs = ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"'];
+  for (const m of msgs) {
+    const body = JSON.stringify({ error: m });
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body };
+    assert.equal(laneInputProblem(rec)?.kind, "missing_input", m);
+    const c = classifyRecord(rec);
+    assert.equal(c.cause, "vet402", m);
+    assert.equal(c.rule, "input:missing_input:settled", m);
+    assert.equal(isNegative("settled_vet402_input", c), false, m);
+    // The same words outside JSON as well.
+    assert.equal(laneInputProblem({ resource: "https://s.test/a", response: resp(422, m), body: m })?.kind, "missing_input", `${m} (plain text)`);
+  }
+  for (const m of ["upstream data missing", "resource missing"]) {
+    const body = JSON.stringify({ error: m });
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body };
+    assert.equal(laneInputProblem(rec), null, m);
+    assert.equal(classifyRecord(rec).cause, "seller_config", `${m}: settled, then a 400 that is not about the request`);
+  }
+});
+
+test("review of a44d5aa [mid]: a request filled with today's date has the same fingerprint every day", () => {
+  const listing = { resource: "https://d.test/rates", extensions: { bazaar: { info: { input: { method: "GET", queryParams: { type: "object", properties: { date: { type: "string" } }, required: ["date"] } } } } } };
+  const req = { resource: listing.resource, method: "GET" as const, query: null, body: null };
+  const day1 = repairLaneRequest(listing, req, "2026-10-01");
+  const day2 = repairLaneRequest(listing, req, "2026-10-02");
+  assert.ok(day1.ok && day2.ok);
+  assert.equal(day1.ok && day1.request.query?.date, "2026-10-01");
+  assert.deepEqual(day1.ok && day1.datedParams, ["date"]);
+  assert.equal(day1.ok && day1.requestKey, day2.ok && day2.requestKey);
+  // Yesterday's 400 that was vet402's request stops today's identical (date-filled) request.
+  const sent = day1.ok ? day1.requestKey : "";
+  const again = repairLaneRequest(listing, req, "2026-10-02", { status: 400, requestKey: sent, at: "2026-10-01T10:00:00Z", inputError: true }, Date.parse("2026-10-02T10:00:00Z"));
+  assert.deepEqual(again, { ok: false, reason: "input_unchanged_after_input_error", param: null });
+  // A different concrete date is a different request.
+  assert.notEqual(laneRequestKey({ ...req, query: { date: "2026-09-01" } }, { date: "2026-10-01", params: ["date"] }), sent);
+  // The buy side computes the same key from the entry (inputDate + datedParams) as the plan did.
+  assert.equal(laneRequestKey(day1.ok ? day1.request : req, { date: "2026-10-01", params: ["date"] }), sent);
+  const buy = readFileSync(new URL("../src/evm/evm-buy.ts", import.meta.url), "utf8");
+  assert.match(buy, /requestKey: laneRequestKey\(e, e\.inputDate \? \{ date: e\.inputDate, params: e\.datedParams \?\? \[\] \} : null\)/);
+});
+
+test("review of a44d5aa [mid]: vet402's own wrong request stops for good; a seller-side 4xx is bought again every 7 days", () => {
+  const at = "2026-10-01T00:00:00Z";
+  const t0 = Date.parse(at);
+  assert.equal(holdAfter4xx({ status: 400, requestKey: null, at, inputError: true }, t0 + 30 * 86_400_000), "input_unchanged_after_input_error");
+  assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, t0 + SELLER_4XX_RETRY_MS - 1), "unchanged_after_seller_4xx_within_7_days");
+  assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, t0 + SELLER_4XX_RETRY_MS), null);
+  assert.equal(holdAfter4xx({ status: 500, requestKey: null, at, inputError: false }, t0), null);
+  const listing = { resource: "https://s.test/item", extensions: { bazaar: { info: { input: { method: "GET", type: "http" } } } } };
+  const req = { resource: listing.resource, method: "GET" as const, query: null, body: null };
+  const key = laneRequestKey(req);
+  const seller404 = { status: 404, requestKey: key, at, inputError: false };
+  assert.equal(repairLaneRequest(listing, req, "2026-10-03", seller404, t0 + 2 * 86_400_000).ok, false);
+  assert.equal(repairLaneRequest(listing, req, "2026-10-08", seller404, t0 + 7 * 86_400_000).ok, true, "7 days after the last answer");
+  // That retry is the new last answer: held for the next 7 days, then bought again (every 7 days).
+  const retried = { ...seller404, at: "2026-10-08T00:00:00Z" };
+  assert.equal(repairLaneRequest(listing, req, "2026-10-09", retried, t0 + 8 * 86_400_000).ok, false);
+  assert.equal(repairLaneRequest(listing, req, "2026-10-15", retried, t0 + 14 * 86_400_000).ok, true);
+  // The lane script decides inputError from the record with the same reading as the pages.
+  const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(lane, /return lastPaidByListing\(rows\)/);
+});
+
+test("review of a44d5aa [low]: a named tx carrying nonces goes only to the record whose nonce it carries; none matching makes all ambiguous", () => {
+  const tx = chainTxs[2]!.tx;
+  const nA = ("0x" + "a1".repeat(32)) as Hex;
+  const nB = ("0x" + "b2".repeat(32)) as Hex;
+  const withNonce = (n: Hex, at: string, id: string) => ({ ...bazaar, agentId: id, at, settledOnChain: true, settlementTx: tx, delivered: true, authorization: { nonce: n, validAfter: "0", validBefore: String(Math.floor(Date.parse(at) / 1000) + 300) } });
+  const a = withNonce(nA, "2026-09-30T12:45:04Z", "a");
+  const b = withNonce(nB, "2026-09-30T12:45:05Z", "b");
+  const t = { ...chainTxs[2]!, nonces: [nB] };
+  const r = chainCheckRecords([a, b], [t], { payer: PAYER, checkedAt: "x" });
+  assert.equal(r.records[0]!.chainCheck?.result, "ambiguous", "the earlier record does not get a tx that carries another nonce");
+  assert.equal(r.records[0]!.settledOnChain, false);
+  assert.equal(r.records[1]!.chainCheck?.result, "transfer_found");
+  assert.equal(r.records[1]!.settlementTx, tx);
+  const none = chainCheckRecords([a, b], [{ ...t, nonces: [("0x" + "cc".repeat(32)) as Hex] }], { payer: PAYER, checkedAt: "x" });
+  assert.deepEqual(none.records.map((x) => x.chainCheck?.result), ["ambiguous", "ambiguous"]);
+  // The tx is not set aside (review of 7a967b8): no record's nonce owns it, so it is reported for a human.
+  assert.deepEqual(none.summary.unmatched.map((u) => u.tx), [tx]);
+  assert.deepEqual(none.summary.ambiguous.length, 2);
+});
+
+// ---------- review of 7a967b8 ----------
+
+const PT = getAddress("0xECa891e34b3E5873181Fb779672564E198C55354");
+const TT = ("0x" + "77".repeat(32)) as Hex;
+const UU = ("0x" + "88".repeat(32)) as Hex;
+const NA = ("0x" + "a1".repeat(32)) as Hex;
+const NB = ("0x" + "b2".repeat(32)) as Hex;
+const OK_BODY = '{"ok":true}';
+const buyRec = (id: string, at: string, nonce: Hex, named: Hex | null, settled: boolean) => ({
+  ...base({ resource: "https://s.test/x", payTo: PT, amountAtomic: "1000", at, response: resp(200, OK_BODY), body: OK_BODY }),
+  agentId: id,
+  settledOnChain: settled,
+  delivered: settled,
+  settlementTx: named,
+  settlementCheck: settled ? "transfer" : "no settlement tx in the response",
+  authorization: { nonce, validAfter: "0", validBefore: String(Math.floor(Date.parse(at) / 1000) + 600) },
+});
+const txT: EvmOutTx = { tx: TT, timeMs: Date.parse("2026-10-04T15:00:20Z"), transfers: [{ to: PT, amount: 1000n }], nonces: [NB] };
+const txU: EvmOutTx = { tx: UU, timeMs: Date.parse("2026-10-04T15:00:10Z"), transfers: [{ to: PT, amount: 1000n }], nonces: [NA] };
+
+test("review of 7a967b8 [high] example 1: A and B to the same seller and price; A's header names B's tx T (B's nonce), A's own tx U (A's nonce) is on chain", () => {
+  const A = buyRec("A", "2026-10-04T15:00:00Z", NA, TT, true);
+  const B = buyRec("B", "2026-10-04T15:00:15Z", NB, null, false);
+  const r = chainCheckRecords([A, B], [txU, txT], { payer: PAYER, checkedAt: "x" });
+  const [a, b] = r.records;
+  assert.equal(a!.settlementTx, UU, "A gets its own tx by its own nonce");
+  assert.equal(a!.chainCheck?.by, "nonce");
+  assert.equal(classifyRecord(a!).cause, "delivered");
+  assert.equal(b!.settlementTx, TT, "T stays free and goes to B by B's nonce");
+  assert.equal(b!.chainCheck?.by, "nonce");
+  assert.equal(classifyRecord(b!).cause, "delivered");
+  assert.deepEqual(r.summary.unmatched, [], "U is assigned");
+  // Both answers naming T: T is B's by nonce, U is A's.
+  const both = chainCheckRecords([A, { ...B, settledOnChain: true, delivered: true, settlementTx: TT }], [txU, txT], { payer: PAYER, checkedAt: "x" });
+  assert.deepEqual(both.records.map((x) => x.settlementTx), [UU, TT]);
+});
+
+test("review of 7a967b8 [high] example 2: only A names another nonce's tx; delivered in main stays delivered when A's own tx is on chain, and is never held against the seller when it is not", () => {
+  const A = buyRec("A", "2026-10-04T15:00:00Z", NA, TT, true);
+  const withOwn = chainCheckRecords([A], [txU, txT], { payer: PAYER, checkedAt: "x" });
+  assert.equal(withOwn.records[0]!.settlementTx, UU);
+  assert.equal(classifyRecord(withOwn.records[0]!).cause, "delivered", "no step back from main");
+  assert.deepEqual(withOwn.summary.unmatched.map((u) => u.tx), [TT], "T carries a nonce no record signed: a human looks");
+  const without = chainCheckRecords([A], [txT], { payer: PAYER, checkedAt: "x" });
+  const c = classifyRecord(without.records[0]!);
+  assert.equal(c.cause, "unconfirmed", "A's own authorization never moved money: vet402 cannot confirm it");
+  assert.equal(isNegative("unconfirmed", c), false, "unconfirmed is vet402's side, never the seller's");
+  // On the page: an untold seller's unconfirmed row is shown as unconfirmed, not withheld as a failure.
+  const dry = { generatedAt: "2026-10-04T00:00:00Z", catalogs: {}, arbitrum: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: PT, catalogListings: 1, hosts: ["s.test"], chosen: { resource: "https://s.test/x", liveAmount: "1000" } }] } };
+  const l = withholdUnnotified(buildLanePublic("arbitrum", dry, [{ ...without.records[0]!, lane: "arbitrum", cause: c }]), new Set());
+  assert.equal(l.rows[0]!.status, "unconfirmed");
+  assert.deepEqual(unpublishableRows(l, new Set()), []);
+});
+
+const answer400 = (body: string, declaredParams?: string[]) => laneInputProblem({ resource: "https://s.test/a", response: resp(400, body), body, ...(declaredParams ? { declaredParams } : {}) });
+
+test("review of 7a967b8 [mid]: the seller's own broken side stays the seller's", () => {
+  const sellerSide: [string, string[]?][] = [
+    ["Missing 'OPENAI_API_KEY' environment variable"],
+    ['missing "DATABASE_URL"'],
+    ['missing "redis_url" in config'],
+    ["Server misconfigured: missing env value"],
+    ['{"error":"upstream data missing","url":"https://s.test/a?q=1"}'],
+    ['{"error":"Token data missing","query":{"symbol":"ETH","required":true}}'],
+    ["upstream response missing fields"],
+    ['{"error":"upstream data missing for this symbol"}', ["symbol"]],
+  ];
+  for (const [body, declared] of sellerSide) {
+    assert.equal(answer400(body, declared), null, body);
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body, ...(declared ? { declaredParams: declared } : {}) };
+    assert.equal(classifyRecord(rec).cause, "seller_config", `${body}: settled, then the seller's own failure`);
+  }
+  // The earlier seven stay vet402's.
+  for (const m of ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"']) {
+    assert.equal(answer400(JSON.stringify({ error: m }))?.kind, "missing_input", m);
+  }
+});
+
+test("review of 7a967b8 [high, existing]: a payment or header word elsewhere in the answer does not turn vet402's input error into the seller's", () => {
+  assert.equal(answer400('{"error":"Missing required field: wallet","payment":{"scheme":"exact","network":"eip155:42161","amount":"1000"}}')?.kind, "missing_input");
+  assert.equal(answer400('{"error":"query is required","hint":"see the x-request-id header"}')?.kind, "missing_input");
+  assert.equal(answer400("query is required. Check the header docs.")?.kind, "missing_input");
+  // In the same sentence, payment or authentication words still keep it off vet402's request.
+  assert.equal(answer400('{"error":"payment header is required"}'), null);
+  assert.equal(answer400('{"error":"missing authorization field"}'), null);
+});
+
+test("review of 7a967b8 [low]: the last answer per listing is the newest one, whichever lane file comes last", () => {
+  const listing = "https://s.test/x";
+  const rec = (lane: string, at: string, status: number) => ({ ...base({ resource: listing, payTo: PT, amountAtomic: "1000", at, response: resp(status, "{}"), body: "{}" }), lane });
+  const m = lastPaidByListing([rec("arbitrum", "2026-10-05T10:00:00Z", 200), rec("base-compare", "2026-10-01T10:00:00Z", 404)]);
+  assert.equal(m.get(listing)!.status, 200, "the older base-compare answer read later does not overwrite");
+  assert.equal(m.get(listing)!.at, "2026-10-05T10:00:00Z");
+  const m2 = lastPaidByListing([rec("arbitrum", "2026-10-01T10:00:00Z", 200), rec("base-compare", "2026-10-05T10:00:00Z", 404)]);
+  assert.equal(m2.get(listing)!.status, 404);
+});
+
+test("review of 7a967b8 [low]: a catalog date equal to today is a value, not <today>; only what vet402 filled is", () => {
+  const req = { resource: "https://d.test/rates", method: "GET" as const, query: { date: "2026-10-01" }, body: null };
+  // The catalog gave the date; nothing was filled: no normalisation, and the next day it is the same catalog value.
+  const listing = { resource: req.resource, extensions: { bazaar: { info: { input: { method: "GET", queryParams: { date: "2026-10-01" } } } } } };
+  const r = repairLaneRequest(listing, req, "2026-10-01");
+  assert.ok(r.ok);
+  assert.deepEqual(r.ok && r.datedParams, []);
+  assert.equal(r.ok && r.requestKey, laneRequestKey(req));
+  assert.notEqual(laneRequestKey(req), laneRequestKey({ ...req, query: { date: "<today>" } }));
+  // Only a parameter in datedParams is written as <today>.
+  assert.equal(laneRequestKey(req, { date: "2026-10-01", params: [] }), laneRequestKey(req));
+  assert.equal(laneRequestKey(req, { date: "2026-10-01", params: ["date"] }), laneRequestKey({ ...req, query: { date: "<today>" } }));
 });

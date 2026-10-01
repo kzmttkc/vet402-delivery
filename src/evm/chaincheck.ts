@@ -114,9 +114,32 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
     return w.fromMs <= t.timeMs && t.timeMs < w.toMs;
   };
 
-  // 0. Settled at purchase time on the receipt of the tx the seller named: that tx is this record's.
-  for (const { r, i } of idx) if (r.settledOnChain === true && r.settlementTx && HEX_TX.test(r.settlementTx)) claim(i, r.settlementTx, byTx.has(norm(r.settlementTx)) ? "named_tx" : "receipt");
-  // 1. The nonce vet402 signed.
+  // 0. Settled at purchase time on the receipt of the tx the seller named. When the tx carries the payer's
+  // AuthorizationUsed nonces and a claimant recorded its nonce, the tx goes only to the claimant whose nonce it
+  // carries. A claimant whose nonce it does not carry is set aside here (contested), and the tx stays free: step 1
+  // gives it to the purchase whose nonce it carries, and looks for the claimant's own tx by its own nonce. Without
+  // nonces (records before 2026-10-01) the first record keeps the tx and a later one is contested: one tx cannot
+  // settle two purchases. A contested record that step 1 does not settle ends ambiguous.
+  const contested = new Set<number>();
+  const claimants = new Map<string, number[]>();
+  for (const { r, i } of idx) {
+    if (r.settledOnChain !== true || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
+    claimants.set(norm(r.settlementTx), [...(claimants.get(norm(r.settlementTx)) ?? []), i]);
+  }
+  for (const [tx, is] of claimants) {
+    const t = byTx.get(tx);
+    const by: ChainCheckNote["by"] = t ? "named_tx" : "receipt";
+    const nonces = new Set((t?.nonces ?? []).map(norm));
+    if (nonces.size && is.some((i) => out[i]!.authorization?.nonce)) {
+      const match = is.filter((i) => out[i]!.authorization?.nonce && nonces.has(norm(out[i]!.authorization!.nonce)));
+      if (match.length === 1) claim(match[0]!, out[match[0]!]!.settlementTx!, by);
+      for (const i of is) if (!(match.length === 1 && i === match[0])) contested.add(i);
+      continue;
+    }
+    claim(is[0]!, out[is[0]!]!.settlementTx!, by);
+    for (const i of is.slice(1)) contested.add(i);
+  }
+  // 1. The nonce vet402 signed. Contested records too: their own nonce finds their own tx.
   for (const { r, i } of idx) {
     if (found.has(i) || !r.authorization?.nonce) continue;
     const t = txs.find((x) => x.nonces.some((n) => norm(n) === norm(r.authorization!.nonce)) && fits(x, r) && !owner.has(norm(x.tx)));
@@ -124,13 +147,13 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
   }
   // 2. The tx the seller named, when it moved the price from the payer to the payTo inside the window.
   for (const { r, i } of idx) {
-    if (found.has(i) || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
+    if (found.has(i) || contested.has(i) || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
     const t = byTx.get(norm(r.settlementTx));
     if (t && fits(t, r) && inWindow(t, r) && !owner.has(norm(t.tx))) claim(i, t.tx, "named_tx");
   }
   // 3. payTo + price + window, only when exactly one purchase can own the transfer. A record that has its
   // nonce is decided by step 1 alone (its transfer would carry its nonce).
-  const open = idx.filter(({ r, i }) => !found.has(i) && !r.authorization?.nonce);
+  const open = idx.filter(({ r, i }) => !found.has(i) && !contested.has(i) && !r.authorization?.nonce);
   const candidates: Candidate[] = open.map(({ r, i }) => ({ id: String(i), payTo: r.payTo!, amount: BigInt(r.amountAtomic!), ...settleWindow(r) }));
   const res = checkOutflows({
     txs,
@@ -165,8 +188,9 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
     const f = found.get(i);
     const rec = out[i]!;
     if (f) {
-      const was = r.settledOnChain === true;
+      const was = r.settledOnChain === true && !!r.settlementTx && norm(r.settlementTx) === norm(f.tx);
       rec.chainCheck = note("transfer_found", f.by, f.tx);
+      // Newly settled, or settled by another tx than the one its answer named (that one was another purchase's).
       if (!was) {
         rec.settledOnChain = true;
         rec.settlementTx = f.tx;
@@ -174,6 +198,16 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
         rec.delivered = answered(r);
         summary.added.push({ key: recordKey(r), tx: f.tx, by: f.by });
       }
+      continue;
+    }
+    // Its answer named a tx that is another purchase's, and its own nonce found nothing: not decided here, and
+    // not counted as settled. Cause: vet402 could not confirm; never held against the seller (site.ts isNegative).
+    if (contested.has(i)) {
+      rec.chainCheck = note("ambiguous", null, null);
+      rec.settledOnChain = false;
+      rec.delivered = false;
+      rec.settlementCheck = "not verified: tx_held_by_another_purchase";
+      summary.ambiguous.push(recordKey(r));
       continue;
     }
     // Not found, and its window was still open when the chain was read: a settlement can still land.
