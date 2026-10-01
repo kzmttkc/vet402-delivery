@@ -1,6 +1,8 @@
-# vet402-check
+# @vet402/check (command: vet402-check)
 
 Look an x402 or MPP seller up in vet402's public record before an agent pays it.
+
+This package reads the public record of vet402's own purchases (the vet402-delivery repository). It is separate from `@vet402/mcp-server`, the MCP tools for vet402's scoring API.
 
 vet402 buys from x402 and MPP sellers with its own money on Solana, Tempo and Base (and Algorand, on its own page), checks each payment on chain, and publishes what came back: a ranking (`rank.json`) and signed records whose daily Merkle root is written into a Solana memo. vet402-check reads that record. It returns facts: how many purchases vet402 tried from the seller, how many settled, how many came back with an answer, the newest purchase and its tx, the failures counted against the seller and the ones that are not, the grade as `rank.json` prints it (`measuring` while there are too few purchases), and the signed records for that seller. When vet402 has never bought from the seller, the answer is "vet402 has no record of this seller". What to do with the facts is up to the caller.
 
