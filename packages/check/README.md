@@ -10,22 +10,22 @@ Reads only public files: `rank.json` and `records/<id>.json` on the public site,
 
 ## Try it in 60 seconds
 
-Node 22 or newer. The first run installs from GitHub (about 30 seconds on an empty npm cache); later runs start at once.
+Node 22 or newer. The first run downloads the package from npm (`@vet402/check`); later runs start at once.
 
 ```sh
-npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending
+npx -y @vet402/check https://api.xona-agent.com/token/pumpfun-trending
 ```
 
 Verify the newest signed record of that seller as well (signature, Merkle proof, payment on chain, Solana memo anchor):
 
 ```sh
-npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending --verify
+npx -y @vet402/check https://api.xona-agent.com/token/pumpfun-trending --verify
 ```
 
 As an MCP server in Claude Code (run the line above once first, so the install is cached before the client starts the server):
 
 ```sh
-claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp
+claude mcp add vet402-check -- npx -y @vet402/check --mcp
 ```
 
 ## Without Node: Python and curl
@@ -62,7 +62,7 @@ Two read-only tools (stdio, newline-delimited JSON-RPC):
 Claude Desktop (`claude_desktop_config.json`):
 
 ```json
-{ "mcpServers": { "vet402-check": { "command": "npx", "args": ["-y", "github:kzmttkc/vet402-delivery#main", "--mcp"] } } }
+{ "mcpServers": { "vet402-check": { "command": "npx", "args": ["-y", "@vet402/check", "--mcp"] } } }
 ```
 
 ## At the payment: the x402 fetch hook
@@ -71,7 +71,7 @@ Wrap the fetch an x402 client pays through. Every 402 is looked up before the cl
 
 ```ts
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { wrapFetchWithCheck } from "vet402-solana/check"; // npm install github:kzmttkc/vet402-delivery, run with tsx
+import { wrapFetchWithCheck } from "@vet402/check"; // npm install @vet402/check
 
 const fetchWithPay = wrapFetchWithPayment(
   wrapFetchWithCheck(fetch, {

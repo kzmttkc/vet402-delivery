@@ -847,10 +847,10 @@ ${spec("#http", "Spec: GET /v1/check")}
 
 <h2 id="hook">At the payment: the x402 fetch hook</h2>
 <p>Wrap the fetch your x402 client pays through. Every 402 is looked up before the client signs; with <code>block: "avoid"</code> the payment is never created for a seller whose answer is avoid.</p>
-<pre class="cmd">npm install github:kzmttkc/vet402-delivery
+<pre class="cmd">npm install @vet402/check
 
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { wrapFetchWithCheck } from "vet402-solana/check";
+import { wrapFetchWithCheck } from "@vet402/check";
 
 const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
 <p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
@@ -868,17 +868,17 @@ ${spec(`${PUBLIC_REPO_URL}#proxy-buy-solana-tempo`, "Spec: Proxy buy (README), w
 
 <h2 id="mcp">MCP server</h2>
 <p>Two read-only tools for an agent: <code>check_before_paying</code> and <code>verify_record</code>.</p>
-<pre class="cmd">claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp</pre>
+<pre class="cmd">claude mcp add vet402-check -- npx -y @vet402/check --mcp</pre>
 ${spec(`${PKG_README}#mcp-tools`, "Spec: MCP tools (packages/check README)")}
 
 <h2 id="cli">Command line</h2>
-<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending</pre>
+<pre class="cmd">npx -y @vet402/check https://api.xona-agent.com/token/pumpfun-trending</pre>
 <p class="meta">Node 22 or newer. <code>--chain</code>, <code>--pay-to</code>, <code>--json</code> and <code>--verify</code> (also check the newest signed record).</p>
 ${spec(`${PKG_README}#the-command-line`, "Spec: the command line (packages/check README)")}
 
 <h2 id="verify">Verify a signed record</h2>
 <p>Check one record without trusting vet402: its signature, its Merkle proof to the day's root, the payment on chain, and the root written on chain.</p>
-<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main verify obs_2026-09-28_000164</pre>
+<pre class="cmd">npx -y @vet402/check verify obs_2026-09-28_000164</pre>
 <p class="meta">From a clone, <code>scripts/verify-receipt.ts</code> runs the same checks. <a href="method.html#verify">Where the records and roots are</a></p>
 ${spec(GH("scripts/verify-receipt.ts"), "Spec: scripts/verify-receipt.ts")}
 
@@ -1127,7 +1127,7 @@ ${totalsSources(siteTotals(r, lanes))}
 <h2 id="verify">Verify a record</h2>
 <p>For every purchase that came back with an answer, and for other results once the seller has been told, vet402 publishes a signed record (EIP-712, vet402's observation key). Each UTC day's records form a Merkle tree; the day's root is written in a Solana memo by vet402's anchor wallet, and also in a Tempo memo when the records index names one, so a record cannot be added to or dropped from a day later without the root changing.</p>
 <p><a href="records/index.html">All signed records, by day</a> · each record page shows how to check it.</p>
-<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main verify obs_2026-09-28_000164</pre>
+<pre class="cmd">npx -y @vet402/check verify obs_2026-09-28_000164</pre>
 <p class="meta">Checks the bytes against the records index, the key, the signature, that the verdict follows from the recorded checks, the Merkle proof, the payment on chain and the memo. A copy of the root kept in a Solana program, for other programs to read: <a href="${escapeHtml(GH("solana-program/README.md"))}" rel="noopener noreferrer nofollow">solana-program/README.md</a>. <a href="use.html#verify">Other ways to verify</a></p>
 
 <h2 id="appeal">7. Mistakes and corrections</h2>

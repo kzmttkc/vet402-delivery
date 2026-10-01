@@ -182,7 +182,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
   &quot;payToRecorded&quot;: null,
   &quot;asOf&quot;: {
     &quot;rankDate&quot;: &quot;2026-10-01&quot;,
-    &quot;rankGeneratedAt&quot;: &quot;2026-10-01T07:24:40.467Z&quot;,
+    &quot;rankGeneratedAt&quot;: &quot;2026-10-01T10:47:02.908Z&quot;,
     &quot;recordsPublished&quot;: 525
   },
   &quot;summary&quot;: &quot;api.xona-agent.com (Solana, Tempo and Base page): vet402 tried 6 purchases on solana from 2026-09-28 to 2026-10-01; 6 settled, 0 came back with an answer. Failures counted against the seller: paid_not_delivered 6. Not counted against the seller: 0 (vet402 or facilitator 0, cause unknown 0). Grade: measuring. Newest purchase: 2026-10-01T01:25:07.337Z on solana, settled_error_status (HTTP 500), tx 32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9. Signed records published: 5 (NOT_DELIVERED 5), 5 for this exact URL; newest obs_2026-09-30_000552, its day&#39;s Merkle root is in Solana memo tx 39kjZkahMrBuEV7nYAVwAEZbSVnbHD7xb6Pb3Ciw5qTPRKLSQB5PebArxwJZpmF8KnyCRE7sC1amBiPBAheZ1Sbn.&quot;,
@@ -218,10 +218,10 @@ curl -fsSG -m 10 https://vet402-delivery.vercel.app/v1/check --data-urlencode &q
 
 <h2 id="hook">At the payment: the x402 fetch hook</h2>
 <p>Wrap the fetch your x402 client pays through. Every 402 is looked up before the client signs; with <code>block: "avoid"</code> the payment is never created for a seller whose answer is avoid.</p>
-<pre class="cmd">npm install github:kzmttkc/vet402-delivery
+<pre class="cmd">npm install @vet402/check
 
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { wrapFetchWithCheck } from "vet402-solana/check";
+import { wrapFetchWithCheck } from "@vet402/check";
 
 const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
 <p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
@@ -246,17 +246,17 @@ const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "av
 
 <h2 id="mcp">MCP server</h2>
 <p>Two read-only tools for an agent: <code>check_before_paying</code> and <code>verify_record</code>.</p>
-<pre class="cmd">claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp</pre>
+<pre class="cmd">claude mcp add vet402-check -- npx -y @vet402/check --mcp</pre>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#mcp-tools" rel="noopener noreferrer nofollow">Spec: MCP tools (packages/check README)</a></p>
 
 <h2 id="cli">Command line</h2>
-<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending</pre>
+<pre class="cmd">npx -y @vet402/check https://api.xona-agent.com/token/pumpfun-trending</pre>
 <p class="meta">Node 22 or newer. <code>--chain</code>, <code>--pay-to</code>, <code>--json</code> and <code>--verify</code> (also check the newest signed record).</p>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#the-command-line" rel="noopener noreferrer nofollow">Spec: the command line (packages/check README)</a></p>
 
 <h2 id="verify">Verify a signed record</h2>
 <p>Check one record without trusting vet402: its signature, its Merkle proof to the day's root, the payment on chain, and the root written on chain.</p>
-<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main verify obs_2026-09-28_000164</pre>
+<pre class="cmd">npx -y @vet402/check verify obs_2026-09-28_000164</pre>
 <p class="meta">From a clone, <code>scripts/verify-receipt.ts</code> runs the same checks. <a href="method.html#verify">Where the records and roots are</a></p>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/blob/main/scripts/verify-receipt.ts" rel="noopener noreferrer nofollow">Spec: scripts/verify-receipt.ts</a></p>
 

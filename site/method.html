@@ -150,7 +150,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <h2 id="verify">Verify a record</h2>
 <p>For every purchase that came back with an answer, and for other results once the seller has been told, vet402 publishes a signed record (EIP-712, vet402's observation key). Each UTC day's records form a Merkle tree; the day's root is written in a Solana memo by vet402's anchor wallet, and also in a Tempo memo when the records index names one, so a record cannot be added to or dropped from a day later without the root changing.</p>
 <p><a href="records/index.html">All signed records, by day</a> · each record page shows how to check it.</p>
-<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main verify obs_2026-09-28_000164</pre>
+<pre class="cmd">npx -y @vet402/check verify obs_2026-09-28_000164</pre>
 <p class="meta">Checks the bytes against the records index, the key, the signature, that the verdict follows from the recorded checks, the Merkle proof, the payment on chain and the memo. A copy of the root kept in a Solana program, for other programs to read: <a href="https://github.com/kzmttkc/vet402-delivery/blob/main/solana-program/README.md" rel="noopener noreferrer nofollow">solana-program/README.md</a>. <a href="use.html#verify">Other ways to verify</a></p>
 
 <h2 id="appeal">7. Mistakes and corrections</h2>

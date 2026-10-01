@@ -28,7 +28,7 @@ This repository is the multi-chain part of vet402. It buys the sellers it can on
 Node 22 or newer. Nothing to sign up for, no key, no payment: the check reads `rank.json`, the signed records and the records index, and nothing else.
 
 ```sh
-npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending
+npx -y @vet402/check https://api.xona-agent.com/token/pumpfun-trending
 ```
 
 It prints what vet402's record holds about that seller: purchases tried, settled and answered, the failures counted against the seller and the ones that are not, the grade (`measuring` while there are too few purchases), the newest purchase with its tx, and the signed records. For a seller vet402 never bought from, it prints "vet402 has no record of this seller". The first run installs from GitHub (about 30 seconds on an empty npm cache).
@@ -36,7 +36,7 @@ It prints what vet402's record holds about that seller: purchases tried, settled
 Add `--verify` to re-check the newest signed record (signature, Merkle proof, payment on chain, root in vet402's Solana memo). As an MCP server (tools `check_before_paying` and `verify_record`):
 
 ```sh
-claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp
+claude mcp add vet402-check -- npx -y @vet402/check --mcp
 ```
 
 The x402 fetch hook, the output fields and the options: `packages/check/README.md`.
