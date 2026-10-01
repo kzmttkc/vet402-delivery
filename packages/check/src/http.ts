@@ -112,6 +112,8 @@ export function checkBody(r: CheckResult) {
     answered: b?.answered ?? 0,
     notCounted: b?.notCounted ?? 0,
     days: b?.days ?? 0,
+    /** Purchases whose result is held until the seller is told (Robinhood Chain, Arbitrum): in no other number. */
+    held: b?.held ?? 0,
     interval: b ? { lower: b.lower, upper: b.upper } : null,
     newest: last ? { at: last.at, chain: last.chain, result: last.category, httpStatus: last.httpStatus, tx: last.tx, explorer: last.explorer } : null,
     sellerPage: f?.sellerPage ?? null,
@@ -162,10 +164,15 @@ function htmlPage(q: CheckQuery | null, body: ReturnType<typeof checkBody> | nul
   const rows = [
     row("Seller", body.seller ? `<span class="mono">${escapeHtml(body.seller)}</span>` : "none in the record"),
     row("Chains", escapeHtml(body.chains.join(", ") || "none")),
-    row("Tried / settled", `${body.tried} / ${body.settled}`),
-    row("Came back with an answer / counted", `${body.answered} / ${body.counted}`),
-    row("Not counted against the seller", String(body.notCounted)),
-    row("Days with counted purchases", String(body.days)),
+    ...(body.held && body.tried === 0
+      ? [row("Held", `${body.held} purchase${body.held === 1 ? "" : "s"}, shown after the seller is told`)]
+      : [
+          row("Tried / settled", `${body.tried} / ${body.settled}`),
+          row("Came back with an answer / paid calls that count", `${body.answered} / ${body.counted}`),
+          row("Not counted against the seller", String(body.notCounted)),
+          row("Days with paid calls that count", String(body.days)),
+          ...(body.held ? [row("Held", `${body.held} more, shown after the seller is told`)] : []),
+        ]),
     body.newest
       ? row(
           "Newest purchase",

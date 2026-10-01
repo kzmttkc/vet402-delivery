@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { CHECK_ENDPOINT } from "../../../src/rank/html.js";
-import { lookup, type CheckResult } from "../src/check.js";
+import { lookup, PAID_SELLER_RULES, UNPAID_SELLER_RULES, type CheckResult } from "../src/check.js";
 import { formatCheck } from "../src/cli.js";
 import { CheckBlockedError, wrapFetchWithCheck } from "../src/hook.js";
 import { checkBody, handleCheck, MAX_URL_LENGTH, USE_WAIT_MS, type CheckData, type OnUse } from "../src/http.js";
@@ -87,6 +87,67 @@ test("verdict, real data: datamancer vin, whose failures are not counted against
   assert.match(r2.why, /0 of the 0 that count/);
 });
 
+test("BLOCK fix: a seller with no settled payment is never avoid (x402-mesh-gateway.fly.dev: 4 seller-side 5xx, none settled, 2 days)", () => {
+  const r = lookup(rank, index, { url: "https://x402-mesh-gateway.fly.dev/v1/inference" });
+  const f = r.sellers[0]!;
+  assert.deepEqual([f.page, f.settled, f.counted, f.sellerSideFailures], ["algorand", 0, 4, { server_error_5xx: 4 }], "the shape that was wrongly avoid");
+  assert.equal(r.verdict, "unknown");
+  assert.equal(r.basis?.counted, 0, "a 5xx with no settlement is not a paid call");
+  assert.equal(r.why, "vet402 tried to buy from this seller 4 times on Algorand, and none of its payments settled, so there is nothing to go on.");
+  assert.ok(!/paid this seller 0 times/.test(r.why));
+});
+
+test("BLOCK fix, every seller in site/rank.json: avoid only with settled payments, and why never says paid more than settled", () => {
+  const real = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as { groups: { id: string; chains: string[]; ranking: { key: string; host: string; last: { url: string } | null; recent: { url: string }[]; chains: Record<string, unknown> }[] }[] };
+  const realIndex = JSON.parse(readFileSync(join(ROOT, "data", "records", "index.json"), "utf8"));
+  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0 };
+  const avoids: string[] = [];
+  for (const g of real.groups)
+    for (const s of g.ranking)
+      for (const chain of Object.keys(s.chains)) {
+        const url = s.last?.url ?? s.recent[0]?.url ?? `https://${s.host}/`;
+        const r = lookup(real, realIndex, { url, chain });
+        const b = verdictFor(r).bases.find((x) => x.seller === s.key && x.page === g.id) ?? r.basis!;
+        dist[b.verdict]!++;
+        if (b.verdict === "avoid") {
+          avoids.push(`${s.key} (${chain}): settled ${b.settled}, answered ${b.answered} of ${b.counted}`);
+          assert.ok(b.settled > 0 && b.counted > 0 && b.counted <= b.settled, `${s.key}: avoid rests on settled payments`);
+        }
+        const m = /paid this seller (\d+|once)/.exec(r.why);
+        if (m) assert.ok((m[1] === "once" ? 1 : Number(m[1])) <= (r.basis?.settled ?? 0), `${s.key}: ${r.why}`);
+      }
+  assert.equal(avoids.filter((a) => / settled 0,/.test(a)).length, 0);
+  console.log(`rank.json scan, per seller and chain: ${JSON.stringify(dist)}; avoid: ${avoids.join("; ") || "none"}`);
+});
+
+test("per chain: days come from that chain's own listed purchases; no split, no verdict", () => {
+  const solana = lookup(rank, index, { url: "https://scvd.store/api/buy/spot_check", chain: "solana" });
+  const f = solana.sellers.find((x) => x.page === "main")!;
+  assert.ok(Object.keys(f.byChain).length > 1, "scvd.store is on Solana and Base");
+  assert.equal(solana.basis?.days, f.paid.byChain.solana!.days);
+  assert.ok(solana.basis!.days <= f.days);
+  const mixed = structuredClone(rank);
+  const s = mixed.groups[0].ranking.find((x: any) => x.key === "scvd.store");
+  s.failuresByRule = { ...s.failuresByRule, server_error_5xx: 1 };
+  const r = lookup(mixed, index, { url: "https://scvd.store/api/buy/spot_check", chain: "solana" });
+  assert.equal(r.verdict, "unknown");
+  assert.equal(r.basis?.counted, 0, "a page with an unsettled seller-side failure cannot be split by chain");
+});
+
+test("every seller-side rule in rank.json is known as after-payment or no-payment", () => {
+  const real = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as { method: { faultRules: { id: string; fault: string }[] } };
+  for (const r of real.method.faultRules.filter((x) => x.fault === "seller")) assert.ok(PAID_SELLER_RULES.has(r.id) || UNPAID_SELLER_RULES.has(r.id), r.id);
+});
+
+test("Arbitrum and Robinhood Chain: a host listed with the same payTo is the same seller", () => {
+  const realRank = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8"));
+  const realLanes = ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8")));
+  const row = realLanes[0].rows.find((x: any) => x.status === "delivered" && x.hosts.length > 1)!;
+  const other = (row.hosts as string[]).find((h) => h !== new URL(row.resource).hostname)!;
+  const r = lookup(realRank, { kind: "vet402-observation-records", records: [], days: [] }, { url: `https://${other}/x`, chain: "arbitrum" }, [], realLanes);
+  assert.ok(r.sellers.some((f) => f.page === "arbitrum" && f.delivered > 0), other);
+});
+
 test("verdict rule: rank.json's grade lines on the Wilson interval, 2+ days, MIN_COUNTED not required", () => {
   const facts = (delivered: number, counted: number, days: number) =>
     verdictFor({
@@ -100,6 +161,7 @@ test("verdict rule: rank.json's grade lines on the Wilson interval, 2+ days, MIN
           byChain: { solana: { tried: counted, settled: counted, counted, delivered, lastAt: null } },
           firstAt: null, lastAt: null, sellerSideFailures: {}, notCountedAgainstSeller: { vet402OrFacilitator: 0, causeUnknown: 0, byRule: {} },
           last: null, lastSellerSideFailure: null, sameUrlInRecent: { listed: 0, tried: 0, delivered: 0 }, payTos: [], payToChanged: false,
+          paid: { counted, answered: delivered, days, byChain: { solana: { counted, answered: delivered, days } } },
         },
       ],
     }).verdict;
@@ -356,7 +418,10 @@ test("verdict on every page's data: Tempo, Base, Algorand, Arbitrum, and a resul
   const held = await body(get(q("https://x402.quickintel.io/v1/scan/full")));
   assert.equal(held.verdict, "unknown");
   assert.equal(held.why, "vet402 bought from this seller on Arbitrum; results for this seller are held until the seller is told.");
-  assert.deepEqual([held.settled, held.answered, held.counted, held.newest], [0, 0, 0, null], "nothing about the held result leaks");
+  assert.deepEqual([held.tried, held.settled, held.answered, held.counted, held.held, held.newest], [0, 0, 0, 0, 1, null], "nothing about the held result leaks");
+  const heldHtml = await (await get(q("https://x402.quickintel.io/v1/scan/full", "&format=html"))).text();
+  assert.ok(heldHtml.includes("<tr><td>Held</td><td>1 purchase, shown after the seller is told</td></tr>"));
+  assert.ok(!heldHtml.includes("Tried / settled"), "no 1 / 0 shown for a held seller");
   assert.ok(!JSON.stringify(held).includes("withheld"), "the raw status is not in the answer");
 
   const scvdAll = await body(get(q("https://scvd.store/api/buy/spot_check", "&chain=arbitrum")));
@@ -392,6 +457,9 @@ test("usage counting: per day and hashed caller, no raw IP; vet402's own calls a
   assert.ok(!JSON.stringify(seen).includes("203.0.113.7"), "the IP is never stored");
   assert.equal(inserts[0]![3], callerId("203.0.113.7", "2026-10-01", "secret-key-of-32-characters-long"));
   assert.notEqual(callerId("203.0.113.7", "2026-10-01", "k".repeat(32)), callerId("203.0.113.7", "2026-10-02", "k".repeat(32)), "another day, another id");
+  const deletes = seen.filter((x) => String(x[0]).startsWith("delete"));
+  assert.equal(deletes.length, 1, "old rows are deleted once a day per instance");
+  assert.deepEqual(deletes[0]!.slice(1), ["2026-10-01", 90]);
   const none = usageCounter("check", () => null, "k".repeat(32));
   await none(new Request("https://h.example/"));
   assert.equal(bearerOk("Bearer " + "s".repeat(20), "s".repeat(20)), true);

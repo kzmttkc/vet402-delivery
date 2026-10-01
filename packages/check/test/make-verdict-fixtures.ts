@@ -14,6 +14,7 @@
  *   algorandtracker.com            the Algorand page, grade A
  *   api.nativebtc.org              Arbitrum only, one purchase, came back
  *   x402.quickintel.io             Arbitrum only, result held until the seller is told
+ *   x402-mesh-gateway.fly.dev      Algorand, 4 tries, 0 settled, 4 seller-side 5xx with no settlement
  * and fixtures/verdict-lane-<lane>.json: data/evm/arbitrum.json and robinhood.json with only those hosts' rows.
  */
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,7 +22,7 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const OUT = join(import.meta.dirname, "fixtures");
-export const VERDICT_SELLERS = ["api.xona-agent.com", "brasil-dados-api.onrender.com", "agents.datamancer.io", "api.exa.ai", "scvd.store", "algorandtracker.com"];
+export const VERDICT_SELLERS = ["api.xona-agent.com", "brasil-dados-api.onrender.com", "agents.datamancer.io", "api.exa.ai", "scvd.store", "algorandtracker.com", "x402-mesh-gateway.fly.dev"];
 const LANE_HOSTS = ["scvd.store", "api.nativebtc.org", "x402.quickintel.io"];
 
 type Obj = Record<string, any>;

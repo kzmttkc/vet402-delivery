@@ -9,24 +9,27 @@
  * reads the verdict from this one function, through the `verdict` and `why` fields of the lookup.
  *
  * The rule, and why it is this rule:
- *  - Only "counted" purchases enter it: delivered, plus failures rank.json's method.faultRules puts on
- *    the seller (fault "seller": paid then 5xx, nothing or an empty 2xx; paid then 402 again; the seller's
- *    server answered 5xx). Failures on vet402's or the facilitator's side, and failures whose cause cannot
- *    be told (for example a 4xx after vet402 built the request from the seller's listing), never move it.
- *    A seller that only failed on vet402's input is therefore never "avoid".
+ *  - Only paid calls enter it: purchases whose payment settled and that count, that is, delivered, plus
+ *    failures rank.json's method.faultRules puts on the seller after a settled payment (paid then 5xx,
+ *    nothing or an empty 2xx; paid then 402 again). A seller-side failure with no settlement (the seller's
+ *    server answered 5xx before any payment settled) is not a paid call and is left out, and with no
+ *    settled payment at all the verdict is "unknown". Failures on vet402's or the facilitator's side, and
+ *    failures whose cause cannot be told (for example a 4xx after vet402 built the request from the
+ *    seller's listing), never move it. A seller that only failed on vet402's input is therefore never
+ *    "avoid".
  *  - The bounds are rank.json's grade bounds on the same 95% Wilson interval (src/rank/score.ts):
  *    "pay" when the LOWER bound of delivered / counted is at or above GRADE_LOWER.C (0.5), the line a
  *    seller needs for grade C or better; "avoid" when the UPPER bound is below D_UPPER (0.5), the line
  *    for grade D. Anything between is "unknown", like rank.json's "undecided".
- *  - The counted purchases must fall on at least MIN_DAYS (2) different UTC days, as for a grade: one
+ *  - The paid calls must fall on at least MIN_DAYS (2) different UTC days, as for a grade: one
  *    outage on one day does not make a seller "avoid", one good burst does not make it "pay".
  *  - rank.json's MIN_COUNTED (10) is NOT required. It decides who gets a rank NUMBER (an order between
  *    sellers); a pay/avoid answer about one seller needs only the interval to clear the line. The Wilson
  *    interval itself needs 4 counted purchases to clear 0.5 either way (0 of 3 has an upper bound of 0.56,
  *    3 of 3 a lower bound of 0.44), so 1 to 3 purchases are always "unknown".
  *  - When the caller names a chain and the seller was bought on more than one, the counts are that
- *    chain's. rank.json keeps the days per seller and page, not per chain, so the day rule uses the
- *    page's days, capped at the chain's counted purchases (one purchase is one day).
+ *    chain's, and the days are counted from that chain's purchases rank.json lists (the newest ones, a
+ *    lower bound). When rank.json cannot split the paid calls by chain, the verdict is "unknown".
  *  - When the caller gives the 402's payTo and it is not one vet402 paid, "pay" becomes "unknown": the
  *    purchases were made to another recipient. "avoid" stays.
  *  - Robinhood Chain and Arbitrum (data/evm/<lane>.json) hold one purchase per payTo from one run, so
@@ -93,17 +96,19 @@ function times(n: number): string {
 function basisOf(f: SellerFacts, chain: string | null): VerdictBasis {
   const multi = Object.keys(f.byChain).length > 1;
   const scoped = chain && multi ? f.byChain[chain] : undefined;
+  // Settled purchases only (check.ts PaidFigures). Per chain, null means rank.json cannot split them: unknown.
+  const paidScoped = scoped ? (f.paid.byChain[chain!] ?? null) : null;
+  const splitUnknown = Boolean(scoped) && paidScoped === null;
   const tried = scoped ? scoped.tried : f.tried;
   const settled = scoped ? scoped.settled : f.settled;
-  const counted = scoped ? scoped.counted : f.counted;
-  const answered = scoped ? scoped.delivered : f.delivered;
-  // Per chain, rank.json has no day count; a chain cannot have more days than counted purchases on it.
-  const days = scoped ? Math.min(f.days, counted) : f.days;
+  const counted = splitUnknown ? 0 : scoped ? paidScoped!.counted : f.paid.counted;
+  const answered = splitUnknown ? 0 : scoped ? paidScoped!.answered : f.paid.answered;
+  const days = splitUnknown ? 0 : scoped ? paidScoped!.days : f.paid.days;
   const lower = counted ? wilsonLower(answered, counted) : 0;
   const upper = counted ? wilsonUpper(answered, counted) : 1;
   let verdict: Verdict = "unknown";
   const held = f.held ?? 0;
-  if (counted > 0 && days >= MIN_DAYS && !held) {
+  if (settled > 0 && counted > 0 && days >= MIN_DAYS && !held) {
     if (lower >= GRADE_LOWER.C) verdict = "pay";
     else if (upper < D_UPPER) verdict = "avoid";
   }

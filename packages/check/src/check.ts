@@ -63,10 +63,31 @@ export interface SellerFacts {
   payToChanged: boolean;
   /**
    * Robinhood Chain and Arbitrum (data/evm/<lane>.json): purchases whose result is held until the seller is
-   * told (status "withheld"). They are in `tried` only; their result is not published, so it is not here.
+   * told (status "withheld"). They are not in `tried`; their result is not published, so it is not here.
    */
   held?: number;
+  /** The figures the verdict may rest on: only purchases whose payment settled (see PAID_SELLER_RULES). */
+  paid: PaidFigures;
 }
+
+/**
+ * Purchases whose payment settled and that count: delivered, plus seller-side failures that came after a
+ * settled payment. A seller-side failure with no settlement (server_error_5xx: the seller's server answered
+ * 5xx and no payment settled) is not a paid call, so it never enters a verdict.
+ */
+export interface PaidFigures {
+  counted: number;
+  answered: number;
+  /** UTC days with such purchases. Exact when every counted purchase settled; otherwise counted from the newest purchases rank.json lists (a lower bound). */
+  days: number;
+  /** Per chain; null when rank.json's figures cannot be split by chain without guessing. */
+  byChain: Record<string, { counted: number; answered: number; days: number } | null>;
+}
+
+/** Seller-side rules that follow a settled payment (rank.json method.faultRules). */
+export const PAID_SELLER_RULES = new Set(["paid_not_delivered", "settled_not_delivered"]);
+/** Seller-side rules with no settled payment. Any seller-side rule in neither set is treated like these. */
+export const UNPAID_SELLER_RULES = new Set(["server_error_5xx"]);
 
 export interface RecordRef {
   id: string;
@@ -241,6 +262,8 @@ interface LaneRowView {
   status: string;
   resource: string;
   host: string;
+  /** Every host the catalogs list for the same payTo (the same seller). */
+  hosts: string[];
   payTo: string;
   tx: string | null;
   purchases: number;
@@ -270,7 +293,8 @@ export function readLanes(raw: unknown[]): LaneView[] {
       } catch {
         continue;
       }
-      rows.push({ status: r.status as string, resource: r.resource as string, host, payTo: str(r.payTo) ?? "", tx: str(r.settlementTx), purchases: Math.max(1, num(r.purchases)) });
+      const hosts = arr(r.hosts).map(str).filter((h): h is string => h !== null).map((h) => h.toLowerCase());
+      rows.push({ status: r.status as string, resource: r.resource as string, host, hosts, payTo: str(r.payTo) ?? "", tx: str(r.settlementTx), purchases: Math.max(1, num(r.purchases)) });
     }
     out.push({ lane: l.lane, label: LANE_LABEL[l.lane], generatedAt: str(l.generatedAt) ?? "", rows });
   }
@@ -280,14 +304,14 @@ export function readLanes(raw: unknown[]): LaneView[] {
 /** One lane's purchases from the URL's host, as SellerFacts. Exact-URL rows first when there are any. */
 function laneFacts(l: LaneView, u: URL): SellerFacts | null {
   const host = u.hostname.toLowerCase();
-  const rows = l.rows.filter((r) => r.host === host);
+  const rows = l.rows.filter((r) => r.host === host || r.hosts.includes(host));
   if (!rows.length) return null;
   const n = (st: string) => rows.filter((r) => r.status === st).reduce((k, r) => k + r.purchases, 0);
   const delivered = n("delivered");
   const noAnswer = n("settled_no_answer");
   const held = n("withheld");
   const unclear = n("not_settled") + n("unconfirmed");
-  const tried = delivered + noAnswer + held + unclear;
+  const tried = delivered + noAnswer + unclear;
   const at = l.generatedAt || null;
   const shown = rows.filter((r) => r.status !== "withheld");
   const lastRow = shown.find((r) => sameUrl(r.resource, u.href)) ?? shown[0] ?? null;
@@ -315,6 +339,8 @@ function laneFacts(l: LaneView, u: URL): SellerFacts | null {
     payTos: [...new Set(rows.map((r) => r.payTo).filter(Boolean))],
     payToChanged: false,
     ...(held ? { held } : {}),
+    // One run: every purchase on one day.
+    paid: { counted: delivered + noAnswer, answered: delivered, days: delivered + noAnswer > 0 ? 1 : 0, byChain: { [l.lane]: { counted: delivered + noAnswer, answered: delivered, days: delivered + noAnswer > 0 ? 1 : 0 } } },
   };
 }
 
@@ -408,6 +434,25 @@ function sellerFacts(rank: RankView, group: RankView["groups"][number], s: Obj, 
       if (isObj(v)) byChain[c] = { tried: num(v.tried), settled: num(v.settled), counted: num(v.counted), delivered: num(v.delivered), lastAt: str(v.lastAt) };
   const recent = arr(s.recent).filter(isObj);
   const same = recent.filter((r) => str(r.url) !== null && sameUrl(r.url as string, u.href));
+  // Verdict figures: settled purchases only.
+  const unpaidSellerFailures = Object.entries(sellerSide).filter(([rule]) => !PAID_SELLER_RULES.has(rule)).reduce((n, [, k]) => n + k, 0);
+  const paidSellerFailures = Object.entries(sellerSide).filter(([rule]) => PAID_SELLER_RULES.has(rule)).reduce((n, [, k]) => n + k, 0);
+  const isPaidCounted = (r: Obj): boolean => r.delivered === true || (r.fault === "seller" && PAID_SELLER_RULES.has(str(r.rule) ?? ""));
+  const daysOf = (rows: Obj[]) => new Set(rows.map((r) => (str(r.at) ?? "").slice(0, 10)).filter(Boolean)).size;
+  const listed = [...recent, ...arr(s.sellerFailures).filter(isObj)].filter(isPaidCounted);
+  const pageDays = arr(s.days).length;
+  const paidByChain: PaidFigures["byChain"] = {};
+  for (const [c, v] of Object.entries(byChain)) {
+    // rank.json splits counted and delivered by chain, not failures by rule: split only when every
+    // counted purchase settled; days per chain only from the purchases listed for that chain.
+    paidByChain[c] = unpaidSellerFailures === 0 ? { counted: v.counted, answered: v.delivered, days: daysOf(listed.filter((r) => r.chain === c)) } : null;
+  }
+  const paid: PaidFigures = {
+    counted: num(s.delivered) + paidSellerFailures,
+    answered: num(s.delivered),
+    days: unpaidSellerFailures === 0 ? pageDays : daysOf(listed),
+    byChain: paidByChain,
+  };
   const lf = isObj(s.lastFailure) ? s.lastFailure : undefined;
   const lastFail = lf && lf.fault === "seller" ? lf : (arr(s.sellerFailures).find(isObj) as Obj | undefined);
   const lastFailAttempt = attemptOf(lastFail);
@@ -433,6 +478,7 @@ function sellerFacts(rank: RankView, group: RankView["groups"][number], s: Obj, 
     sameUrlInRecent: { listed: recent.length, tried: same.length, delivered: same.filter((r) => r.delivered === true).length },
     payTos: arr(s.payTos).map(str).filter((p): p is string => p !== null),
     payToChanged: s.payToChanged === true,
+    paid,
   };
 }
 

@@ -7,7 +7,7 @@
  * nothing is counted. Calls whose User-Agent contains "vet402" are vet402's own and are counted apart
  * (own = true).
  *
- * Counting is best effort: every error is swallowed. /v1/check waits for it at most http.ts USE_WAIT_MS;
+ * Rows are kept USAGE_KEEP_DAYS days. Counting is best effort: every error is swallowed. /v1/check waits for it at most http.ts USE_WAIT_MS;
  * the /v1/buy quote does not wait for it at all (countBuyQuote).
  */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
@@ -55,8 +55,12 @@ export function usageKey(env: NodeJS.ProcessEnv = process.env): string | null {
 }
 
 /** A counter for one endpoint ("check", "buy_quote"). Without a database or a key it counts nothing. */
+/** Rows older than this many days are deleted (once a UTC day per instance, after a count). */
+export const USAGE_KEEP_DAYS = 90;
+
 export function usageCounter(endpoint: string, db: () => UsageDb | null, key: string | null, now: () => Date = () => new Date()): (req: Request) => Promise<void> {
   let ready: Promise<unknown> | null = null;
+  let prunedOn = "";
   return async (req: Request) => {
     const sql = db();
     if (!sql || !key) return;
@@ -71,6 +75,10 @@ export function usageCounter(endpoint: string, db: () => UsageDb | null, key: st
        on conflict (day, endpoint, caller, own) do update set calls = pc_usage.calls + 1`,
       [day, endpoint, callerId(callerIp(req), day, key), isOwnCall(req)],
     );
+    if (prunedOn !== day) {
+      prunedOn = day;
+      await sql.query(`delete from pc_usage where day < $1::date - $2::int`, [day, USAGE_KEEP_DAYS]);
+    }
   };
 }
 
