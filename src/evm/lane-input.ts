@@ -430,6 +430,8 @@ export interface MissingName {
    * setting name (sellerSettingName) is never soft.
    */
   soft?: boolean;
+  /** Which sentence of the answer it came from (text names only). */
+  piece?: number;
 }
 
 /**
@@ -485,6 +487,25 @@ export function missingNameSide(m: MissingName, declared: readonly string[] = []
   if (declared.length) return "seller";
   if (ALLOWED.has(c) || ALLOWED.has(singular(c))) return "input";
   return "seller";
+}
+
+/**
+ * Pure. The kind of one missing name (review of 8a4a23f: the rule's shape, so that a misread word never blames a
+ * seller):
+ *   "S" the seller's own setting: a header (also "(in: header)"), a name under config, env, settings or secrets, a
+ *       setting name (sellerSettingName: DATABASE_URL, rpcUrl, ACCESSTOKEN), or an auth or seller-side word
+ *   "A" vet402's input: declared by the listing (any case, snake or camel), or an allowed word when it declares nothing
+ *   "U" anything else: an ordinary word the reading picked up ("expected", "request", "ENS", "fields")
+ */
+export function nameClass(m: MissingName, declared: readonly string[] = []): "A" | "S" | "U" {
+  if (m.header) return "S";
+  if (m.path.some((x) => SELLER_PATH.test(x))) return "S";
+  const c = canon(m.name);
+  if (declared.some((d) => canon(d) === c)) return "A";
+  if (declared.length === 0 && (ALLOWED.has(c) || ALLOWED.has(singular(c)))) return "A";
+  if (sellerSettingName(m.name)) return "S";
+  if (SELLER_SIDE.test(m.name) || NOT_INPUT.test(m.name)) return "S";
+  return "U";
 }
 
 /** Pure. The pieces of an answer: every string value of JSON (or of cut-off JSON), else each sentence. */
@@ -645,8 +666,12 @@ export function listNames(piece: string): { name: string; strong: boolean }[] {
           got.push(words[0]!);
           if (words.length > 1 && sellerSettingName(words.join(" "))) got.push(words.join(" "));
         }
+        const wasQuoted = !!q;
         eat(/^\s*\]/);
-        if (!eat(/^\s*[,;]\s*(?:(?:and|or)\s+)?\[?\s*|^\s+(?:and|or)\s+\[?\s*/i)) break;
+        if (eat(/^\s*[,;/&+|]\s*(?:(?:and|or)\s+)?\[?\s*|^\s+(?:and|or)\s+\[?\s*/i)) continue;
+        // After a quoted name, a name after a space is the next item ("'wallet' DB_HOST").
+        if (wasQuoted && eat(/^\s+(?=[\\"'\x60A-Za-z_$])/)) continue;
+        break;
       }
       if (!got.length) continue;
       if (!inputWord && !marked && !h[1]) continue;
@@ -782,9 +807,11 @@ export function namesInSentence(text: string): string[] {
  * part) and from each sentence. `tainted`: a sentence that says something is missing also speaks of the seller's
  * own side (SELLER_SIDE) or of payment or authentication (NOT_INPUT).
  */
-export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean } {
+export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean; authPieces: number[] } {
   const names: MissingName[] = [];
   let tainted = false;
+  /** Sentences whose only sign of the seller's side is a payment or authentication word (NOT_INPUT). */
+  const authPieces: number[] = [];
   let j: unknown = undefined;
   try {
     j = JSON.parse(text.trim());
@@ -823,6 +850,14 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
         const items = Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
         for (const x of items) if (typeof x === "string" && new RegExp(String.raw`^${ID}$`).test(x.trim())) names.push({ name: x.trim(), header: keys.some((y) => /^headers?$/i.test(y)), path: [...keys, k], source: "json-list" });
       }
+      // {"error":"Missing required fields","fields":["wallet"]}: a list under an input word, next to a message that
+      // says something is missing or required.
+      if (Object.values(o).some((x) => typeof x === "string" && CUE.test(x))) {
+        for (const [k, v] of Object.entries(o)) {
+          if (!GENERIC.test(k) || !Array.isArray(v)) continue;
+          for (const x of v) if (typeof x === "string" && new RegExp(String.raw`^${ID}$`).test(x.trim())) names.push({ name: x.trim(), header: keys.some((y) => /^headers?$/i.test(y)), path: [...keys, k], source: "json-list" });
+        }
+      }
     }
     // Zod .flatten()
     if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
@@ -833,14 +868,29 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     for (const [k, x] of Object.entries(o)) walk(x, [...keys, k], depth + 1);
   };
   if (j !== undefined) walk(j, [], 0);
-  for (const raw of answerPieces(text)) {
+  const pieces = answerPieces(text);
+  for (let pi = 0; pi < pieces.length; pi++) {
+    const raw = pieces[pi]!;
     const piece = plainSentence(raw);
     if (!CUE.test(piece)) continue;
     // A validator's fixed message for one field ("Missing data for required field.") is read with its key above.
     if (VALIDATOR_FIELD_MESSAGE.test(piece.trim())) continue;
     // A content word (data, history, price...) makes the sentence about the seller's missing content, unless the
-    // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence).
-    if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
+    // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence). A seller-side word
+    // (env, config, server, password...) makes it the seller's. A payment or authentication word ("a valid
+    // signature") alone counts only when the sentence names no input of vet402's (laneInputProblem).
+    if (SELLER_SIDE.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
+    else if (NOT_INPUT.test(piece)) authPieces.push(pi);
+    // A name marked as a header ("'x' (in: header)", "'x' header", "header 'x'") or put under the seller's settings
+    // ("'x' in config", "'x' environment variable").
+    const headerNames = new Set<string>();
+    for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s*\(\s*(?:in|location)\s*:\s*${Q}headers?${Q}\s*\)`, "gi"))) headerNames.add(q[1]!);
+    for (const q of raw.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+headers?\b`, "gi"))) headerNames.add(q[1]!);
+    for (const q of raw.matchAll(new RegExp(String.raw`\bheaders?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) headerNames.add(q[1]!);
+    // "(in: header)" or "(location: header)" anywhere in the sentence: the names it gives are headers.
+    const headerSentence = new RegExp(String.raw`\(\s*(?:in|location)\s*:\s*${Q}headers?${Q}\s*\)`, "i").test(raw);
+    const placed = new Set<string>();
+    for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:in|from|under)\s+(?:the\s+)?(?:config\w*|env|environment|settings?|secrets?)\b|(?:environment|env)\s+var)`, "gi"))) placed.add(q[1]!);
     const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
     // A sentence written all in capitals ("WALLET IS REQUIRED TO PROCEED") is read without case: its unquoted names
     // are not ALL_CAPS setting names. A quoted name keeps its case (\"DATABASE_URL\" is required).
@@ -858,10 +908,22 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       const keepsSpelling = n.includes("_") && (CAPS_SETTING_WORD.test(n) || ENV_PREFIX.test(n));
       const settingCheck = shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n;
       const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(settingCheck);
-      names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text", ...(isSoft ? { soft: true } : {}) });
+      names.push({ name: shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n, header: (!!f && f[1]!.toLowerCase() === "headers") || headerNames.has(n) || headerSentence, path: placed.has(n) ? ["config"] : [], source: "text", piece: pi, ...(isSoft ? { soft: true } : {}) });
+    }
+    // Every quoted name of the sentence that is one of the seller's own settings or a header counts, wherever it
+    // stands ("(and 'DB_HOST')", "(also check 'DATABASE_URL')", "(expected: 'DATABASE_URL')").
+    const read = new Set(names.filter((x) => x.piece === pi).map((x) => x.name));
+    for (const q of raw.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]`, "g"))) {
+      const n = q[1]!;
+      if (read.has(n)) continue;
+      const m: MissingName = { name: n, header: headerNames.has(n) || headerSentence, path: placed.has(n) ? ["config"] : [], source: "quoted-setting", piece: pi };
+      if (m.header || m.path.length || sellerSettingName(n)) {
+        names.push(m);
+        read.add(n);
+      }
     }
   }
-  return { names, tainted };
+  return { names, tainted, authPieces };
 }
 
 /**
@@ -884,15 +946,23 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   const declared = r.declaredParams ?? [];
   const declaredCanon = new Set(declared.map(canon));
   // A JSON Schema word in an answer ("type", "items") is a missing name only when the listing declares it.
-  const { names: all, tainted } = namesInAnswer(text);
+  const { names: all, tainted, authPieces } = namesInAnswer(text);
   // The unquoted subject of "x is required to ..." counts only when declared, or, on a listing that declares nothing,
   // when it is an allowed word (as rule (b) of missingNameSide). "It is required to be a 0x address" gives no name.
   const allowedOrDeclared = (n: MissingName) =>
     declaredCanon.has(canon(n.name)) || (declared.length === 0 && (ALLOWED.has(canon(n.name)) || ALLOWED.has(singular(canon(n.name)))));
   const names = all.filter((n) => (!SCHEMA_KEYWORDS.has(n.name) || declaredCanon.has(canon(n.name))) && (!n.soft || allowedOrDeclared(n)));
   if (tainted || names.length === 0) return null;
-  if (!names.every((n) => missingNameSide(n, declared) === "input")) return null;
-  return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(names.map((n) => n.name))].join(", ")}` };
+  // Review of 8a4a23f: each name is S (the seller's setting), A (vet402's input) or U (an ordinary word). Any S: the
+  // seller's. Else any A: vet402's, and the U are ignored (a misread word never turns an answer about a declared
+  // input into the seller's failure). Only U: the seller's, as before.
+  const cls = names.map((n) => nameClass(n, declared));
+  if (cls.includes("S")) return null;
+  const inputs = names.filter((_, i) => cls[i] === "A");
+  if (!inputs.length) return null;
+  // A sentence whose only seller-side sign is a payment or authentication word, and that names no input of vet402's.
+  if (authPieces.some((pi) => !inputs.some((n) => n.piece === pi))) return null;
+  return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(inputs.map((n) => n.name))].join(", ")}` };
 }
 
 // ---------- the seller said it did not charge ----------

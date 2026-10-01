@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, quotedListNames, listNames, plainSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, nameClass, namesInAnswer, namesInSentence, quotedListNames, listNames, plainSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -1475,8 +1475,6 @@ test("a quoted list is read whole: one undeclared or setting name in it makes th
     "Missing required parameters: 'DATABASE_URL', 'wallet'",
     "Missing required parameters: 'wallet', 'rpc_url'",
     "Missing required parameters: 'wallet' and 'access_token'",
-    'Missing required parameters: "wallet", "chainId"',
-    "Missing required fields: 'wallet', 'amount'",
     "Missing required parameters: 'wallet', 'rpc_url', and 'symbol'",
     "'wallet' is required and missing key",
   ];
@@ -1485,6 +1483,14 @@ test("a quoted list is read whole: one undeclared or setting name in it makes th
     const got = settledAs(t, ["wallet"]);
     assert.equal(got.status, "settled_no_answer", t);
     assert.equal(got.negative, true, t);
+  }
+  // Review of 8a4a23f: a declared name next to an ordinary undeclared one (no setting, no header) is vet402's: the
+  // ordinary name is ignored, so the answer is never the seller's failure.
+  for (const t of ['Missing required parameters: "wallet", "chainId"', "Missing required fields: 'wallet', 'amount'"]) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
   }
   for (const t of ["Missing required parameters: 'wallet', 'symbol'", "'wallet' and 'symbol' are required", 'Missing required fields: "wallet", "symbol"']) {
     assert.equal(answer400(t, ["wallet", "symbol"])?.kind, "missing_input", t);
@@ -1560,4 +1566,92 @@ test("a list is never cut at its first quoted name: an unquoted name, or a name 
   assert.deepEqual(namesInSentence("Missing required parameters: 'wallet' and RPC url"), ["wallet", "RPC", "RPC url"]);
   // After "missing" alone, an unquoted word without a colon is not a list ("Missing wallet, try again").
   assert.deepEqual(listNames("Missing wallet, try again"), []);
+});
+
+
+// ---------- review of 8a4a23f: names are S (the seller's setting), A (vet402's input) or U (an ordinary word) ----------
+
+test("an ordinary word read as a name never turns an answer about a declared input into the seller's failure", () => {
+  const P = "Missing required parameters: ";
+  const tails = [
+    "'wallet', expected a 0x address",
+    "'wallet', e.g. 0xabc",
+    "'wallet', an Ethereum address",
+    "'wallet' or an ENS name",
+    "'wallet' and the request body",
+    "'wallet', try again",
+    "'wallet', got undefined",
+    "'wallet', received null",
+    "'wallet', a valid signature",
+    "'wallet', please provide it",
+    "'wallet', check the docs",
+    "'wallet', see https://docs.s.test/api",
+    "'wallet' and its signature",
+    "'wallet'\nDocs",
+  ];
+  const vet = [
+    ...tails.flatMap((x) => [P + x, `Missing required fields: ${x}`, `Missing: ${x}`]),
+    "If anything is missing: the request fails. Missing required parameter: 'wallet'.",
+    "Missing required parameter: 'wallet'. If the token is missing: the call fails.",
+    "If the token is missing: the call fails. 'wallet' is required.",
+    '{"error":"Missing required parameters","missing":["wallet"]}',
+    '{"error":"Missing required parameters","required":["wallet"]}',
+    '{"error":"Missing required fields","fields":["wallet"]}',
+    '{"error":"Missing required fields","missingFields":["wallet"]}',
+  ];
+  for (const t of vet) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  const m = (name: string, extra: Partial<Parameters<typeof nameClass>[0]> = {}) => ({ name, header: false, path: [], source: "t", ...extra });
+  assert.equal(nameClass(m("wallet"), ["wallet"]), "A");
+  assert.equal(nameClass(m("WALLET"), []), "A");
+  for (const n of ["expected", "request", "ENS", "fields", "got", "chainId"]) assert.equal(nameClass(m(n), ["wallet"]), "U", n);
+  for (const n of ["DB_HOST", "DATABASE_URL", "rpc_url", "ACCESSTOKEN", "RPC url", "authorization", "api_key"]) assert.equal(nameClass(m(n), ["wallet"]), "S", n);
+  assert.equal(nameClass(m("wallet", { header: true }), ["wallet"]), "S");
+  assert.equal(nameClass(m("wallet", { path: ["config"] }), ["wallet"]), "S");
+});
+
+test("a setting name or a header anywhere in the answer still makes it the seller's, whatever the separator", () => {
+  const tails = [
+    "'wallet', DB_HOST",
+    "'wallet' and RPC url",
+    "'wallet',DATABASE_URL",
+    "'wallet'; 'DATABASE_URL'",
+    "'wallet',\n  'DATABASE_URL'",
+    "'wallet', DATABASE_URL",
+    '"wallet" and DB_PASSWORD',
+    "'wallet' / DB_HOST",
+    "'wallet'/DB_HOST",
+    "'wallet' & DB_HOST",
+    "'wallet' + DB_HOST",
+    "'wallet' | DB_HOST",
+    "'wallet' DB_HOST",
+    "wallet / DB_HOST",
+    "wallet | DATABASE_URL",
+    "wallet DB_HOST",
+    "'wallet' (and 'DB_HOST')",
+    "'wallet' (also check 'DATABASE_URL')",
+    "'wallet' (expected: 'DATABASE_URL')",
+    "'wallet' (in: header)",
+    "'wallet' (location: header)",
+  ];
+  const seller = [
+    ...tails.flatMap((x) => [`Missing required parameters: ${x}`, `Missing: ${x}`, `Missing required fields: ${x}`]),
+    "'wallet' (in: header) is required",
+    "'wallet' is required (location: header)",
+    "Missing required header: 'wallet'",
+    "'wallet' header is required",
+    "Missing 'wallet' in config",
+    "'wallet' environment variable is required",
+  ];
+  for (const t of seller) {
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  assert.ok(namesInAnswer("Missing required parameters: 'wallet' (and 'DB_HOST')").names.some((n) => n.name === "DB_HOST"));
 });
