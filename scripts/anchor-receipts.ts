@@ -12,7 +12,7 @@
  * (src/receipt/roots-post.ts), after checking the day's memo on chain. The memo stays the primary record.
  * With --send, once the day's account is on chain (posted now, or already there) and reads back with
  * exactly the memo's root, count, sequence range and observer, <day>/anchor-program-sent.json records the
- * program, the account, the post_root transaction and its slot (src/receipt/roots-index.ts), and
+ * day, the root, the program, the account, the post_root transaction and its slot (src/receipt/roots-index.ts), and
  * publish-records puts them in data/records/index.json (days[].programRoot). Exit 3: the posting key holds
  * too little SOL for one more day, and nothing was signed.
  * VET402_ROOTS_RPC selects the cluster (default SOLANA_RPC_URL); the program and the posting key are the
@@ -141,7 +141,7 @@ if (args.includes("--post-root")) {
           await new Promise((r) => setTimeout(r, 3000));
         }
       }
-      writeFileSync(join(deps.dayDir, PROGRAM_ROOT_FILE), `${JSON.stringify({ status: "posted", ...entry }, null, 2)}\n`);
+      writeFileSync(join(deps.dayDir, PROGRAM_ROOT_FILE), `${JSON.stringify({ status: "posted", day, root: a.root.toLowerCase(), ...entry }, null, 2)}\n`);
       console.log(`${day}: ${PROGRAM_ROOT_FILE} names ${entry.account} (tx ${entry.tx}, slot ${entry.slot})`);
     } else {
       const p = await planPostRoot(rootsDeps, a);

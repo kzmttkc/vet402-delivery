@@ -20,7 +20,7 @@ import type { Rpc } from "../src/chain.js";
 import { renderObservationPage } from "../src/receipt/html.js";
 import { loadPublishedRecords, type RecordIndex } from "../src/receipt/publish.js";
 import { observationDigest } from "../src/receipt/eip712.js";
-import { programRootFromIndex, programRootOfDay, programRootShape, programVerify, ROOTS_INDEX_NETWORK, type ProgramRootEntry } from "../src/receipt/roots-index.js";
+import { carryProgramRoot, programRootFromIndex, programRootOfDay, programRootShape, programVerify, ROOTS_INDEX_NETWORK, type ProgramRootEntry } from "../src/receipt/roots-index.js";
 import { planPostRoot, PosterBalanceTooLow } from "../src/receipt/roots-post.js";
 import { accountDiscriminator, configPda, dayRootPda, MAINNET_GENESIS, ROOTS_DEPLOYMENTS_BY_GENESIS, ROOTS_PROGRAM } from "../src/receipt/roots-program.js";
 import { backfillProgramRoots } from "../scripts/backfill-program-roots.js";
@@ -220,22 +220,66 @@ test("site build check: a programRoot that names another day's account, another 
   }
 });
 
-test("anchor-program-sent.json: read once posted, ignored otherwise, refused when it names another account", async () => {
+test("anchor-program-sent.json: read once posted, ignored otherwise, refused when it names another root or another account", async () => {
   const dir = mkdtempSync(join(tmpdir(), "vet402-progsent-"));
   try {
     const day = join(dir, "2026-09-30");
     mkdirSync(day);
-    assert.equal(await programRootOfDay(day, "2026-09-30"), null);
+    const ROOT30 = "0x605514a380fd74ca49b4ad9ea2922df0ec17edb220badcfd2d24c8bda60799c5";
+    assert.equal(await programRootOfDay(day, "2026-09-30", ROOT30), null);
     const e = { network: ROOTS_INDEX_NETWORK, program: ROOTS_PROGRAM, account: await dayRootPda(ROOTS_PROGRAM, "2026-09-30"), tx: "3vG7SaQJK8aazchuWshKZdXZM5sJaQAAPBTEV41t6ovCZnuXk99XcBcrnZaUQ3sSQLnR8bZZrv591REUgtSYAN9D", slot: 452151199 };
-    writeFileSync(join(day, "anchor-program-sent.json"), JSON.stringify({ status: "posted", ...e }));
-    assert.deepEqual(await programRootOfDay(day, "2026-09-30"), e);
-    writeFileSync(join(day, "anchor-program-sent.json"), JSON.stringify({ status: "sending", ...e }));
-    assert.equal(await programRootOfDay(day, "2026-09-30"), null);
-    writeFileSync(join(day, "anchor-program-sent.json"), JSON.stringify({ status: "posted", ...e, account: await dayRootPda(ROOTS_PROGRAM, "2026-09-29") }));
-    await assert.rejects(programRootOfDay(day, "2026-09-30"), /programRoot\.account/);
+    const write = (f: object) => writeFileSync(join(day, "anchor-program-sent.json"), JSON.stringify(f));
+    write({ status: "posted", day: "2026-09-30", root: ROOT30, ...e });
+    assert.deepEqual(await programRootOfDay(day, "2026-09-30", ROOT30), e);
+    assert.deepEqual(await programRootOfDay(day, "2026-09-30", ROOT30.toUpperCase().replace("0X", "0x")), e, "the root compares without case");
+    write({ status: "sending", day: "2026-09-30", root: ROOT30, ...e });
+    assert.equal(await programRootOfDay(day, "2026-09-30", ROOT30), null);
+    write({ status: "posted", day: "2026-09-30", root: ROOT30, ...e, account: await dayRootPda(ROOTS_PROGRAM, "2026-09-29") });
+    await assert.rejects(programRootOfDay(day, "2026-09-30", ROOT30), /programRoot\.account/);
+    write({ status: "posted", day: "2026-09-30", root: `0x${"11".repeat(32)}`, ...e });
+    await assert.rejects(programRootOfDay(day, "2026-09-30", ROOT30), /is not the day's root/);
+    write({ status: "posted", day: "2026-09-30", ...e });
+    await assert.rejects(programRootOfDay(day, "2026-09-30", ROOT30), /is not the day's root/, "a file without its root is refused");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("carryProgramRoot (publish-records): a) same day and root, no file: kept b) another root: dropped c) another day's account: dropped d) a posted file wins e) memo pending: none", async () => {
+  const { index } = await loadPublishedRecords(RECORDS);
+  const d30 = index.days.find((d) => d.day === "2026-09-30")!;
+  const d28 = index.days.find((d) => d.day === "2026-09-28")!;
+  const line = { day: d30.day, root: d30.root, anchor: { status: "anchored" } };
+  // a) same day, same root, no anchor-program-sent.json: the index's entry is kept
+  assert.deepEqual(await carryProgramRoot(d30, line, null), d30.programRoot);
+  // b) the day was rebuilt with another root: the old entry is dropped
+  assert.equal(await carryProgramRoot(d30, { ...line, root: `0x${"11".repeat(32)}` }, null), undefined);
+  // c) the previous entry names another day's account: dropped
+  assert.equal(await carryProgramRoot({ ...d30, programRoot: d28.programRoot }, line, null), undefined);
+  // d) anchor-program-sent.json is posted: the file wins over the index
+  const fromFile = { ...d30.programRoot!, tx: "5".repeat(88), slot: 452151300 };
+  assert.deepEqual(await carryProgramRoot(d30, line, fromFile), fromFile);
+  // e) the memo anchor is still pending: no programRoot at all, from the file or the index
+  assert.equal(await carryProgramRoot(d30, { ...line, anchor: { status: "pending" } }, fromFile), undefined);
+  assert.equal(await carryProgramRoot(d30, { ...line, anchor: { status: "pending" } }, null), undefined);
+  // and no previous line at all: nothing
+  assert.equal(await carryProgramRoot(undefined, line, null), undefined);
+});
+
+test("backfill --check: the entries already in the index are read again; one that names another tx or slot than the chain is refused", async () => {
+  const index = JSON.parse(readFileSync(join(RECORDS, "index.json"), "utf8")) as RecordIndex;
+  const chain = chainOfIndex(index);
+  const ok = await backfillProgramRoots(fakeChain(chain).rpc, index, { check: true });
+  assert.deepEqual(ok.checked, ["2026-09-28", "2026-09-29", "2026-09-30"]);
+  assert.equal(ok.filled.length, 0);
+  assert.equal(`${JSON.stringify(ok.index, null, 2)}\n`, readFileSync(join(RECORDS, "index.json"), "utf8"), "nothing changes");
+  // Without --check the named days are not read at all.
+  assert.deepEqual((await backfillProgramRoots(fakeChain([]).rpc, index)).checked, []);
+  const wrong = (f: (p: ProgramRootEntry) => ProgramRootEntry): RecordIndex => ({ ...index, days: index.days.map((d) => (d.day === "2026-09-29" ? { ...d, programRoot: f(d.programRoot!) } : d)) });
+  await assert.rejects(backfillProgramRoots(fakeChain(chain).rpc, wrong((p) => ({ ...p, tx: "5".repeat(88) })), { check: true }), /2026-09-29: the index names/);
+  await assert.rejects(backfillProgramRoots(fakeChain(chain).rpc, wrong((p) => ({ ...p, slot: p.slot + 1 })), { check: true }), /2026-09-29: the index names/);
+  // The account on chain no longer holds the index's values: refused as well.
+  await assert.rejects(backfillProgramRoots(fakeChain(chain.map((c) => (c.day === "2026-09-30" ? { ...c, count: c.count - 1 } : c))).rpc, index, { check: true }), /differs from the day's root: count/);
 });
 
 test("post_root: a posting key that cannot pay one more day and keep the empty account's minimum is not used (nothing simulated or signed)", async () => {

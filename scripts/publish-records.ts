@@ -52,7 +52,7 @@ import {
   type RecordEntry,
   type RecordIndex,
 } from "../src/receipt/publish.js";
-import { programRootOfDay, programRootShape, type ProgramRootEntry } from "../src/receipt/roots-index.js";
+import { carryProgramRoot, programRootOfDay } from "../src/receipt/roots-index.js";
 import type { Observation } from "../src/receipt/types.js";
 import { verifyOffline } from "../src/receipt/verify.js";
 
@@ -152,11 +152,11 @@ if (days.length === 0) throw new Error(`${from}: no day folders${onlyDay ? ` for
 }
 // --day: the other days already published stay as they are, once they pass the site build's checks.
 const kept = onlyDay !== undefined && existsSync(join(outDir, "index.json")) ? (await loadPublishedRecords(outDir)).index : null;
-// A programRoot the index already names (a backfilled day has no anchor-program-sent.json): kept for the same day and root.
-const priorProgramRoot = new Map<string, { root: string; programRoot: ProgramRootEntry }>();
+// The day lines of the index as it is now: a programRoot it names is kept for the same day and root (carryProgramRoot).
+const priorDays = new Map<string, { day?: unknown; root?: unknown; programRoot?: unknown }>();
 if (existsSync(join(outDir, "index.json"))) {
-  const prior = JSON.parse(readFileSync(join(outDir, "index.json"), "utf8")) as Partial<RecordIndex>;
-  for (const d of prior.days ?? []) if (d?.programRoot && typeof d.root === "string") priorProgramRoot.set(d.day, { root: d.root, programRoot: d.programRoot });
+  const prior = JSON.parse(readFileSync(join(outDir, "index.json"), "utf8")) as { days?: { day?: unknown }[] };
+  for (const d of prior.days ?? []) if (d && typeof d.day === "string") priorDays.set(d.day, d);
 }
 const entries: RecordEntry[] = [];
 const dayEntries: DayEntry[] = [];
@@ -227,12 +227,8 @@ for (const day of days) {
   if (dayInfo) {
     if (files.length !== dayInfo.inRoot) throw new Error(`${day}: ${files.length} records on disk, the root covers ${dayInfo.inRoot}`);
     dayInfo.published = published;
-    let program = await programRootOfDay(join(from, day), day);
-    if (!program) {
-      const p = priorProgramRoot.get(day);
-      if (p && p.root === dayInfo.root && (await programRootShape(p.programRoot, day)).length === 0) program = p.programRoot;
-    }
-    if (program && dayInfo.anchor.status === "anchored") dayInfo.programRoot = program;
+    const program = await carryProgramRoot(priorDays.get(day), dayInfo, await programRootOfDay(join(from, day), day, dayInfo.root));
+    if (program) dayInfo.programRoot = program;
     const tempo = tempoAnchorOfDay(join(from, day), dayInfo.root);
     if (tempo) dayInfo.tempoAnchor = tempo;
     dayEntries.push(dayInfo);

@@ -5,6 +5,8 @@
  *
  *   npx tsx scripts/backfill-program-roots.ts            # read and compare, write nothing
  *   npx tsx scripts/backfill-program-roots.ts --write    # ... and write the index when every day agrees
+ *   npx tsx scripts/backfill-program-roots.ts --check    # also read again every programRoot the index already
+ *                                                        # names; writes nothing, exit 1 on any difference
  *   [--records <dir>] (default data/records)  [--day YYYY-MM-DD] (only that day)
  *
  * For each anchored day of the index that has no programRoot yet, the day's account must be the
@@ -34,17 +36,30 @@ export interface BackfillResult {
   index: RecordIndex;
   filled: { day: string; entry: ProgramRootEntry }[];
   notPosted: string[];
+  /** Days whose programRoot was already in the index and was read again (check: true). */
+  checked: string[];
 }
 
+const sameEntry = (a: ProgramRootEntry, b: ProgramRootEntry) => a.network === b.network && a.program === b.program && a.account === b.account && a.tx === b.tx && a.slot === b.slot;
+
 /** Check every open day against the chain. Throws on the first difference; returns the new index otherwise. */
-export async function backfillProgramRoots(rpc: Rpc, index: RecordIndex, opts: { day?: string; log?: (l: string) => void } = {}): Promise<BackfillResult> {
+export async function backfillProgramRoots(rpc: Rpc, index: RecordIndex, opts: { day?: string; check?: boolean; log?: (l: string) => void } = {}): Promise<BackfillResult> {
   const genesis = (await rpc("getGenesisHash", [])) as string;
   if (genesis !== MAINNET_GENESIS) throw new Error(`the RPC is not Solana mainnet (genesis ${genesis}); the index names mainnet only`);
   const dep = ROOTS_DEPLOYMENTS_BY_GENESIS[MAINNET_GENESIS]!;
   const filled: BackfillResult["filled"] = [];
   const notPosted: string[] = [];
+  const checked: string[] = [];
   const days: DayEntry[] = [];
   for (const d of index.days) {
+    if (d.programRoot && opts.check && (!opts.day || d.day === opts.day)) {
+      // Read again: the account must still hold the index line's values and name the same transaction and slot.
+      const want = { day: d.day, root: d.root as `0x${string}`, count: d.inRoot, seqStart: d.sequenceRange[0], seqEnd: d.sequenceRange[1], observer: d.observerAddress as `0x${string}` };
+      const now = await dayRootOnChain(rpc, { program: dep.program, poster: dep.poster }, want);
+      if (!sameEntry(now, d.programRoot)) throw new Error(`${d.day}: the index names ${JSON.stringify(d.programRoot)}, the chain ${JSON.stringify(now)}`);
+      opts.log?.(`${d.day}: programRoot in the index agrees with the chain (${now.account}, ${now.tx}, slot ${now.slot})`);
+      checked.push(d.day);
+    }
     if (d.programRoot || (opts.day && d.day !== opts.day) || d.anchor.status !== "anchored") {
       days.push(d);
       continue;
@@ -66,7 +81,7 @@ export async function backfillProgramRoots(rpc: Rpc, index: RecordIndex, opts: {
     filled.push({ day: d.day, entry });
     days.push(withProgramRoot(d, entry));
   }
-  return { index: { ...index, days }, filled, notPosted };
+  return { index: { ...index, days }, filled, notPosted, checked };
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -83,18 +98,21 @@ if (isMain) {
   const dir = resolve(argValue("--records") ?? join(ROOT, "data", "records"));
   const day = argValue("--day");
   if (day !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("--day needs YYYY-MM-DD");
+  const check = args.includes("--check");
+  if (check && args.includes("--write")) throw new Error("--check only reads; run --write separately");
   const index = (await loadPublishedRecords(dir)).index; // the index as the site build accepts it
   const rpc = jsonRpc(process.env.VET402_ROOTS_RPC ?? process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com");
   let r: BackfillResult;
   try {
-    r = await backfillProgramRoots(rpc, index, { day, log: (l) => console.log(l) });
+    r = await backfillProgramRoots(rpc, index, { day, check, log: (l) => console.log(l) });
   } catch (e) {
     console.error(`refused, nothing written: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
   }
+  if (check) console.log(`checked ${r.checked.length} programRoot entr${r.checked.length === 1 ? "y" : "ies"} against the chain; nothing written`);
   if (r.filled.length === 0) {
     console.log("nothing to fill");
-  } else if (!args.includes("--write")) {
+  } else if (!args.includes("--write") || check) {
     console.log(`read only: ${r.filled.length} day(s) agree with the chain (pass --write to put them in ${join(dir, "index.json")})`);
   } else {
     const path = join(dir, "index.json");

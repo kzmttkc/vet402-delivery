@@ -221,6 +221,17 @@ alert() {
   fi
 }
 
+# continues <step> <message>: a step failed but the run goes on and still publishes: alert line + notification,
+# no HALT, and the run is not counted as stopped.
+continues() {
+  local when
+  when="$(TZ=Asia/Tokyo /bin/date '+%Y-%m-%d %H:%M')"
+  log "CONTINUES: $1 failed: $2"
+  mkdir -p "$(dirname "$ALERTS")"
+  printf '\n%s\n' "## ⚠️ [$when] [vet402_daily] $MODE$([ "$DRY" = 1 ] && echo ' (dry run)'): $1 failed, publish continues: $2 (log: $LOG)" >>"$ALERTS"
+  notify "$MODE: $1 failed, publish continues: $2"
+}
+
 # notice <message>: something was done that a person should know about (not a stop): alert line + notification.
 notice() {
   local when
@@ -611,21 +622,21 @@ tempo_anchor_day() {
   shift 2
   [ -f "$CONF/tempo-anchor-enabled" ] || return 0
   if [ ! -f "$REPO/scripts/anchor-receipts-tempo.ts" ]; then
-    alert "$CONF/tempo-anchor-enabled is set but scripts/anchor-receipts-tempo.ts is not on $BRANCH; no Tempo anchor for $day"
+    continues "Tempo anchor" "$CONF/tempo-anchor-enabled is set but scripts/anchor-receipts-tempo.ts is not on $BRANCH; no Tempo anchor for $day"
     return 0
   fi
   if [ -f "$R/$day/anchor-tempo-sent.json" ]; then
     if grep -q '"status": *"sent"' "$R/$day/anchor-tempo-sent.json"; then
       log "$day root already on Tempo"
     else
-      alert "$day anchor-tempo-sent.json is not \"sent\": resume by hand (scripts/anchor-receipts-tempo.ts --day $day --resume)"
+      continues "Tempo anchor" "$day anchor-tempo-sent.json is not \"sent\": resume by hand (scripts/anchor-receipts-tempo.ts --day $day --resume)"
     fi
   elif [ "$DRY" = 1 ]; then
     run "anchor $day on Tempo (simulate)" in_repo "$TSX" scripts/anchor-receipts-tempo.ts --day "$day" --key "$KEYS/tempo-anchor.json" "$@" ||
-      alert "Tempo anchor simulation for $day failed (the Solana anchor stands)"
+      continues "Tempo anchor" "the simulation for $day did not pass (the Solana anchor stands)"
   else
     run "anchor $day on Tempo --send" in_repo "$TSX" scripts/anchor-receipts-tempo.ts --day "$day" --key "$KEYS/tempo-anchor.json" --send ||
-      alert "anchor-receipts-tempo --day $day --send failed (not retried; the Solana anchor stands)"
+      continues "Tempo anchor" "anchor-receipts-tempo --day $day --send exited non-zero (not retried; the Solana anchor stands)"
   fi
   return 0
 }
@@ -653,18 +664,18 @@ program_root_day() {
   fi
   if [ "$DRY" = 1 ]; then
     run "post_root $day (simulate)" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --post-root "$@" ||
-      alert "post_root simulation for $day failed (the memo stands)"
+      continues "post_root" "the simulation for $day did not pass (the memo stands)"
     return 0
   fi
   if [ ! -f "$REPO/.keys/mainnet/roots-poster.json" ]; then
-    alert "no posting key at $REPO/.keys/mainnet/roots-poster.json: the $day root is not in the observation-roots program (the memo stands)"
+    continues "post_root" "no posting key at $REPO/.keys/mainnet/roots-poster.json: the $day root is not in the observation-roots program (the memo stands)"
     return 0
   fi
   run "post_root $day --send" in_repo "$TSX" scripts/anchor-receipts.ts --day "$day" --post-root --send || rc=$?
   if [ "$rc" -eq 3 ]; then
-    alert "the posting key Ew2RYGSWQygVoPTgp1kQzQUcyAfsQ6n5RPZYr2B7CsxW holds too little SOL for one day: the $day root is not in the observation-roots program (nothing signed; the memo stands)"
+    continues "post_root" "the posting key Ew2RYGSWQygVoPTgp1kQzQUcyAfsQ6n5RPZYr2B7CsxW holds too little SOL for one day: the $day root is not in the observation-roots program (nothing signed; the memo stands)"
   elif [ "$rc" -ne 0 ]; then
-    alert "anchor-receipts --day $day --post-root --send failed (exit $rc; the memo stands; rerun by hand, a posted day is not sent twice)"
+    continues "post_root" "anchor-receipts --day $day --post-root --send exited $rc (the memo stands; rerun by hand, a posted day is not sent twice)"
   fi
   return 0
 }

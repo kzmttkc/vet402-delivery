@@ -50,16 +50,37 @@ export async function programRootShape(x: unknown, day: string): Promise<string[
   return out;
 }
 
-/** The day's programRoot from <dayDir>/anchor-program-sent.json once it is "posted"; null = none. Throws when malformed. */
-export async function programRootOfDay(dayDir: string, day: string): Promise<ProgramRootEntry | null> {
+/**
+ * The day's programRoot from <dayDir>/anchor-program-sent.json once it is "posted"; null = none. Throws when
+ * the file is "posted" but names another root than the day's `root`, or is malformed.
+ */
+export async function programRootOfDay(dayDir: string, day: string, root: string): Promise<ProgramRootEntry | null> {
   const p = join(dayDir, PROGRAM_ROOT_FILE);
   if (!existsSync(p)) return null;
   const f = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
   if (f.status !== "posted") return null;
+  if (typeof f.root !== "string" || f.root.toLowerCase() !== root.toLowerCase()) throw new Error(`${p}: root ${String(f.root)} is not the day's root ${root}`);
   const e = { network: f.network, program: f.program, account: f.account, tx: f.tx, slot: f.slot };
   const bad = await programRootShape(e, day);
   if (bad.length) throw new Error(`${p}: ${bad.join("; ")}`);
   return e as ProgramRootEntry;
+}
+
+/**
+ * The programRoot publish-records puts on a day's index line: the one in anchor-program-sent.json (`sent`)
+ * when there is one; else the one the previous index already named for the same day and the same root (a
+ * backfilled day has no such file), when it is still well formed; nothing while the memo anchor is pending.
+ */
+export async function carryProgramRoot(
+  prior: { day?: unknown; root?: unknown; programRoot?: unknown } | undefined,
+  day: { day: string; root: string; anchor: { status: string } },
+  sent: ProgramRootEntry | null,
+): Promise<ProgramRootEntry | undefined> {
+  if (day.anchor.status !== "anchored") return undefined;
+  if (sent) return sent;
+  if (!prior || prior.day !== day.day || typeof prior.root !== "string" || prior.root.toLowerCase() !== day.root.toLowerCase()) return undefined;
+  if (prior.programRoot === undefined || (await programRootShape(prior.programRoot, day.day)).length) return undefined;
+  return prior.programRoot as ProgramRootEntry;
 }
 
 /** What the day's account must hold: the values of the memo anchor (and of the index line). */
