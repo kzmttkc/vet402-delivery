@@ -1060,9 +1060,11 @@ test("a schema of an input description (type fixed to http or mcp) names nothing
 });
 
 test("content words: the seller's missing data stays the seller's even with the name declared; the input forms are vet402's", () => {
-  for (const t of ["Missing data for wallet", "missing wallet data", "Missing wallet history", "Missing chain support", "missing address balance", "Missing data for address 0xabc", "Data for 'wallet' is missing", "The wallet is required to have at least one transaction"]) {
+  for (const t of ["Missing data for wallet", "missing wallet data", "Missing wallet history", "Missing chain support", "missing address balance", "Missing data for address 0xabc", "Data for 'wallet' is missing"]) {
     assert.equal(answer400(t, ["wallet", "address", "chain"]), null, t);
   }
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
+  assert.equal(answer400("The wallet is required to have at least one transaction", ["wallet", "address", "chain"])?.kind, "missing_input");
   for (const [t, d] of [["The wallet parameter is missing", ["wallet"]], ["wallet parameter is missing", ["wallet"]], ["Parameters wallet and symbol are missing", ["wallet", "symbol"]], ["Key wallet is missing", ["wallet"]], ["Missing value for wallet", ["wallet"]]] as [string, string[]][]) {
     assert.equal(answer400(t, d)?.kind, "missing_input", t);
   }
@@ -1096,11 +1098,13 @@ test("validator texts name the input even with a content word in them; the selle
   for (const [t, d] of [["data must have required property 'wallet'", ["wallet"]], ["data/body must have required property 'wallet'", ["wallet"]], ["Invalid request data: wallet is required", ["wallet"]], ["price is required", ["price"]], ["quote is required", ["quote"]], ['"history" is required', ["history"]], ["Missing required field: wallet (wallet address for balance lookup)", ["wallet"]]] as [string, string[]][]) {
     assert.equal(answer400(t, d)?.kind, "missing_input", t);
   }
-  for (const t of ["Missing data for wallet", "missing wallet data", "Missing wallet history", "Missing chain support", "missing address balance", "Missing data for address 0xabc", "Data for 'wallet' is missing", "The wallet is required to have at least one transaction"]) {
+  for (const t of ["Missing data for wallet", "missing wallet data", "Missing wallet history", "Missing chain support", "missing address balance", "Missing data for address 0xabc", "Data for 'wallet' is missing"]) {
     assert.equal(answer400(t, ["wallet", "address", "chain"]), null, t);
   }
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
+  assert.equal(answer400("The wallet is required to have at least one transaction", ["wallet", "address", "chain"])?.kind, "missing_input");
   assert.deepEqual(strongNamesInSentence("Data for 'wallet' is missing"), [], "after 'for', the quoted name only says whose data");
-  assert.deepEqual(strongNamesInSentence("The wallet is required to have at least one transaction"), [], "'required to' is a condition, not a missing input");
+  assert.deepEqual(strongNamesInSentence("The wallet is required to have at least one transaction"), ["wallet"], "read by the name alone since 06dac97's review");
 });
 
 test("a last answer with no readable time is never a hold without end: not held, and said", () => {
@@ -1130,9 +1134,10 @@ test("Rails, marshmallow, webargs, DRF, and '<input word> for x', 'x is required
   ] as [string, string[]][]) {
     assert.equal(answer400(t, d)?.kind, "missing_input", t);
   }
-  // ("contain funds" alone is a doubtful phrase since d02bbaa's review: vet402's; "contain at least ... funds" is the seller's.)
-  for (const t of ["Data for 'wallet' is missing", "The wallet is required to have at least one transaction", "The wallet is required to contain at least 10 funds", "The pool is required to hold 100 USDC"]) { // ("hold liquidity" has no asset noun: vet402's since 99344e5's review)
-    assert.equal(answer400(t, ["wallet", "pool"]), null, t);
+  assert.equal(answer400("Data for 'wallet' is missing", ["wallet", "pool"]), null);
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
+  for (const t of ["The wallet is required to have at least one transaction", "The wallet is required to contain at least 10 funds", "The pool is required to hold 100 USDC"]) {
+    assert.equal(answer400(t, ["wallet", "pool"])?.kind, "missing_input", t);
   }
   // A field message whose key is the request itself, or a message with no key, names nothing.
   assert.equal(answer400('{"non_field_errors":["This field is required."]}'), null);
@@ -1142,9 +1147,10 @@ test("Rails, marshmallow, webargs, DRF, and '<input word> for x', 'x is required
 
 // ---------- review of 38edafe ----------
 
-test("'x is required to <verb>' is an input only for proceed, continue, be a/an, be provided; a field message under headers is the seller's", () => {
+test("'x is required to <verb>' is read by x (declared: vet402's, whatever the verb, since 06dac97's review); a field message under headers is the seller's", () => {
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
   for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake"]) {
-    assert.equal(answer400(t, ["wallet", "address"]), null, t);
+    assert.equal(answer400(t, ["wallet", "address"])?.kind, "missing_input", t);
   }
   for (const [t, d] of [["'wallet' is required to proceed", ["wallet"]], ['"address" is required to continue', ["address"]], ["wallet is required to be a 0x address", ["wallet"]], ["wallet is required to be a valid address", ["wallet"]], ["wallet is required to be provided", ["wallet"]]] as [string, string[]][]) {
     assert.equal(answer400(t, d)?.kind, "missing_input", t);
@@ -1170,7 +1176,7 @@ test("no control character other than tab, newline and carriage return in src, s
 
 // ---------- review of 959121c (the verb rule turned the right way) ----------
 
-test("'x is required to <verb>' is the seller's only for a condition on content; every other verb reads x as the input, and a settled purchase is never shown as the seller's failure", () => {
+test("'x is required to <verb>' reads x as the input whatever the verb (since 06dac97's review), and a settled purchase is never shown as the seller's failure", () => {
   const ten = ["wallet is required to check the balance", "'address' is required to access this resource", "The 'symbol' field is required to get a quote", "wallet is required to query balances", "wallet is required to fetch data", "wallet is required to look up the price", "wallet is required to use this endpoint", "wallet is required to perform a search", "wallet is required to scrape", "wallet is required to complete the request"];
   for (const t of ten) {
     const name = (/(wallet|address|symbol)/.exec(t) ?? [])[1]!;
@@ -1184,8 +1190,9 @@ test("'x is required to <verb>' is the seller's only for a condition on content;
       assert.notEqual(status, "settled_no_answer");
     }
   }
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
   for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake", "wallet is required to hold 100 USDC"]) {
-    assert.equal(answer400(t, ["wallet", "address"]), null, t);
+    assert.equal(answer400(t, ["wallet", "address"])?.kind, "missing_input", t);
   }
 });
 
@@ -1200,7 +1207,7 @@ test("a sentence all in capitals is read without case; a quoted ALL_CAPS name st
 
 // ---------- review of d02bbaa: a doubtful phrase falls on vet402's side ----------
 
-test("'x is required to <phrase>' is the seller's only for the listed content conditions; every doubtful phrase is vet402's, and settled it is never a failure", () => {
+test("'x is required to <phrase>': every phrase is vet402's with x declared (since 06dac97's review), and settled it is never a failure", () => {
   const vet = ["have access to this endpoint", "have been provided", "have a valid format", "have 0x prefix", "contain 42 characters", "be verified before calling", "be registered as a query parameter", "be active", "be eligible",
     "check the balance", "access this resource", "get a quote", "query balances", "fetch data", "look up the price", "use this endpoint", "perform a search", "scrape", "complete the request"];
   for (const phrase of vet) {
@@ -1212,18 +1219,19 @@ test("'x is required to <phrase>' is the seller's only for the listed content co
       assert.equal(statusOf({ ...rec, cause } as never), "settled_vet402_input", t);
     }
   }
-  const seller = ["own at least one NFT", "be on the allowlist", "be whitelisted", "stake", "hold 100 USDC", "hold at least 1 token", "have at least one transaction", "have a sufficient balance", "contain at least 1 token"];
-  for (const phrase of seller) {
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
+  const conditions = ["own at least one NFT", "be on the allowlist", "be whitelisted", "stake", "hold 100 USDC", "hold at least 1 token", "have at least one transaction", "have a sufficient balance", "contain at least 1 token"];
+  for (const phrase of conditions) {
     const t = `wallet is required to ${phrase}`;
-    assert.equal(answer400(t, ["wallet"]), null, t);
-    assert.equal(answer400(t), null, `${t} (no declarations)`);
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    assert.equal(answer400(t)?.kind, "missing_input", `${t} (no declarations: wallet is an allowed name)`);
   }
 });
 
 
 // ---------- review of 99344e5: a seller-side phrase needs an asset noun ----------
 
-test("'required to' phrases: the seller's only with an asset noun; settled, the seller's is a negative settled_no_answer and vet402's never is (statusOf, isNegative)", () => {
+test("'required to' phrases with or without an asset noun: vet402's with x declared, settled_vet402_input and never negative (statusOf, isNegative; since 06dac97's review)", () => {
   const vet = ["have at least one query parameter", "have at least one of the following parameters", "have at least 1 character", "own the request", "hold the request", "have at least 3 characters", "have at least one letter"];
   const sentences = [...vet.map((p) => `wallet is required to ${p}`), "query is required to have at least 3 characters", "symbol is required to have at least one letter"];
   for (const t of [...sentences, ...sentences.map((x) => x.toUpperCase())]) {
@@ -1236,21 +1244,22 @@ test("'required to' phrases: the seller's only with an asset noun; settled, the 
     assert.equal(isNegative(status, cause), false, t);
   }
   const seller = ["own at least one NFT", "hold 100 USDC", "hold at least 1 token", "stake", "stake 100 tokens", "have at least one transaction", "have a sufficient balance", "contain at least 1 token", "be whitelisted", "be on the allowlist"];
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
   for (const t of [...seller.map((p) => `wallet is required to ${p}`), ...seller.map((p) => `WALLET IS REQUIRED TO ${p.toUpperCase()}`)]) {
     const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: ["wallet"] };
-    assert.equal(answer400(t, ["wallet"]), null, t);
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
     const cause = classifyRecord(rec);
-    assert.equal(cause.cause, "seller_config", t);
+    assert.equal(cause.rule, "input:missing_input:settled", t);
     const status = statusOf({ ...rec, cause } as never);
-    assert.equal(status, "settled_no_answer", t);
-    assert.equal(isNegative(status, cause), true, t);
+    assert.equal(status, "settled_vet402_input", t);
+    assert.equal(isNegative(status, cause), false, t);
   }
 });
 
 
 // ---------- review of 638d1e8: an asset noun counts only where it ends the phrase ----------
 
-test("an asset noun followed by another noun (token address, share link, eth-address) is an input; settled, never a failure; the seller's content stays negative", () => {
+test("an asset noun followed by another noun is an input, and so is every content condition (since 06dac97's review): settled, never a failure", () => {
   const vet = ["have at least one token address", "own at least one token parameter", "have at least one share link", "have at least one coin symbol", "have at least one transaction hash", "have at least one ETH address", "have at least one eth-address", "have at least one SOL address", "have at least one fund id", "hold a token address", "contain at least one token address", "own at least one NFT contract address", "have at least one token standard", "own a coin type", "be a SOL-compatible value", "hold liquidity", "hold USDC", "hold"];
   for (const p of vet) {
     const t = `wallet is required to ${p}`;
@@ -1262,13 +1271,39 @@ test("an asset noun followed by another noun (token address, share link, eth-add
     assert.equal(isNegative(status, cause), false, t);
   }
   const seller = ["own at least one NFT", "hold 100 USDC", "hold at least 1 token", "stake", "stake 100 tokens", "have at least one transaction", "have a sufficient balance", "contain at least 1 token", "be whitelisted", "be on the allowlist", "hold 5 ETH in the wallet", "have at least one transaction, then retry", "own at least 2 NFTs and 1 token"];
+  // Since 06dac97's review "x is required to ..." is read by x alone (declared: vet402's), whatever follows "to".
   for (const p of seller) {
     const t = `wallet is required to ${p}`;
     const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: ["wallet"] };
-    assert.equal(answer400(t, ["wallet"]), null, t);
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
     const cause = classifyRecord(rec);
     const status = statusOf({ ...rec, cause } as never);
-    assert.equal(status, "settled_no_answer", t);
-    assert.equal(isNegative(status, cause), true, t);
+    assert.equal(status, "settled_vet402_input", t);
+    assert.equal(isNegative(status, cause), false, t);
   }
+});
+
+
+// ---------- review of 06dac97: "x is required to ..." is read by x alone ----------
+
+test("every sentence the reviews asked to be vet402's is vet402's with x declared, settled_vet402_input and never negative (possessive, or/and/comma lists, line breaks, prepositions)", () => {
+  const purposes = ["check the balance", "access this resource", "query balances", "fetch data", "look up the price", "use this endpoint", "perform a search", "scrape", "complete the request", "proceed", "continue"];
+  const haveContainBe = ["have access to this endpoint", "have been provided", "have a valid format", "have 0x prefix", "contain 42 characters", "be verified before calling", "be registered as a query parameter", "be active", "be eligible", "be a 0x address", "be provided"];
+  const assetPlusNoun = ["have at least one token address", "own at least one token parameter", "have at least one share link", "have at least one coin symbol", "have at least one transaction hash", "have at least one ETH address", "have at least one eth-address", "have at least one SOL address", "have at least one fund id", "hold a token address", "contain at least one token address", "own at least one NFT contract address", "have at least one token standard", "own a coin type", "be a SOL-compatible value"];
+  const newForms = ["have at least one token's address", "have at least one token or address parameter", "have at least one ETH and SOL address", "have at least one token, address, or ENS name", "hold 100 USDC per request", "own at least one NFT from the list", "hold 1 token for each call"];
+  const conditions = ["own at least one NFT", "hold 100 USDC", "hold at least 1 token", "stake", "stake 100 tokens", "have at least one transaction", "have a sufficient balance", "contain at least 1 token", "be whitelisted", "be on the allowlist"];
+  const sentences = [...[...purposes, ...haveContainBe, ...assetPlusNoun, ...newForms, ...conditions].map((p) => `wallet is required to ${p}`), "'address' is required to access this resource", "The 'symbol' field is required to get a quote", "wallet is required to\nhold at least one token", "wallet is required\nto stake 100 tokens"];
+  for (const t of sentences) {
+    const name = (/(wallet|address|symbol)/.exec(t) ?? [])[1]!;
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: [name] };
+    assert.equal(answer400(t, [name])?.kind, "missing_input", JSON.stringify(t));
+    const cause = classifyRecord(rec);
+    const status = statusOf({ ...rec, cause } as never);
+    assert.equal(status, "settled_vet402_input", JSON.stringify(t));
+    assert.equal(isNegative(status, cause), false, JSON.stringify(t));
+  }
+  // The name rules still decide: a setting name or a header after "required to" stays the seller's.
+  assert.equal(answer400('"DB_HOST" is required to connect', ["wallet"]), null);
+  assert.equal(answer400("headers must have required property 'authorization'"), null);
+  assert.equal(answer400("secret_token is required to sign", ["wallet"]), null);
 });

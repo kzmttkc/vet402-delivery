@@ -480,22 +480,12 @@ const Q = String.raw`\\?["'\x60]?`;
 const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|transactions?|records?|results?|info|information|prices?|quotes?|liquidity|holders?|activity|metadata|stats|statistics|coverage)\b/i;
 
 /**
- * Nouns for what a wallet holds: a "required to" phrase is the seller's condition on content only with one of them,
- * and only when the noun ends the phrase: at the end of the sentence, before punctuation, or before a preposition or
- * conjunction. "token address", "share link", "transaction hash", "eth-address", "SOL-compatible" are other things
- * (an input), not the asset.
+ * "x is required to <anything>" is read by x alone, never by the words after "required to": x declared by the
+ * listing (or an allowed word when it declares nothing) is vet402's missing input; a name the name rules give to
+ * the seller (a setting name, a header, an ALL_CAPS quoted name) is the seller's. A condition the seller states on
+ * what x holds ("required to own at least one NFT") is read the same way: at worst it becomes vet402's label, which
+ * never blames the seller (and the lane's ledger allows each seller once, so no money moves on it).
  */
-const ASSET_END = String.raw`(?=\s*$|[.,;:!?)"']|\s+(?:in|on|of|to|for|from|with|and|or|per|at|before|after|each)\b)`;
-const ASSET = String.raw`(?:tokens?|nfts?|funds?|transactions?|balance|eth|usdc|usdg|sol|coins?|shares?|stake)${ASSET_END}`;
-/** A quantity before an asset noun: a number, one, a, an, optionally after "at least". */
-const QTY = String.raw`(?:at\s+least\s+)?(?:\d[\d,.]*|one|a|an)\s+`;
-/**
- * "x is required to <phrase>": only these phrases, each with an asset noun, make it a condition on what x holds (the
- * seller's content). Every other phrase, a doubtful one included ("to have at least one query parameter", "to own
- * the request", "to be verified"), reads x as the missing input: a doubt falls on vet402's side, never against the
- * seller.
- */
-const CONTENT_CONDITION = String.raw`(?:have\s+at\s+least\s+(?:\d[\d,.]*|one|a|an)\s+${ASSET}|own\s+${QTY}${ASSET}|hold\s+${QTY}${ASSET}|stake(?:\s+(?:\d[\d,.]*|at\s+least)\b|\s+tokens?\b|\s*[.!]?\s*$)|be\s+whitelisted\b|be\s+on\s+the\s+allowlist\b|have\s+an?\s+(?:minimum|positive|non-zero|sufficient)\s+balance\b|contain\s+at\s+least\s+(?:\S+\s+){0,2}?${ASSET})`;
 
 /** A validator's fixed message for one field (marshmallow, webargs, DRF, FastAPI, Zod): the field is the JSON key. */
 const VALIDATOR_FIELD_MESSAGE = /^(missing data for required field|this field is required|this field may not be (?:null|blank)|field required|required)\.?$/i;
@@ -523,11 +513,9 @@ function inputForNames(piece: string): string[] {
 
 /**
  * Pure. The names a sentence gives in a form that leaves no doubt that this input is what is missing: "required
- * property 'x'", "x is required" (not "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
- * "'x' is missing", not after "for"). "x is required to <phrase>" counts unless the phrase is a condition on content
- * with an asset noun (CONTENT_CONDITION: have at least N <asset>, own / hold N <asset>, stake N / stake tokens / a
- * closing "stake", be whitelisted, be on the allowlist, have a minimum / positive / non-zero / sufficient balance,
- * contain at least ... <asset>). With one of these, the sentence's content words (data, price, history) are
+ * property 'x'", "x is required" (and "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
+ * "'x' is missing", not after "for"). "x is required to <anything>" gives x like "x is required": the words after
+ * "required to" never decide the side. With one of these, the sentence's content words (data, price, history) are
  * not read as the seller's missing content.
  */
 export function strongNamesInSentence(piece: string): string[] {
@@ -536,7 +524,7 @@ export function strongNamesInSentence(piece: string): string[] {
     if (n && !STOP.has(n.toLowerCase())) out.add(n);
   };
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+property\s+${Q}(${ID})`, "gi"))) add(q[1]);
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+${CONTENT_CONDITION})`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
   for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
@@ -574,7 +562,7 @@ export function namesInSentence(piece: string): string[] {
   // names the seller's data, and "(… for balance lookup)" is a note, not a name).
   for (const n of inputForNames(piece)) push(n);
   // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+${CONTENT_CONDITION})`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b`, "gi"))) push(q[1]);
   // "required field(s): x, y" / "required property 'x'"
   // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
