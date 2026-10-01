@@ -245,6 +245,31 @@ test("gate: an image URL with a query, a fragment, a secret in its path, or not 
   assert.ok(stops(withDetail(`{"image":"https://cdn.example.io/${key}.png"}`), { ownKeys: [key] }).includes("own-key"));
 });
 
+test("gate: an image URL cut at the end of a 300-character body passes only under a field named for an image", () => {
+  // rows[271] of 2026-10-01 ended exactly at .webp; a longer token name the next day cuts the same URL earlier
+  const head = '{"data":[{"name":"I Am Jane Doe","description":null,"mint":"FEVYjz1uqrGxF5gUfbAb7hHUTGFv7hycLWywsanJtLhm","symbol":"Jane","mcap":49364,"deployed_at":"2026-10-01T13:20:53.510321Z","launchpad":"pumpfun",';
+  const url = "https://axiomtrading-v2.axiom-cdn.io/A4VEVJchzfEvYzzCEuSGJLSwe1wcBjwNxHADhVGtxz6T.webp";
+  const none = (body: string) => blockingFindings(scanFileText(withDetail(body), "data/x.json"), []);
+  for (let cut = "https://axiomtrading-v2.axiom-cdn.io/".length; cut <= url.length; cut++) {
+    assert.deepEqual(none(`${head}"image_uri":"${url.slice(0, cut)}`).map((f) => f.shape), [], url.slice(0, cut));
+    assert.deepEqual(none(`${head}"logoURI":"${url.slice(0, cut)}`).map((f) => f.shape), [], url.slice(0, cut));
+  }
+  const r = seeded(20261003);
+  for (let i = 0; i < 30; i++) {
+    const cutId = alnum(r, 20 + (i % 20));
+    assert.deepEqual(none(`${head}"image_uri":"https://cdn.example.io/a/${cutId}`).map((f) => f.shape), [], cutId);
+    const stops = (body: string) => none(body).map((f) => f.kind);
+    // not under an image field, or not at the end (the URL was not cut), or a step that is not plain
+    assert.ok(stops(`${head}"website":"https://cdn.example.io/a/${cutId}`).includes("opaque-40"));
+    assert.ok(stops(`${head}"image_uri":"https://cdn.example.io/a/${cutId}","website":null`).includes("opaque-40"));
+    assert.ok(stops(`${head}"image_uri":"https://api.telegram.org/file/bot123456789:${cutId}`).includes("opaque-40"));
+    assert.ok(stops(`${head}"image_uri":"https://res.cloudinary.com/demo/image/upload/s--${alnum(r, 8)}--/${cutId}`).includes("opaque-40"));
+    // a query cut at the end is still read
+    assert.ok(stops(`${head}"image_uri":"https://cdn.example.io/a/b.png?token=${cutId}`).includes("url-query-secret"));
+    assert.ok(stops(`${head}"image_uri":"https://cdn.example.io/a/b?v=${cutId}`).includes("opaque-40"));
+  }
+});
+
 test("gate: a crypto asset named token passes only in its public shape; credential tokens always stop", () => {
   const pass = [
     { token_amount: "835335.7825230001" }, { base_token_price_quote_token: "2668.701" }, { token_name: "American Inu" },

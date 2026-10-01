@@ -20,8 +20,8 @@
  *    base58 address, a 64-byte base58 signature, hex of a hash or address, an Algorand address with a valid
  *    checksum or transaction id, an IPFS id, a payment challenge id) or the same value is an address or
  *    transaction elsewhere in the same file. Words, slugs and UUID-like ids are not random-looking. A public
- *    image URL (https, a plain path ending in an image file or under /images/) is one public value; its query
- *    and fragment are still read.
+ *    image URL (https, a plain path ending in an image file or under /images/, or cut at the end of a body
+ *    under a field named for an image) is one public value; its query and fragment are still read.
  * Anything else that is public by design is allowed by exact sha256 only, each with a reason, in
  * scripts/daily/secret-allow.json.
  */
@@ -718,7 +718,24 @@ function publicImagePath(v: string, path: string, end: number): boolean {
  * vendor key prefixes, private keys, user:password, values under secret names).
  */
 export function blankPublicImageUrls(v: string): string {
-  return v.replace(IMAGE_URL, (m: string, path: string, offset: number) => (publicImagePath(v, path, offset + m.length) ? " ".repeat(m.length) : m));
+  return v.replace(IMAGE_URL, (m: string, path: string, offset: number) =>
+    publicImagePath(v, path, offset + m.length) || cutImageUrl(v, path, offset, m.length) ? " ".repeat(m.length) : m,
+  );
+}
+
+/** A JSON field named for an image ("image_uri":", "logoURI":", "icon_url":"), right before a value. */
+const IMAGE_FIELD_BEFORE = /(?:image|img|logo|icon|avatar|thumb|picture|photo|banner)[A-Za-z0-9_]*\\*["']\s*:\s*\\*["']$/i;
+
+/**
+ * A response body is kept to its first 300 characters, so an image URL at its end is often cut before its file
+ * extension (2 of the 6 image_uri values in data/ from 2026-09-28 to 2026-10-01 were). Such a URL is taken as
+ * public only when all of these hold: it runs to the very end of the text (no closing quote, so it was cut), it
+ * is the value of a field named for an image, and its path steps are plain (see publicImagePath).
+ */
+function cutImageUrl(v: string, path: string, offset: number, length: number): boolean {
+  if (offset + length !== v.length) return false;
+  if (!IMAGE_FIELD_BEFORE.test(v.slice(Math.max(0, offset - 80), offset))) return false;
+  return !path.split(/\\*\//).some((s) => SIGNED_STEP.test(s));
 }
 
 /** The runner's own key material in the encodings it could leak in. */
