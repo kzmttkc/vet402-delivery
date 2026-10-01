@@ -81,6 +81,8 @@ export interface LastPaid {
   at: string | null;
   /** The 4xx was read as vet402's own wrong request (laneInputProblem). Otherwise it is the seller's answer. */
   inputError: boolean;
+  /** How many parameters the listing declared then (a stop for good needs at least one). Absent: none. */
+  declaredCount?: number;
 }
 
 /**
@@ -95,7 +97,7 @@ export function lastPaidByListing(rows: readonly ChainBuyRecord[]): Map<string, 
     const k = r.listingResource ?? r.resource;
     const prev = m.get(k);
     if (prev?.at && Date.parse(prev.at) >= Date.parse(r.at)) continue;
-    m.set(k, { status: r.response?.status ?? null, requestKey: r.requestKey ?? null, at: r.at, inputError: laneInputProblem(r) !== null });
+    m.set(k, { status: r.response?.status ?? null, requestKey: r.requestKey ?? null, at: r.at, inputError: laneInputProblem(r) !== null, declaredCount: r.declaredParams?.length ?? 0 });
   }
   return m;
 }
@@ -105,12 +107,13 @@ export const SELLER_4XX_RETRY_MS = 7 * 86_400_000; // every 7 days: the record o
 
 /**
  * Pure. Why the same (or an unfillable) request must not be sent again after `last`, or null. vet402's own wrong
- * request: never again until the request changes. A seller-side 400/404/422: bought again every 7 days
- * (SELLER_4XX_RETRY_MS after the last answer), so the record of that listing stays fresh.
+ * request to a listing that declares at least one parameter: never again until the request changes. Every other
+ * 400/404/422 (the seller's, or vet402's on a listing that declares nothing, where the reading rests on the fixed
+ * word list only): bought again every 7 days (SELLER_4XX_RETRY_MS after the last answer).
  */
 export function holdAfter4xx(last: LastPaid | null, nowMs: number): string | null {
   if (!last || last.status === null || !INPUT_STATUSES.has(last.status)) return null;
-  if (last.inputError) return "input_unchanged_after_input_error";
+  if (last.inputError && (last.declaredCount ?? 0) > 0) return "input_unchanged_after_input_error";
   const at = last.at ? Date.parse(last.at) : NaN;
   if (Number.isFinite(at) && nowMs - at >= SELLER_4XX_RETRY_MS) return null;
   return "unchanged_after_seller_4xx_within_7_days";
@@ -198,41 +201,56 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
 export type LaneInputProblem = "path_placeholder" | "missing_input";
 
 /**
- * The seller's error names an input that is required or empty. The answer is read one piece at a time: each string
- * value of a JSON answer (also of a cut-off one), or each sentence of a plain one. A piece counts as vet402's
- * request only on its own words, so another key of the same JSON ("url", "query", "payment") never decides it:
- *   - MISSING_TEXT ("is required", "field required", "cannot be empty", ...), or
- *   - "missing" with an input word (INPUT_WORD), or with a parameter the listing declares after it, or
- *   - "missing" followed by a quoted name read by quotedNameSide (a declared parameter, or an input word when it
- *     names nothing of the seller's own and the listing declares nothing else),
- *   - a validator's standard text: Fastify "querystring|body|params|headers must have required property 'x'", and
- *     Zod "Required" (issue paths, and the keys of .flatten() fieldErrors). The name is read by quotedNameSide like
- *     a quoted one; an auth or payment header (AUTH_HEADER) is the seller's; a "Required" with no name at all
- *     (formErrors, {"error":"Required"}) is the seller's,
- * and never when the same piece speaks of the seller's own side (SELLER_SIDE: env, config, upstream, server,
- * response, an API key, a secret, a password, a private key, a mnemonic, a JWT, the facilitator, the payTo) or of
- * payment or authentication (NOT_INPUT).
- *
- * Calling vet402's request wrong stops the listing for good until the request changes (holdAfter4xx); calling it
- * the seller's re-buys it every 7 days. So a name that could be the seller's own setting is read as the seller's.
+ * Reading a 4xx answer (review of a70363c: the rule turned around). An answer is vet402's own wrong request only
+ * when every name it says is missing is one vet402 should have sent:
+ *   (a) a parameter the listing declares (case, snake_case and camelCase are the same name), or
+ *   (b) when the listing declares nothing, a word of ALLOWED_NAMES.
+ * Everything else is the seller's: an answer with no name, any name outside (a) or (b), any name of the seller's
+ * own (ALL_CAPS, SELLER_SIDE or NOT_INPUT words, a header), a path through config, env, settings
+ * or secrets, a missing header (vet402 does not send headers), or a sentence that names a missing thing next to
+ * the seller's own side. The names come from every shape the same way: a quoted name after "missing", Fastify
+ * ("<part> must have required property 'x'"), Zod (issue path, .flatten() fieldErrors keys), pydantic/FastAPI
+ * (loc), Joi ('"x" is required'), Yup ("x is a required field"), and plain sentences ("Missing required fields: a,
+ * b", "x is required", "x cannot be empty", "missing value for x").
  */
-const MISSING_TEXT = /\b(is required|are required|(field|url|value|param|parameter|query|body|input|argument)s? required|required (field|param|parameter|query|argument)|cannot be empty|must not be empty|must be provided|empty (json )?body|no (query|input|body) (given|provided|sent))\b/i;
-const MISSING_WORD = /\bmissing\b/i;
-const INPUT_WORD = /\b(quer(y|ies)|bod(y|ies)|param\w*|fields?|inputs?|arguments?|args?|url|required|values?)\b/i;
-/** "missing" followed by a quoted identifier: Missing "address", missing: 'wallet'. */
-const MISSING_QUOTED = /\bmissing\s*:?\s*\\?["'`]([A-Za-z_]\w*)\\?["'`]/i;
-/** The seller's own side: its environment, configuration, upstream, server or response, or its API key. */
-const SELLER_SIDE = /(\b(env|environment|config\w*|upstream|server|response|misconfigur\w*|secrets?|passwords?|passwd|mnemonic|jwt|facilitator\w*|pay_?to)\b|api[ _-]?key|private[ _-]?key)/i;
-/** Words that make a quoted name the seller's own setting (split from camelCase and snake_case first). */
-const SELLER_NAME_WORDS = new Set(["secret", "secrets", "password", "passwd", "pwd", "mnemonic", "seed", "token", "tokens", "jwt", "rpc", "url", "uri", "dsn", "facilitator", "credential", "credentials", "apikey", "privatekey", "payto"]);
-const SELLER_NAME_PAIRS: readonly [string, string][] = [["private", "key"], ["api", "key"], ["pay", "to"], ["secret", "key"], ["access", "key"]];
-/** Header names whose absence is about payment or authentication: never vet402's input. */
-const AUTH_HEADER = /^(authorization|proxy-authorization|payment|payment-signature|x-payment(-[\w-]+)?|x-api-key|api-key|token|x-access-token|x-auth-token|cookie)$/i;
-/** Fastify's standard validation text. */
-const FASTIFY_REQUIRED = /\b(querystring|body|params|headers)\s+must have required property\s+\\?['"`]?([A-Za-z0-9_$.-]+)/i;
+export const ALLOWED_NAMES: readonly string[] = ["address", "wallet", "symbol", "ticker", "query", "q", "input", "parameter", "argument", "value", "mint", "token_address", "chain", "network", "date"];
+
+const SELLER_SIDE = /(\b(env|environment|config\w*|upstream|server|response|misconfigur\w*|secrets?|passwords?|passwd|mnemonic|jwt|facilitator\w*|pay_?to|database)\b|api[ _-]?key|private[ _-]?key)/i;
 const NOT_INPUT = /\b(payment|x-payment|authori[sz]ation|authenticat\w*|auth token|bearer|signature|header|login|subscription)\b/i;
+/** Path parts that put a name in the seller's own configuration. */
+const SELLER_PATH = /^(config\w*|env|environment|settings?|secrets?)$/i;
 /** A seller's validation error that quotes a path slot vet402 sent as the value. */
 const SLOT_ECHO = /"input"\s*:\s*":[A-Za-z_]/;
+
+const canon = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
+const singular = (c: string) => (c.endsWith("ies") ? `${c.slice(0, -3)}y` : c.endsWith("s") && !c.endsWith("ss") ? c.slice(0, -1) : c);
+const ALLOWED = new Set(ALLOWED_NAMES.map(canon));
+
+/** One missing name an answer gives: where it was found (header, path) and the sentence it came from. */
+export interface MissingName {
+  name: string;
+  header: boolean;
+  path: string[];
+  source: string;
+}
+
+/**
+ * Pure. Whose is one missing name: "input" only per (a) or (b) above; otherwise "seller".
+ */
+export function missingNameSide(m: MissingName, declared: readonly string[] = []): "input" | "seller" {
+  const n = m.name;
+  if (m.header) return "seller";
+  if (m.path.some((x) => SELLER_PATH.test(x))) return "seller";
+  if (/^[A-Z][A-Z0-9_]*$/.test(n) && /[A-Z]{2}/.test(n)) return "seller";
+  if (SELLER_SIDE.test(n) || NOT_INPUT.test(n)) return "seller";
+  const c = canon(n);
+  if (declared.length) {
+    if (declared.some((d) => canon(d) === c)) return "input";
+    return "seller";
+  }
+  if (ALLOWED.has(c) || ALLOWED.has(singular(c))) return "input";
+  return "seller";
+}
 
 /** Pure. The pieces of an answer: every string value of JSON (or of cut-off JSON), else each sentence. */
 export function answerPieces(text: string): string[] {
@@ -261,71 +279,100 @@ function sentences(s: string): string[] {
   return s.split(/(?<=[.!?;])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
 }
 
-function declaredAfterMissing(piece: string, declared: readonly string[]): boolean {
-  const names = declared.filter((n) => /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(n));
-  if (!names.length) return false;
-  const i = piece.search(MISSING_WORD);
-  if (i < 0) return false;
-  const after = piece.slice(i);
-  return new RegExp(`(^|[^A-Za-z0-9_])(${names.map((n) => n.replace(/-/g, "\\-")).join("|")})([^A-Za-z0-9_]|$)`).test(after.slice("missing".length));
-}
+const ID = String.raw`[A-Za-z_$][\w$.-]*`;
+const Q = String.raw`\\?["'\x60]?`;
+/** A sentence that says something is missing or required. */
+const CUE = /\b(missing|required|cannot be empty|must not be empty|must be provided)\b/i;
+const GENERIC = /^(fields?|params?|parameters?|arguments?|args?|propert(y|ies)|keys?|values?|inputs?)$/i;
+const STOP = new Set(["for", "in", "from", "of", "to", "the", "a", "an", "this", "that", "data", "when", "with", "or", "and", "is", "are", "was", "be", "at", "on"]);
 
-/** The words of a name: rpcUrl -> rpc url, stripe_secret_key -> stripe secret key, Supabase_Url -> supabase url. */
-function nameWords(name: string): string[] {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map((w) => w.toLowerCase());
-}
-
-/** Pure. A name the seller's own setup would hold: a secret, a key, a token, an RPC or URL, the payTo, the facilitator. */
-export function sellerSettingName(name: string): boolean {
-  const w = nameWords(name);
-  if (w.some((x) => SELLER_NAME_WORDS.has(x))) return true;
-  return SELLER_NAME_PAIRS.some(([a, b]) => w.some((x, i) => x === a && w[i + 1] === b));
-}
-
-/**
- * Pure. Whose is a quoted name in "missing 'x'"? "input" (vet402's request) only when the listing declares it, or
- * when it is not a seller setting, not written like an environment variable, and the listing declares no other
- * parameters (then nothing says what the seller takes: an input word or a plain field name is read as the request).
- */
-export function quotedNameSide(name: string, declared: readonly string[] = []): "input" | "seller" {
-  if (declared.some((d) => d.toLowerCase() === name.toLowerCase())) return "input";
-  if (sellerSettingName(name)) return "seller";
-  if (/^[A-Z][A-Z0-9_]*$/.test(name) && /[A-Z]{2}/.test(name)) return "seller";
-  if (declared.length) return "seller";
-  return "input";
-}
-
-/** Pure. What in one piece says vet402's request was wrong, or null. */
-export function inputErrorIn(piece: string, declared: readonly string[] = []): string | null {
-  const f = FASTIFY_REQUIRED.exec(piece);
-  if (f) {
-    const where = f[1]!.toLowerCase();
-    const name = f[2]!;
-    if (where === "headers" && AUTH_HEADER.test(name)) return null;
-    if (SELLER_SIDE.test(name)) return null;
-    return quotedNameSide(name, declared) === "input" ? f[0] : null;
+/** Pure. The missing names one sentence gives (empty when it names nothing). */
+export function namesInSentence(piece: string): string[] {
+  const out: string[] = [];
+  const push = (n: string | undefined) => {
+    const x = (n ?? "").replace(/^[.\-]+|[.\-]+$/g, "");
+    if (x && !STOP.has(x.toLowerCase())) out.push(x);
+  };
+  let m: RegExpExecArray | null;
+  // Fastify: "querystring must have required property 'x'" (the part is read by namesInAnswer).
+  if ((m = new RegExp(String.raw`\bmust have required property\s+${Q}(${ID})`, "i").exec(piece))) push(m[1]);
+  // missing "x", missing: 'x'
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
+  // Missing [required] [fields|params|...][:] a, b and c  |  missing <generic>  |  missing x
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*(?:required\s+)?(?:(${ID})\s*:\s*|(${ID})\s+)?(${ID}(?:\s*(?:,|\band\b)\s*${ID})*)?`, "gi"))) {
+    const head = q[1] ?? q[2];
+    const list = (q[3] ?? "").split(/\s*(?:,|\band\b)\s*/).filter(Boolean);
+    if (head && GENERIC.test(head)) {
+      if (list.length && !STOP.has(list[0]!.toLowerCase())) list.forEach(push);
+      else push(head);
+    } else if (head) push(head);
+    else list.slice(0, 1).forEach(push);
   }
-  if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece)) return null;
-  // A bare "Required" is Zod's; laneInputProblem reads it with its names (zodRequired), never alone.
-  if (/^required\.?$/i.test(piece.trim())) return null;
-  const m = MISSING_TEXT.exec(piece);
-  if (m) return m[0];
-  if (!MISSING_WORD.test(piece)) return null;
-  const q = MISSING_QUOTED.exec(piece);
-  if (q) return quotedNameSide(q[1]!, declared) === "input" ? q[0] : null;
-  if (INPUT_WORD.test(piece)) return piece.match(MISSING_WORD)![0];
-  if (declaredAfterMissing(piece, declared)) return piece.match(MISSING_WORD)![0];
-  return null;
+  // "... for x" after a missing value/parameter
+  if ((m = new RegExp(String.raw`\bmissing\b[^.]*?\bfor\s+(?:the\s+)?${Q}(${ID})`, "i").exec(piece))) push(m[1]);
+  // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|field|property|argument|value)\s+)?(?:is|are)\s+(?:a\s+)?required\b`, "gi"))) push(q[1]);
+  // "required field(s): x, y" / "required property 'x'"
+  for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:field|param|parameter|property|argument|key)s?\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
+  // "x cannot be empty", "x must not be empty", "x must be provided"
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:cannot be empty|must not be empty|must be provided)`, "gi"))) push(q[1]);
+  return [...new Set(out)];
 }
 
 /**
- * Pure. Was the paid answer about vet402's request? Only 400, 404 and 422 answers, and only on definite
- * evidence: a slot left in the URL vet402 requested, or a piece of the seller's error naming a missing or empty input.
+ * Pure. Every missing name in an answer, from structured JSON (Zod issues and fieldErrors, pydantic loc, Fastify
+ * part) and from each sentence. `tainted`: a sentence that says something is missing also speaks of the seller's
+ * own side (SELLER_SIDE) or of payment or authentication (NOT_INPUT).
+ */
+export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean } {
+  const names: MissingName[] = [];
+  let tainted = false;
+  let j: unknown = undefined;
+  try {
+    j = JSON.parse(text.trim());
+  } catch {
+    j = undefined;
+  }
+  const strs = (a: unknown[]) => a.filter((x): x is string => typeof x === "string");
+  const walk = (v: unknown, keys: string[], depth: number): void => {
+    if (depth > 8 || !v || typeof v !== "object") return;
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, keys, depth + 1));
+    const o = v as Record<string, unknown>;
+    const msg = typeof o.message === "string" ? o.message : typeof o.msg === "string" ? o.msg : "";
+    // Zod issue
+    if (Array.isArray(o.path) && /^required\.?$/i.test(msg.trim())) {
+      const path = strs(o.path);
+      const last = path.at(-1);
+      if (last) names.push({ name: last, header: path.some((x) => /^headers?$/i.test(x)), path: [...keys, ...path], source: "zod" });
+    }
+    // pydantic / FastAPI
+    if (Array.isArray(o.loc) && (o.type === "missing" || o.type === "value_error.missing" || /field required/i.test(msg))) {
+      const loc = strs(o.loc);
+      const last = loc.at(-1);
+      if (last) names.push({ name: last, header: /^headers?$/i.test(loc[0] ?? ""), path: [...keys, ...loc], source: "pydantic" });
+    }
+    // Zod .flatten()
+    if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
+      for (const [k, msgs] of Object.entries(o.fieldErrors as Record<string, unknown>)) {
+        if (Array.isArray(msgs) && msgs.some((x) => typeof x === "string" && CUE.test(x))) names.push({ name: k, header: false, path: [...keys, k], source: "zod.fieldErrors" });
+      }
+    }
+    for (const [k, x] of Object.entries(o)) walk(x, [...keys, k], depth + 1);
+  };
+  if (j !== undefined) walk(j, [], 0);
+  for (const piece of answerPieces(text)) {
+    if (!CUE.test(piece)) continue;
+    if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece)) tainted = true;
+    const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
+    for (const n of namesInSentence(piece)) names.push({ name: n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text" });
+  }
+  return { names, tainted };
+}
+
+/**
+ * Pure. Was the paid answer about vet402's request? Only 400, 404 and 422 answers: a slot left in the URL vet402
+ * requested, or an answer whose every missing name is vet402's to send (missingNameSide), with none of the
+ * seller's own and no sentence about the seller's side.
  */
 export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response" | "body" | "declaredParams">): { kind: LaneInputProblem; detail: string } | null {
   const status = r.response?.status ?? null;
@@ -335,65 +382,11 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   if (slot) return { kind: "path_placeholder", detail: `the URL vet402 sent still had the slot ${slot === "*" ? "*" : `:${slot}`} in its path` };
   if (status === 404) return null;
   if (SLOT_ECHO.test(text)) return { kind: "path_placeholder", detail: "the seller's error quotes a path slot vet402 sent as the value" };
-  // Zod's "Required" is vet402's request only when it names what was missing and every such name is read as the
-  // request (quotedNameSide). No name, or any name of the seller's own, is the seller's.
-  const zod = zodRequired(text);
-  if (zod.required && zod.names.length && zod.names.every((n) => zodNameSide(n, r.declaredParams ?? []) === "input")) {
-    return { kind: "missing_input", detail: `the seller's ${status} says an input was missing ("Required": ${zod.names.join(", ")})` };
-  }
-  for (const piece of answerPieces(text)) {
-    const hit = inputErrorIn(piece, r.declaredParams ?? []);
-    if (hit) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${hit}")` };
-  }
-  return null;
-}
-
-const REQUIRED = /^required\.?$/i;
-
-/**
- * Pure. Zod's "Required" in a JSON answer: whether one is there, and the names it gives — the path of each issue
- * (the field itself, its last part; a path through "headers" keeps that) and each key of .flatten() fieldErrors
- * whose messages say "Required". formErrors and a bare {"error":"Required"} give no name.
- */
-export function zodRequired(text: string): { required: boolean; names: string[] } {
-  let j: unknown;
-  try {
-    j = JSON.parse(text.trim());
-  } catch {
-    return { required: false, names: [] };
-  }
-  let required = false;
-  const names: string[] = [];
-  const walk = (v: unknown, depth: number): void => {
-    if (depth > 8 || v === null || v === undefined) return;
-    if (typeof v === "string") {
-      if (REQUIRED.test(v.trim())) required = true;
-      return;
-    }
-    if (typeof v !== "object") return;
-    if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
-    const o = v as Record<string, unknown>;
-    if (typeof o.message === "string" && REQUIRED.test(o.message.trim()) && Array.isArray(o.path)) {
-      const parts = o.path.filter((x): x is string => typeof x === "string");
-      const last = parts.at(-1);
-      if (last) names.push(parts.some((x) => x.toLowerCase() === "headers") ? `headers.${last}` : last);
-    }
-    if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
-      for (const [k, msgs] of Object.entries(o.fieldErrors as Record<string, unknown>)) {
-        if (Array.isArray(msgs) && msgs.some((m) => typeof m === "string" && REQUIRED.test(m.trim()))) names.push(k);
-      }
-    }
-    for (const x of Object.values(o)) walk(x, depth + 1);
-  };
-  walk(j, 0);
-  return { required, names: [...new Set(names)] };
-}
-
-/** A Zod name read like a quoted one; a header name of authentication or payment is the seller's. */
-function zodNameSide(name: string, declared: readonly string[]): "input" | "seller" {
-  if (name.startsWith("headers.")) return AUTH_HEADER.test(name.slice(8)) ? "seller" : quotedNameSide(name.slice(8), declared);
-  if (AUTH_HEADER.test(name) || SELLER_SIDE.test(name)) return "seller";
-  return quotedNameSide(name, declared);
+  const { names, tainted } = namesInAnswer(text);
+  if (tainted || names.length === 0) return null;
+  const declared = r.declaredParams ?? [];
+  if (!names.every((n) => missingNameSide(n, declared) === "input")) return null;
+  return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(names.map((n) => n.name))].join(", ")}` };
 }
 
 // ---------- the seller said it did not charge ----------

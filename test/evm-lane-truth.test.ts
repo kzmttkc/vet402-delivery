@@ -17,6 +17,11 @@ import { classifyRecord } from "../src/evm/settle-cause.js";
 import { buildLanePublic, isNegative, unpublishableRows, withholdUnnotified } from "../src/evm/site.js";
 import { lookup } from "../packages/check/src/check.js";
 
+/**
+ * The earlier seven vet402-side answers, as the rule of review a70363c reads them: six stay vet402's. "Missing url"
+ * is the seller's: url is not one of the allowed names (ALLOWED_NAMES), so it is asserted on its own below.
+ */
+const EARLIER_SEVEN_KEPT = ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "missing queries", 'Missing "address"'];
 const PAYER = getAddress("0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51");
 const ARB = EVM_CHAINS.arbitrum;
 
@@ -124,12 +129,12 @@ test("free: agentbit (first_call_free), getplexa (freeTrialApplied), phion (char
   assert.equal(classifyRecord(byHost("asterpay")).cause, "not_settled");
 });
 
-test("vet402's request: socialintel (:username), carbon-cashmere (:netuid), openwebninja (no query), quickintel (empty body) are vet402's, settled or not", () => {
+test("vet402's request: socialintel (:username), carbon-cashmere (:netuid), openwebninja (no query) are vet402's; quickintel's 'Body cannot be empty' names nothing vet402 sends, so it is the seller's", () => {
   assert.equal(laneInputProblem(byHost("socialintel"))?.kind, "path_placeholder");
   assert.equal(laneInputProblem(byHost("carbon-cashmere"))?.kind, "path_placeholder");
   assert.equal(laneInputProblem(byHost("openwebninja"))?.kind, "missing_input");
-  assert.equal(laneInputProblem(byHost("quickintel"))?.kind, "missing_input");
-  assert.equal(classifyRecord(byHost("quickintel")).rule, "input:missing_input:settled");
+  assert.equal(laneInputProblem(byHost("quickintel")), null, "Body is not an allowed name");
+  assert.equal(classifyRecord(byHost("quickintel")).cause, "seller_config");
   assert.equal(classifyRecord(byHost("socialintel")).rule, "input:path_placeholder");
   // Not input: a 404 with no slot, a 400 about payment or a key, a 500.
   assert.equal(laneInputProblem({ resource: "https://s.test/a", response: resp(404, "{}"), body: "{}" }), null);
@@ -141,25 +146,25 @@ test("vet402's request: socialintel (:username), carbon-cashmere (:netuid), open
 
 test("next purchase: the slot and the inputs are filled from the listing; an input vet402 cannot fill after a 400/404/422 is not bought again", () => {
   const social = { resource: "https://socialintel.dev/v1/user/:username", extensions: { bazaar: { info: { input: { method: "GET", pathParams: { username: "test" }, queryParams: { username: "yoga_with_adriene" }, type: "http" } } } } };
-  const r1 = repairLaneRequest(social, { resource: social.resource, method: "GET", query: { username: "yoga_with_adriene" }, body: null }, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true });
+  const r1 = repairLaneRequest(social, { resource: social.resource, method: "GET", query: { username: "yoga_with_adriene" }, body: null }, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true, declaredCount: 1 });
   assert.ok(r1.ok && r1.request.resource === "https://socialintel.dev/v1/user/yoga_with_adriene");
   const carbon = { resource: "https://api.carbon-cashmere.de/v1/bittensor-derivatives/alpha-price-history/:netuid", extensions: { bazaar: { info: { input: { method: "GET", pathParams: { netuid: "1" }, type: "http" } } } } };
-  const r2 = repairLaneRequest(carbon, { resource: carbon.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 422, requestKey: null, at: null, inputError: true });
+  const r2 = repairLaneRequest(carbon, { resource: carbon.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 422, requestKey: null, at: null, inputError: true, declaredCount: 1 });
   assert.ok(r2.ok && r2.request.resource.endsWith("/alpha-price-history/1"));
   const noValue = repairLaneRequest({ resource: "https://x.test/u/:id" }, { resource: "https://x.test/u/:id", method: "GET", query: null, body: null }, "2026-10-01");
   assert.deepEqual(noValue, { ok: false, reason: "path_placeholder", param: "id" });
   // quickintel's Dexter listing declares the body (chain, tokenAddress): sent instead of {}.
   const qi = { resource: "https://x402.quickintel.io/v1/scan/full", accepts: [{ outputSchema: { input: { method: "POST", body: { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" } } } }] };
-  const r3 = repairLaneRequest(qi as never, { resource: qi.resource, method: "POST", query: null, body: {} }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true });
+  const r3 = repairLaneRequest(qi as never, { resource: qi.resource, method: "POST", query: null, body: {} }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true, declaredCount: 1 });
   assert.ok(r3.ok);
   assert.deepEqual(r3.ok && r3.request.body, { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" });
   // openwebninja: email_domain is required and nothing names a value: not bought again after the 400.
   const ow = { resource: "https://x402.openwebninja.com/email-search/search-emails", inputSchema: { properties: { email_domain: { type: "string" }, query: { type: "string" } }, required: ["email_domain", "query"] }, extensions: { bazaar: { info: { input: { method: "GET", queryParams: { type: "object", properties: { email_domain: { type: "string" }, query: { type: "string" } }, required: ["email_domain", "query"] } } } } } };
-  const r4 = repairLaneRequest(ow, { resource: ow.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true });
+  const r4 = repairLaneRequest(ow, { resource: ow.resource, method: "GET", query: null, body: null }, "2026-10-01", { status: 400, requestKey: null, at: null, inputError: true, declaredCount: 1 });
   assert.equal(r4.ok, false);
   // Plan: the listing goes to the group's input skips, and the row says so in neutral words.
   const accept = { scheme: "exact", network: ARB.caip2, amount: "3000", asset: ARB.asset, payTo: openweb.payTo, maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
-  const g = groupByPayTo([{ ...ow, accepts: [accept] }], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[ow.resource, { status: 400, requestKey: null, at: null, inputError: true }]]) });
+  const g = groupByPayTo([{ ...ow, accepts: [accept] }], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[ow.resource, { status: 400, requestKey: null, at: null, inputError: true, declaredCount: 1 }]]) });
   assert.equal(g[0]!.options.length, 0);
   assert.match(g[0]!.inputSkipped![0]!.why, /^input_unfillable: /);
 });
@@ -171,7 +176,7 @@ test("site, /v1/check and escrow: the new reading reaches every page, and nothin
   const l = withholdUnnotified(buildLanePublic("arbitrum", dry, paid), new Set());
   const st = (h: string) => l.rows.find((r) => (r.resource ?? "").includes(h))!.status;
   assert.equal(st("bazaar-rank"), "delivered");
-  assert.equal(st("quickintel"), "settled_vet402_input");
+  assert.equal(st("quickintel"), "withheld", "settled, then the seller's 400 that names nothing vet402 sends: untold, not published");
   assert.equal(st("agentbit"), "free_delivered");
   assert.equal(st("getplexa"), "free_delivered");
   assert.equal(st("phion"), "free_delivered");
@@ -185,10 +190,16 @@ test("site, /v1/check and escrow: the new reading reaches every page, and nothin
   assert.deepEqual(unpublishableRows(l, new Set()), []);
   const row = l.rows.find((r) => (r.resource ?? "").includes("bazaar-rank"))!;
   assert.equal(row.chainCheck, "transfer_found");
-  // /v1/check for quickintel: settled, never a seller-side failure; agentbit's free call is not a try against it.
+  // /v1/check for a settled purchase whose answer named an allowed name vet402 did not send: settled, never a
+  // seller-side failure; agentbit's free call is not a try against it.
+  const qiBody = '{"message":"\\"address\\" is required"}';
+  const qiInput = { ...checked.records.find((x) => x.resource.includes("quickintel"))!, response: resp(400, qiBody), body: qiBody };
+  const paid2 = paid.map((x) => (x.resource.includes("quickintel") ? { ...qiInput, lane: "arbitrum", cause: classifyRecord(qiInput) } : x));
+  const l2 = withholdUnnotified(buildLanePublic("arbitrum", dry, paid2), new Set());
+  assert.equal(l2.rows.find((x) => (x.resource ?? "").includes("quickintel"))!.status, "settled_vet402_input");
   const rank = JSON.parse(readFileSync(new URL("../site/rank.json", import.meta.url), "utf8")) as unknown;
   const index = JSON.parse(readFileSync(new URL("../data/records/index.json", import.meta.url), "utf8")) as unknown;
-  const chk = (u: string) => lookup(rank, index, { url: u, chain: "arbitrum" }, [], [l]).sellers.find((f) => f.page === "arbitrum")!;
+  const chk = (u: string) => lookup(rank, index, { url: u, chain: "arbitrum" }, [], [l2]).sellers.find((f) => f.page === "arbitrum")!;
   const qf = chk("https://x402.quickintel.io/v1/scan/full");
   assert.equal(qf.settled, 1);
   assert.deepEqual(qf.sellerSideFailures, {});
@@ -196,8 +207,8 @@ test("site, /v1/check and escrow: the new reading reaches every page, and nothin
   const af = chk("https://agentbit.app/v1/convert/csv-json");
   assert.equal(af.tried, 0);
   assert.equal(af.notCountedAgainstSeller.byRule.seller_said_free, 1);
-  // Escrow counts withheld purchases only: here one (asterpay).
-  assert.equal(l.rows.filter((r) => r.status === "withheld").length, 1);
+  // Escrow counts withheld purchases only: here two (asterpay, quickintel).
+  assert.equal(l.rows.filter((r) => r.status === "withheld").length, 2);
 });
 
 test("publish: one reading per purchase (the later wins), and a sent purchase the chain has not decided stops the publish", () => {
@@ -223,21 +234,21 @@ test("records keep the raw settlement header (which one, decoded, named a tx) an
 test("follow-up 1: a filled request that still got 400/404/422 is not bought again; the lookup is by the catalog URL", () => {
   const social = { resource: "https://socialintel.dev/v1/user/:username", extensions: { bazaar: { info: { input: { method: "GET", queryParams: { username: "yoga_with_adriene" }, type: "http" } } } } };
   const req = { resource: social.resource, method: "GET" as const, query: { username: "yoga_with_adriene" }, body: null };
-  const first = repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true });
+  const first = repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: null, at: null, inputError: true, declaredCount: 1 });
   assert.ok(first.ok && first.changed, "the old record sent the catalog's request: the filled one is new, so it is bought once");
   const sent = first.ok ? first.requestKey : "";
   // That filled request answered 404 too: the next run fills it the same way and does not buy it.
-  assert.deepEqual(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: sent, at: null, inputError: true }), { ok: false, reason: "input_unchanged_after_input_error", param: null });
+  assert.deepEqual(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: sent, at: null, inputError: true, declaredCount: 1 }), { ok: false, reason: "input_unchanged_after_input_error", param: null });
   // A 200 last time, or a different request now: bought.
   assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 200, requestKey: sent, at: null, inputError: false }).ok, true);
-  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: "f".repeat(64), at: null, inputError: true }).ok, true);
+  assert.equal(repairLaneRequest(social, req, "2026-10-01", { status: 404, requestKey: "f".repeat(64), at: null, inputError: true, declaredCount: 1 }).ok, true);
   // The plan looks the listing up by its catalog URL and carries it to the entry and the record.
   const accept = { scheme: "exact", network: ARB.caip2, amount: "10000", asset: ARB.asset, payTo: social.resource && "0xB1Acd9E0269023546074400A434e703B646AaBBa", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
   const listing = { ...social, accepts: [accept] };
-  const g1 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: null, at: null, inputError: true }]]) });
+  const g1 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: null, at: null, inputError: true, declaredCount: 1 }]]) });
   assert.equal(g1[0]!.options[0]!.listingResource, social.resource);
   assert.equal(g1[0]!.options[0]!.resource, "https://socialintel.dev/v1/user/yoga_with_adriene");
-  const g2 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: sent, at: null, inputError: true }]]) });
+  const g2 = groupByPayTo([listing], ARB, { maxPerAtomic: 100_000n, today: "2026-10-01", lastPaid: new Map([[social.resource, { status: 404, requestKey: sent, at: null, inputError: true, declaredCount: 1 }]]) });
   assert.equal(g2[0]!.options.length, 0);
   assert.match(g2[0]!.inputSkipped![0]!.why, /input_unchanged_after_input_error/);
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
@@ -253,13 +264,13 @@ test("follow-up 2: a bare 'missing' is vet402's input only next to query/body/pa
   assert.equal(laneInputProblem(r(400, '{"error":"upstream data missing for this symbol"}')), null);
   assert.equal(laneInputProblem(r(400, '{"error":"resource missing"}')), null);
   assert.equal(laneInputProblem(r(400, '{"error":"missing query parameter"}'))?.kind, "missing_input");
-  assert.equal(laneInputProblem(r(400, '{"error":"missing field"}'))?.kind, "missing_input");
+  assert.equal(laneInputProblem(r(400, '{"error":"missing field"}')), null, "field is not an allowed name");
   assert.equal(laneInputProblem(r(400, '{"error":"missing: email_domain"}')), null, "an undeclared name is not enough");
   assert.equal(laneInputProblem(r(400, '{"error":"missing: email_domain"}', ["email_domain", "query"]))?.kind, "missing_input");
   assert.equal(laneInputProblem(r(400, '{"error":"missing API key query"}')), null, "authentication is never vet402's input");
-  // The 2026-09-30 answers still read as vet402's request.
+  // The 2026-09-30 answers: openwebninja names query (allowed); quickintel names Body (not allowed).
   assert.equal(laneInputProblem(byHost("openwebninja"))?.kind, "missing_input");
-  assert.equal(laneInputProblem(byHost("quickintel"))?.kind, "missing_input");
+  assert.equal(laneInputProblem(byHost("quickintel")), null);
 });
 
 test("follow-up 3: a tx already held by an earlier record is not given to a later one; the later one is ambiguous, not settled", () => {
@@ -275,7 +286,7 @@ test("follow-up 3: a tx already held by an earlier record is not given to a late
 });
 
 test("review of a44d5aa [high]: the seller's 'missing ...' answers to vet402's request are vet402's, settled or not", () => {
-  const msgs = ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"'];
+  const msgs = EARLIER_SEVEN_KEPT;
   for (const m of msgs) {
     const body = JSON.stringify({ error: m });
     const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body };
@@ -306,7 +317,7 @@ test("review of a44d5aa [mid]: a request filled with today's date has the same f
   assert.equal(day1.ok && day1.requestKey, day2.ok && day2.requestKey);
   // Yesterday's 400 that was vet402's request stops today's identical (date-filled) request.
   const sent = day1.ok ? day1.requestKey : "";
-  const again = repairLaneRequest(listing, req, "2026-10-02", { status: 400, requestKey: sent, at: "2026-10-01T10:00:00Z", inputError: true }, Date.parse("2026-10-02T10:00:00Z"));
+  const again = repairLaneRequest(listing, req, "2026-10-02", { status: 400, requestKey: sent, at: "2026-10-01T10:00:00Z", inputError: true, declaredCount: 1 }, Date.parse("2026-10-02T10:00:00Z"));
   assert.deepEqual(again, { ok: false, reason: "input_unchanged_after_input_error", param: null });
   // A different concrete date is a different request.
   assert.notEqual(laneRequestKey({ ...req, query: { date: "2026-09-01" } }, { date: "2026-10-01", params: ["date"] }), sent);
@@ -319,7 +330,7 @@ test("review of a44d5aa [mid]: a request filled with today's date has the same f
 test("review of a44d5aa [mid]: vet402's own wrong request stops for good; a seller-side 4xx is bought again every 7 days", () => {
   const at = "2026-10-01T00:00:00Z";
   const t0 = Date.parse(at);
-  assert.equal(holdAfter4xx({ status: 400, requestKey: null, at, inputError: true }, t0 + 30 * 86_400_000), "input_unchanged_after_input_error");
+  assert.equal(holdAfter4xx({ status: 400, requestKey: null, at, inputError: true, declaredCount: 1 }, t0 + 30 * 86_400_000), "input_unchanged_after_input_error");
   assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, t0 + SELLER_4XX_RETRY_MS - 1), "unchanged_after_seller_4xx_within_7_days");
   assert.equal(holdAfter4xx({ status: 404, requestKey: null, at, inputError: false }, t0 + SELLER_4XX_RETRY_MS), null);
   assert.equal(holdAfter4xx({ status: 500, requestKey: null, at, inputError: false }, t0), null);
@@ -431,7 +442,7 @@ test("review of 7a967b8 [mid]: the seller's own broken side stays the seller's",
     assert.equal(classifyRecord(rec).cause, "seller_config", `${body}: settled, then the seller's own failure`);
   }
   // The earlier seven stay vet402's.
-  for (const m of ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"']) {
+  for (const m of EARLIER_SEVEN_KEPT) {
     assert.equal(answer400(JSON.stringify({ error: m }))?.kind, "missing_input", m);
   }
 });
@@ -486,14 +497,16 @@ test("names: a quoted name that is the seller's own setting stays the seller's, 
   assert.equal(answer400('missing "chain"', ["q", "address"]), null);
   assert.equal(answer400('missing "address"', ["q", "address"])?.kind, "missing_input", "declared: vet402's");
   // The earlier seven stay vet402's.
-  for (const m of ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"']) {
+  for (const m of EARLIER_SEVEN_KEPT) {
     assert.equal(answer400(JSON.stringify({ error: m }))?.kind, "missing_input", m);
     assert.equal(answer400(m)?.kind, "missing_input", `${m} (plain)`);
   }
 });
 
 test("validators: Fastify's 'must have required property' and Zod's 'Required' with a field name are vet402's request, except for an auth or payment header", () => {
-  for (const where of ["querystring", "body", "params", "headers"]) {
+  // A missing header is never vet402's (it sends none): headers 'address' is the seller's (review of a70363c).
+  assert.equal(answer400(JSON.stringify({ message: "headers must have required property 'address'" })), null);
+  for (const where of ["querystring", "body", "params"]) {
     const body = JSON.stringify({ statusCode: 400, code: "FST_ERR_VALIDATION", error: "Bad Request", message: `${where} must have required property 'address'` });
     assert.equal(answer400(body)?.kind, "missing_input", where);
     assert.equal(classifyRecord({ ...bazaar, settledOnChain: true, response: resp(400, body), body }).rule, "input:missing_input:settled", where);
@@ -545,7 +558,8 @@ test("Fastify: the name is read by quotedNameSide; token, x-access-token, x-auth
   }
   assert.equal(answer400(fastify("querystring", "chain"), ["q", "address"]), null, "not declared while others are");
   for (const h of ["token", "x-access-token", "x-auth-token", "x-api-key", "api-key", "authorization", "payment", "x-payment"]) assert.equal(answer400(fastify("headers", h)), null, h);
-  for (const where of ["querystring", "body", "params", "headers"]) assert.equal(answer400(fastify(where, "address"))?.kind, "missing_input", where);
+  for (const where of ["querystring", "body", "params"]) assert.equal(answer400(fastify(where, "address"))?.kind, "missing_input", where);
+  assert.equal(answer400(fastify("headers", "address")), null, "a missing header is the seller's");
 });
 
 test("unchanged by this review: the eleven setting names, the earlier seven, Fastify 'address', Zod path [address], Payment Required", () => {
@@ -553,7 +567,7 @@ test("unchanged by this review: the eleven setting names, the earlier seven, Fas
     assert.equal(answer400(`missing "${n}"`), null, n);
     assert.equal(answer400(`missing "${n}"`, ["q", "address"]), null, n);
   }
-  for (const m of ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"']) {
+  for (const m of EARLIER_SEVEN_KEPT) {
     assert.equal(answer400(JSON.stringify({ error: m }))?.kind, "missing_input", m);
   }
   assert.equal(answer400(fastify("querystring", "address"))?.kind, "missing_input");
@@ -569,4 +583,97 @@ test("intended: an undeclared quoted \"url\" or \"tokenAddress\" (vet402's on 47
     assert.equal(last.inputError, false);
     assert.equal(holdAfter4xx(last, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null, `${n}: bought again after 7 days`);
   }
+});
+
+// ---------- review of a70363c: the rule turned around (an answer is vet402's only when every missing name is) ----------
+
+const pyd = (loc: string[]) => JSON.stringify({ detail: [{ type: "missing", loc, msg: "Field required", input: null }] });
+
+test("turned rule, seller's: every form that escaped, the validators' texts, pydantic, and every earlier seller-side example", () => {
+  const sellers: [string, string, string[]?][] = [
+    ...["payment", "signature", "auth", "txHash", "database"].map((n): [string, string] => [`Fastify '${n}'`, fastify("body", n)]),
+    ...["x-signature", "x-402-payment", "x-authorization", "x-client-id", "x-session"].map((h): [string, string] => [`Fastify header '${h}'`, fastify("headers", h)]),
+    ['Zod path ["signature"]', zodIssue(["signature"])],
+    ['Zod path ["headers","x-signature"]', zodIssue(["headers", "x-signature"])],
+    ['Zod path ["config","database"]', zodIssue(["config", "database"])],
+    ['Zod path ["env","dbHost"]', zodIssue(["env", "dbHost"])],
+    ["Zod fieldErrors signature", '{"fieldErrors":{"signature":["Required"]}}'],
+    ["Zod fieldErrors login", '{"fieldErrors":{"login":["Required"]}}'],
+    ["Server misconfigured + fieldErrors database", '{"error":"Server misconfigured","details":{"fieldErrors":{"database":["Required"]}}}'],
+    ['Joi "\\"DATABASE_URL\\" is required"', '"\\"DATABASE_URL\\" is required"'],
+    ['Joi "DB_HOST" is required', '"DB_HOST" is required'],
+    ['Joi "RPC_URL" is required', '"RPC_URL" is required'],
+    ["Yup STORE_ID is a required field", "STORE_ID is a required field"],
+    ["Missing required field: DB_HOST", "Missing required field: DB_HOST"],
+    ["token is required", "token is required"],
+    ['pydantic loc ["body","SECRET"]', pyd(["body", "SECRET"])],
+    ['pydantic loc ["header","x-api-key"]', pyd(["header", "x-api-key"])],
+    ['pydantic loc ["header","authorization"]', pyd(["header", "authorization"])],
+    // Earlier seller-side examples.
+    ["env var", "Missing 'OPENAI_API_KEY' environment variable"],
+    ["DATABASE_URL", 'missing "DATABASE_URL"'],
+    ["redis_url in config", 'missing "redis_url" in config'],
+    ["misconfigured env", "Server misconfigured: missing env value"],
+    ["upstream + url key", '{"error":"upstream data missing","url":"https://s.test/a?q=1"}'],
+    ["Token data + query key", '{"error":"Token data missing","query":{"symbol":"ETH","required":true}}'],
+    ["upstream response", "upstream response missing fields"],
+    ["upstream + declared symbol", '{"error":"upstream data missing for this symbol"}', ["symbol"]],
+    ["Payment Required", '{"error":"Payment Required"}'],
+    ['{"error":"Required"}', '{"error":"Required"}'],
+    ['{"message":"Required"}', '{"message":"Required"}'],
+    ["formErrors", '{"formErrors":["Required"],"fieldErrors":{}}'],
+    ["fieldErrors STRIPE_SECRET_KEY", '{"fieldErrors":{"STRIPE_SECRET_KEY":["Required"]}}'],
+    ["fieldErrors DB_HOST nested", '{"error":{"fieldErrors":{"DB_HOST":["Required"]}}}'],
+    ['Zod path ["STORE_ID"]', zodIssue(["STORE_ID"])],
+    ['Zod path ["headers","authorization"]', zodIssue(["headers", "authorization"])],
+    ['Zod path ["apiSecret"]', zodIssue(["apiSecret"])],
+    ["upstream data missing", "upstream data missing"],
+    ["resource missing", "resource missing"],
+    ...["secret_token", "db_password", "privateKey", "rpcUrl", "jwt_secret", "stripe_secret_key", "access_token", "Supabase_Url", "mnemonic", "payTo", "facilitatorUrl"].flatMap((n): [string, string, string[]?][] => [[`missing "${n}"`, `missing "${n}"`], [`missing "${n}" (q, address)`, `missing "${n}"`, ["q", "address"]]]),
+    ...["db_password", "jwtSecret", "secret_token", "rpcUrl"].map((n): [string, string] => [`Fastify '${n}'`, fastify("querystring", n)]),
+    ["Fastify 'chain' (q, address)", fastify("querystring", "chain"), ["q", "address"]],
+    ...["token", "x-access-token", "x-auth-token", "x-api-key", "api-key", "authorization", "payment", "x-payment", "address"].map((h): [string, string] => [`Fastify header '${h}'`, fastify("headers", h)]),
+    ["Missing url (url is not an allowed name)", JSON.stringify({ error: "Missing url" })],
+  ];
+  for (const [label, body, declared] of sellers) {
+    assert.equal(answer400(body, declared), null, label);
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, body), body, ...(declared ? { declaredParams: declared } : {}) };
+    assert.equal(classifyRecord(rec).cause, "seller_config", label);
+  }
+});
+
+test("turned rule, vet402's (unchanged): the earlier seven but url, Fastify and Zod 'address', pydantic loc [query,address], Joi '\"address\" is required'", () => {
+  const vet: [string, string][] = [
+    ...EARLIER_SEVEN_KEPT.map((m): [string, string] => [m, JSON.stringify({ error: m })]),
+    ...["querystring", "body", "params"].map((w): [string, string] => [`Fastify ${w} 'address'`, fastify(w, "address")]),
+    ['Zod path ["address"]', zodIssue(["address"])],
+    ['pydantic loc ["query","address"]', pyd(["query", "address"])],
+    ['Joi "address" is required', '"address" is required'],
+  ];
+  for (const [label, body] of vet) {
+    assert.equal(answer400(body)?.kind, "missing_input", label);
+    assert.equal(classifyRecord({ ...bazaar, settledOnChain: true, response: resp(400, body), body }).rule, "input:missing_input:settled", label);
+  }
+});
+
+test("turned rule, declarations: a declared name (city) missing is vet402's in Joi, Fastify and Zod; an allowed word the listing does not declare is the seller's", () => {
+  assert.equal(answer400('"city" is required', ["city"])?.kind, "missing_input");
+  assert.equal(answer400(fastify("body", "city"), ["city"])?.kind, "missing_input");
+  assert.equal(answer400(zodIssue(["city"]), ["city"])?.kind, "missing_input");
+  assert.equal(answer400('missing "address"', ["city"]), null);
+  // snake_case and camelCase are one name.
+  assert.equal(answer400('"token_address" is required', ["tokenAddress"])?.kind, "missing_input");
+});
+
+test("turned rule, stopping: vet402's 4xx stops for good only on a listing that declares parameters; one that declares none is re-bought every 7 days", () => {
+  const body = '"address" is required';
+  const noDecl = { ...bazaar, settledOnChain: true, response: resp(400, body), body };
+  const withDecl = { ...noDecl, declaredParams: ["address"] };
+  const a = lastPaidByListing([noDecl]).get(bazaar.resource)!;
+  assert.equal(a.inputError, true);
+  assert.equal(a.declaredCount, 0);
+  assert.equal(holdAfter4xx(a, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null, "no declarations: bought again after 7 days");
+  assert.equal(holdAfter4xx(a, Date.parse(bazaar.at) + 86_400_000), "unchanged_after_seller_4xx_within_7_days");
+  const b = lastPaidByListing([withDecl]).get(bazaar.resource)!;
+  assert.equal(holdAfter4xx(b, Date.parse(bazaar.at) + 365 * 86_400_000), "input_unchanged_after_input_error", "declared: stopped until the request changes");
 });
