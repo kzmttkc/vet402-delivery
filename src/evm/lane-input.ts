@@ -426,7 +426,8 @@ export interface MissingName {
   source: string;
   /**
    * The unquoted subject of "x is required to ...": often a pronoun or a general word ("It", "Each", "Account",
-   * "Request"), not a parameter. Counted only when the listing declares it or it is an allowed word.
+   * "Request"), not a parameter. Counted only when the listing declares it or it is an allowed word. A seller
+   * setting name (sellerSettingName) is never soft.
    */
   soft?: boolean;
 }
@@ -434,6 +435,26 @@ export interface MissingName {
 /**
  * Pure. Whose is one missing name: "input" only per (a) or (b) above; otherwise "seller".
  */
+/** Words that make a name one of the seller's own settings (split from camelCase and snake_case first). */
+const SETTING_WORDS = new Set(["secret", "secrets", "token", "tokens", "password", "passwords", "passwd", "pwd", "url", "uri", "host", "hostname", "key", "keys", "dsn", "mnemonic", "jwt", "credential", "credentials"]);
+
+/**
+ * Pure. A name that is one of the seller's own settings: written like an environment variable (DATABASE_URL), or made
+ * of a setting word (secret_token, db_password, rpcUrl, apiKey, DB_HOST). An allowed word (token_address) is not.
+ */
+export function sellerSettingName(name: string): boolean {
+  const c = canon(name);
+  if (ALLOWED.has(c) || ALLOWED.has(singular(c))) return false;
+  if (/^[A-Z][A-Z0-9_]*$/.test(name) && /[A-Z]{2}/.test(name)) return true;
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase());
+  return words.some((w) => SETTING_WORDS.has(w));
+}
+
 export function missingNameSide(m: MissingName, declared: readonly string[] = []): "input" | "seller" {
   const n = m.name;
   if (m.header) return "seller";
@@ -658,7 +679,8 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // A name the sentence also gives in another form (quoted, "required field: x") is not soft.
     const firm = new Set(strongNamesInSentence(piece.replace(new RegExp(String.raw`(${ID})(\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required)\s+to\b`, "gi"), "$1$2_to")).map((x) => x.toLowerCase()));
     for (const n of namesInSentence(piece)) {
-      const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase());
+      // A setting name as the subject (secret_token, DATABASE_URL, db_password) is never soft: it is the seller's.
+      const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(n);
       names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text", ...(isSoft ? { soft: true } : {}) });
     }
   }

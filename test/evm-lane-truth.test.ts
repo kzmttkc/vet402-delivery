@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -1349,4 +1349,26 @@ test("watch: the seller's sentences, settled, are settled_no_answer and negative
     assert.equal(got.status, "settled_no_answer", t);
     assert.equal(got.negative, true, t);
   }
+});
+
+
+// ---------- review of 499cd02: a setting name as the subject is never soft ----------
+
+test("a seller setting name before 'is required to' counts and is the seller's, settled and negative, with or without declarations; pronouns stay vet402's", () => {
+  for (const t of ["wallet is required. secret_token is required to sign.", '{"errors":["wallet is required","secret_token is required to sign"]}', "wallet is required. DATABASE_URL is required to start.", "wallet is required. db_password is required to connect."]) {
+    for (const d of [["wallet"], undefined]) {
+      assert.equal(answer400(t, d), null, `${t} (declared ${d ?? "none"})`);
+      const got = settledAs(t, d);
+      assert.equal(got.cause.cause, "seller_config", t);
+      assert.equal(got.status, "settled_no_answer", t);
+      assert.equal(got.negative, true, t);
+    }
+  }
+  for (const x of ["It", "They", "Each", "One", "Body", "Value", "Field", "Parameter", "Input", "Everything", "Both", "Account", "Exchange", "Request"]) {
+    const got = settledAs(`wallet is required. ${x} is required to have a 0x prefix`, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", x);
+    assert.equal(got.negative, false, x);
+  }
+  for (const n of ["secret_token", "DATABASE_URL", "db_password", "rpcUrl", "apiKey", "DB_HOST", "jwt_secret"]) assert.ok(sellerSettingName(n), n);
+  for (const n of ["token_address", "wallet", "It", "Account", "Request", "symbol"]) assert.ok(!sellerSettingName(n), n);
 });
