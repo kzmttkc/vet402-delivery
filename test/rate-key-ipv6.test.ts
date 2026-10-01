@@ -10,5 +10,8 @@ test("rate limits: one IPv6 client per /64, IPv4 per address", () => {
   assert.equal(rateKeyOfIp("203.0.113.7"), "203.0.113.7");
   assert.equal(rateKeyOfIp("::ffff:203.0.113.7"), "203.0.113.7");
   assert.equal(rateKeyOfIp("unknown"), "unknown");
+  assert.equal(rateKeyOfIp("::ffff:0102:0304"), "1.2.3.4");
+  assert.notEqual(rateKeyOfIp("::ffff:0102:0304"), rateKeyOfIp("::ffff:0506:0708"));
+  assert.equal(rateKeyOfIp("1::2::3"), "1::2::3");
   assert.notEqual(rateKeyOfIp("2001:db8:1:2::1"), rateKeyOfIp("2001:db8:1:3::1"));
 });

@@ -84,6 +84,15 @@ export function rateKeyOfIp(ip: string): string {
   if (!v.includes(":")) return v;
   const mapped = /^(?:0{0,4}:){0,5}(?:0{0,4}:)?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v) ?? /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v);
   if (mapped) return mapped[1]!;
+  // IPv4-mapped in hex (::ffff:0102:0304) is one IPv4 client, not the shared ::ffff /64.
+  const hexMapped = /^(?:0{0,4}:){0,5}(?:0{0,4}:)?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v) ?? /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v);
+  if (hexMapped) {
+    const hi = parseInt(hexMapped[1]!, 16);
+    const lo = parseInt(hexMapped[2]!, 16);
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
+  // More than one "::" is not an address: keep the string as it came (no merging with a real /64).
+  if (v.split("::").length > 2) return v;
   const [head, tail] = v.includes("::") ? v.split("::", 2) as [string, string] : [v, null];
   const left = head ? head.split(":") : [];
   const right = tail === null ? [] : tail ? tail.split(":") : [];
