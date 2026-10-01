@@ -245,7 +245,16 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
         note(`ALERT seller transaction ${f.tx} is bound to another purchase: needs a human`);
         continue;
       }
-      await store.sellerSeen(row.id, rec);
+      // It closed counting the seller price and the fee reserve. What the payment really took (landed: the price and
+      // its fee; reverted: its fee) may be more: the excess comes off the floor too. Less is left as it is (safe).
+      let more = 0n;
+      if (row.chain === "tempo" && (f.fate === "landed" || f.fate === "failed") && seller?.sponsored !== true && feeOfRow(ctx, row)) {
+        const fee = (await feeOfRow(ctx, row)!(f.tx).catch(() => null)) ?? TEMPO_REFUND_FEE_BOUND_ATOMIC;
+        const took = (f.fate === "landed" ? BigInt(row.seller_amount) : 0n) + fee;
+        const counted = BigInt(row.seller_amount) + BigInt(row.fee_reserve);
+        if (took > counted) more = took - counted;
+      }
+      await store.sellerSeen(row.id, rec, more);
       note(`seller payment seen: ${f.fate}`);
     }
   }
@@ -282,6 +291,8 @@ async function keepAlerts(ctx: ReconcileContext, out: ReconcileAction[], looked:
   }
 }
 
+const feeOfRow = (ctx: ReconcileContext, row: PurchaseRow): FeeOf | undefined => (row.chain === "tempo" && ctx.tempo ? (tx) => ctx.tempo!.reads.fee(tx) : undefined);
+
 async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: string) => void): Promise<void> {
   const { store } = ctx;
   const side = row.chain === "solana" ? ctx.solana : ctx.tempo;
@@ -294,7 +305,7 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
   const signer = row.chain === "solana" ? str(agent?.authority) : str(agent?.from);
   const refundTo = str(row.facts.refundTo) ?? str(base.customer.payer) ?? signer;
   const headers: Record<string, string> = {};
-  const feeOf: FeeOf | undefined = row.chain === "tempo" && ctx.tempo ? (tx) => ctx.tempo!.reads.fee(tx) : undefined;
+  const feeOf = feeOfRow(ctx, row);
   const fo = feeOf ? { feeOf } : {};
   const refundNote = (r: { body: Record<string, unknown> }) => {
     const rf = (r.body.refund ?? {}) as { status?: string; reason?: string };
@@ -367,7 +378,9 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
         outcome: base.answer?.delivered ? "delivered" : "not_delivered",
         reason: base.answer?.delivered ? null : "vet402's payment to the seller settled; the answer did not reach the agent",
       };
-      const okClosed = await store.finish(row.id, [row.state], { record: r, spent: BigInt(row.seller_amount) + BigInt(row.fee_reserve), ...pin, now: ctx.now() });
+      // The seller payment's fee at its real amount (recorded with the purchase; a failed write stops here and the next run tries again).
+      await recordTempoFee(store, row.chain, row.id, { hash: f.tx, sponsored: seller?.sponsored === true }, fo);
+      const okClosed = await store.finish(row.id, [row.state], { record: r, spent: BigInt(row.seller_amount), ...pin, now: ctx.now() });
       return note(okClosed ? "closed: seller paid, no refund" : "skipped: moved by another run");
     }
     // A seller payment that reverted took its fee (recorded before the move: it does not change updated_at).

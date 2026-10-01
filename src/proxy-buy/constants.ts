@@ -49,16 +49,21 @@ export const TEMPO_MAX_VALID_AHEAD_SECONDS = 600;
  * (both read with eth_estimateGas on mainnet, 2026-10-01: 285,714 and 288,879). A refund can be one or both: the proxy
  * payer's first transaction, to an agent that paid its whole balance. With the census reserve (0.002) as the
  * bound, such a refund was refused before sending every time and ended "stuck". 10,000 atomic covers a gas limit
- * of 833k (estimate x 1.25) at the cap. The fee actually paid is the base fee's (0.6 gwei on 2026-10-01, about
- * 0.0003 for 450k gas). Every Tempo purchase reserves this much more in the payer wallet, for its refund.
+ * of 833k (estimate x 1.25) at the cap. The fee actually paid is gasUsed x the base fee: 0.6 gwei at the head on
+ * 2026-10-01 and 500,000 blocks (3 days) before it; a census transfer of 2026-09-28 used 46,683 gas at 0.6 gwei and
+ * paid 29 atomic; 450k gas at 0.6 gwei is 270 atomic. Every Tempo purchase reserves this much more in the payer
+ * wallet, for its refund.
  */
 export const TEMPO_REFUND_FEE_BOUND_ATOMIC = 10_000n;
 
 /**
- * The reconciler says ALERT when Tempo's base fee passes this (6 gwei): half the base-fee cap (12 gwei) that the
- * refund's fee bound and every refund's maxFeePerGas assume. Seen early, before a refund cannot be included.
+ * The reconciler says ALERT when Tempo's base fee passes this (3 gwei, five times the 0.6 gwei measured on
+ * 2026-10-01 and the three days before). What depends on it: a refund is signed with maxFeePerGas 12 gwei and its fee
+ * bounded at that (TEMPO_REFUND_FEE_BOUND_ATOMIC); a seller payment's wallet reservation is FEE_RESERVE_ATOMIC
+ * (0.002), which a first transaction from the payer (about 286k gas) passes at about 7 gwei. Fees are counted at
+ * their real amount once seen, so passing these does not stop Tempo by itself; the ALERT comes well before either.
  */
-export const TEMPO_BASE_FEE_ALERT = 6_000_000_000n;
+export const TEMPO_BASE_FEE_ALERT = 3_000_000_000n;
 
 /** Chain transaction reads one reconcile run may make in all (the cron's RPC bill has a ceiling). */
 export const RECONCILE_MAX_TX_READS = 1000;

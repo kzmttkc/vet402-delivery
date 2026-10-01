@@ -10,7 +10,7 @@ import { BUY_FEE_ATOMIC, TEMPO_BASE_FEE_ALERT, TEMPO_REFUND_FEE_BOUND_ATOMIC } f
 import { recordTempoFee } from "../src/proxy-buy/flow.js";
 import { reconcile } from "../src/proxy-buy/reconcile.js";
 import { signerFor } from "../src/tempo/chain.js";
-import { agentPaysTempo, buyUrl, CAPS, ORIGIN, T_RECEIVE, T_URL, tPaid, tProxy, tRig, type TRig } from "./proxy-buy-fakes.js";
+import { agentPaysTempo, buyUrl, CAPS, mineTempo, ORIGIN, T_RECEIVE, T_URL, tPaid, tProxy, tRig, type TRig } from "./proxy-buy-fakes.js";
 
 type J = Record<string, any>;
 const body = async (r: Response) => (await r.json()) as J;
@@ -100,7 +100,7 @@ test("tempo fees: one transaction's fee counts once; a fee that cannot be read c
   assert.equal((await r.sql.query<J>(`select spent::text as spent from pb_purchase where id = 'p1'`)).rows[0]!.spent, String(TOTAL + 5n + TEMPO_REFUND_FEE_BOUND_ATOMIC));
 });
 
-test("tempo base fee: above 6 gwei the cron's wallet check says ALERT; at 6 gwei it does not", async () => {
+test("tempo base fee: above 3 gwei the cron's wallet check says ALERT; at 3 gwei it does not", async () => {
   const r = await tRig();
   const run = () =>
     reconcile({ store: r.store, feeAtomic: BUY_FEE_ATOMIC, now: () => new Date(), recordUrl: (id) => `${ORIGIN}/v1/buy/records/${id}`, caps: CAPS, maxRefund: 105_000n, deadline: Date.now() + 5_000, staleMs: 0, tempo: r.side });
@@ -148,4 +148,80 @@ test("reconcile onlyChain: a Solana request's turn never reads a Tempo purchase,
   const acts = await reconcile({ ...ctx, onlyChain: "tempo" });
   assert.ok(acts.some((a) => a.id === "t1" && a.action.startsWith("released")));
   assert.equal(await r.store.get("t1"), null);
+});
+
+test("tempo fees: a delivered purchase counts its seller payment's real fee (9,999 > the 2,000 reserve): floor = balance, the next purchase goes through", async () => {
+  const r = await tRig({ liveBalance: true });
+  r.state.fee = 9_999n;
+  const res = await r.buy.handle(tPaid(await agentPaysTempo(r)));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-vet402-seller-settled"), "true");
+  const row = (await r.sql.query<J>(`select spent::text as spent, facts->'fees' as fees from pb_purchase`)).rows[0]!;
+  assert.equal(row.spent, String(8_000n + 9_999n), "the seller price and the fee it really took, not the 2,000 reserve");
+  assert.equal(Object.keys(row.fees).length, 1);
+  assert.equal((await r.store.wallet("tempo"))!.floor, await r.side.pay.balance());
+  await nextPurchaseGoesThrough(r);
+  await nextPurchaseGoesThrough(r);
+});
+
+test("tempo fees: the fee record cannot be written for a delivered purchase -> the answer is handed over and it closes counting the fee bound (floor below the balance, never above)", async () => {
+  const r = await tRig({ liveBalance: true });
+  const addFee = r.store.addFee.bind(r.store);
+  r.store.addFee = async () => {
+    throw new Error("db write failed");
+  };
+  const res = await r.buy.handle(tPaid(await agentPaysTempo(r)));
+  assert.equal(res.status, 200);
+  r.store.addFee = addFee;
+  const row = (await r.sql.query<J>(`select state, spent::text as spent from pb_purchase`)).rows[0]!;
+  assert.equal(row.state, "done");
+  assert.equal(row.spent, String(8_000n + TEMPO_REFUND_FEE_BOUND_ATOMIC));
+  assert.ok((await r.store.wallet("tempo"))!.floor <= (await r.side.pay.balance()));
+  await nextPurchaseGoesThrough(r);
+});
+
+test("tempo fees: a reverted seller payment whose fee cannot be recorded -> no refund and no close in the request; the reconciler records it, refunds, and the books match", async () => {
+  const r = await tRig({ liveBalance: true, seller: { reverts: true, paidStatus: 500, paidBody: Buffer.from("boom") } });
+  const addFee = r.store.addFee.bind(r.store);
+  r.store.addFee = async () => {
+    throw new Error("db write failed");
+  };
+  // the request ends in an error (api/buy.ts answers 500 internal_error); the purchase stays open for the reconciler
+  await assert.rejects(r.buy.handle(tPaid(await agentPaysTempo(r))), /db write failed/);
+  assert.equal((await r.sql.query<J>(`select state from pb_purchase`)).rows[0]!.state, "in_progress");
+  assert.equal(r.chain.sent.filter((s) => s.from === tProxy.address.toLowerCase()).length, 1, "only the reverted seller payment; no refund yet");
+  r.store.addFee = addFee;
+  const acts = await r.reconcile();
+  assert.ok(acts.some((a) => /refund: "sent"/.test(a.action)), JSON.stringify(acts));
+  const row = (await r.sql.query<J>(`select state, spent::text as spent from pb_purchase`)).rows[0]!;
+  assert.equal(row.state, "done");
+  assert.equal(row.spent, String(TOTAL + 62n));
+  assert.equal((await r.store.wallet("tempo"))!.floor, await r.side.pay.balance());
+  await nextPurchaseGoesThrough(r);
+});
+
+test("tempo fees: a seller payment not seen when the answer is handed over, then seen landed with a fee above the reserve -> the excess comes off the floor", async () => {
+  let raw: string | null = null;
+  const r = await tRig({
+    liveBalance: true,
+    seller: { broadcasts: false },
+    wrapSeller: (f) => (async (url: string, init?: RequestInit) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      if (auth) raw = (JSON.parse(Buffer.from(auth.replace(/^Payment\s+/, ""), "base64url").toString("utf8")) as J).payload.signature;
+      return f(url, init);
+    }) as typeof fetch,
+  });
+  r.state.fee = 9_999n;
+  const res = await r.buy.handle(tPaid(await agentPaysTempo(r)));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-vet402-seller-settled"), "unknown");
+  assert.equal((await r.sql.query<J>(`select spent::text as spent, seller_open from pb_purchase`)).rows[0]!.spent, String(8_000n + 2_000n));
+  mineTempo(r.chain, raw! as `0x${string}`); // the seller broadcasts it later
+  await r.reconcile();
+  const row = (await r.sql.query<J>(`select spent::text as spent, seller_open from pb_purchase`)).rows[0]!;
+  assert.equal(row.seller_open, false);
+  assert.equal(row.spent, String(8_000n + 9_999n));
+  assert.equal((await r.store.wallet("tempo"))!.floor, await r.side.pay.balance());
+  r.seller.broadcasts = true;
+  await nextPurchaseGoesThrough(r);
 });

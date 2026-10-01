@@ -325,3 +325,16 @@ test("pg (tempo fees): a purchase that spent more than it reserved lowers the fl
   assert.equal(await s.finish("x", ["admitted"], { record: null as never, spent: 13_000n, now }), true);
   assert.equal((await s.wallet("tempo"))!.floor, 100_000n - 13_000n - 36_000n);
 });
+
+test("pg (tempo fees): 10 reconcilers at once see a closed purchase's seller payment land with more fee than reserved -> the excess comes off the floor once", { skip }, async () => {
+  const s = await fresh();
+  const tcaps = { cap: 5_000_000n, maxCount: 100, refundCap: 5_000_000n };
+  await s.claim({ id: "o", chain: "tempo", target: "https://x.test/", sellerAmount: 8_000n, feeReserve: 2_000n, total: 13_000n, facts: {}, now });
+  assert.deepEqual(await s.admit("o", { chain: "tempo", payer: "0xP", day, caps: tcaps, need: 23_000n, balance: 100_000n, now }), { ok: true });
+  assert.equal(await s.finish("o", ["admitted"], { record: null as never, spent: 10_000n, sellerOpen: true, now }), true);
+  assert.equal((await s.wallet("tempo"))!.floor, 90_000n);
+  const r = await Promise.all(Array.from({ length: 10 }, () => s.sellerSeen("o", null, 7_999n)));
+  assert.equal(r.filter(Boolean).length, 1);
+  assert.equal((await s.wallet("tempo"))!.floor, 90_000n - 7_999n);
+  assert.equal((await pool!.query<{ s: string }>(`select spent::text as s from pb_purchase where id = 'o'`)).rows[0]!.s, "17999");
+});

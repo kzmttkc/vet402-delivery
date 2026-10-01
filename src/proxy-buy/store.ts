@@ -493,12 +493,19 @@ export class Store {
   }
 
   /** The seller payment of a closed purchase is settled either way: it no longer holds back a floor raise. */
-  async sellerSeen(id: string, record: PurchaseRecord | null): Promise<boolean> {
-    const r = await this.sql.query(`update pb_purchase set seller_open = false, record = coalesce($2::jsonb, record) where id = $1 and seller_open returning id`, [
-      id,
-      record ? JSON.stringify(record) : null,
-    ]);
-    return r.rows.length === 1;
+  async sellerSeen(id: string, record: PurchaseRecord | null, moreSpent = 0n): Promise<boolean> {
+    if (moreSpent < 0n) throw new Error("negative spend");
+    return this.sql.tx(async (q) => {
+      // `moreSpent`: what the seller payment took beyond what the purchase closed with; it comes off the floor too.
+      const r = await q.query<{ chain: string }>(`update pb_purchase set seller_open = false, record = coalesce($2::jsonb, record), spent = spent + $3 where id = $1 and seller_open returning chain`, [
+        id,
+        record ? JSON.stringify(record) : null,
+        moreSpent.toString(),
+      ]);
+      if (r.rows.length !== 1) return false;
+      if (moreSpent > 0n) await q.query(`update pb_wallet set floor = floor - $2 where chain = $1`, [r.rows[0]!.chain, moreSpent.toString()]);
+      return true;
+    });
   }
 
   /**

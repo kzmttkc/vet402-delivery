@@ -264,11 +264,24 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
   const f = delivered ? await look().catch((): Fate => ({ fate: "pending" })) : await waitFate(ctx, look);
   let sellerSettled: boolean | null = null;
   let sellerTx: string | null = null;
-  // A seller payment that reverted on chain still took its fee from the payer wallet (unless the seller sponsored it).
-  if (f.fate === "failed" && sellerFacts) await recordTempoFee(store, "tempo", id, { hash: f.tx, sponsored: sellerFacts.sponsored }, { feeOf }).catch(() => undefined);
+  // The fee vet402's own payment to the seller took (mined, landed or reverted; none when the seller sponsors it) is
+  // recorded at its real amount and counted when the purchase closes. If that record cannot be written, a purchase
+  // whose answer is handed over closes counting the refund's fee bound instead (counting too much only lowers the
+  // floor); one that goes on to a refund stops here and the reconciler records the fee before refunding.
+  let feeUncounted = 0n;
+  const countSellerFee = async (hash: string, mustRecord: boolean) => {
+    try {
+      await recordTempoFee(store, "tempo", id, { hash, sponsored: sellerFacts!.sponsored }, { feeOf });
+    } catch (e) {
+      if (mustRecord) throw e;
+      if (!sellerFacts!.sponsored) feeUncounted = TEMPO_REFUND_FEE_BOUND_ATOMIC;
+    }
+  };
+  if (f.fate === "failed" && sellerFacts) await countSellerFee(f.tx, !delivered);
   if (f.fate === "landed" && (await store.bindTx("tempo", f.tx, id, "seller", ctx.now()))) {
     sellerSettled = true;
     sellerTx = f.tx;
+    await countSellerFee(f.tx, false);
   } else if ((f.fate === "dead" || f.fate === "failed") && !delivered) {
     return owe(f.fate === "dead" ? "seller_payment_expired_unsent" : "seller_payment_failed_on_chain");
   } else if (f.fate === "dead" || f.fate === "failed") {
@@ -293,7 +306,9 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     "x-vet402-seller-status": String(status ?? ""),
   };
   const sellerPayment = { tx: sellerTx, settled: sellerSettled };
-  const spent = seller + feeReserve;
+  // Settled: the seller price (its fee is in the recorded fees). Not settled: only a reverted payment's fee (recorded).
+  // Not seen yet: the price and the fee reserve, corrected when the reconciler sees it (sellerSeen).
+  const spent = (sellerSettled === true ? seller : sellerSettled === false ? 0n : seller + feeReserve) + feeUncounted;
   if (tooLarge) {
     const r: PurchaseRecord = { ...base, sellerPayment, answer, outcome: "answer_too_large", reason: `answer above ${PROXY_MAX_FORWARD_BYTES} bytes` };
     await store.finish(id, ["in_progress"], { record: r, spent, now: ctx.now() });
@@ -307,7 +322,7 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     reason: delivered ? null : `seller answered ${status ?? "nothing"}${buf && buf.byteLength === 0 ? " with an empty body" : ""}; vet402's payment to it settled`,
   };
   // A failed closing write must not lose an answer vet402 paid for: the reconciler closes the purchase later.
-  await store.finish(id, ["in_progress"], { record: r, spent: sellerSettled === false ? 0n : spent, sellerOpen: sellerSettled === null, now: ctx.now() }).catch(() => false);
+  await store.finish(id, ["in_progress"], { record: r, spent, sellerOpen: sellerSettled === null, now: ctx.now() }).catch(() => false);
   if (!delivered) {
     return {
       kind: "json",
