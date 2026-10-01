@@ -16,7 +16,7 @@ import { makeCreatePayment } from "../client.js";
 import { PAYER_ADDRESS as SOLANA_CENSUS_PAYER, SOLANA_MAINNET, USDC_MINT } from "../constants.js";
 import { checkPaymentTransaction, usdcAta } from "../txcheck.js";
 import { headBlock, signerFor, usdcBalance, verifySettlement } from "../tempo/chain.js";
-import { PAYER_ADDRESS as TEMPO_CENSUS_PAYER, USDC_E } from "../tempo/constants.js";
+import { normAddr, PAYER_ADDRESS as TEMPO_CENSUS_PAYER, TEMPO_FEE_MANAGER, USDC_E } from "../tempo/constants.js";
 import { loadAllowlist, type Allowlist } from "./allowlist.js";
 import type { ProxyConfig, SolanaConfig, TempoConfig } from "./config.js";
 import { CUSTOMER_CONFIRM_TIMEOUT_MS } from "./constants.js";
@@ -212,7 +212,34 @@ export function tempoReads(rpcUrl: string, client = createPublicClient({ chain: 
       }
       return out;
     },
+    async fee(hash) {
+      const r = await client.getTransactionReceipt({ hash: hash as Hex }).catch((e: unknown) => {
+        if ((e as { name?: string })?.name === "TransactionReceiptNotFoundError") return null;
+        throw e;
+      });
+      if (!r) return null;
+      return receiptFee(r);
+    },
+    async baseFee() {
+      const b = await client.getBlock();
+      if (b.baseFeePerGas === null || b.baseFeePerGas === undefined) throw new Error("no base fee");
+      return b.baseFeePerGas;
+    },
   };
+}
+
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+/** What a mined Tempo transaction took from its sender in fees, atomic USDC.e (see TempoReads.fee). */
+export function receiptFee(r: { from: string; gasUsed: bigint; effectiveGasPrice?: bigint | null; logs: readonly { address: string; topics: readonly (string | null)[]; data: string }[] }): bigint {
+  const byGas = r.effectiveGasPrice ? (r.gasUsed * r.effectiveGasPrice + 999_999_999_999n) / 1_000_000_000_000n : 0n;
+  let byLogs = 0n;
+  for (const l of r.logs) {
+    if (normAddr(l.address) !== USDC_E || l.topics[0] !== TRANSFER_TOPIC) continue;
+    if (normAddr(`0x${(l.topics[1] ?? "").slice(26)}`) !== normAddr(r.from) || normAddr(`0x${(l.topics[2] ?? "").slice(26)}`) !== normAddr(TEMPO_FEE_MANAGER)) continue;
+    byLogs += BigInt(l.data);
+  }
+  return byGas > byLogs ? byGas : byLogs;
 }
 
 /** The agent's Tempo transfer: "receipt not found" can still change; a reverted or different transfer cannot. */

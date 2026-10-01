@@ -18,13 +18,13 @@
 import { createHash } from "node:crypto";
 import { Credential, Receipt } from "mppx";
 import { Transaction } from "viem/tempo";
-import { atomicToUnits, FEE_RESERVE_ATOMIC } from "../tempo/constants.js";
+import { atomicToUnits, FEE_RESERVE_ATOMIC, PAYER_ADDRESS as TEMPO_CENSUS_PAYER } from "../tempo/constants.js";
 import { Ledger } from "../tempo/ledger.js";
 import { payOne, type PayDeps, type PayOutcome } from "../tempo/pay.js";
 import type { Signer } from "../tempo/chain.js";
 import { ANSWER_LIMIT_NOTE, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY, TEMPO_MAX_VALID_AHEAD_SECONDS, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import { decodeTempoTx, tempoTxFate, type Fate, type TempoReads, type TempoTxFacts } from "./fate.js";
-import { noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
+import { noCharge, publicTarget, recordTempoFee, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
 import { refusalReason } from "./reasons.js";
 import type { RefundSender } from "./refund.js";
 import { utcDay, type PurchaseRecord } from "./store.js";
@@ -125,6 +125,10 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     return noCharge(402, "price_changed_or_invalid", "the credential is not for the price and seller read just now, has expired, or does not simulate; ask for the price again. Nothing was charged");
   }
   const sender = agentTx.from; // mppx checked that the transfer comes from the transaction's signer
+  // vet402's own wallets never buy through proxy buy: a payment from one would mix its books with a purchase's.
+  if ([side.receive, side.payer, TEMPO_CENSUS_PAYER].some((a) => a.toLowerCase() === sender.toLowerCase())) {
+    return noCharge(400, "payer_is_vet402", "the payment comes from one of vet402's own wallets; nothing was charged");
+  }
 
   const id = tempoPaymentKey(signedTx);
   const seller = offer.sellerAtomic;
@@ -191,7 +195,8 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
     await store.finish(id, ["settling"], { record: { ...base, outcome: "duplicate_customer_tx", reason: "this on-chain payment already paid for a purchase" }, spent: 0n, now: ctx.now() });
     return { kind: "json", status: 409, body: { error: "duplicate_customer_tx", record: ctx.recordUrl(id), refund: "none" }, headers: paidHeaders };
   }
-  const owe = (reason: string) => refundOwed(ctx, { id, chain: "tempo", day, from: ["in_progress"], base, reason, to: sender, total, send: side.refund, headers: paidHeaders });
+  const feeOf = (tx: string) => side.reads.fee(tx);
+  const owe = (reason: string) => refundOwed(ctx, { id, chain: "tempo", day, from: ["in_progress"], base, reason, to: sender, total, send: side.refund, headers: paidHeaders, feeOf });
 
   const recipient = offer.request.recipient!;
   const got: { body: Buffer | null; truncated: boolean; sellerTx: (TempoTxFacts & { search: { recipient: string; amount: string; fromBlock: string } }) | null } = {
@@ -259,6 +264,8 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
   const f = delivered ? await look().catch((): Fate => ({ fate: "pending" })) : await waitFate(ctx, look);
   let sellerSettled: boolean | null = null;
   let sellerTx: string | null = null;
+  // A seller payment that reverted on chain still took its fee from the payer wallet (unless the seller sponsored it).
+  if (f.fate === "failed" && sellerFacts) await recordTempoFee(store, "tempo", id, { hash: f.tx, sponsored: sellerFacts.sponsored }, { feeOf }).catch(() => undefined);
   if (f.fate === "landed" && (await store.bindTx("tempo", f.tx, id, "seller", ctx.now()))) {
     sellerSettled = true;
     sellerTx = f.tx;

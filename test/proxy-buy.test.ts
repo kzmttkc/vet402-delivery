@@ -590,6 +590,8 @@ test("fate: Solana by message hash and blockhash expiry; Tempo by receipt, trans
     headTime: async () => o.time ?? 0n,
     nonce: async () => o.nonce ?? 0n,
     memoTransfers: async () => o.hits ?? [],
+    fee: async () => null,
+    baseFee: async () => 0n,
   });
   assert.deepEqual(await tempoTxFate(reads({ receipt: "success" }), base), { fate: "landed", tx: "0xaa" });
   assert.deepEqual(await tempoTxFate(reads({ time: 999n }), base), { fate: "pending" });

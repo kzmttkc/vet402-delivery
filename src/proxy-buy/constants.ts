@@ -54,6 +54,12 @@ export const TEMPO_MAX_VALID_AHEAD_SECONDS = 600;
  */
 export const TEMPO_REFUND_FEE_BOUND_ATOMIC = 10_000n;
 
+/**
+ * The reconciler says ALERT when Tempo's base fee passes this (6 gwei): half the base-fee cap (12 gwei) that the
+ * refund's fee bound and every refund's maxFeePerGas assume. Seen early, before a refund cannot be included.
+ */
+export const TEMPO_BASE_FEE_ALERT = 6_000_000_000n;
+
 /** Chain transaction reads one reconcile run may make in all (the cron's RPC bill has a ceiling). */
 export const RECONCILE_MAX_TX_READS = 1000;
 

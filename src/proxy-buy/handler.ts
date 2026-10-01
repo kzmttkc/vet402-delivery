@@ -174,15 +174,20 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       offers.solana = qq.solana.ok ? { refused: "chain_not_offered" } : { refused: qq.solana.reason, detail: qq.solana.detail };
     }
     if (qq.tempo.ok && tempo) {
-      const route = tempoRoute(qq.tempo, o.feeAtomic, qq.target);
-      const expires = new Date(now().getTime() + OFFER_TTL_SECONDS * 1000).toISOString();
-      const ch = await tempo.mpp.challenge(req, { ...route, expires });
-      const www = ch.headers.get("www-authenticate");
-      if (ch.status === 402 && www) {
-        headers["www-authenticate"] = www;
-        offers.tempo = tempoPriceInfo(qq.tempo, o.feeAtomic);
-      } else {
-        offers.tempo = { refused: "challenge_unavailable", detail: `mppx answered ${ch.status}` };
+      // A failure here takes only the Tempo offer away: the Solana offer above is still answered.
+      try {
+        const route = tempoRoute(qq.tempo, o.feeAtomic, qq.target);
+        const expires = new Date(now().getTime() + OFFER_TTL_SECONDS * 1000).toISOString();
+        const ch = await tempo.mpp.challenge(req, { ...route, expires });
+        const www = ch.headers.get("www-authenticate");
+        if (ch.status === 402 && www) {
+          headers["www-authenticate"] = www;
+          offers.tempo = tempoPriceInfo(qq.tempo, o.feeAtomic);
+        } else {
+          offers.tempo = { refused: "challenge_unavailable", detail: `mppx answered ${ch.status}` };
+        }
+      } catch {
+        offers.tempo = { refused: "challenge_unavailable", detail: "the Tempo challenge could not be made" };
       }
     } else {
       offers.tempo = qq.tempo.ok || (o.tempo && !tempo) ? { refused: "chain_not_offered" } : { refused: qq.tempo.reason, detail: qq.tempo.detail };
@@ -211,11 +216,13 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
    * refuses the request by itself: a purchase that cannot be settled yet holds up only new requests from the same
    * agent or to the same seller (solana.ts / tempo.ts), so one stuck purchase cannot stop the service.
    */
-  async function reconcileSome(): Promise<void> {
-    if ((await o.store.stale(now(), staleMs, 1)).length === 0) return;
-    // At most one such turn per window across all instances: paid requests cannot multiply the chain reads.
+  async function reconcileSome(chain: "solana" | "tempo"): Promise<void> {
+    // Only the paying chain's purchases: a Solana request never waits on Tempo's chain reads, nor the other way.
+    // The other chain's rows are the cron's (and that chain's own requests').
+    if ((await o.store.stale(now(), staleMs, 1, chain)).length === 0) return;
+    // At most one such turn per window and chain across all instances: paid requests cannot multiply the chain reads.
     const gate = o.reconcileGateMs ?? RECONCILE_GATE_MS;
-    if (gate > 0 && !(await o.store.bump(`reconcile-gate:${Math.floor(now().getTime() / gate)}`, 1, now()).catch(() => false))) return;
+    if (gate > 0 && !(await o.store.bump(`reconcile-gate:${chain}:${Math.floor(now().getTime() / gate)}`, 1, now()).catch(() => false))) return;
     // With Tempo off, nothing Tempo is read, even for rows written while it was on. The wallet check is the cron's.
     const ctx = {
       ...common(o.caps.solana ?? o.caps.tempo!),
@@ -225,6 +232,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
       limit: 5,
       maxTxReads: 200,
       walletCheck: false,
+      onlyChain: chain,
     };
     await reconcile(ctx).catch(() => []);
   }
@@ -248,7 +256,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     if ("ok" in q && q.ok === false) return refusedResponse(q);
     const qq = q as Quote;
     // The reconciler's turn comes only after the payment header is readable and the seller was priced.
-    if (readable(pay)) await reconcileSome();
+    if (readable(pay)) await reconcileSome(pay.chain);
     if (pay.chain === "solana") {
       if (!o.solana || !o.caps.solana) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Solana is not configured", charged: false });
       if (!qq.solana.ok) return refusedResponse(qq.solana);

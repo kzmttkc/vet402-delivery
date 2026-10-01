@@ -3,6 +3,7 @@
  * and the refund when vet402 did not pay the seller.
  */
 import type { ProxyChain } from "./allowlist.js";
+import { TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import type { Fate } from "./fate.js";
 import { refundAgent, type RefundSender } from "./refund.js";
 import type { DayCaps, PurchaseRecord, PurchaseState, RefundRecord, Store } from "./store.js";
@@ -71,6 +72,34 @@ export function windowPatch(facts: { expiredSlot?: unknown; cursor?: unknown }, 
   return Object.keys(patch).length ? patch : null;
 }
 
+/** Reads the network fee a mined transaction took from the payer (Tempo: TempoReads.fee); null: no receipt. */
+export type FeeOf = (tx: string) => Promise<bigint | null>;
+
+/**
+ * Record the network fee a mined Tempo transaction of this purchase took from the payer wallet (a seller payment or a
+ * refund; a reverted one pays it too), so that closing the purchase counts it in what was spent. `known`: the fee
+ * already read (a refund's read-back). When it cannot be read, the refund's fee bound is counted: counting too much
+ * only lowers the floor below the balance (a later top-up check raises it again); too little would stop Tempo.
+ * Solana's fees are paid in SOL, not from the USDC the floor counts: nothing to record. A sponsored transaction's
+ * fee is the seller's.
+ */
+export async function recordTempoFee(store: Store, chain: ProxyChain, id: string, tx: { hash: string; sponsored?: boolean }, o: { known?: bigint | null; feeOf?: FeeOf }): Promise<void> {
+  if (chain !== "tempo" || tx.sponsored) return;
+  let fee = o.known ?? null;
+  if (fee === null && o.feeOf) fee = await o.feeOf(tx.hash).catch(() => null);
+  await store.addFee(id, tx.hash, fee ?? TEMPO_REFUND_FEE_BOUND_ATOMIC);
+}
+
+/** A sent refund closes its purchase: the total, plus (Tempo) the refund's fee and every fee recorded before. */
+export async function closeRefunded(
+  c: { store: Store; now: () => Date },
+  o: { id: string; chain: ProxyChain; record: PurchaseRecord; total: bigint; tx: string | null; feePaid: string | null; feeOf?: FeeOf; updatedAt?: string },
+): Promise<boolean> {
+  if (o.tx) await recordTempoFee(c.store, o.chain, o.id, { hash: o.tx }, { known: o.feePaid !== null && /^\d+$/.test(o.feePaid) ? BigInt(o.feePaid) : null, ...(o.feeOf ? { feeOf: o.feeOf } : {}) });
+  else if (o.chain === "tempo") await c.store.addFee(o.id, "refund:unknown", TEMPO_REFUND_FEE_BOUND_ATOMIC);
+  return c.store.finish(o.id, ["refund_pending"], { record: o.record, spent: o.total, ...(o.updatedAt ? { updatedAt: o.updatedAt } : {}), now: c.now() });
+}
+
 /**
  * vet402 did not pay the seller (proven): record that a refund is owed, refund, and close the purchase when
  * the refund is settled or refused. A refund that failed before sending, or whose outcome is unknown, leaves
@@ -78,7 +107,7 @@ export function windowPatch(facts: { expiredSlot?: unknown; cursor?: unknown }, 
  */
 export async function refundOwed(
   c: Common,
-  o: { id: string; chain: ProxyChain; day: string; from: PurchaseState[]; base: PurchaseRecord; reason: string; to: string | null; total: bigint; send: RefundSender; headers: Record<string, string>; retry?: boolean },
+  o: { id: string; chain: ProxyChain; day: string; from: PurchaseState[]; base: PurchaseRecord; reason: string; to: string | null; total: bigint; send: RefundSender; headers: Record<string, string>; retry?: boolean; feeOf?: FeeOf },
 ): Promise<PaidAnswer> {
   const pending: PurchaseRecord = { ...o.base, outcome: "seller_not_paid", reason: o.reason, refund: { status: "pending", to: o.to, amountAtomic: o.total.toString(), tx: null, reason: null } };
   if (o.from.length && !(await c.store.move(o.id, o.from, "refund_pending", { record: pending, now: c.now() }))) {
@@ -88,7 +117,10 @@ export async function refundOwed(
   const record: PurchaseRecord = { ...pending, refund };
   // Only a sent refund closes the purchase. A refused, failed, unknown or stuck refund keeps it open (refund_pending):
   // the money is still owed, the reconciler keeps at it, and a stuck one is reported for a human.
-  if (refund.status === "sent") await c.store.finish(o.id, ["refund_pending"], { record, spent: o.total, now: c.now() });
+  if (refund.status === "sent") {
+    const fee = (await c.store.getRefund(o.id).catch(() => null))?.fee_paid ?? null;
+    await closeRefunded(c, { id: o.id, chain: o.chain, record, total: o.total, tx: refund.tx, feePaid: fee === null ? null : String(fee), ...(o.feeOf ? { feeOf: o.feeOf } : {}) });
+  }
   else await c.store.setRecord(o.id, ["refund_pending"], record);
   return {
     kind: "json",

@@ -116,4 +116,11 @@ test("tempo client: no Tempo offer, or an agent that is one of vet402's wallets 
     assert.deepEqual(res, { ok: false, stage: "guard", reason: "agent_is_a_vet402_wallet", signed: false, sent: false });
     assert.deepEqual([seen.quotes, seen.signs, seen.paid], [0, 0, 0]);
   }
+  // vet402's proxy payer, passed by the script as notAgent (VET402_PROXY_TEMPO_PAYER)
+  const payer = privateKeyToAccount(generatePrivateKey()).address;
+  const { seen, d } = deps(r);
+  const res = await buyOnTempo(opts({ send: true, notAgent: [payer.toLowerCase()] }), { ...d, signer: { ...d.signer, address: payer } });
+  assert.equal(res.ok, false);
+  if (!res.ok) assert.equal(res.reason, "agent_is_a_vet402_wallet");
+  assert.deepEqual([seen.quotes, seen.signs, seen.paid], [0, 0, 0]);
 });

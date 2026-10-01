@@ -12,9 +12,9 @@
  * with), so two reconcilers, or a reconciler and a request, never act twice on one purchase.
  * Actions starting with "ALERT" need a human (the cron logs them).
  */
-import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
+import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS, TEMPO_BASE_FEE_ALERT, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import { tempoTxFate, type Fate, type TempoFateFacts } from "./fate.js";
-import { refundOwed, windowPatch, type Common } from "./flow.js";
+import { closeRefunded, recordTempoFee, refundOwed, windowPatch, type Common, type FeeOf } from "./flow.js";
 import { redact } from "./reasons.js";
 import { ACCOUNT_CREATION_WAIT } from "./refund.js";
 import { REFUND_SOL_MIN_LAMPORTS, type SolanaSide } from "./solana.js";
@@ -34,6 +34,8 @@ export interface ReconcileContext extends Common {
   walletCheck?: boolean;
   /** Keep ALERTs in pb_alert and resolve the ones gone (default true). */
   recordAlerts?: boolean;
+  /** Only this chain's purchases (a paid request's turn: a Solana request never waits on Tempo's chain reads). */
+  onlyChain?: "solana" | "tempo";
 }
 
 export interface ReconcileAction {
@@ -159,6 +161,13 @@ async function walletAlerts(ctx: ReconcileContext): Promise<ReconcileAction[]> {
     } catch {
       say("tempo", "wallet: the payer's balance could not be read this run");
     }
+    // Refunds are signed at a 12 gwei fee cap and bounded at it (TEMPO_REFUND_FEE_BOUND_ATOMIC): said early, at half.
+    try {
+      const bf = await ctx.tempo.reads.baseFee();
+      if (bf > TEMPO_BASE_FEE_ALERT) say("tempo", `ALERT tempo_base_fee_high: base fee ${bf} > ${TEMPO_BASE_FEE_ALERT} (refunds are signed at a cap of 12000000000); review the refund fee bound before it is reached`);
+    } catch {
+      say("tempo", "wallet: the base fee could not be read this run");
+    }
   }
   return out;
 }
@@ -177,7 +186,7 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
     if (ctx.solana) looked.set("wallet:solana", "solana");
     if (ctx.tempo) looked.set("wallet:tempo", "tempo");
   }
-  const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50);
+  const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50, ctx.onlyChain);
   let exhausted = false;
   for (const row of rows) {
     if (Date.now() >= ctx.deadline || exhausted) break;
@@ -209,7 +218,7 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
   // Closed purchases whose payment to the seller was not seen on chain yet: once it is (landed or dead), it no
   // longer holds back the wallet floor.
   if (!exhausted && Date.now() < ctx.deadline) {
-    for (const row of await store.sellerOpen(ctx.sellerOpenLimit ?? 10)) {
+    for (const row of await store.sellerOpen(ctx.sellerOpenLimit ?? 10, ctx.onlyChain)) {
       if (Date.now() >= ctx.deadline) break;
       const run: Run = { budget, exhausted: false, capped: false, nextAt: null };
       looked.set(row.id, row.chain);
@@ -285,6 +294,8 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
   const signer = row.chain === "solana" ? str(agent?.authority) : str(agent?.from);
   const refundTo = str(row.facts.refundTo) ?? str(base.customer.payer) ?? signer;
   const headers: Record<string, string> = {};
+  const feeOf: FeeOf | undefined = row.chain === "tempo" && ctx.tempo ? (tx) => ctx.tempo!.reads.fee(tx) : undefined;
+  const fo = feeOf ? { feeOf } : {};
   const refundNote = (r: { body: Record<string, unknown> }) => {
     const rf = (r.body.refund ?? {}) as { status?: string; reason?: string };
     if (rf.status === "failed" && rf.reason === ACCOUNT_CREATION_WAIT) {
@@ -340,7 +351,7 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       }
       return note("skipped: moved by another run");
     }
-    const r = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: ["in_progress"], base: paid, reason: "stopped_before_seller_payment", to: payer, total, send: side.refund, headers });
+    const r = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: ["in_progress"], base: paid, reason: "stopped_before_seller_payment", to: payer, total, send: side.refund, headers, ...fo });
     return note(refundNote(r as { body: Record<string, unknown> }));
   }
 
@@ -359,9 +370,11 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       const okClosed = await store.finish(row.id, [row.state], { record: r, spent: BigInt(row.seller_amount) + BigInt(row.fee_reserve), ...pin, now: ctx.now() });
       return note(okClosed ? "closed: seller paid, no refund" : "skipped: moved by another run");
     }
+    // A seller payment that reverted took its fee (recorded before the move: it does not change updated_at).
+    if (f.fate === "failed" && seller) await recordTempoFee(store, row.chain, row.id, { hash: f.tx, sponsored: seller.sponsored === true }, fo);
     // Move first (pinned), so only one run goes on to refund.
     if (!(await store.move(row.id, [row.state], "refund_pending", { ...pin, now: ctx.now() }))) return note("skipped: moved by another run");
-    const r = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: [], base, reason: seller ? `seller_payment_${f.fate}` : "stopped_before_seller_payment", to: refundTo, total, send: side.refund, headers });
+    const r = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: [], base, reason: seller ? `seller_payment_${f.fate}` : "stopped_before_seller_payment", to: refundTo, total, send: side.refund, headers, ...fo });
     return note(refundNote(r as { body: Record<string, unknown> }));
   }
 
@@ -369,7 +382,7 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
     const rf = await store.getRefund(row.id);
     if (rf && rf.status === "stuck") return note(`ALERT refund stuck after ${rf.attempt} attempts: needs a human`);
     if (rf && rf.status === "sent") {
-      await store.finish(row.id, ["refund_pending"], { record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: rf.tx, reason: null } }, spent: total, ...pin, now: ctx.now() });
+      await closeRefunded(ctx, { id: row.id, chain: row.chain, record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: rf.tx, reason: null } }, total, tx: rf.tx, feePaid: rf.fee_paid, ...fo, ...pin });
       return note("closed: refund sent");
     }
     if (rf && (rf.status === "sending" || rf.status === "unknown")) {
@@ -378,13 +391,15 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       if (f.fate === "landed") {
         if (!(await store.bindTx(row.chain, f.tx, row.id, "refund", ctx.now()))) return note(`ALERT refund transaction ${f.tx} is bound to another purchase: needs a human`);
         if (!(await store.refundSet(row.id, ["sending", "unknown"], "sent", { tx: rf.tx, now: ctx.now() }))) return note("skipped: refund moved by another run");
-        await store.finish(row.id, ["refund_pending"], { record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: f.tx, reason: null } }, spent: total, ...pin, now: ctx.now() });
+        await closeRefunded(ctx, { id: row.id, chain: row.chain, record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: f.tx, reason: null } }, total, tx: f.tx, feePaid: rf.fee_paid, ...fo, ...pin });
         return note("closed: refund landed");
       }
+      // A refund that reverted took its fee all the same; the next attempt pays its own.
+      if (f.fate === "failed") await recordTempoFee(store, row.chain, row.id, { hash: f.tx }, fo);
       // Proven dead: only the run that marks this very transaction dead may send the next attempt.
       if (!(await store.refundSet(row.id, ["sending", "unknown"], "dead", { reason: `refund_${f.fate}`, tx: rf.tx, now: ctx.now() }))) return note("skipped: refund moved by another run");
     }
-    const again = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: [], base, reason: base.reason ?? "seller_not_paid", to: rf?.to_addr ?? refundTo, total, send: side.refund, headers, retry: !!rf });
+    const again = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: [], base, reason: base.reason ?? "seller_not_paid", to: rf?.to_addr ?? refundTo, total, send: side.refund, headers, retry: !!rf, ...fo });
     return note(refundNote(again as { body: Record<string, unknown> }).replace('refund: "sent"', `refund ${rf ? "retried" : "started"}: "sent"`));
   }
   note("skipped");

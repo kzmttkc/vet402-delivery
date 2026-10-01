@@ -9,7 +9,8 @@
  *   --max <usdc>       the most this run may pay, seller price + fee (default 0.01)
  *   --key <path>       the agent's key file, {"privateKey":"0x..."} (default .keys/proxy/tempo-test-agent.json)
  *   --out <path>       with --send: write the answer's body there (default: print its first 300 bytes)
- * Environment: VET402_PROXY_TEMPO_RECEIVE (the recipient the 402 must name; default vet402's), TEMPO_RPC_URL.
+ * Environment: VET402_PROXY_TEMPO_RECEIVE (the recipient the 402 must name; default vet402's), VET402_PROXY_TEMPO_PAYER
+ * (vet402's proxy payer, never the agent; default vet402's), TEMPO_RPC_URL.
  *
  * Nothing is signed unless the 402 names that recipient, chain 4217, USDC.e and a total within --max. The key and
  * the signed transaction are never printed; a dry run prints only the transaction's hash.
@@ -20,7 +21,7 @@ import { http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { atomicToUnits, TEMPO_RPC_URL } from "../src/tempo/constants.js";
 import { signerFor } from "../src/tempo/chain.js";
-import { buyOnTempo, DEFAULT_CLIENT_MAX_ATOMIC, DEFAULT_TEMPO_RECEIVE } from "../src/proxy-buy/tempo-client.js";
+import { buyOnTempo, DEFAULT_CLIENT_MAX_ATOMIC, DEFAULT_TEMPO_PAYER, DEFAULT_TEMPO_RECEIVE } from "../src/proxy-buy/tempo-client.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -51,7 +52,9 @@ async function main(): Promise<void> {
   const expectedReceive = process.env.VET402_PROXY_TEMPO_RECEIVE ?? DEFAULT_TEMPO_RECEIVE;
   console.log(JSON.stringify({ mode: send ? "send" : "dry-run", agent: account.address, origin, target, expectedReceive, max: atomicToUnits(maxAtomic) }));
   const r = await buyOnTempo(
-    { origin, target, expectedReceive, maxAtomic, send },
+    // The agent is never one of vet402's own wallets: the receive wallet and the census payer are refused by the
+    // client itself, and the proxy payer here (VET402_PROXY_TEMPO_PAYER, default the deployment's).
+    { origin, target, expectedReceive, maxAtomic, send, notAgent: [process.env.VET402_PROXY_TEMPO_PAYER ?? DEFAULT_TEMPO_PAYER] },
     { fetchImpl: (u, init) => fetch(u, init), signer: signerFor(account, http(process.env.TEMPO_RPC_URL ?? TEMPO_RPC_URL, { timeout: 15_000, retryCount: 1 })) },
   );
   if (!r.ok) {

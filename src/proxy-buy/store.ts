@@ -338,18 +338,23 @@ export class Store {
     },
   ): Promise<boolean> {
     return this.sql.tx(async (q) => {
-      const r = await q.query<{ chain: string; reserved: string; total: string; day: string | null }>(
-        `update pb_purchase set state = 'done', record = $3::jsonb, facts = facts || $4::jsonb, updated_at = $5, spent = $7, seller_open = $8
+      // spent = what the caller says + every network fee recorded with the purchase (addFee: Tempo fees leave the
+      // same USDC.e wallet, a reverted transaction's included).
+      const r = await q.query<{ chain: string; reserved: string; total: string; day: string | null; spent: string }>(
+        `update pb_purchase set state = 'done', record = $3::jsonb, facts = facts || $4::jsonb, updated_at = $5, seller_open = $8,
+           spent = ($7::numeric + coalesce((select sum(e.value::numeric) from jsonb_each_text(coalesce(pb_purchase.facts->'fees', '{}'::jsonb)) e), 0))::bigint
          where id = $1 and state = any($2) and ($6::timestamptz is null or updated_at = $6::timestamptz)
-         returning chain, reserved::text as reserved, total::text as total, to_char(day, 'YYYY-MM-DD') as day`,
+         returning chain, reserved::text as reserved, total::text as total, to_char(day, 'YYYY-MM-DD') as day, spent::text as spent`,
         [id, from, JSON.stringify(o.record), JSON.stringify(o.facts ?? {}), iso(o.now), o.updatedAt ?? null, o.spent.toString(), o.sellerOpen === true],
       );
       if (r.rows.length !== 1) return false;
       const row = r.rows[0]!;
       const reserved = BigInt(row.reserved);
-      const left = reserved - o.spent;
-      const give = left < 0n ? 0n : left > reserved ? reserved : left;
-      if (give > 0n) await q.query(`update pb_wallet set floor = floor + $2 where chain = $1`, [row.chain, give.toString()]);
+      // What the purchase did not take goes back to the floor. When it took more than it reserved (fees of several
+      // attempts), the floor goes down by the excess too: the floor must never stand above what the wallet holds.
+      const left = reserved - BigInt(row.spent);
+      const give = left > reserved ? reserved : left;
+      if (give !== 0n) await q.query(`update pb_wallet set floor = floor + $2 where chain = $1`, [row.chain, give.toString()]);
       if (row.day) await q.query(`update pb_day set refund_reserved = refund_reserved - $3 where chain = $1 and day = $2`, [row.chain, row.day, row.total]);
       return true;
     });
@@ -434,14 +439,14 @@ export class Store {
   }
 
   /** Purchases in a non-final state not touched for `staleMs`: they need the reconciler. */
-  async stale(now: Date, staleMs: number, limit = 50): Promise<PurchaseRow[]> {
+  async stale(now: Date, staleMs: number, limit = 50, chain?: ProxyChain): Promise<PurchaseRow[]> {
     // Least recently looked at first: rows that cannot be decided yet go to the back after each look, so a newer
     // row that can be decided is reached by the next run however many undecidable rows there are.
     // A row whose next look was put off (checked_at in the future: its last look was cut short) waits for it.
     const r = await this.sql.query<PurchaseRow>(
-      `select ${ROW} from pb_purchase where state <> 'done' and updated_at < $1 and (checked_at is null or checked_at <= $3)
+      `select ${ROW} from pb_purchase where state <> 'done' and updated_at < $1 and (checked_at is null or checked_at <= $3) and ($4::text is null or chain = $4::text)
        order by coalesce(checked_at, updated_at), id limit $2`,
-      [iso(new Date(now.getTime() - staleMs)), limit, iso(now)],
+      [iso(new Date(now.getTime() - staleMs)), limit, iso(now), chain ?? null],
     );
     return r.rows;
   }
@@ -449,6 +454,19 @@ export class Store {
   /** The reconciler looked at this row; `next`: when to look again (its state and updated_at stay as they are). */
   async touch(id: string, next: Date): Promise<void> {
     await this.sql.query(`update pb_purchase set checked_at = $2 where id = $1`, [id, iso(next)]);
+  }
+
+  /**
+   * A network fee that left the payer wallet for this purchase (Tempo: a seller payment or refund that was mined,
+   * reverted ones included), keyed by the transaction so recording it twice counts it once. finish adds them all to
+   * what the purchase spent. Like mergeFacts, it leaves state and updated_at as they are.
+   */
+  async addFee(id: string, tx: string, fee: bigint): Promise<void> {
+    if (fee < 0n) throw new Error("negative fee");
+    await this.sql.query(
+      `update pb_purchase set facts = jsonb_set(facts, '{fees}', coalesce(facts->'fees', '{}'::jsonb) || jsonb_build_object($2::text, $3::text)) where id = $1 and state <> 'done'`,
+      [id, tx.toLowerCase(), fee.toString()],
+    );
   }
 
   /**
@@ -469,8 +487,8 @@ export class Store {
   }
 
   /** Closed purchases whose payment to the seller was not yet seen on chain (landed or dead). */
-  async sellerOpen(limit: number): Promise<PurchaseRow[]> {
-    const r = await this.sql.query<PurchaseRow>(`select ${ROW} from pb_purchase where state = 'done' and seller_open order by updated_at limit $1`, [limit]);
+  async sellerOpen(limit: number, chain?: ProxyChain): Promise<PurchaseRow[]> {
+    const r = await this.sql.query<PurchaseRow>(`select ${ROW} from pb_purchase where state = 'done' and seller_open and ($2::text is null or chain = $2::text) order by updated_at limit $1`, [limit, chain ?? null]);
     return r.rows;
   }
 

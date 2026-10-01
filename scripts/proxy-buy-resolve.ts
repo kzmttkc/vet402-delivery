@@ -48,7 +48,7 @@ async function main(): Promise<void> {
         JSON.stringify(
           {
             alerts,
-            purchases: rows.map((r) => ({ id: r.id, state: r.row?.state ?? null, chain: r.row?.chain ?? null, total: r.row?.total ?? null, refund: r.refund ? { status: r.refund.status, attempt: r.refund.attempt, failures: r.refund.failures, tx: r.refund.tx, to: r.refund.to_addr } : null })),
+            purchases: rows.map((r) => ({ id: r.id, state: r.row?.state ?? null, chain: r.row?.chain ?? null, total: r.row?.total ?? null, fees: (r.row?.facts as { fees?: unknown } | undefined)?.fees ?? null, refund: r.refund ? { status: r.refund.status, attempt: r.refund.attempt, failures: r.refund.failures, tx: r.refund.tx, to: r.refund.to_addr } : null })),
           },
           null,
           2,

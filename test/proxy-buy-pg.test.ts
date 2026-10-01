@@ -297,3 +297,31 @@ test("pg (ninth review): settle by hand vs a new refund attempt at once, 20 roun
     else assert.deepEqual([st, rf.status, rf.tx], ["refund_pending", "sending", "R2"]);
   }
 });
+
+test("pg (tempo fees): 12 purchases admitted at once, their fees recorded at once (each fee twice), all closed at once -> the floor is the start minus everything spent, fees included", { skip }, async () => {
+  const s = await fresh();
+  const tcaps = { cap: 5_000_000n, maxCount: 100, refundCap: 5_000_000n };
+  const ids = Array.from({ length: 12 }, (_, i) => `t${i}`);
+  await Promise.all(ids.map((id) => s.claim({ id, chain: "tempo", target: "https://x.test/", sellerAmount: 8_000n, feeReserve: 2_000n, total: 13_000n, facts: {}, now })));
+  const res = await Promise.all(ids.map((id) => s.admit(id, { chain: "tempo", payer: "0xP", day, caps: tcaps, need: 23_000n, balance: 1_000_000n, now })));
+  assert.equal(res.filter((x) => x.ok).length, 12);
+  // two fees per purchase (a reverted attempt and the refund), each recorded twice from two connections at once
+  await Promise.all(ids.flatMap((id, i) => [`0xa${i}`, `0xb${i}`, `0xa${i}`, `0xb${i}`].map((tx) => s.addFee(id, tx, 31n))));
+  await Promise.all(ids.map((id) => s.finish(id, ["admitted"], { record: null as never, spent: 13_000n, now })));
+  const spent = (await pool!.query<{ s: string }>(`select sum(spent)::text as s from pb_purchase`)).rows[0]!.s;
+  assert.equal(spent, String(12n * (13_000n + 62n)));
+  assert.equal((await s.wallet("tempo"))!.floor, 1_000_000n - 12n * (13_000n + 62n));
+  // a fee recorded after the purchase closed changes nothing (it would be counted nowhere)
+  await s.addFee("t0", "0xlate", 31n);
+  assert.equal((await pool!.query<{ f: unknown }>(`select facts->'fees'->'0xlate' as f from pb_purchase where id = 't0'`)).rows[0]!.f, null);
+});
+
+test("pg (tempo fees): a purchase that spent more than it reserved lowers the floor by the excess, never leaves it above the balance", { skip }, async () => {
+  const s = await fresh();
+  const tcaps = { cap: 5_000_000n, maxCount: 100, refundCap: 5_000_000n };
+  await s.claim({ id: "x", chain: "tempo", target: "https://x.test/", sellerAmount: 8_000n, feeReserve: 2_000n, total: 13_000n, facts: {}, now });
+  assert.deepEqual(await s.admit("x", { chain: "tempo", payer: "0xP", day, caps: tcaps, need: 23_000n, balance: 100_000n, now }), { ok: true });
+  for (let i = 0; i < 4; i++) await s.addFee("x", `0x${i}`, 9_000n); // four reverted attempts at a high base fee
+  assert.equal(await s.finish("x", ["admitted"], { record: null as never, spent: 13_000n, now }), true);
+  assert.equal((await s.wallet("tempo"))!.floor, 100_000n - 13_000n - 36_000n);
+});

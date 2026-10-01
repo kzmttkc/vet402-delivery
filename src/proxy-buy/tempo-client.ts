@@ -19,6 +19,8 @@ import { checkSignedTransfer } from "../tempo/txcheck.js";
 
 /** vet402's Tempo receive wallet on https://vet402-delivery.vercel.app (VET402_PROXY_TEMPO_RECEIVE). */
 export const DEFAULT_TEMPO_RECEIVE = "0xf85727Ec3531099c6c5158Ad1a6Db10D61Ad3391";
+/** vet402's Tempo proxy payer on that deployment (VET402_PROXY_TEMPO_PAYER): never the agent. */
+export const DEFAULT_TEMPO_PAYER = "0x5f60aa61047E84EDe21E27E7e533d937350aF202";
 /** Default ceiling on what one run may pay (seller price + vet402's fee), atomic USDC.e: 0.01. */
 export const DEFAULT_CLIENT_MAX_ATOMIC = 10_000n;
 

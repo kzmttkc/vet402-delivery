@@ -364,6 +364,8 @@ export interface FakeChain {
   broadcasts: number;
   sent: { from: string; to: string; amount: bigint; hash: string; memo?: string }[];
   mined: Map<string, "success" | "reverted">;
+  /** The next `n` transactions from `from` broadcast through the RPC are mined reverted (they move nothing, pay their fee). */
+  revertNext?: { from: string; n: number };
   /** Added to the wall clock for the chain's head time (a test moves time past a validBefore). */
   timeShift: number;
 }
@@ -400,8 +402,11 @@ export function fakeTempoRpc(chain: FakeChain) {
       switch (method) {
         case "eth_chainId":
           return "0x1079";
-        case "eth_getTransactionCount":
-          return "0x0";
+        case "eth_getTransactionCount": {
+          // what that sender has mined so far (a reverted transaction uses its nonce too)
+          const from = String((params as [string])[0]).toLowerCase();
+          return `0x${new Set(chain.sent.filter((x) => x.from === from).map((x) => x.hash)).size.toString(16)}`;
+        }
         case "eth_estimateGas":
           return "0xc350";
         case "eth_maxPriorityFeePerGas":
@@ -413,6 +418,11 @@ export function fakeTempoRpc(chain: FakeChain) {
         case "eth_sendRawTransactionSync": {
           chain.broadcasts++;
           const m = mineTempo(chain, (params as [Hex])[0]);
+          if (chain.revertNext && chain.revertNext.n > 0 && chain.revertNext.from.toLowerCase() === m.from.toLowerCase()) {
+            chain.revertNext.n--;
+            chain.mined.set(m.hash, "reverted");
+            return { blockHash: m.blockHash, blockNumber: "0x1", contractAddress: null, cumulativeGasUsed: "0xc350", effectiveGasPrice: "0x1", from: m.from, gasUsed: "0xc350", logs: [], logsBloom: `0x${"00".repeat(256)}`, status: "0x0", to: m.to, transactionHash: m.hash, transactionIndex: "0x0", type: "0x76" };
+          }
           return {
             blockHash: m.blockHash,
             blockNumber: "0x1",
@@ -450,6 +460,8 @@ export interface TSeller {
   paidRequests: number;
   /** false: the seller takes vet402's credential and never broadcasts it. */
   broadcasts: boolean;
+  /** true: vet402's payment is mined reverted (it moves nothing and takes its fee). */
+  reverts?: boolean;
   onRead?: (n: number, s: TSeller) => void;
 }
 export function tSellerFetch(s: TSeller, fetched: string[], chain: FakeChain) {
@@ -460,7 +472,8 @@ export function tSellerFetch(s: TSeller, fetched: string[], chain: FakeChain) {
       s.paidRequests++;
       if (s.broadcasts) {
         const c = Credential.deserialize<{ signature: string }>(auth);
-        mineTempo(chain, c.payload.signature as Hex);
+        const m = mineTempo(chain, c.payload.signature as Hex);
+        if (s.reverts) chain.mined.set(m.hash, "reverted");
       }
       return new Response(new Uint8Array(s.paidBody), { status: s.paidStatus, headers: { "content-type": "image/png" } });
     }
@@ -482,12 +495,16 @@ export interface TRig {
   store: Store;
   sql: Sql;
   side: TempoSide;
-  state: { balance: bigint; confirm: "ok" | "timeout"; balanceCalls: number; failBalanceAt: number };
+  /**
+   * `balance`: the payer's USDC.e. With `liveBalance`, the start balance: what the payer's mined transactions sent
+   * and `fee` for each of them (as the chain takes it) come off it. `baseFee`: the head's base fee.
+   */
+  state: { balance: bigint; confirm: "ok" | "timeout"; balanceCalls: number; failBalanceAt: number; fee: bigint; baseFee: bigint };
   rpc: ReturnType<typeof fakeTempoRpc>;
   reconcile: (o?: { staleMs?: number }) => Promise<ReconcileAction[]>;
 }
 
-export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCaps>; enabled?: boolean; tempoEnabled?: boolean; wrapSeller?: (f: typeof fetch) => typeof fetch; sql?: Sql; budgetMs?: number; staleMs?: number } = {}): Promise<TRig> {
+export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCaps>; enabled?: boolean; tempoEnabled?: boolean; wrapSeller?: (f: typeof fetch) => typeof fetch; sql?: Sql; budgetMs?: number; staleMs?: number; liveBalance?: boolean } = {}): Promise<TRig> {
   const wrap = (f: (url: string, init?: RequestInit) => Promise<Response>) => (o.wrapSeller ? (o.wrapSeller(f as unknown as typeof fetch) as unknown as typeof f) : f);
   const sql = o.sql ?? (await testSql());
   const store = new Store(sql);
@@ -501,10 +518,14 @@ export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCap
     secretKey: "s".repeat(40),
     realm: "buy.test",
   });
-  const state: TRig["state"] = { balance: 5_000_000n, confirm: "ok", balanceCalls: 0, failBalanceAt: 0 };
+  const state: TRig["state"] = { balance: 5_000_000n, confirm: "ok", balanceCalls: 0, failBalanceAt: 0, fee: 31n, baseFee: 600_000_000n };
+  const proxy = tProxy.address.toLowerCase();
+  /** The payer's balance on the fake chain: start - what its mined transactions sent - their fees (reverted ones pay too). */
+  const payerTxs = () => new Set(chain.sent.filter((s) => s.from === proxy).map((s) => s.hash));
+  const live = () => state.balance - chain.sent.filter((s) => s.from === proxy && chain.mined.get(s.hash) === "success").reduce((a, s) => a + s.amount, 0n) - state.fee * BigInt(payerTxs().size);
   const verifyOnChain = async (tx: string, exp: { payer: string; recipient: string; amount: bigint }) => {
     const hit = chain.sent.find((s) => s.hash === tx.toLowerCase() && s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount);
-    return hit ? { settled: true, detail: "transfer found", feePaid: "31" } : { settled: false, detail: "receipt not found", feePaid: null };
+    return hit && chain.mined.get(hit.hash) === "success" ? { settled: true, detail: "transfer found", feePaid: state.fee.toString() } : { settled: false, detail: hit ? "status reverted" : "receipt not found", feePaid: null };
   };
   const reads: TempoReads = {
     receipt: async (hash) => {
@@ -515,6 +536,8 @@ export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCap
     nonce: async () => 0n,
     memoTransfers: async (exp) =>
       chain.sent.filter((s) => s.from === exp.payer.toLowerCase() && s.to === exp.recipient.toLowerCase() && s.amount === exp.amount && s.memo === exp.memo.toLowerCase()).map((s) => s.hash),
+    fee: async (hash) => (chain.mined.has(hash.toLowerCase()) ? state.fee : null),
+    baseFee: async () => state.baseFee,
   };
   const side: TempoSide = {
     receive: T_RECEIVE,
@@ -526,7 +549,7 @@ export async function tRig(o: { seller?: Partial<TSeller>; caps?: Partial<DayCap
       balance: async () => {
         state.balanceCalls++;
         if (state.balanceCalls === state.failBalanceAt) throw new Error("rpc down https://rpc.example.test/KEY");
-        return state.balance;
+        return o.liveBalance ? live() : state.balance;
       },
       // the seller payment is looked up by the hash of the credential's transaction, which the seller mined (or not)
       verify: async (tx, exp) => verifyOnChain(tx, exp),

@@ -428,6 +428,14 @@ export interface TempoReads {
   nonce(address: string): Promise<bigint>;
   /** Tx hashes from `fromBlock` on with a USDC.e TransferWithMemo payer -> recipient of exactly `amount` and this memo. */
   memoTransfers(exp: { payer: string; recipient: string; amount: bigint; memo: string }, fromBlock: bigint): Promise<string[]>;
+  /**
+   * The network fee a mined transaction took from its sender, atomic USDC.e (a reverted one pays it too); null when
+   * there is no receipt. Read from the receipt: the larger of gasUsed x effectiveGasPrice (rounded up) and the
+   * sender's USDC.e transfers to the fee manager.
+   */
+  fee(hash: string): Promise<bigint | null>;
+  /** The head block's base fee per gas (wei-like units: 1e12 per atomic USDC.e). */
+  baseFee(): Promise<bigint>;
 }
 
 export type TempoFateFacts = TempoTxFacts & { search?: { recipient: string; amount: string; fromBlock: string }; known?: string[] };
