@@ -874,6 +874,14 @@ if (a.includes("--send")) {
   writeFileSync("results/evm/anchors/" + lane + "-" + v("--day") + ".sent.json", "{}");
 }
 `,
+  // The lane page: writes <data>/evm/<lane>.json (FAKE_EVM_PUBLISH_FAIL=<lane>: fails, writes nothing).
+  "evm-publish.ts": `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
+appendFileSync(process.env.FAKE_CALLS!, "evm-publish " + a.join(" ") + "\\n");
+if (process.env.FAKE_EVM_PUBLISH_FAIL === v("--lane")) process.exit(1);
+mkdirSync(v("--data") + "/evm", { recursive: true });
+writeFileSync(v("--data") + "/evm/" + v("--lane") + ".json", JSON.stringify({ page: v("--lane"), at: process.env.VET402_DAILY_NOW }) + "\\n");
+`,
   "evm-roots-publish.ts": `import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), data = a[a.indexOf("--data") + 1];
 // FAKE_EVM_REFRESH: today's rules judge a published purchase differently until the file is written once.
@@ -882,6 +890,7 @@ if (a.includes("--check")) {
   process.exit(process.env.FAKE_EVM_REFRESH && !existsSync(data + "/evm/roots/refreshed") ? 10 : 0);
 }
 appendFileSync(process.env.FAKE_CALLS!, "evm-roots-publish\\n");
+if (process.env.FAKE_EVM_ROOTS_FAIL) process.exit(1);
 if (process.env.FAKE_EVM_REFRESH) {
   mkdirSync(data + "/evm/roots", { recursive: true });
   writeFileSync(data + "/evm/roots/refreshed", "1\\n");
@@ -1579,6 +1588,8 @@ test("records: with evm-roots-enabled, each lane-day with purchases is planned, 
     `evm-anchor --lane robinhood --day 2026-09-30 --send VET402_ANCHOR_SEND=robinhood EVM_KEY_DIR=${keys}`,
     "evm-anchor --lane arbitrum --day 2026-09-30",
     `evm-anchor --lane arbitrum --day 2026-09-30 --send VET402_ANCHOR_SEND=arbitrum EVM_KEY_DIR=${keys}`,
+    `evm-publish --lane robinhood --data ${sb.pub}/data`,
+    `evm-publish --lane arbitrum --data ${sb.pub}/data`,
     "evm-roots-publish",
   ]);
   assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots robinhood:2026-09-30,arbitrum:2026-09-30");
@@ -1630,12 +1641,39 @@ test("records: with no day to write, a published roots file that today's rules j
   const sb = evmBox();
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), FAKE_EVM_REFRESH: "1" });
   assert.equal(r.status, 0, logs(sb));
-  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", "evm-roots-publish"]);
+  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", `evm-publish --lane robinhood --data ${sb.pub}/data`, `evm-publish --lane arbitrum --data ${sb.pub}/data`, "evm-roots-publish"]);
   assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots judged again with today's rules");
   const before = evmCalls(sb).length;
   const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:20:00Z"), FAKE_EVM_REFRESH: "1" });
   assert.equal(r2.status, 0, logs(sb));
   assert.deepEqual(evmCalls(sb).slice(before).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check"], "nothing to judge again");
   assert.match(logs(sb), /no closed day with purchases waits for its records/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a lane page that cannot be made (evm-publish fails) does not stop the run: the roots file follows the page on main, and the Solana records are published", () => {
+  const sb = evmBox();
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS, FAKE_EVM_PUBLISH_FAIL: "arbitrum" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /\] records: EVM lane page failed, publish continues: evm-publish --lane arbitrum failed: data\/evm\/arbitrum\.json stays as on main, and data\/evm\/roots\/arbitrum\.json shows nothing it withholds/);
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
+  const ev = evmCalls(sb);
+  assert.ok(ev.indexOf("evm-roots-publish") > ev.findIndex((l) => l.startsWith("evm-publish --lane arbitrum")), "the roots file after the lane pages");
+  assert.match(git(sb.origin, "log", "-1", "--format=%s", "main"), /^records: 2026-09-30 delivery records and each day's root, anchored on Solana; EVM daily roots /);
+  assert.ok(git(sb.origin, "show", "--name-only", "--format=", "main").split("\n").includes("data/records/2026-09-30/index.json"), "the Solana records are on main");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a roots file that cannot be made puts the new lane pages back too (no new page beside an old roots file), alerts, and the Solana records are published", () => {
+  const sb = evmBox();
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS, FAKE_EVM_ROOTS_FAIL: "1" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /\] records: EVM root failed, publish continues: evm-roots-publish failed: data\/evm \(lane pages and roots\) stays as on main this run/);
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
+  const files = git(sb.origin, "show", "--name-only", "--format=", "main").split("\n");
+  assert.ok(files.includes("data/records/2026-09-30/index.json"), "the Solana records are on main");
+  assert.ok(!files.some((f) => f.startsWith("data/evm/")), files.join("\n"));
   rmSync(sb.dir, { recursive: true });
 });

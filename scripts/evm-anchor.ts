@@ -164,8 +164,13 @@ if (existsSync(sentFile)) {
     process.exit(0);
   }
   if (s.status !== "sending" || state !== "already_on_chain" || s.root.toLowerCase() !== r.root.toLowerCase()) throw new Error(`${sentFile} is "${s.status}" and the day on chain is ${state}: look by hand (the transaction may still be pending)`);
-  // Sent before, the receipt not recorded: the RootRecorded log names the transaction.
-  const logs = await client.getContractEvents({ address: registry, abi: deliveryRootsReadAbi, eventName: "RootRecorded", args: { day: dayNumber(r.day) }, fromBlock: 0n, strict: true });
+  // Sent before, the receipt not recorded: the RootRecorded log names the transaction. Read from the block the
+  // sending file noted just before the send (or, for an older file, the deployment's block), never from block 0.
+  const deployFile = `${anchorsDir}/deploy-${lane}.json`;
+  const deployBlock = existsSync(deployFile) ? readJson<{ block?: string }>(deployFile).block : undefined;
+  const from = s.fromBlock ?? deployBlock;
+  if (!from || !/^\d+$/.test(from)) throw new Error(`${sentFile} names no block to read the log from, and ${deployFile} has none: look by hand`);
+  const logs = await client.getContractEvents({ address: registry, abi: deliveryRootsReadAbi, eventName: "RootRecorded", args: { day: dayNumber(r.day) }, fromBlock: BigInt(from), strict: true });
   const log = logs.find((l) => l.args.root?.toLowerCase() === r.root.toLowerCase());
   if (!log?.transactionHash) throw new Error(`the root is on chain but no RootRecorded log was found for ${r.day}: look by hand`);
   writePrivate(sentFile, JSON.stringify({ ...s, status: "sent", hash: log.transactionHash, block: log.blockNumber?.toString() ?? null, readBack: true, completedFromLog: true }, null, 2) + "\n");
@@ -181,7 +186,9 @@ const quoted = await client.estimateFeesPerGas();
 const fees = anchorFees({ label: spec.label, anchorMaxGas: dep.recordMaxGas, anchorMaxFeeWei: dep.recordMaxFeeWei }, gas, { maxFeePerGas: quoted.maxFeePerGas, maxPriorityFeePerGas: quoted.maxPriorityFeePerGas }, await client.getBalance({ address: poster }));
 console.log(`record limits: gas ${fees.gas}, maxFeePerGas ${fees.maxFeePerGas}, bound ${formatEther(fees.boundWei)} ETH (cap ${formatEther(dep.recordMaxFeeWei)})`);
 const account = loadRootsPoster();
-const sending: SentDay = { lane, day: r.day, root: r.root, n: r.n, status: "sending", registry, leaves: r.leaves as SentDay["leaves"] };
+// The transaction lands at or after this block: where an interrupted send's log is looked for.
+const fromBlock = (await client.getBlockNumber()).toString();
+const sending: SentDay = { lane, day: r.day, root: r.root, n: r.n, status: "sending", registry, fromBlock, leaves: r.leaves as SentDay["leaves"] };
 writePrivate(sentFile, JSON.stringify({ ...sending, at: new Date().toISOString() }, null, 2) + "\n");
 const wallet = createWalletClient({ account, transport: http(rpc) });
 const hash = await wallet.sendTransaction({ chain: null, to: tx.to, value: 0n, data: tx.data, gas: fees.gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });

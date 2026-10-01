@@ -673,8 +673,20 @@ evm_roots() {
     run "EVM root $lane $day --send" in_repo env VET402_ANCHOR_SEND="$lane" EVM_KEY_DIR="$KEYS" "$TSX" scripts/evm-anchor.ts --lane "$lane" --day "$day" --send || rc=$?
     [ "$rc" -eq 0 ] || continues "EVM root" "evm-anchor --lane $lane --day $day --send exited $rc (not retried; look at results/evm/anchors/$lane-$day.sent.json)"
   done <<<"$1"
-  run "data/evm/roots" in_repo "$TSX" scripts/evm-roots-publish.ts --data "$PUB/data" ||
-    continues "EVM root" "evm-roots-publish failed: data/evm/roots is not updated this run"
+  # The lane pages first (results/ from this checkout, data/ in the publish worktree), then the roots file, which
+  # never shows what a lane page withholds. A lane page that cannot be made stays as on main: the roots file then
+  # follows that page, on the cautious side, and nothing here stops the run.
+  for lane in robinhood arbitrum; do
+    [ -f "$REPO/results/evm/$lane-purchases.jsonl" ] || continue
+    run "data/evm/$lane.json" in_repo "$TSX" scripts/evm-publish.ts --lane "$lane" --data "$PUB/data" ||
+      continues "EVM lane page" "evm-publish --lane $lane failed: data/evm/$lane.json stays as on main, and data/evm/roots/$lane.json shows nothing it withholds"
+  done
+  if ! run "data/evm/roots" in_repo "$TSX" scripts/evm-roots-publish.ts --data "$PUB/data"; then
+    # A new lane page next to an old roots file could withhold what the old file shows: both go back to main.
+    $GIT -C "$PUB" checkout -q -- data/evm 2>/dev/null
+    $GIT -C "$PUB" clean -qfd -- data/evm 2>/dev/null
+    continues "EVM root" "evm-roots-publish failed: data/evm (lane pages and roots) stays as on main this run"
+  fi
 }
 
 # record_day <day> <receipts dir> [--from <dir>]: build, verify every record, publish-records, anchor, publish-records.

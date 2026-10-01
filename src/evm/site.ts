@@ -16,7 +16,7 @@ import type { ChainBuyRecord, ChainCheckNote, PaymentResponseHeaderNote } from "
 import type { CauseResult } from "./settle-cause.js";
 import { STOCK_SELLER } from "./lane-plan.js";
 import { notifiedSellers, type NotifiedFile } from "../receipt/publish.js";
-import { rootsFileProblems, type RootsFile } from "./roots.js";
+import { pageWithholds, rootsFileProblems, type RootsFile } from "./roots.js";
 import { rootsSection } from "./roots-site.js";
 
 const STOCK_SELLER_RESOURCE = STOCK_SELLER.resource;
@@ -323,7 +323,7 @@ export function loadLanePublic(dataDir: string): { robinhood?: LanePublic; arbit
     if (bad.length) throw new Error(`${f}: negative results for sellers not in notified.json: ${bad.join("; ")}`);
     const rf = join(dataDir, "evm", "roots", `${lane}.json`);
     const roots = existsSync(rf) ? (JSON.parse(readFileSync(rf, "utf8")) as RootsFile) : undefined;
-    const rbad = roots ? rootsFileProblems(roots, lane, notified, { rows: j.rows }) : [];
+    const rbad = roots ? rootsFileProblems(roots, lane, notified, { page: pageWithholds(j) }) : [];
     if (rbad.length) throw new Error(`${rf}: ${rbad.join("; ")}`);
     out[lane] = roots ? { ...j, roots } : j;
   }

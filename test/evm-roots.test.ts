@@ -21,6 +21,7 @@ import {
   laneReadings,
   leafIsPublic,
   leafKey,
+  pageWithholds,
   verdictsOf,
   LEAF_RULE,
   type Verdict,
@@ -38,6 +39,7 @@ import { rootsSection } from "../src/evm/roots-site.js";
 import { loadLanePublic, type LaneRow } from "../src/evm/site.js";
 import { blockingFindings, scanFileText } from "../src/daily/secret-gate.js";
 import { verifyInclusion } from "../src/receipt/merkle.js";
+import { notifiedSellers } from "../src/receipt/publish.js";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const PAYER = getAddress("0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51");
@@ -79,6 +81,7 @@ const LINES = [
 ];
 const AFTER = "2026-10-01T00:10:00.000Z";
 const V = verdictsOf("arbitrum", laneReadings("arbitrum", LINES));
+const NO_PAGE = pageWithholds(null);
 let saltN = 0;
 const mint = () => `0x${(++saltN).toString(16).padStart(64, "0")}`;
 
@@ -144,12 +147,12 @@ test("the chain check: every sent purchase needs one (also one settled on its re
 test("today's verdict decides what is shown: free and vet402's own input are shown, a negative one is not; no reading, no record", () => {
   const leaf = sentDay().leaves[0]!;
   const v = (status: Verdict["status"], cause: Verdict["cause"], rule: string): Verdict => ({ status, cause, rule });
-  assert.ok(leafIsPublic(leaf, v("free_delivered", "seller_free", "seller_said_free:first_call_free"), new Set()));
-  assert.ok(leafIsPublic(leaf, v("settled_vet402_input", "vet402", "input:path_slot:settled"), new Set()));
-  assert.ok(!leafIsPublic(leaf, v("settled_no_answer", "seller_config", "settled_then_500"), new Set()));
-  assert.ok(!leafIsPublic(leaf, v("not_settled", "not_settled", "x"), new Set()));
-  assert.ok(!leafIsPublic(leaf, null, new Set()), "not judged today: not shown");
-  assert.ok(leafIsPublic(leaf, v("settled_no_answer", "seller_config", "settled_then_500"), new Set(["good.test"])), "told");
+  assert.ok(leafIsPublic(leaf, v("free_delivered", "seller_free", "seller_said_free:first_call_free"), new Set(), NO_PAGE));
+  assert.ok(leafIsPublic(leaf, v("settled_vet402_input", "vet402", "input:path_slot:settled"), new Set(), NO_PAGE));
+  assert.ok(!leafIsPublic(leaf, v("settled_no_answer", "seller_config", "settled_then_500"), new Set(), NO_PAGE));
+  assert.ok(!leafIsPublic(leaf, v("not_settled", "not_settled", "x"), new Set(), NO_PAGE));
+  assert.ok(!leafIsPublic(leaf, null, new Set(), NO_PAGE), "not judged today: not shown");
+  assert.ok(leafIsPublic(leaf, v("settled_no_answer", "seller_config", "settled_then_500"), new Set(["good.test"]), NO_PAGE), "told");
 });
 
 test("days: only closed UTC days with a sent purchase; a day is done once written and published", () => {
@@ -168,7 +171,7 @@ function sentDay(notifiedFor: string[] = []): { sent: SentDay; leaves: PublicLea
 
 test("published file: a purchase judged fine today with its record, proof and verdict; a negative one only as an index until its seller is told", () => {
   const { sent, notified } = sentDay();
-  const f = buildRootsFile("arbitrum", [sent, { ...sent, day: "2026-09-29", status: "sending" }], TX("c"), notified, V);
+  const f = buildRootsFile("arbitrum", [sent, { ...sent, day: "2026-09-29", status: "sending" }], TX("c"), notified, V, NO_PAGE);
   assert.equal(f.days.length, 1, "a day still sending is not published");
   const d = f.days[0]!;
   assert.equal(d.dayNumber, dayNumber(DAY));
@@ -178,19 +181,19 @@ test("published file: a purchase judged fine today with its record, proof and ve
   assert.ok(!JSON.stringify(f).includes("bad.test") && !JSON.stringify(f).includes("nopay.test"), "no withheld seller is named");
   assert.deepEqual(rootsFileProblems(f, "arbitrum", notified, { verdicts: V }), []);
   // Told: published.
-  const told = buildRootsFile("arbitrum", [sent], null, new Set(["bad.test"]), V);
+  const told = buildRootsFile("arbitrum", [sent], null, new Set(["bad.test"]), V, NO_PAGE);
   assert.equal(told.days[0]!.published, 2);
   assert.match(rootsFileProblems(told, "arbitrum", new Set(), {}).join(), /not in notified/);
   const tampered = structuredClone(f);
   (tampered.days[0]!.leaves[0] as { record: PublicLeaf }).record.httpStatus = 500;
   assert.match(rootsFileProblems(tampered, "arbitrum", notified, {}).join(), /does not prove/);
-  assert.throws(() => buildRootsFile("arbitrum", [{ ...sent, leaves: sent.leaves.slice(1) }], null, notified, V), /do not make the root/);
-  assert.throws(() => buildRootsFile("robinhood", [sent], null, notified, V), /lane arbitrum/);
+  assert.throws(() => buildRootsFile("arbitrum", [{ ...sent, leaves: sent.leaves.slice(1) }], null, notified, V, NO_PAGE), /do not make the root/);
+  assert.throws(() => buildRootsFile("robinhood", [sent], null, notified, V, NO_PAGE), /lane arbitrum/);
 });
 
 test("a rule change: the root and the leaves stay, today's verdict withholds what it now holds against the seller, and a stale file is refused", () => {
   const { sent, notified } = sentDay();
-  const before = buildRootsFile("arbitrum", [sent], null, notified, V);
+  const before = buildRootsFile("arbitrum", [sent], null, notified, V, NO_PAGE);
   // Today's rules call the delivered purchase a seller failure.
   const key = leafKey(sent.leaves[0]!);
   const today = new Map(V);
@@ -198,16 +201,71 @@ test("a rule change: the root and the leaves stay, today's verdict withholds wha
   const problems = rootsFileProblems(before, "arbitrum", notified, { verdicts: today }).join();
   assert.match(problems, /the verdict is not today's/);
   assert.match(problems, /today's rules withhold it/);
-  const after = buildRootsFile("arbitrum", [sent], null, notified, today);
+  const after = buildRootsFile("arbitrum", [sent], null, notified, today, NO_PAGE);
   assert.equal(after.days[0]!.root, before.days[0]!.root, "the root on chain still holds: leaves are facts");
   assert.equal(after.days[0]!.published, 0);
   assert.deepEqual(rootsFileProblems(after, "arbitrum", notified, { verdicts: today }), []);
-  // At site build, today's judgment is the lane page's rows: a purchase withheld there makes the roots file stale.
+  // At site build, the lane page is today's judgment: a record shown that the page withholds is the one stop.
   const leaf = sent.leaves[0]!;
   const row = { payTo: leaf.payTo!, hosts: ["good.test"], catalogListings: 1, resource: leaf.resource, livePrice: "1000", status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null } as LaneRow;
-  assert.match(rootsFileProblems(before, "arbitrum", notified, { rows: [row] }).join(), /stale roots file/);
-  assert.deepEqual(rootsFileProblems(before, "arbitrum", notified, { rows: [{ ...row, status: "delivered" }] }), []);
-  assert.deepEqual(rootsFileProblems(before, "arbitrum", notified, { rows: [{ ...row, purchases: 2 }] }), [], "a row of several purchases does not stand for this one");
+  const err = rootsFileProblems(before, "arbitrum", notified, { page: pageWithholds({ rows: [row] }) }).join();
+  assert.match(err, /shown here but withheld on the lane page \(data\/evm\/arbitrum\.json\); run scripts\/evm-roots-publish\.ts --data data, which never shows what the lane page withholds/);
+  assert.deepEqual(rootsFileProblems(before, "arbitrum", notified, { page: pageWithholds({ rows: [{ ...row, status: "delivered" }] }) }), []);
+  // Built against that page, the record is withheld and nothing stops.
+  const held = buildRootsFile("arbitrum", [sent], null, notified, V, pageWithholds({ rows: [row] }));
+  assert.equal(held.days[0]!.published, 0);
+  assert.deepEqual(rootsFileProblems(held, "arbitrum", notified, { verdicts: V, page: pageWithholds({ rows: [row] }) }), []);
+});
+
+/**
+ * The review's reproduction (2026-10-02, BLOCK of 7de39ab), as given: add one chain-check line to the 2026-09-30
+ * Arbitrum readings, and the records run stops in build-site with "2026-09-30 #k: the lane page withholds this purchase
+ * today (stale roots file ...)", which also stops the Solana records from being published. The readings are made from the committed lane page
+ * (data/evm/arbitrum.json: one sent purchase per bought row, delivered rows settled and answered, withheld rows not),
+ * the root is written over them, then one chain-check line says a withheld purchase settled and came back. The lane
+ * page (evm-publish not run again) still withholds it.
+ */
+test("reproduction: one more chain-check line on the 2026-09-30 Arbitrum readings, the lane page not rebuilt: the roots file follows the page and build-site does not stop", () => {
+  const page = JSON.parse(readFileSync(join(ROOT, "data", "evm", "arbitrum.json"), "utf8")) as { rows: LaneRow[] };
+  const bought = page.rows.filter((r) => r.resource && (r.status === "delivered" || r.status === "withheld"));
+  const reading = (r: LaneRow, i: number, ok: boolean) => {
+    const at = new Date(Date.parse(`${DAY}T06:00:00.000Z`) + i * 60_000).toISOString();
+    return { lane: "arbitrum", chain: "eip155:42161", agentId: `payto:${r.payTo}`, resource: r.resource!, method: "GET", at, outcome: "sent", payer: PAYER, payTo: r.payTo, priceUsdc: "0.001000", amountAtomic: "1000",
+      response: { status: ok ? 200 : 500, contentType: "application/json", bytes: ok ? 2 : 0, first300: ok ? "{}" : "" }, body: ok ? "{}" : "", settlementTx: ok ? TX("e") : null, settledOnChain: ok, delivered: ok, facilitator: null, predictedProblem: null,
+      chainCheck: { checkedAt: "2026-10-01T12:00:00.000Z", result: ok ? "transfer_found" : "no_transfer", by: ok ? "nonce" : null, tx: ok ? TX("e") : null, windowFrom: at, windowTo: at } };
+  };
+  const readings = bought.map((r, i) => reading(r, i, r.status === "delivered"));
+  const w = bought.findIndex((r) => r.status === "withheld");
+  assert.ok(w >= 0 && bought.filter((r) => r.status === "withheld").length === 6, "the page withholds 6 purchases");
+  const dir = mkdtempSync(join(tmpdir(), "roots-repro-"));
+  mkdirSync(join(dir, "results", "evm", "anchors"), { recursive: true });
+  mkdirSync(join(dir, "data", "evm"), { recursive: true });
+  mkdirSync(join(dir, "data", "records"), { recursive: true });
+  writeFileSync(join(dir, "data", "evm", "arbitrum.json"), readFileSync(join(ROOT, "data", "evm", "arbitrum.json")));
+  writeFileSync(join(dir, "data", "records", "notified.json"), readFileSync(join(ROOT, "data", "records", "notified.json")));
+  writeFileSync(join(dir, "results", "evm", "arbitrum-purchases.jsonl"), readings.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  // The day's root, written while the purchase was still "no_transfer".
+  const { root: r } = lanesDayRoot("arbitrum", DAY, laneReadings("arbitrum", [readFileSync(join(dir, "results", "evm", "arbitrum-purchases.jsonl"), "utf8")]), AFTER, {}, mint);
+  writeFileSync(join(dir, "results", "evm", "anchors", `arbitrum-${DAY}.sent.json`), JSON.stringify({ lane: "arbitrum", day: DAY, root: r.root, n: r.n, status: "sent", hash: TX("b"), block: "1", registry: ROOTS_REGISTRY, leaves: r.leaves }));
+  // One more chain-check line: the withheld purchase settled and came back.
+  writeFileSync(join(dir, "results", "evm", "arbitrum-chaincheck.jsonl"), JSON.stringify(reading(bought[w]!, w, true)) + "\n");
+  const notified = notifiedSellers(JSON.parse(readFileSync(join(dir, "data", "records", "notified.json"), "utf8")));
+  const now = verdictsOf("arbitrum", laneReadings("arbitrum", ["purchases", "reverify", "chaincheck"].map((k) => { try { return readFileSync(join(dir, "results", "evm", `arbitrum-${k}.jsonl`), "utf8"); } catch { return ""; } })));
+  assert.equal(now.get(leafKey(r.leaves[w]!))?.status, "delivered", "today's rules would show it");
+  // What 7de39ab did: judged by the readings alone, the record is shown, and build-site's check stops on it.
+  const old = buildRootsFile("arbitrum", [JSON.parse(readFileSync(join(dir, "results", "evm", "anchors", `arbitrum-${DAY}.sent.json`), "utf8"))], null, notified, now, NO_PAGE);
+  const oldErr = rootsFileProblems(old, "arbitrum", notified, { page: pageWithholds(page) });
+  assert.deepEqual(oldErr.length, 1);
+  assert.match(oldErr[0]!, new RegExp(`^${DAY} #${w}: shown here but withheld on the lane page`));
+  // Now: scripts/evm-roots-publish.ts follows the lane page; build-site (loadLanePublic) goes on.
+  const out = spawnSync(join(ROOT, "node_modules", ".bin", "tsx"), [join(ROOT, "scripts", "evm-roots-publish.ts"), "--data", "data"], { cwd: dir, encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /arbitrum: 1 purchase\(s\) today's rules would show stay withheld because data\/evm\/arbitrum\.json withholds them/);
+  const lanes = loadLanePublic(join(dir, "data"));
+  const day = lanes.arbitrum!.roots!.days[0]!;
+  assert.deepEqual(day.leaves[w], { leafIndex: w, withheld: true });
+  assert.equal(day.published, bought.filter((x) => x.status === "delivered").length);
+  rmSync(dir, { recursive: true });
 });
 
 test("secret gate: the published roots file passes; a salt anywhere else is still a finding", () => {
@@ -215,7 +273,7 @@ test("secret gate: the published roots file passes; a salt anywhere else is stil
   // Random-looking salts, not the counting ones above.
   let k = 0;
   const { root } = lanesDayRoot("arbitrum", DAY, LINES, AFTER, {}, () => `0x${sha256Hex(`salt-${++k}`)}`);
-  const f = buildRootsFile("arbitrum", [{ ...sent, root: root.root, leaves: root.leaves }], TX("c"), notified, verdictsOf("arbitrum", laneReadings("arbitrum", LINES)));
+  const f = buildRootsFile("arbitrum", [{ ...sent, root: root.root, leaves: root.leaves }], TX("c"), notified, verdictsOf("arbitrum", laneReadings("arbitrum", LINES)), NO_PAGE);
   const leaves = root.leaves;
   const text = JSON.stringify(f, null, 2) + "\n";
   assert.deepEqual(blockingFindings(scanFileText(text, "data/evm/roots/arbitrum.json"), []), []);
@@ -225,7 +283,7 @@ test("secret gate: the published roots file passes; a salt anywhere else is stil
 
 test("site: the daily-record section links the contract and each day's transaction; with no day written it says so", () => {
   const { sent, notified } = sentDay();
-  const f = buildRootsFile("arbitrum", [sent], TX("c"), notified, V);
+  const f = buildRootsFile("arbitrum", [sent], TX("c"), notified, V, NO_PAGE);
   const html = rootsSection("arbitrum", f);
   assert.match(html, /The root holds facts, not verdicts/);
   assert.ok(html.includes(`https://arbiscan.io/address/${ROOTS_REGISTRY}`));
@@ -247,7 +305,7 @@ test("site: build-site refuses a roots file whose record does not prove into its
   writeFileSync(join(dir, "records", "notified.json"), JSON.stringify({ sellers: [] }));
   writeFileSync(join(dir, "evm", "arbitrum.json"), readFileSync(join(ROOT, "data", "evm", "arbitrum.json")));
   const { sent, notified } = sentDay();
-  const f = buildRootsFile("arbitrum", [sent], null, notified, V);
+  const f = buildRootsFile("arbitrum", [sent], null, notified, V, NO_PAGE);
   writeFileSync(join(dir, "evm", "roots", "arbitrum.json"), JSON.stringify(f));
   assert.equal(loadLanePublic(dir).arbitrum?.roots?.days.length, 1);
   (f.days[0]!.leaves[0] as { record: PublicLeaf }).record.httpStatus = 404;
@@ -322,7 +380,7 @@ test("local chain: deploy, write a day once, refuse a second write, a stranger a
     assert.equal(logs[0]?.transactionHash, h1, "the RootRecorded log names the transaction (how --send completes a 'sending' day)");
 
     // Every record in the published file verifies on chain, in one call each.
-    const f = buildRootsFile("arbitrum", [{ lane: "arbitrum", day: DAY, root: r.root, n: r.n, status: "sent", hash: h1, block: "1", registry: ROOTS_REGISTRY, leaves: r.leaves }], null, new Set(["bad.test", "nopay.test"]), V);
+    const f = buildRootsFile("arbitrum", [{ lane: "arbitrum", day: DAY, root: r.root, n: r.n, status: "sent", hash: h1, block: "1", registry: ROOTS_REGISTRY, leaves: r.leaves }], null, new Set(["bad.test", "nopay.test"]), V, NO_PAGE);
     for (const l of f.days[0]!.leaves) {
       assert.ok("record" in l);
       const digest = keccak256(stringToBytes(canonicalJson(l.record)));
