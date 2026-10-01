@@ -12,7 +12,7 @@ import { escapeHtml, PUBLIC_REPO_URL, publicFooter, publicPage, tabs } from "../
 import type { GroupReport, RankReport } from "../rank/report.js";
 import type { StockComparison, StockReference } from "../robinhood/stock-check.js";
 import { EVM_CHAINS, LANES, type EvmChainKey } from "./chains.js";
-import type { ChainBuyRecord } from "./evm-buy.js";
+import type { ChainBuyRecord, ChainCheckNote, PaymentResponseHeaderNote } from "./evm-buy.js";
 import type { CauseResult } from "./settle-cause.js";
 import { STOCK_SELLER } from "./lane-plan.js";
 import { notifiedSellers, type NotifiedFile } from "../receipt/publish.js";
@@ -22,11 +22,44 @@ const STOCK_SELLER_RESOURCE = STOCK_SELLER.resource;
 /**
  * delivered       settled on chain (read back by vet402) and an answer came back
  * settled_no_answer settled on chain, no answer: the only status that is the seller's doing
- * not_settled     vet402 sent a payment and no settlement came back (no tx named, or the tx reverted)
+ * not_settled     vet402 sent a payment and the chain check found no transfer to the payTo (or the tx reverted)
  * unconfirmed     a settlement tx was named (or the request timed out) but vet402 could not read it back
  * withheld        a negative result for a seller not yet in data/records/notified.json: not published
+ * free_delivered  the answer came back, the seller said it did not charge, and the chain shows nothing moved
+ * vet402_input    vet402's request was wrong (a path slot left in, a required input missing); nothing settled
+ * settled_vet402_input  settled on chain, and the seller's error was about vet402's wrong request
+ * Settled is read from the chain (src/evm/chaincheck.ts), never from the seller's settlement header. The last
+ * three are never counted against the seller.
  */
-export type RowStatus = "not_offered_now" | "not_bought_yet" | "refused" | "delivered" | "settled_no_answer" | "not_settled" | "unconfirmed" | "withheld";
+export type RowStatus =
+  | "not_offered_now"
+  | "not_bought_yet"
+  | "refused"
+  | "delivered"
+  | "settled_no_answer"
+  | "not_settled"
+  | "unconfirmed"
+  | "withheld"
+  | "free_delivered"
+  | "vet402_input"
+  | "settled_vet402_input";
+
+/** Statuses in which vet402 sent a payment. */
+export const BOUGHT_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["delivered", "settled_no_answer", "not_settled", "unconfirmed", "withheld", "free_delivered", "vet402_input", "settled_vet402_input"]);
+/** Statuses in which the payment settled on chain. */
+export const SETTLED_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["delivered", "settled_no_answer", "settled_vet402_input"]);
+/** Statuses that say something against the seller (published only for sellers vet402 has told). */
+const NEGATIVE_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["settled_no_answer", "not_settled", "unconfirmed", "refused"]);
+/** Causes that are not against the seller. */
+const NEUTRAL_CAUSES = new Set(["delivered", "not_paid", "seller_free"]);
+const isInputCause = (c: CauseResult | null) => c?.cause === "vet402" && c.rule.startsWith("input:");
+
+/** Pure. A status (and its cause) that says something against the seller. */
+export function isNegative(status: RowStatus, cause: CauseResult | null): boolean {
+  if (status === "free_delivered" || status === "vet402_input" || status === "settled_vet402_input") return false;
+  if (NEGATIVE_STATUSES.has(status)) return true;
+  return cause !== null && !NEUTRAL_CAUSES.has(cause.cause) && !isInputCause(cause);
+}
 
 export interface LaneRow {
   payTo: string;
@@ -46,6 +79,10 @@ export interface LaneRow {
   /** When vet402 bought more than once from this payTo (the stock-price check): how many, and how many settled. */
   purchases?: number;
   settled?: number;
+  /** What the chain check read for the purchase shown (src/evm/chaincheck.ts). */
+  chainCheck?: ChainCheckNote["result"];
+  /** Which settlement header the paid answer carried, and whether it decoded (no secret in it). */
+  paymentResponseHeader?: PaymentResponseHeaderNote;
 }
 
 export interface StockRow {
@@ -88,6 +125,7 @@ export function skipReason(c: DryRunChoice, chainLabel: string): string | null {
   if (c.chosen) return null;
   const t = c.tried?.at(-1);
   if (!t) return "every listing costs more than the per-purchase cap";
+  if (t.why.startsWith("input_unfillable")) return "vet402 cannot fill the request's input yet";
   if (t.status !== 402) return `no 402 came back (${t.status === null ? "no response" : `HTTP ${t.status}`})`;
   const code = t.why.split(":")[0] ?? "";
   if (code.startsWith("no_")) return `the live 402 no longer offers ${chainLabel}`;
@@ -107,12 +145,14 @@ function statusOf(r: Rec | undefined): RowStatus {
   if (!r || r.outcome === "would_pay" || r.outcome === "not_sent") return "not_bought_yet";
   if (r.outcome === "refused") return "refused";
   if (r.delivered) return "delivered";
+  if (isInputCause(r.cause)) return r.settledOnChain === true ? "settled_vet402_input" : "vet402_input";
+  if (r.cause?.cause === "seller_free" && r.settledOnChain !== true) return "free_delivered";
   if (r.settledOnChain === true) return "settled_no_answer";
   return r.cause?.cause === "unconfirmed" ? "unconfirmed" : "not_settled";
 }
 
 /** Skip reasons that say nothing against the seller (it just no longer lists the chain, or is over vet402's cap). */
-const NEUTRAL_SKIPS = [/^the live 402 no longer offers /, /^every listing costs more than the per-purchase cap$/, /^the live 402 asks more than the per-purchase cap$/];
+const NEUTRAL_SKIPS = [/^the live 402 no longer offers /, /^every listing costs more than the per-purchase cap$/, /^the live 402 asks more than the per-purchase cap$/, /^vet402 cannot fill the request's input yet$/];
 
 /** Stock verdicts that are a finding against the seller's answer. */
 const NEGATIVE_STOCK = new Set(["close", "differs", "wrong_ticker"]); // "unreadable" is vet402's limit, "market_closed" and reference_* are no verdict
@@ -127,8 +167,7 @@ function hostOf(u: string | null): string | null {
 
 /** Is this row negative for the seller? (Anything but delivered, not bought, or a neutral skip.) */
 export function rowIsNegative(r: LaneRow): boolean {
-  if (r.status === "settled_no_answer" || r.status === "not_settled" || r.status === "unconfirmed" || r.status === "refused") return true;
-  if (r.cause && r.cause.cause !== "delivered" && r.cause.cause !== "not_paid") return true;
+  if (isNegative(r.status, r.cause)) return true;
   if (r.facilitatorLead) return true;
   if (r.skipped && !NEUTRAL_SKIPS.some((x) => x.test(r.skipped!))) return true;
   return false;
@@ -149,19 +188,18 @@ export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>)
   const rows = l.rows.map((r): LaneRow =>
     !rowIsNegative(r) || told(rowSeller(r))
       ? r
-      : r.status === "not_bought_yet" || r.status === "not_offered_now" || r.status === "delivered"
+      : r.status === "not_bought_yet" || r.status === "not_offered_now" || r.status === "delivered" || r.status === "free_delivered" || r.status === "vet402_input" || r.status === "settled_vet402_input"
         ? { ...r, facilitatorLead: null, skipped: null } // not bought, or delivered: only the lead or skip text goes
         : r.status === "refused"
           ? { ...r, status: "not_offered_now", cause: null, facilitatorLead: null, skipped: null } // vet402 did not pay: "not bought", no reason
-        : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null, settled: undefined },
+        : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null, settled: undefined, chainCheck: undefined, paymentResponseHeader: undefined },
   );
   const compare = l.compare?.map((c): CompareRow => {
-    const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
-    if (!neg || told(hostOf(c.resource))) return c;
+    if (!isNegative(c.status, c.cause) || told(hostOf(c.resource))) return c;
     // vet402 did not pay (refused before signing): "not bought", without the reason. Otherwise withheld.
     return { resource: c.resource, status: c.status === "refused" ? "not_offered_now" : "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null };
   });
-  const stockNegative = (s: StockRow) => (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "delivered");
+  const stockNegative = (s: StockRow) => (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && isNegative(s.status, null));
   const stock = l.stock?.map((s) => (stockNegative(s) && !told(hostOf(s.resource ?? null)) ? { ...s, comparison: null, status: "withheld" as const, withheld: true } : s));
   return { ...l, rows, ...(compare ? { compare } : {}), ...(stock ? { stock } : {}) };
 }
@@ -172,11 +210,10 @@ export function unpublishableRows(l: LanePublic, notified: ReadonlySet<string>):
   for (const r of l.rows) if (rowIsNegative(r) && !notified.has(rowSeller(r) ?? "")) out.push(`${l.lane}: ${r.payTo} (${r.status})`);
   for (const c of l.compare ?? []) {
     const res = c.resource;
-    const neg = c.status === "settled_no_answer" || c.status === "not_settled" || c.status === "unconfirmed" || c.status === "refused" || (c.cause !== null && c.cause.cause !== "delivered" && c.cause.cause !== "not_paid");
-    if (neg && !notified.has(hostOf(res) ?? "")) out.push(`${l.lane}: Base side of ${res} (${c.status})`);
+    if (isNegative(c.status, c.cause) && !notified.has(hostOf(res) ?? "")) out.push(`${l.lane}: Base side of ${res} (${c.status})`);
   }
   for (const s of l.stock ?? []) {
-    const neg = (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "delivered" && s.status !== "withheld");
+    const neg = (s.comparison !== null && NEGATIVE_STOCK.has(s.comparison.verdict)) || (s.status !== undefined && s.status !== "withheld" && isNegative(s.status, null));
     if (neg && !notified.has(hostOf(s.resource ?? null) ?? "")) out.push(`${l.lane}: stock ${s.ticker} (${s.comparison?.verdict ?? s.status})`);
   }
   return out;
@@ -199,6 +236,8 @@ function rowFrom(c: DryRunChoice, r: Rec | undefined, chainLabel: string, all: R
     resource,
     livePrice: paid ? (r!.amountAtomic ?? null) : (c.chosen?.liveAmount ?? null),
     ...(sentAll.length > 1 ? { purchases: sentAll.length, settled: sentAll.filter((x) => x.settledOnChain === true).length } : {}),
+    ...(paid && r!.chainCheck ? { chainCheck: r!.chainCheck.result } : {}),
+    ...(paid && r!.paymentResponseHeader ? { paymentResponseHeader: r!.paymentResponseHeader } : {}),
     status: c.chosen || paid ? statusOf(r) : "not_offered_now",
     cause: paid ? r!.cause : null,
     settlementTx: paid ? (r!.settlementTx ?? null) : null,
@@ -298,9 +337,12 @@ const STATUS_TEXT: Record<RowStatus, string> = {
   refused: "vet402 did not pay",
   delivered: "settled on chain, came back",
   settled_no_answer: "settled on chain, no answer",
-  not_settled: "sent; no settlement came back",
+  not_settled: "sent; no payment to the seller is on chain",
   unconfirmed: "sent; vet402 could not read the settlement back",
   withheld: "bought; the result is shown after the seller is told",
+  free_delivered: "came back free: the seller said it did not charge, and no payment moved on chain",
+  vet402_input: "vet402's request was incomplete; nothing settled, not counted against the seller",
+  settled_vet402_input: "settled on chain; vet402's request was incomplete, not counted against the seller",
 };
 
 function money(atomic: string | null, symbol: string): string {
@@ -316,15 +358,21 @@ const CAUSE_TEXT: Record<string, string> = {
   unknown: "no clear cause",
 };
 
+const INPUT_TEXT: Record<string, string> = {
+  path_placeholder: "vet402's request: the URL still had a slot from the catalog in its path",
+  missing_input: "vet402's request: an input the seller requires was missing or empty",
+};
+
 function causeCell(c: CauseResult | null): string {
-  if (!c || c.cause === "delivered" || c.cause === "not_paid") return "–";
+  if (!c || c.cause === "delivered" || c.cause === "not_paid" || c.cause === "seller_free") return "–";
+  if (isInputCause(c)) return escapeHtml(INPUT_TEXT[c.rule.split(":")[1] ?? ""] ?? "vet402's request");
   const lead = c.evidence === "supported_page" ? " (lead from the facilitator's /supported page)" : "";
   return `${escapeHtml(CAUSE_TEXT[c.cause] ?? c.cause)}${escapeHtml(lead)}${c.fix ? `<span class="sub">${escapeHtml(c.fix)}</span>` : ""}`;
 }
 
 function counts(l: LanePublic): string {
   const n = (s: RowStatus) => l.rows.filter((r) => r.status === s).length;
-  const bought = n("delivered") + n("settled_no_answer") + n("not_settled") + n("withheld");
+  const bought = l.rows.filter((r) => BOUGHT_STATUSES.has(r.status)).length;
   return `<div class="stats">
   <div><span class="big">${l.payTosInCatalogs}</span><br>payTo addresses that the CDP, Dexter and PayAI catalogs list on ${escapeHtml(EVM_CHAINS[l.lane].label)}</div>
   <div><span class="big">${l.payTosOffered}</span><br>whose live 402 still offers it, read without paying</div>

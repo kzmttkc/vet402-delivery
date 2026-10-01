@@ -4,7 +4,11 @@
  *   facilitator   the seller's facilitator cannot settle this chain / scheme / amount
  *   seller_config the seller's own setup: took the money but sent no answer, settled to another address,
  *                 has no paid route, or advertises a chain its facilitator does not settle
- *   vet402        vet402's payment itself was wrong (balance, signature, validity window)
+ *   vet402        vet402's payment itself was wrong (balance, signature, validity window), or vet402's request
+ *                 was (rule input:*: a path slot left in the URL, or the seller's 400/404/422 naming a missing or
+ *                 empty input), whether or not the payment settled
+ *   seller_free   the seller said in its answer that it did not charge this call (first_call_free,
+ *                 freeTrialApplied, charged:false), the answer came back, and the chain check found no transfer
  *   unconfirmed   vet402 could not read the settlement back (RPC timeout, receipt not found): vet402's side
  *   not_settled   the payment did not settle and nothing points at anyone: not the seller's fault
  *   unknown       nothing in the response says which
@@ -19,8 +23,9 @@
  * Pure: no network.
  */
 import type { ChainBuyRecord } from "./evm-buy.js";
+import { laneInputProblem, sellerSaidFree } from "./lane-input.js";
 
-export type Cause = "delivered" | "not_paid" | "facilitator" | "seller_config" | "vet402" | "unconfirmed" | "not_settled" | "unknown";
+export type Cause = "delivered" | "not_paid" | "facilitator" | "seller_config" | "vet402" | "seller_free" | "unconfirmed" | "not_settled" | "unknown";
 
 export interface CauseResult {
   cause: Cause;
@@ -124,6 +129,12 @@ export function classifyRecord(r: ChainBuyRecord, predicted?: { facilitator: str
   if (r.delivered) return { cause: "delivered", rule: "delivered", evidence: "chain", fix: null };
   const status = r.response?.status ?? null;
   const body = r.response?.first300 ?? "";
+  // 0. vet402's request was wrong: never the seller's, settled or not.
+  const input = laneInputProblem(r);
+  if (input) return { cause: "vet402", rule: `input:${input.kind}${r.settledOnChain ? ":settled" : ""}`, evidence: "response", fix: null };
+  // 0b. The seller said it did not charge, the answer came back, and the chain shows nothing moved.
+  const free = r.settledOnChain !== true && r.chainCheck?.result === "no_transfer" && status !== null && status >= 200 && status < 300 ? sellerSaidFree(r.body ?? r.response?.first300) : null;
+  if (free) return { cause: "seller_free", rule: `seller_said_free:${free}`, evidence: "response", fix: null };
   // 1. Settled on chain, no answer: the seller took the money.
   if (r.settledOnChain) return { cause: "seller_config", rule: `settled_then_${status ?? "no_response"}`, evidence: "chain", fix: FIX.settledNoAnswer };
   // 2. A settlement tx was named but vet402 could not confirm it.
@@ -133,6 +144,8 @@ export function classifyRecord(r: ChainBuyRecord, predicted?: { facilitator: str
     if (why === "no_usdc_transfer_to_seller") return { cause: "seller_config", rule: `settlement:${why}`, evidence: "chain", fix: FIX.receiptWithoutPayment };
     // Reverted on chain: the payment did not move (a balance race or an expired authorization are possible). Not the seller's fault.
     if (why === "tx_status_reverted") return { cause: "not_settled", rule: "settlement:tx_status_reverted", evidence: "chain", fix: null };
+    // The chain check read every transfer out of the payer in the authorization's window: none to this payTo.
+    if (why === "no_transfer_on_chain") return { cause: "not_settled", rule: "settlement:no_transfer_on_chain", evidence: "chain", fix: null };
     return { cause: "unconfirmed", rule: `settlement_unreadable:${why.slice(0, 60)}`, evidence: "none", fix: null };
   }
   if (r.settlementTx && r.settlementCheck?.startsWith("transfer ")) return { cause: "unknown", rule: "transfer_from_another_payer", evidence: "chain", fix: null };

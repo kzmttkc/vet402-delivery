@@ -12,6 +12,7 @@ import { normalizeAccept } from "../guard.js";
 import { STOCK_REFS } from "../robinhood/stock-check.js";
 import { EVM_CHAINS, chainByCaip2, type EvmChainSpec } from "./chains.js";
 import { checkChainAccept, eqAddr, payToOn, type ChainBuyEntry, type EvmAccept } from "./evm-buy.js";
+import { repairLaneRequest } from "./lane-input.js";
 
 export const DEXTER_DISCOVERY = "https://x402.dexter.cash/discovery/resources";
 
@@ -24,6 +25,8 @@ export interface ListingOption {
   amount: string;
   /** Needs no input beyond the seller's own declared example. */
   simple: boolean;
+  /** Parameters vet402 filled (src/evm/lane-input.ts); absent when nothing was filled. */
+  filled?: { param: string; rule: string }[];
 }
 
 export interface PayToGroup {
@@ -31,6 +34,8 @@ export interface PayToGroup {
   listings: number;
   hosts: string[];
   options: ListingOption[];
+  /** Listings not bought because vet402 cannot fill their input (src/evm/lane-input.ts). */
+  inputSkipped?: { resource: string; why: string }[];
 }
 
 function chainAccepts(l: Listing, spec: EvmChainSpec): EvmAccept[] {
@@ -60,7 +65,12 @@ const hostOf = (u: string): string => {
 };
 
 /** Pure. One group per payTo on `spec`; with `sameOn`, only listings whose `sameOn` accept has the same payTo. */
-export function groupByPayTo(catalog: Listing[], spec: EvmChainSpec, opts: { sameOn?: EvmChainSpec; maxPerAtomic: bigint; ownHosts?: string[] }): PayToGroup[] {
+export function groupByPayTo(
+  catalog: Listing[],
+  spec: EvmChainSpec,
+  opts: { sameOn?: EvmChainSpec; maxPerAtomic: bigint; ownHosts?: string[]; today?: string; lastStatus?: ReadonlyMap<string, number | null> },
+): PayToGroup[] {
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const seen = new Set<string>();
   const groups = new Map<string, PayToGroup>();
   for (const l of catalog) {
@@ -80,7 +90,13 @@ export function groupByPayTo(catalog: Listing[], spec: EvmChainSpec, opts: { sam
       const g = groups.get(payTo.toLowerCase()) ?? { payTo, listings: 0, hosts: [], options: [] };
       g.listings++;
       if (!g.hosts.includes(host)) g.hosts.push(host);
-      if (BigInt(a.amount) > 0n && BigInt(a.amount) <= opts.maxPerAtomic) g.options.push({ resource: l.resource, payTo, amount: a.amount, ...requestOf(l) });
+      if (BigInt(a.amount) > 0n && BigInt(a.amount) <= opts.maxPerAtomic) {
+        // The request is filled the way the Solana and Tempo purchases are; one that cannot be is not bought.
+        const req = requestOf(l);
+        const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastStatus?.get(l.resource) ?? null);
+        if (!fix.ok) (g.inputSkipped ??= []).push({ resource: l.resource, why: `input_unfillable: ${fix.reason.replace(/^input_unfillable:/, "")}${fix.param ? ` (${fix.param})` : ""}` });
+        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, ...(fix.changed ? { filled: fix.filled } : {}) });
+      }
       groups.set(payTo.toLowerCase(), g);
     }
   }
@@ -117,7 +133,7 @@ export async function confirmLive(
       const i = next++;
       if (i >= groups.length) return;
       const g = groups[i]!;
-      const c: LiveChoice = { payTo: g.payTo, listings: g.listings, hosts: g.hosts, chosen: null, tried: [] };
+      const c: LiveChoice = { payTo: g.payTo, listings: g.listings, hosts: g.hosts, chosen: null, tried: (g.inputSkipped ?? []).map((x) => ({ resource: x.resource, status: null, why: x.why })) };
       for (const o of g.options.slice(0, opts.maxTries ?? 3)) {
         const p = await probe(o);
         if (p.status !== 402) {
