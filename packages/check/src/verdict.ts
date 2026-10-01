@@ -41,7 +41,7 @@
  *    matched by src/receipt/publish.ts sellerWasTold, the same test that gates negative signed records).
  *    For any other seller a would-be "avoid" is "unknown", and its why states only the facts the
  *    Sellers page already shows, in the same form as any other why ("vet402 paid this seller 6 times on
- *    Solana over 4 days; 0 of 6 paid calls answered (the newest failed one answered HTTP 500)."). No mark says that a verdict is
+ *    Solana over 4 days; 0 of 6 paid calls answered; not enough to say pay or avoid."). No mark says that a verdict is
  *    being held back: such a mark would itself be the signal.
  *  - Several sellers can answer one URL (a seller on the Solana, Tempo and Base page and on the Algorand
  *    page, or several services behind one host). "avoid" if any of them is "avoid" and none is "pay";
