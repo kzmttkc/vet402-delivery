@@ -1,0 +1,26 @@
+[package]
+name = "delivery-escrow-example"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Example: an escrow that pays the seller only when observation-roots says the purchase was DELIVERED, and returns the money on NOT_DELIVERED"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "delivery_escrow_example"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "observation-roots/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "=0.32.2"
+observation-roots = { path = "../observation-roots", features = ["cpi"] }
+solana-keccak-hasher = "=2.2.1"

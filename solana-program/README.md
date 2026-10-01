@@ -93,3 +93,23 @@ For now the deploy key `DNkH3i35X29YjALuK7ay2qB95fmduHxfQJkCKqA6Jakh` keeps it, 
 `scripts/anchor-receipts.ts --day <day> --post-root [--send]` (off unless asked for) copies a day that is already anchored by memo: it checks the memo on chain first, and posts exactly its root, count, sequence range and observer. The program and the posting key are pinned per cluster by genesis hash in `src/receipt/roots-program.ts` (`ROOTS_DEPLOYMENTS_BY_GENESIS`), never read from the environment, and any other cluster is refused. `post_root` is signed and paid by the posting key (`.keys/mainnet/roots-poster.json`), never by the wallet that pays for purchases. The transaction is refused unless it holds only `post_root` with its four accounts in order and only the posting key and the day account writable, and unless the simulation shows the posting key spending no more than the day account's rent and the fee. Lamports sent to a day's address beforehand do not block the post. The posting key's balance is read before anything is built: below the day account's rent, the fee and the rent-exempt minimum of an empty account, nothing is signed (exit 3). With `--send`, once the day's account reads back with the memo's values, `<day>/anchor-program-sent.json` names the day, the root, the program, the account, the transaction and its slot, and `records:publish` copies them into `data/records/index.json` (`days[].programRoot`). The daily records job (`scripts/daily/run.sh records`) runs this after the memo for each new day. The memo stays the primary record.
 
 The CPI example (`programs/delivery-gate-example`) is for local tests and devnet only; it is not deployed on mainnet.
+
+## Escrow example
+
+`programs/delivery-escrow-example` is a second caller, one that moves tokens: the buyer deposits the price of one purchase, and the deposit goes to the seller only when the purchase's signed record is DELIVERED, or back to the buyer when it is NOT_DELIVERED.
+
+| Instruction | Who | What |
+|---|---|---|
+| `deposit(network, pay_to, transaction, amount, deadline)` | the buyer | locks `amount` of a classic SPL token in a vault owned by the escrow PDA `["escrow", buyer, keccak256(transaction)]`. `pay_to` must be the seller's Solana address |
+| `settle(day, fields, proof)` | anyone | the record must name the escrow's network, payTo and transaction, and its `amount` must equal the deposit; then `verify_cpi`. DELIVERED moves the vault to the seller's token account, NOT_DELIVERED to the buyer's. MISMATCH and UNCLEAR settle nothing. The vault and the escrow close, their rent back to the buyer |
+| `reclaim()` | the buyer, after the deadline | takes the vault back, so a purchase with no usable record never locks the tokens |
+
+The escrow compares only keccak256 words, so every string field can travel hashed: the settle transaction of the 2026-09-28 to 2026-09-30 records is at most 1,103 bytes (limit 1,232). Settling moves the vault's whole balance, so tokens sent to the vault cannot keep it from closing, and lamports sent to the vault's address first do not block a deposit. The example does not compare the record's `asset` with the deposited mint; a real escrow should.
+
+`npm run program:test` also runs `tests/escrow.test.ts` on its own local validator: one DELIVERED record of each day pays the seller; every published Solana NOT_DELIVERED record returns the deposit and cannot pay the seller; a tampered verdict or proof, another purchase's record and another amount are refused; an UNCLEAR record settles nothing and the buyer reclaims after the deadline.
+
+On devnet, `npx tsx scripts/escrow-devnet.ts all` builds observation-roots under a devnet program id (a copy of the source with only `declare_id!` changed; the mainnet build is untouched), deploys it and the escrow, posts the three real roots, and settles one DELIVERED and one NOT_DELIVERED published record with a 6-decimal test token. It refuses any RPC whose genesis is not devnet's, uses only the keys in `.keys/devnet-escrow/`, and writes `escrow-devnet.json` here, which the site's `escrow.html` reads. With `--local --rpc http://127.0.0.1:<port>` it runs the same steps against a local validator.
+
+What an escrow like this would have returned in vet402's own purchases is `npx tsx scripts/escrow-would-refund.ts` (the site's `escrow.html` and `escrow.json`).
+
+The records describe purchases vet402 paid straight to the seller. The devnet escrow is tied to such a record to show the mechanism. A purchase paid through an escrow would need a record that names the escrow deposit as its payment.

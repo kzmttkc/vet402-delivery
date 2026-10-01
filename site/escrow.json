@@ -1,0 +1,166 @@
+{
+  "kind": "vet402-escrow-would-refund",
+  "version": 0,
+  "dataDate": "2026-10-01",
+  "definition": [
+    "Counted: a purchase vet402 paid for whose payment settled, where nothing usable came back and the ranking puts the failure on the seller's side (rules settled_not_delivered and paid_not_delivered in src/rank/classify.ts: a 402 again after settling, a 5xx, no answer, another non-2xx that is not a 4xx, or a 2xx with an empty body). It is the same line as the NOT_DELIVERED verdict of the signed records (src/receipt/build.ts). An escrow that releases only on DELIVERED and returns on NOT_DELIVERED would have returned them.",
+    "Not counted, shown apart: a settled purchase where the request vet402 sent was wrong (rule paid_then_4xx_vet402_input). That is vet402's mistake, not the seller's.",
+    "Not counted, shown apart: a settled purchase the ranking cannot put on either side (other 4xx answers, a 402 after a placeholder input; rules paid_then_4xx and paid_then_402_placeholder). The signed records call the 4xx case UNCLEAR, and the example escrow leaves UNCLEAR to its deadline.",
+    "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
+    "Not counted: purchases whose payment did not settle (no money left the buyer), purchases on vet402's own hosts, and rows where settlement is unknown.",
+    "Sellers vet402 has told (data/records/notified.json) are named. Every other seller is in the counts and amounts, never by name.",
+    "Amounts are the prices vet402 paid, in USD stablecoins (USDC, USDC.e, pathUSD), summed at 6 decimals.",
+    "Robinhood Chain and Arbitrum purchases come from data/evm/, where a negative result for a seller not yet told is withheld, so the public data does not say whether it settled. They are given as a count of withheld purchases and are not in the totals."
+  ],
+  "chains": [
+    {
+      "chain": "algorand",
+      "settled": 1148,
+      "delivered": 1138,
+      "wouldRefund": {
+        "purchases": 8,
+        "amountUsd": "0.250000",
+        "priceNotRecorded": 0,
+        "byRule": {
+          "settled_not_delivered": 6,
+          "paid_not_delivered": 2
+        }
+      },
+      "vet402Input": {
+        "purchases": 0,
+        "amountUsd": "0.000000",
+        "priceNotRecorded": 0
+      },
+      "cantTell": {
+        "purchases": 2,
+        "amountUsd": "0.020000",
+        "priceNotRecorded": 0
+      },
+      "sellers": 2,
+      "toldSellers": [],
+      "notToldSellers": 2
+    },
+    {
+      "chain": "solana",
+      "settled": 549,
+      "delivered": 523,
+      "wouldRefund": {
+        "purchases": 18,
+        "amountUsd": "0.666300",
+        "priceNotRecorded": 0,
+        "byRule": {
+          "settled_not_delivered": 0,
+          "paid_not_delivered": 18
+        }
+      },
+      "vet402Input": {
+        "purchases": 0,
+        "amountUsd": "0.000000",
+        "priceNotRecorded": 0
+      },
+      "cantTell": {
+        "purchases": 8,
+        "amountUsd": "0.060000",
+        "priceNotRecorded": 0
+      },
+      "sellers": 3,
+      "toldSellers": [
+        {
+          "seller": "api.syraa.fun",
+          "purchases": 6,
+          "amountUsd": "0.006300"
+        },
+        {
+          "seller": "api.xona-agent.com",
+          "purchases": 6,
+          "amountUsd": "0.600000"
+        }
+      ],
+      "notToldSellers": 1
+    },
+    {
+      "chain": "tempo",
+      "settled": 162,
+      "delivered": 102,
+      "wouldRefund": {
+        "purchases": 5,
+        "amountUsd": "0.010700",
+        "priceNotRecorded": 0,
+        "byRule": {
+          "settled_not_delivered": 1,
+          "paid_not_delivered": 4
+        }
+      },
+      "vet402Input": {
+        "purchases": 40,
+        "amountUsd": "1.045500",
+        "priceNotRecorded": 0
+      },
+      "cantTell": {
+        "purchases": 15,
+        "amountUsd": "0.348000",
+        "priceNotRecorded": 0
+      },
+      "sellers": 4,
+      "toldSellers": [],
+      "notToldSellers": 4
+    },
+    {
+      "chain": "base",
+      "settled": 7,
+      "delivered": 7,
+      "wouldRefund": {
+        "purchases": 0,
+        "amountUsd": "0.000000",
+        "priceNotRecorded": 0,
+        "byRule": {
+          "settled_not_delivered": 0,
+          "paid_not_delivered": 0
+        }
+      },
+      "vet402Input": {
+        "purchases": 0,
+        "amountUsd": "0.000000",
+        "priceNotRecorded": 0
+      },
+      "cantTell": {
+        "purchases": 0,
+        "amountUsd": "0.000000",
+        "priceNotRecorded": 0
+      },
+      "sellers": 0,
+      "toldSellers": [],
+      "notToldSellers": 0
+    }
+  ],
+  "totals": {
+    "settled": 1866,
+    "wouldRefund": {
+      "purchases": 31,
+      "amountUsd": "0.927000",
+      "priceNotRecorded": 0
+    },
+    "vet402Input": {
+      "purchases": 40,
+      "amountUsd": "1.045500",
+      "priceNotRecorded": 0
+    },
+    "cantTell": {
+      "purchases": 25,
+      "amountUsd": "0.428000",
+      "priceNotRecorded": 0
+    },
+    "sellers": 9,
+    "notToldSellers": 7
+  },
+  "withheldLanes": [
+    {
+      "lane": "robinhood",
+      "withheldPurchases": 9
+    },
+    {
+      "lane": "arbitrum",
+      "withheldPurchases": 14
+    }
+  ]
+}

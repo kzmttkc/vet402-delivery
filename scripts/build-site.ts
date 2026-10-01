@@ -21,6 +21,8 @@ import { loadPublishedRecords } from "../src/receipt/publish.js";
 import { loadLanePublic } from "../src/evm/site.js";
 import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
 import type { RankReport } from "../src/rank/report.js";
+import { renderEscrowPage, type DevnetRun } from "../src/escrow/page.js";
+import { wouldRefundFromData } from "../src/escrow/would-refund.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -57,6 +59,13 @@ if (records) {
   for (const [rel, html] of renderRecordsSite(records, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);
   for (const r of records.records) jsonFiles.set(`records/${r.entry.id}.json`, r.text);
 }
+// escrow.html and escrow.json: what an escrow keyed on the signed records would have returned (from data/), and
+// the example escrow's devnet run (solana-program/escrow-devnet.json, when it has been run).
+const escrowReport = wouldRefundFromData(join(ROOT, "data"));
+const devnetFile = join(ROOT, "solana-program", "escrow-devnet.json");
+const devnet = existsSync(devnetFile) ? (JSON.parse(readFileSync(devnetFile, "utf8")) as DevnetRun) : null;
+pages.set("escrow.html", renderEscrowPage(escrowReport, devnet));
+jsonFiles.set("escrow.json", JSON.stringify(escrowReport, null, 2) + "\n");
 rmSync(outDir, { recursive: true, force: true });
 for (const [rel, body] of [...pages, ...jsonFiles]) {
   const p = join(outDir, rel);
