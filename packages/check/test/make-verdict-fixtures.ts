@@ -16,6 +16,8 @@
  *   x402.quickintel.io             Arbitrum only, result held until the seller is told
  *   x402-mesh-gateway.fly.dev      Algorand, 4 tries, 0 settled, 4 seller-side 5xx with no settlement
  *   api.syraa.fun, blocksearch.dev 0 of 6 paid calls answered, not in notified.json (held, not avoid)
+ *   agentworld.me, api.carbon-cashmere.de, clawhunter.fun
+ *                                  pay on the published pages, plus a purchase held on Arbitrum or Robinhood Chain
  * and fixtures/verdict-lane-<lane>.json: data/evm/arbitrum.json and robinhood.json with only those hosts' rows.
  */
 import { readFileSync, writeFileSync } from "node:fs";
@@ -23,8 +25,8 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const OUT = join(import.meta.dirname, "fixtures");
-export const VERDICT_SELLERS = ["api.xona-agent.com", "brasil-dados-api.onrender.com", "agents.datamancer.io", "api.exa.ai", "scvd.store", "algorandtracker.com", "x402-mesh-gateway.fly.dev", "api.syraa.fun", "blocksearch.dev"];
-const LANE_HOSTS = ["scvd.store", "api.nativebtc.org", "x402.quickintel.io"];
+export const VERDICT_SELLERS = ["api.xona-agent.com", "brasil-dados-api.onrender.com", "agents.datamancer.io", "api.exa.ai", "scvd.store", "algorandtracker.com", "x402-mesh-gateway.fly.dev", "api.syraa.fun", "blocksearch.dev", "agentworld.me", "api.carbon-cashmere.de", "clawhunter.fun"];
+const LANE_HOSTS = ["scvd.store", "api.nativebtc.org", "x402.quickintel.io", "agentworld.me", "api.carbon-cashmere.de", "clawhunter.fun"];
 
 type Obj = Record<string, any>;
 const rank = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as Obj;

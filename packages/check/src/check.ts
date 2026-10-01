@@ -111,6 +111,10 @@ export interface CheckResult {
   basis: VerdictBasis | null;
   /** "seller_not_told": a negative result exists but is held until the seller has been told; the verdict is then "unknown". */
   held: Held;
+  /** Purchases held until the seller is told (Robinhood Chain, Arbitrum); not used for the verdict. */
+  heldPurchases: number;
+  /** One sentence on those purchases, also at the end of why; null when there are none. */
+  heldNote: string | null;
   kind: "vet402-check-before-paying";
   version: 0;
   asked: { url: string; host: string; chain: string | null; payTo: string | null };
@@ -603,6 +607,8 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
     why: v.why,
     basis: v.basis,
     held: v.held,
+    heldPurchases: v.heldPurchases,
+    heldNote: v.heldNote,
     kind: "vet402-check-before-paying",
     version: 0,
     asked,

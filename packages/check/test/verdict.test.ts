@@ -105,7 +105,7 @@ test("BLOCK fix, every seller in site/rank.json: avoid only with settled payment
   const realLanes = ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8")));
   const realNotified = JSON.parse(readFileSync(join(ROOT, "data", "records", "notified.json"), "utf8"));
   const told = toldSet(realNotified);
-  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0, held: 0 };
+  const dist: Record<string, number> = { pay: 0, avoid: 0, unknown: 0, held: 0, withHeldNote: 0 };
   const helds: string[] = [];
   const avoids: string[] = [];
   for (const g of real.groups)
@@ -115,6 +115,7 @@ test("BLOCK fix, every seller in site/rank.json: avoid only with settled payment
         const r = lookup(real, realIndex, { url, chain }, [], realLanes, realNotified);
         const b = verdictFor(r, toldSet(realNotified)).bases.find((x) => x.seller === s.key && x.page === g.id) ?? r.basis!;
         dist[b.verdict]!++;
+        if (r.heldNote && b.verdict !== "unknown") dist.withHeldNote!++;
         if (r.held === "seller_not_told" && r.basis?.seller === s.key && r.basis.page === g.id) {
           dist.held!++;
           helds.push(`${s.key} (${chain}): settled ${r.basis.settled}, answered ${r.basis.answered} of ${r.basis.counted}`);
@@ -149,6 +150,23 @@ test("avoid only for a seller vet402 has told: syraa and blocksearch (not told) 
   assert.deepEqual([xona.verdict, xona.held], ["avoid", null]);
   assert.equal(lookup(rank, index, { url: XONA }, [], lanes, null).verdict, "unknown", "no notified.json: nobody counts as told");
   assert.equal(lookup(rank, index, { url: XONA }, [], lanes, { sellers: [{ seller: "api.xona-agent.com#other", notifiedAt: "2026-09-30" }] }).verdict, "unknown", "the exact seller key, as for records");
+});
+
+test("held purchases never enter the verdict: pay from the published pages plus heldNote; on the held chain alone, unknown with held", async () => {
+  for (const [host, laneChain, laneName] of [["agentworld.me", "arbitrum", "Arbitrum"], ["api.carbon-cashmere.de", "arbitrum", "Arbitrum"], ["clawhunter.fun", "robinhood", "Robinhood Chain"]] as const) {
+    const note = `Results of 1 purchase on ${laneName} are held until the seller is told.`;
+    const b = await body(get(q(`https://${host}/`)));
+    assert.deepEqual([b.verdict, b.held, b.heldPurchases, b.heldNote], ["pay", null, 1, note], host);
+    assert.ok(b.why.endsWith(` ${note}`), `${host}: the note follows why`);
+    assert.match(b.why, /^vet402 paid this seller 6 times on Solana over 4 days; 6 of the 6 that count came back with an answer\. /);
+    const only = await body(get(q(`https://${host}/`, `&chain=${laneChain}`)));
+    assert.deepEqual([only.verdict, only.held, only.heldPurchases, only.tried, only.settled], ["unknown", "seller_not_told", 1, 0, 0], `${host} on ${laneChain}`);
+  }
+  // The hook still stops avoid only: a pay seller with a held purchase is paid.
+  const spy = spyClient();
+  const pay = wrapFetchWithPayment(wrapFetchWithCheck(x402Server("https://agentworld.me/api/x", "11111111111111111111111111111111"), { block: "avoid", data: verdictData() }) as typeof fetch, spy.client);
+  assert.equal((await pay("https://agentworld.me/api/x")).status, 200);
+  assert.equal(spy.signed(), 1);
 });
 
 test('hook block: "avoid" does not stop a held seller (unknown); it stops XONA', async () => {

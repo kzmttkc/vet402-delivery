@@ -33,9 +33,10 @@
  *  - When the caller gives the 402's payTo and it is not one vet402 paid, "pay" becomes "unknown": the
  *    purchases were made to another recipient. "avoid" stays.
  *  - Robinhood Chain and Arbitrum (data/evm/<lane>.json) hold one purchase per payTo from one run, so
- *    their purchases are on one day and alone never reach pay or avoid. A purchase there whose negative
- *    result is held until the seller is told ("withheld") is never used: such a seller is "unknown", and
- *    "pay" from another page becomes "unknown" too, with the reason the lane pages give.
+ *    their purchases are on one day and alone never reach pay or avoid. A purchase there whose result is
+ *    held until the seller is told ("withheld") is never used: the verdict comes from the published
+ *    purchases, with a note of how many are held (heldNote). A seller with only held purchases (on the
+ *    asked chain) is "unknown" with held = "seller_not_told".
  *  - "avoid" is given only for a seller vet402 has told about its results (data/records/notified.json,
  *    matched by src/receipt/publish.ts sellerWasTold, the same test that gates negative signed records).
  *    For any other seller a would-be "avoid" is "unknown" with held = "seller_not_told", and its why
@@ -81,6 +82,10 @@ export type Held = "seller_not_told" | null;
 export interface VerdictOut {
   /** Set when a negative result is held until the seller has been told (then verdict is "unknown"). */
   held: Held;
+  /** Purchases whose result is held until the seller is told (Robinhood Chain, Arbitrum); never used for the verdict. */
+  heldPurchases: number;
+  /** "Results of N purchase(s) on <chain> are held until the seller is told.", or null. Also the last sentence of why. */
+  heldNote: string | null;
   verdict: Verdict;
   /** One English sentence; every number in it is a field of `basis`. */
   why: string;
@@ -118,7 +123,7 @@ function basisOf(f: SellerFacts, chain: string | null): VerdictBasis {
   const upper = counted ? wilsonUpper(answered, counted) : 1;
   let verdict: Verdict = "unknown";
   const held = f.held ?? 0;
-  if (settled > 0 && counted > 0 && days >= MIN_DAYS && !held) {
+  if (settled > 0 && counted > 0 && days >= MIN_DAYS) {
     if (lower >= GRADE_LOWER.C) verdict = "pay";
     else if (upper < D_UPPER) verdict = "avoid";
   }
@@ -161,7 +166,37 @@ function notCountedClause(b: VerdictBasis): string {
  * The verdict for a lookup. Pure: reads only the result's own figures, so the sentence and the numbers
  * beside it cannot disagree.
  */
+/**
+ * Purchases held until the seller is told (Robinhood Chain, Arbitrum "withheld") never enter the verdict:
+ * it is computed from the published purchases alone, and a note says how many are held. Only when a
+ * seller has nothing but held purchases (on the asked chain) is the answer "unknown" with held.
+ */
 export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, told: ReadonlySet<string> = new Set()): VerdictOut {
+  const heldByChain = new Map<string, number>();
+  for (const f of r.sellers) if (f.held) for (const c of Object.keys(f.byChain)) heldByChain.set(c, (heldByChain.get(c) ?? 0) + f.held);
+  const heldPurchases = [...heldByChain.values()].reduce((n, k) => n + k, 0);
+  const heldNote = heldPurchases
+    ? `Results of ${joinAnd([...heldByChain].map(([c, n]) => `${n} purchase${n === 1 ? "" : "s"} on ${chainName(c)}`))} are held until the seller is told.`
+    : null;
+  const published = r.sellers.filter((f) => !(f.held && f.tried === 0));
+  if (r.sellers.length && !published.length) {
+    const only = r.sellers[0]!;
+    const out = decide({ ...r, sellers: [only] }, told);
+    return {
+      verdict: "unknown",
+      why: `vet402 bought from this seller on ${joinAnd(Object.keys(only.byChain).map(chainName))}; results for this seller are held until the seller is told.`,
+      basis: out.basis ? { ...out.basis, verdict: "unknown" } : null,
+      bases: out.bases,
+      held: "seller_not_told",
+      heldPurchases,
+      heldNote: null,
+    };
+  }
+  const out = decide({ ...r, sellers: published }, told);
+  return { ...out, why: heldNote ? `${out.why} ${heldNote}` : out.why, heldPurchases, heldNote };
+}
+
+function decide(r: Pick<CheckResult, "found" | "sellers" | "asked" | "payTo">, told: ReadonlySet<string>): Omit<VerdictOut, "heldPurchases" | "heldNote"> {
   const chain = r.asked.chain;
   if (!r.sellers.length) {
     const why = r.found
@@ -202,16 +237,6 @@ export function verdictFor(r: Pick<CheckResult, "found" | "sellers" | "asked" | 
       verdict: "unknown",
       why: `vet402's paid calls to this seller mostly got no usable answer (${b.answered} of ${b.counted}${on}); the verdict is held until the seller has been told.`,
       basis: b,
-      bases,
-      held: "seller_not_told",
-    };
-  }
-  const heldOne = bases.find((b) => b.held > 0);
-  if (heldOne) {
-    return {
-      verdict: "unknown",
-      why: `vet402 bought from this seller on ${joinAnd(heldOne.chains.map(chainName))}; results for this seller are held until the seller is told.`,
-      basis: heldOne,
       bases,
       held: "seller_not_told",
     };
