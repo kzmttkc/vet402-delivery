@@ -6,8 +6,10 @@
  *   npx tsx scripts/evm-anchor.ts --lane arbitrum --open-days --data data      closed days with purchases not written or not published
  *   VET402_ANCHOR_SEND=<lane> npx tsx scripts/evm-anchor.ts --lane <lane> --day <day> --send
  *
- * The leaves are public records (src/evm/roots.ts publicLeaf), not the purchase lines, so anyone can rebuild them
- * from data/evm/roots/<lane>.json. Each line's salt is kept in results/evm/anchors/<lane>-<day>.salts.json, and
+ * The leaves are public records (src/evm/roots.ts publicLeaf) made from the lane's merged reading of each purchase
+ * (results/evm/<lane>-purchases.jsonl, -reverify.jsonl, -chaincheck.jsonl, as scripts/evm-publish.ts reads them),
+ * not from the lines themselves, so anyone can rebuild them from data/evm/roots/<lane>.json. A day with a sent
+ * purchase the chain check has not decided is refused: run scripts/evm-chaincheck.ts first. Each line's salt is kept in results/evm/anchors/<lane>-<day>.salts.json, and
  * the plan in <lane>-<day>.plan.json. Before DeliveryRoots is deployed the record() gas is quoted with the
  * contract's code put at its address by a state override (eth_estimateGas only).
  *
@@ -26,7 +28,7 @@ import { buildTree } from "../src/receipt/merkle.js";
 import { EVM_CHAINS, LANES } from "../src/evm/chains.js";
 import { anchorFees, assertAnchorOnly, buildAnchorTx, dayNumber, type DayRoot } from "../src/evm/evm-anchor.js";
 import { loadRootsPoster, ROOTS_POSTER_ADDRESS } from "../src/evm/key.js";
-import { deliveryRootsReadAbi, lanesDayRoot, openRootDays, purchaseDays, registryCodeProblem, ROOTS_DEPLOYMENTS, runtimeWithWriter, type RootsFile, type RootsLane, type Salts, type SentDay } from "../src/evm/roots.js";
+import { deliveryRootsReadAbi, lanesDayRoot, laneReadings, openRootDays, purchaseDays, registryCodeProblem, ROOTS_DEPLOYMENTS, runtimeWithWriter, type RootsFile, type RootsLane, type Salts, type SentDay } from "../src/evm/roots.js";
 
 const argv = process.argv.slice(2);
 const arg = (n: string): string | undefined => {
@@ -43,9 +45,13 @@ if (send && process.env.VET402_ANCHOR_SEND !== lane) throw new Error(`--send als
 const DEFAULT_ANCHORS = "results/evm/anchors";
 const anchorsDir = arg("--anchors-dir") ?? DEFAULT_ANCHORS;
 if (send && resolve(anchorsDir) !== resolve(DEFAULT_ANCHORS)) throw new Error(`--send only uses ${DEFAULT_ANCHORS}`);
-const input = arg("--input") ?? `results/evm/${lane}-purchases.jsonl`;
-if (send && arg("--input")) throw new Error("--send only reads the lane's own purchases file");
-const readLines = (): string[] => (existsSync(input) ? readFileSync(input, "utf8").split("\n") : []);
+const resultsDir = arg("--results-dir") ?? "results/evm";
+if (send && arg("--results-dir")) throw new Error("--send only reads results/evm");
+const readLines = (): string[] =>
+  laneReadings(
+    lane,
+    ["purchases", "reverify", "chaincheck"].map((k) => `${resultsDir}/${lane}-${k}.jsonl`).map((f) => (existsSync(f) ? readFileSync(f, "utf8") : "")),
+  );
 const sentFileOf = (day: string) => `${anchorsDir}/${lane}-${day}.sent.json`;
 const readJson = <T>(f: string): T => JSON.parse(readFileSync(f, "utf8")) as T;
 

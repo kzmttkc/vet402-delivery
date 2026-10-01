@@ -145,7 +145,7 @@ export function skipReason(c: DryRunChoice, chainLabel: string): string | null {
 }
 type Rec = ChainBuyRecord & { lane: string; cause: CauseResult; relayer?: string | null; predictedProblem?: string | null; stock?: StockComparison | { verdict: string } };
 
-function statusOf(r: Rec | undefined): RowStatus {
+export function statusOf(r: Rec | undefined): RowStatus {
   if (!r || r.outcome === "would_pay" || r.outcome === "not_sent") return "not_bought_yet";
   if (r.outcome === "refused") return "refused";
   if (r.delivered) return "delivered";

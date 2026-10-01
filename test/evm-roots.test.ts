@@ -18,6 +18,7 @@ import {
   deployData,
   expectedRegistry,
   lanesDayRoot,
+  laneReadings,
   leafIsPublic,
   openRootDays,
   purchaseDays,
@@ -40,7 +41,7 @@ const SELLER = getAddress("0xeF2a4B6756895aAf1374640dcFCD4947959442ab");
 const TX = (b: string) => (`0x${b.repeat(64)}`.slice(0, 66)) as Hex;
 
 /** A purchase line as scripts/evm-lane.ts writes it (results/evm/<lane>-purchases.jsonl). */
-const purchase = (o: { at: string; host: string; delivered?: boolean; settled?: boolean; outcome?: string; body?: string; tx?: Hex | null }) =>
+const purchase = (o: { at: string; host: string; delivered?: boolean; settled?: boolean; outcome?: string; body?: string; tx?: Hex | null; check?: "no_transfer" | "transfer_found" | "pending" | null }) =>
   JSON.stringify({
     lane: "arbitrum",
     chain: "eip155:42161",
@@ -61,13 +62,14 @@ const purchase = (o: { at: string; host: string; delivered?: boolean; settled?: 
     settleResponse: { success: true },
     facilitator: null,
     predictedProblem: null,
+    ...(o.check ? { chainCheck: { checkedAt: "2026-10-01T12:00:00.000Z", result: o.check, by: o.check === "transfer_found" ? "nonce" : null, tx: o.check === "transfer_found" ? TX("e") : null, windowFrom: o.at, windowTo: o.at } } : {}),
   });
 
 const DAY = "2026-09-30";
 const LINES = [
   purchase({ at: `${DAY}T01:00:00.000Z`, host: "good.test", body: '{"answer":"the seller text that is never published"}' }),
   purchase({ at: `${DAY}T02:00:00.000Z`, host: "bad.test", delivered: false, settled: true, body: "Internal Server Error" }),
-  purchase({ at: `${DAY}T03:00:00.000Z`, host: "nopay.test", delivered: false, settled: false, tx: null }),
+  purchase({ at: `${DAY}T03:00:00.000Z`, host: "nopay.test", delivered: false, settled: false, tx: null, check: "no_transfer" }),
   purchase({ at: `${DAY}T04:00:00.000Z`, host: "refused.test", outcome: "refused" }),
   purchase({ at: "2026-10-01T00:00:01.000Z", host: "good.test" }),
 ];
@@ -110,6 +112,30 @@ test("leaves: public records with no seller text, sha256 of the body, a kept sal
   assert.equal(canonicalJson({ b: 1, a: [2, { d: 1, c: null }] }), '{"a":[2,{"c":null,"d":1}],"b":1}');
 });
 
+test("leaves follow the chain check: the material is the merged reading; an undecided purchase refuses the day; free and vet402's input are not withheld", () => {
+  // The chain check found the settlement the seller's header did not name: the later reading replaces the first.
+  const first = purchase({ at: `${DAY}T05:00:00.000Z`, host: "late.test", delivered: true, settled: false, tx: null });
+  const checked = JSON.stringify({ ...JSON.parse(first), settledOnChain: true, settlementTx: TX("e"), chainCheck: { checkedAt: "2026-10-01T12:00:00.000Z", result: "transfer_found", by: "nonce", tx: TX("e"), windowFrom: "a", windowTo: "b" } });
+  assert.throws(() => lanesDayRoot("arbitrum", DAY, laneReadings("arbitrum", [first]), AFTER, {}, mint), /without a chain check; run npx tsx scripts\/evm-chaincheck\.ts/);
+  assert.throws(() => lanesDayRoot("arbitrum", DAY, laneReadings("arbitrum", [purchase({ at: `${DAY}T05:00:00.000Z`, host: "p.test", delivered: false, settled: false, check: "pending" })]), AFTER, {}, mint), /without a chain check/);
+  const lines = laneReadings("arbitrum", [first, "", checked]);
+  assert.equal(lines.length, 1, "one record per purchase");
+  const { root: r, salts } = lanesDayRoot("arbitrum", DAY, lines, AFTER, {}, mint);
+  assert.deepEqual(r.leaves[0]!.chainCheck, { result: "transfer_found", by: "nonce", tx: TX("e") });
+  assert.equal(r.leaves[0]!.settledOnChain, true);
+  assert.equal(r.leaves[0]!.status, "delivered");
+  assert.ok(!JSON.stringify(r.leaves).includes("checkedAt"), "a re-check alone does not change a leaf");
+  // The salt belongs to the purchase, not the line: a later reading keeps it.
+  const again = lanesDayRoot("arbitrum", DAY, laneReadings("arbitrum", [first, JSON.stringify({ ...JSON.parse(checked), chainCheck: { ...JSON.parse(checked).chainCheck, checkedAt: "2026-10-02T00:00:00.000Z" } })]), AFTER, salts, mint);
+  assert.equal(again.root.root, r.root);
+  // Statuses the lane pages never hold against a seller are published without notice; a negative one is not.
+  const leafOf = (patch: Partial<PublicLeaf>) => ({ ...r.leaves[0]!, ...patch });
+  assert.ok(leafIsPublic(leafOf({ status: "free_delivered", cause: "seller_free", rule: "seller_said_free:first_call_free", delivered: false, settledOnChain: false }), new Set()));
+  assert.ok(leafIsPublic(leafOf({ status: "settled_vet402_input", cause: "vet402", rule: "input:path_slot:settled", delivered: false }), new Set()));
+  assert.ok(!leafIsPublic(leafOf({ status: "settled_no_answer", cause: "seller_config", rule: "settled_then_500", delivered: false }), new Set()));
+  assert.ok(!leafIsPublic(leafOf({ status: "not_settled", cause: "not_settled", rule: "x", delivered: false, settledOnChain: false }), new Set()));
+});
+
 test("days: only closed UTC days with a sent purchase; a day is done once written and published", () => {
   assert.deepEqual(purchaseDays(LINES, "2026-10-01"), [DAY]);
   assert.deepEqual(purchaseDays(LINES, "2026-10-02"), [DAY, "2026-10-01"]);
@@ -149,12 +175,11 @@ test("published file: a delivered purchase with its record and proof; a negative
 
 test("secret gate: the published roots file passes; a salt anywhere else is still a finding", () => {
   const { sent, notified } = sentDay();
-  // A real random salt, not the counting ones above.
-  const leaves = sent.leaves.map((l) => ({ ...l, salt: `0x${sha256Hex(`salt-${l.at}`)}` }));
-  const digests = leaves.map(recordDigest);
-  const { root } = lanesDayRoot("arbitrum", DAY, LINES, AFTER, Object.fromEntries(LINES.slice(0, 3).map((l, i) => [sha256Hex(l), leaves[i]!.salt])));
-  assert.deepEqual(root.digests, digests);
-  const f = buildRootsFile("arbitrum", [{ ...sent, root: root.root, leaves }], TX("c"), notified);
+  // Random-looking salts, not the counting ones above.
+  let k = 0;
+  const { root } = lanesDayRoot("arbitrum", DAY, LINES, AFTER, {}, () => `0x${sha256Hex(`salt-${++k}`)}`);
+  const f = buildRootsFile("arbitrum", [{ ...sent, root: root.root, leaves: root.leaves }], TX("c"), notified);
+  const leaves = root.leaves;
   const text = JSON.stringify(f, null, 2) + "\n";
   assert.deepEqual(blockingFindings(scanFileText(text, "data/evm/roots/arbitrum.json"), []), []);
   const elsewhere = JSON.stringify({ salt: leaves[0]!.salt }, null, 2);

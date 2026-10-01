@@ -376,6 +376,7 @@ Published data is corrected only toward what the chain shows, and every correcti
 npx tsx scripts/evm-lane.ts --lane robinhood --dry-run   # catalogs, unpaid 402s, Chainlink reads; signs with a throwaway key
 npx tsx scripts/evm-lane.ts --lane arbitrum --dry-run    # the same listings on Arbitrum One and on Base
 npx tsx scripts/evm-roots-deploy.ts --chain robinhood     # simulate deploying DeliveryRoots (eth_call, eth_estimateGas); --send deploys
+npx tsx scripts/evm-chaincheck.ts --lane robinhood        # settled is read from the chain; a day's root waits for this
 npx tsx scripts/evm-anchor.ts --lane robinhood --day 2026-09-30   # plan the day's root: public leaves, record() and its gas; --send writes it
 npx tsx scripts/evm-roots-publish.ts --data data          # data/evm/roots/<lane>.json from the days written
 npx tsx scripts/evm-publish.ts --lane robinhood && npx tsx scripts/build-site.ts --out site

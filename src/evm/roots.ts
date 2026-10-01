@@ -3,20 +3,26 @@
  * lane bought on: one record(day, root, n) per closed UTC day with purchases, written by the DeliveryRoots key
  * (src/evm/key.ts ROOTS_POSTER_ADDRESS), never by the payer wallet.
  *
- * The leaf. A purchase line in results/evm/<lane>-purchases.jsonl holds the seller's answer and stays on the
- * runner, so the root is not taken over it. Each sent purchase becomes a public leaf record (publicLeaf): what
- * vet402 paid, to whom, the settlement tx, what came back (status, size, sha256 of the body vet402 kept, not the
- * body), the verdict of the current rules (src/evm/settle-cause.ts, the same call scripts/evm-publish.ts makes),
- * and 32 random bytes (`salt`). digest = keccak256(canonical JSON of the leaf record); the tree is
- * src/receipt/merkle.ts.
+ * The leaf. The material is the lane's own reading of each purchase, as scripts/evm-publish.ts reads it:
+ * results/evm/<lane>-purchases.jsonl, then -reverify.jsonl, then -chaincheck.jsonl (src/evm/chaincheck.ts
+ * mergeReadings: a later reading of the same purchase replaces the earlier). Those lines hold the seller's answer
+ * and stay on the runner, so the root is not taken over them. Each sent purchase becomes a public leaf record
+ * (publicLeaf): what vet402 paid, to whom, the settlement as the chain check read it (settledOnChain and
+ * chainCheck: result, how it was tied, tx), what came back (status, size, sha256 of the body vet402 kept, not the
+ * body), the verdict of the current rules (src/evm/settle-cause.ts and the row status of src/evm/site.ts, the
+ * same calls the lane pages make), and 32 random bytes (`salt`). digest = keccak256(canonical JSON of the leaf
+ * record); the tree is src/receipt/merkle.ts. A day with a sent purchase the chain check has not decided gets no
+ * root (the same refusal as scripts/evm-publish.ts).
  *
- * What is published (data/evm/roots/<lane>.json). A leaf that settled and came back, or whose seller vet402 has
- * told (data/records/notified.json), is published with its record and proof. Any other leaf is a negative result
- * for a seller not told yet: only its index is published. Its leaf hash still shows up as a sibling in other
+ * What is published (data/evm/roots/<lane>.json). A leaf whose status and cause say nothing against the seller
+ * (src/evm/site.ts isNegative, the rule of the lane pages), or whose seller vet402 has told
+ * (data/records/notified.json), is published with its record and proof. Any other leaf is a negative result for
+ * a seller not told yet: only its index is published. Its leaf hash still shows up as a sibling in other
  * proofs, and the salt is what keeps that hash from being guessed back into a verdict.
  *
  * Until a day is sent, its leaves are made again from the lines on every run (a rule change reaches them); only
- * the salts are kept (results/evm/anchors/<lane>-<day>.salts.json). The leaves that were sent are kept in
+ * the salts are kept (results/evm/anchors/<lane>-<day>.salts.json, keyed by the purchase, not the line, so a later
+ * chain check keeps the salt). The leaves that were sent are kept in
  * <lane>-<day>.sent.json and are the only ones ever published for that day.
  */
 import { createHash, randomBytes } from "node:crypto";
@@ -27,7 +33,9 @@ import { DELIVERY_ROOTS_ARTIFACT } from "./delivery-roots-artifact.js";
 import { dayNumber, dayRoot, recordDigest, type DayRoot } from "./evm-anchor.js";
 import type { ChainBuyRecord } from "./evm-buy.js";
 import { ROOTS_POSTER_ADDRESS } from "./key.js";
-import { classifyRecord } from "./settle-cause.js";
+import { mergeReadings, recordKey, uncheckedPurchases } from "./chaincheck.js";
+import { classifyRecord, type CauseResult } from "./settle-cause.js";
+import { isNegative, statusOf, type RowStatus } from "./site.js";
 
 export type RootsLane = "robinhood" | "arbitrum";
 export const ROOTS_LANES: readonly RootsLane[] = ["robinhood", "arbitrum"];
@@ -129,10 +137,15 @@ export interface PublicLeaf {
   asset: string;
   amountAtomic: string | null;
   settlementTx: string | null;
+  /** The chain's word (src/evm/chaincheck.ts), not the seller's header. */
   settledOnChain: boolean | null;
+  chainCheck: { result: string; by: string | null; tx: string | null } | null;
   delivered: boolean;
+  /** The lane page's row status (src/evm/site.ts statusOf) with the rules of the run that made the leaf. */
+  status: RowStatus;
   /** src/evm/settle-cause.ts with the rules of the run that made the leaf. */
   cause: string;
+  rule: string;
   httpStatus: number | null;
   responseBytes: number | null;
   /** 0x + sha256 of the answer body as vet402 kept it (cut at the lane's keepBodyBytes), or null. */
@@ -149,6 +162,7 @@ export const sha256Hex = (s: string): string => createHash("sha256").update(s).d
 export function publicLeaf(lane: RootsLane, r: LaneLine, salt: string): PublicLeaf {
   if (!/^0x[0-9a-f]{64}$/.test(salt)) throw new Error("salt must be 0x + 64 lowercase hex");
   const spec = EVM_CHAINS[LANES[lane].chain];
+  const cause = classifyRecord(r, { facilitator: r.facilitator ?? null, problem: r.predictedProblem ?? null });
   return {
     kind: "vet402-evm-purchase",
     version: 0,
@@ -163,8 +177,11 @@ export function publicLeaf(lane: RootsLane, r: LaneLine, salt: string): PublicLe
     amountAtomic: r.amountAtomic ?? null,
     settlementTx: r.settlementTx ?? null,
     settledOnChain: typeof r.settledOnChain === "boolean" ? r.settledOnChain : null,
+    chainCheck: r.chainCheck ? { result: r.chainCheck.result, by: r.chainCheck.by ?? null, tx: r.chainCheck.tx ?? null } : null,
     delivered: r.delivered === true,
-    cause: classifyRecord(r, { facilitator: r.facilitator ?? null, problem: r.predictedProblem ?? null }).cause,
+    status: statusOf({ ...r, lane, cause }),
+    cause: cause.cause,
+    rule: cause.rule,
     httpStatus: r.response?.status ?? null,
     responseBytes: typeof r.response?.bytes === "number" ? r.response.bytes : null,
     bodyHash: typeof r.body === "string" ? `0x${sha256Hex(r.body)}` : null,
@@ -172,21 +189,38 @@ export function publicLeaf(lane: RootsLane, r: LaneLine, salt: string): PublicLe
   };
 }
 
-/** sha256 of one purchase line -> its salt. */
+/** sha256 of a purchase's identity (src/evm/chaincheck.ts recordKey) -> its salt. */
 export type Salts = Record<string, string>;
 
 export const newSalt = (): string => `0x${randomBytes(32).toString("hex")}`;
 
 /**
- * The day's root over public leaves. A line that has a salt keeps it; a new line gets a new one (`salts` is
- * returned with it, to be saved before the root is used).
+ * Pure. The lane's readings as scripts/evm-publish.ts merges them: the contents of
+ * <lane>-purchases.jsonl, -reverify.jsonl and -chaincheck.jsonl in that order, one record per purchase, as
+ * JSON lines (the material of the day's leaves).
+ */
+export function laneReadings(lane: RootsLane, fileTexts: readonly string[]): string[] {
+  const rows = fileTexts.flatMap((t) => t.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as LaneLine & { lane?: string }));
+  return mergeReadings(rows)
+    .filter((r) => (r.lane ?? lane) === lane)
+    .map((r) => JSON.stringify(r));
+}
+
+/**
+ * The day's root over public leaves, from laneReadings. Refuses a day with a sent purchase the chain check has
+ * not decided. A purchase that has a salt keeps it; a new one gets a new one (`salts` is returned with it, to be
+ * saved before the root is used).
  */
 export function lanesDayRoot(lane: RootsLane, day: string, lines: string[], nowIso: string, salts: Salts, mint: () => string = newSalt): { root: Omit<DayRoot, "leaves"> & { leaves: PublicLeaf[] }; salts: Salts } {
+  const ofDay = lines.filter((l) => l.trim()).map((l) => JSON.parse(l) as LaneLine & { lane?: string }).filter((r) => typeof r.at === "string" && r.at.slice(0, 10) === day);
+  const unchecked = uncheckedPurchases(ofDay);
+  if (unchecked.length) throw new Error(`${lane} ${day}: ${unchecked.length} sent purchase(s) without a chain check; run npx tsx scripts/evm-chaincheck.ts --lane ${lane} first: ${unchecked.slice(0, 3).join("; ")}`);
   const next: Salts = { ...salts };
-  const root = dayRoot(EVM_CHAINS[LANES[lane].chain], day, lines, nowIso, (rec, line) => {
-    const k = sha256Hex(line);
+  const root = dayRoot(EVM_CHAINS[LANES[lane].chain], day, lines, nowIso, (rec) => {
+    const r = rec as LaneLine;
+    const k = sha256Hex(recordKey({ ...r, lane }));
     next[k] ??= mint();
-    return publicLeaf(lane, rec as LaneLine, next[k]!);
+    return publicLeaf(lane, r, next[k]!);
   });
   return { root: root as Omit<DayRoot, "leaves"> & { leaves: PublicLeaf[] }, salts: next };
 }
@@ -212,9 +246,13 @@ const hostOf = (u: string): string | null => {
   }
 };
 
-/** Pure. Published with its record: settled and came back, or a seller vet402 has told. Anything else is withheld. */
+/**
+ * Pure. Published with its record when its status and cause say nothing against the seller (the lane pages' rule,
+ * src/evm/site.ts isNegative), or when vet402 has told the seller. Anything else is withheld.
+ */
 export function leafIsPublic(leaf: PublicLeaf, notified: ReadonlySet<string>): boolean {
-  if (leaf.delivered && leaf.settledOnChain === true && leaf.cause === "delivered") return true;
+  const cause: CauseResult = { cause: leaf.cause as CauseResult["cause"], rule: leaf.rule, evidence: "none", fix: null };
+  if (!isNegative(leaf.status, cause)) return true;
   const host = hostOf(leaf.resource);
   return host !== null && notified.has(host);
 }
