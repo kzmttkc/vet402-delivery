@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { ALLOWED_NAMES, INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, nameClass, namesInAnswer, namesInSentence, quotedListNames, listNames, plainSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { ALLOWED_NAMES, INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, jsonPart, namePlaces, settingCaps, declarationFrom, nameClass, namesInAnswer, namesInSentence, quotedListNames, listNames, plainSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -1633,9 +1633,6 @@ test("a setting name or a header anywhere in the answer still makes it the selle
     "wallet / DB_HOST",
     "wallet | DATABASE_URL",
     "wallet DB_HOST",
-    "'wallet' (and 'DB_HOST')",
-    "'wallet' (also check 'DATABASE_URL')",
-    "'wallet' (expected: 'DATABASE_URL')",
     "'wallet' (in: header)",
     "'wallet' (location: header)",
   ];
@@ -1645,7 +1642,6 @@ test("a setting name or a header anywhere in the answer still makes it the selle
     "'wallet' is required (location: header)",
     "Missing required header: 'wallet'",
     "'wallet' is required. 'x-token' header is required",
-    "'wallet' is required, checked headers 'x-token'",
     "Missing 'wallet' in config",
     "'wallet' environment variable is required",
   ];
@@ -1655,7 +1651,15 @@ test("a setting name or a header anywhere in the answer still makes it the selle
     assert.equal(got.status, "settled_no_answer", t);
     assert.equal(got.negative, true, t);
   }
-  assert.ok(namesInAnswer("Missing required parameters: 'wallet' (and 'DB_HOST')").names.some((n) => n.name === "DB_HOST"));
+  // Review of 49e90ad: inside brackets and after "expected:" no missing name stands; a setting written there is not the
+  // seller's (the answer about the declared input stays vet402's, never negative).
+  // Nor after "checked headers": a header the seller checked is not a name given as missing.
+  for (const t of [...["'wallet' (and 'DB_HOST')", "'wallet' (also check 'DATABASE_URL')", "'wallet' (expected: 'DATABASE_URL')"].map((x) => `Missing required parameters: ${x}`), "'wallet' is required, checked headers 'x-token'"]) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
 });
 
 
@@ -1711,4 +1715,87 @@ test("the first word of an explanation, a setting word in prose and a format not
     assert.equal(got.status, "settled_no_answer", t);
     assert.equal(got.negative, true, t);
   }
+});
+
+
+// ---------- review of 49e90ad: capitals are a setting only by meaning; names are read only where a name stands ----------
+
+test("error codes, enum values, types, examples and ids in capitals, and values where no name stands, never make a declared input's answer the seller's", () => {
+  const vet = [
+    // error codes
+    "INVALID_INPUT: wallet is required",
+    '{"code":"VALIDATION_ERROR","message":"wallet is required"}',
+    "BAD_REQUEST: Missing required parameter 'wallet'",
+    "Missing required parameter: 'wallet' (code: INVALID_INPUT)",
+    "Error MISSING_PARAMETER: 'wallet' is required",
+    "wallet is required [VALIDATION_ERROR]",
+    "status BAD_REQUEST: missing wallet",
+    "reason: INVALID_PARAMS, wallet is required",
+    "Missing required parameter: 'wallet', error code 'INVALID_INPUT'",
+    // enum values
+    "wallet is required; interval must be one of ONE_HOUR, ONE_DAY",
+    "Missing required parameter: 'wallet' (network: BASE_MAINNET)",
+    "wallet is required for LIMIT_ORDER",
+    "'wallet' is required, e.g. BASE_MAINNET",
+    "Missing required parameters: 'wallet', 'ONE_HOUR'",
+    // a type, an example, an id
+    "'wallet' of type 'HEX_STRING' is required",
+    "Missing 'wallet' (e.g. 'MY_WALLET_ADDRESS')",
+    "wallet is required (request id: REQ_ABC_123)",
+    "Missing required parameter: 'wallet', e.g. MY_WALLET_ADDRESS",
+    // values where no missing name stands
+    "Missing required parameter: 'wallet' (default: 'DEFAULT_WALLET')",
+    "Missing required parameter: 'wallet' (code: 'MISSING_PARAM')",
+    "Missing required parameter: 'wallet' (expected: 'EVM_ADDRESS')",
+    "'wallet' is required, of type 'ETH_ADDRESS'",
+    "Missing required parameter: 'wallet' of type 'ETH_ADDRESS'",
+    "Missing required parameter: 'wallet'; side must be 'BUY_LIMIT' or 'SELL_LIMIT'",
+    "Missing required parameters: 'wallet', one of 'BUY_LIMIT' or 'SELL_LIMIT'",
+    "Missing required parameter: 'wallet' (trace 'TRACE_ID_9')",
+    "Missing required parameter: 'wallet' (query or 'X-Wallet' header)",
+    "Missing required parameter: 'wallet' (send with 'Accept' header set to application/json)",
+    "Missing required parameter: 'wallet' (see https://x.io/docs/api_key)",
+    "Missing required parameter: 'wallet', see https://x.io/docs/DATABASE_URL",
+    "'wallet' is required, not a 'privateKey'",
+    "Missing required parameter: 'wallet', not a 'privateKey'",
+    // JSON after a prefix is read as JSON
+    '400 Bad Request: {"error":"VALIDATION_ERROR","missing":["wallet"]}',
+    'Error 400: {"error":"Missing required parameters","required":["wallet"]}',
+    // a sentence in capitals
+    "WALLET IS REQUIRED. ERROR CODE INVALID_INPUT.",
+    "WALLET IS REQUIRED (TRACE_ID_9)",
+  ];
+  for (const t of vet) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  const settings = ["DATABASE_URL", "DB_HOST", "DB_PASSWORD", "ALCHEMY_KEY", "NODE_ENV", "AWS_REGION", "INFURA_PROJECT_ID", "QUICKNODE_ENDPOINT", "HELIUS_RPC", "API_KEY", "STRIPE_SECRET", "MY_SEED_PHRASE", "SIGNER_PRIVATE_KEY"];
+  const seller = [
+    ...settings.flatMap((n) => [`wallet is required. ${n} is required`, `Missing required parameters: 'wallet', '${n}'`, `Missing required parameters: 'wallet', ${n}`, `WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`]),
+    "wallet is required. secret_token is required to sign.",
+    "wallet is required. db_password is required",
+    "wallet is required. ACCESSTOKEN is required to sign.",
+    "Missing required parameters: 'wallet' and RPC url",
+    "Missing required parameters: 'wallet', 'apiSecret'",
+    "Missing required header: 'wallet'",
+    "headers must have required property 'wallet'",
+    '{"issues":[{"path":["headers","wallet"],"message":"Required"}]}',
+    '{"detail":[{"loc":["header","wallet"],"type":"missing","msg":"Field required"}]}',
+    '{"error":{"config":{"wallet":["This field is required."]}}}',
+    "'wallet' (in: header) is required",
+    "'wallet' is required (location: header)",
+  ];
+  for (const t of seller) {
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  for (const n of ["INVALID_INPUT", "VALIDATION_ERROR", "BAD_REQUEST", "ONE_HOUR", "BASE_MAINNET", "LIMIT_ORDER", "HEX_STRING", "ETH_ADDRESS", "MY_WALLET_ADDRESS", "DEFAULT_WALLET", "REQ_ABC_123", "TRACE_ID_9", "MONKEY_ID"]) assert.ok(!settingCaps(n), n);
+  for (const n of settings) assert.ok(settingCaps(n), n);
+  assert.equal(namePlaces("Missing 'wallet' (e.g. 'X_Y')").includes("X_Y"), false);
+  assert.deepEqual(jsonPart('400 Bad Request: {"missing":["wallet"]}'), { prefix: "400 Bad Request: ", json: { missing: ["wallet"] } });
+  assert.equal(jsonPart("Missing required parameters: ['wallet']"), null);
 });

@@ -438,6 +438,8 @@ export interface MissingName {
   proseHeader?: boolean;
   /** Right before "environment variable" / "env var": S only when vet402 does not send it. */
   envVar?: boolean;
+  /** Found only where no missing name stands (outOfPlace): never S. */
+  outOfPlace?: boolean;
 }
 
 /**
@@ -497,6 +499,23 @@ export function missingNameSide(m: MissingName, declared: readonly string[] = []
 
 /** An environment variable's form: capitals with an underscore (DATABASE_URL, DB_HOST, NODE_ENV). */
 const ENV_FORM = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+/** Words of a capitalised name that make it a setting (review of 49e90ad). */
+const CAPS_SETTING_WORDS = new Set(["KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "PWD", "URL", "URI", "HOST", "DSN", "JWT", "MNEMONIC", "CREDENTIAL", "CREDENTIALS", "DATABASE", "DB"]);
+/** Prefixes of environment variables. */
+const CAPS_ENV_PREFIX = /^(?:NODE|AWS|GCP|AZURE|INFURA|ALCHEMY|STRIPE|PG|REDIS|SUPABASE|VERCEL|NEXT_PUBLIC|OPENAI|ANTHROPIC|QUICKNODE|HELIUS)_/;
+
+/**
+ * Pure. A capitalised name with an underscore that means a setting: it holds a setting word (KEY, SECRET, TOKEN,
+ * PASSWORD, URL, HOST, DSN, DB, SEED_PHRASE, PRIVATE_KEY, ...) or starts with an environment prefix (NODE_, AWS_,
+ * ALCHEMY_, ...). The shape alone is not: an error code (INVALID_INPUT), an enum value (ONE_HOUR, BASE_MAINNET), a
+ * type (HEX_STRING), an example (MY_WALLET_ADDRESS) or an id (TRACE_ID_9) is not a setting.
+ */
+export function settingCaps(name: string): boolean {
+  if (!ENV_FORM.test(name)) return false;
+  if (CAPS_ENV_PREFIX.test(name)) return true;
+  const words = name.split("_");
+  return words.some((w, i) => CAPS_SETTING_WORDS.has(w) || (w === "SEED" && words[i + 1] === "PHRASE"));
+}
 /** Words that make a quoted name a secret or a connection setting (rule 5 of nameClass). */
 const SECRET_WORDS = new Set(["secret", "secrets", "password", "passwords", "passwd", "mnemonic", "jwt", "dsn", "privatekey", "apikey", "rpcurl"]);
 /** The same, written as two words (private_key, seed_phrase, api_key, access_token, rpc_url, database_url). */
@@ -517,7 +536,7 @@ export function secretWordName(name: string): boolean {
 /**
  * Pure. The kind of one missing name (reviews of 8a4a23f and 82606e3: S only on strong evidence):
  *   "S" the seller's own setting, only when one of these holds:
- *       1. capitals with an underscore (DATABASE_URL, DB_HOST, NODE_ENV), quoted or not
+ *       1. capitals with an underscore that mean a setting (settingCaps: DATABASE_URL, DB_HOST, NODE_ENV), quoted or not
  *       2. a known setting run together (JOINED_SETTING: ACCESSTOKEN, RPCURL, ...), exactly
  *       3. a structural place under config, env, settings or secrets (JSON key path, Zod path, pydantic loc)
  *       4. a structural header (Fastify headers, pydantic loc header, Zod path headers, "(in: header)",
@@ -531,22 +550,49 @@ export function secretWordName(name: string): boolean {
  * A declared name is S only by rule 3 or 4 (structural).
  */
 export function nameClass(m: MissingName, declared: readonly string[] = []): "A" | "S" | "U" {
+  const c0 = classOf(m, declared);
+  // A name found only where no missing name stands (in brackets, after "e.g.", "code", "default:", "of type", in a
+  // URL...) is never the seller's setting.
+  return c0 === "S" && m.outOfPlace ? "U" : c0;
+}
+
+function classOf(m: MissingName, declared: readonly string[]): "A" | "S" | "U" {
   if (m.header) return "S";
   if (m.path.some((x) => SELLER_PATH.test(x))) return "S";
   const c = canon(m.name);
   const input = declared.some((d) => canon(d) === c) || (declared.length === 0 && (ALLOWED.has(c) || ALLOWED.has(singular(c))));
   if (input) return "A";
   if ((m.proseHeader && m.quoted) || m.envVar) return "S";
-  if (ENV_FORM.test(m.name) || JOINED_SETTING.test(m.name)) return "S";
+  if (settingCaps(m.name) || JOINED_SETTING.test(m.name)) return "S";
   // Rule 5 needs the name written as a name: quoted, or as an identifier (secret_token, dbPassword), never a prose word.
   if ((m.quoted || /_|[a-z][A-Z]/.test(m.name)) && secretWordName(m.name)) return "S";
   return "U";
+}
+
+/**
+ * Pure. The JSON of an answer, also after a prefix ("400 Bad Request: {...}", "Error 400: {...}"): the text before it
+ * and the parsed JSON, or null.
+ */
+export function jsonPart(text: string): { prefix: string; json: unknown } | null {
+  const t = text.trim();
+  for (let i = 0; i < t.length && i < 200; i++) {
+    // After a prefix only an object ("Missing required parameters: ['wallet']" is a list in a sentence, not JSON).
+    if (t[i] !== "{" && (i > 0 || t[i] !== "[")) continue;
+    try {
+      return { prefix: t.slice(0, i), json: JSON.parse(t.slice(i)) };
+    } catch {
+      if (i === 0) continue;
+    }
+  }
+  return null;
 }
 
 /** Pure. The pieces of an answer: every string value of JSON (or of cut-off JSON), else each sentence. */
 export function answerPieces(text: string): string[] {
   const t = text.trim();
   if (!t) return [];
+  const jp = !t.startsWith("{") && !t.startsWith("[") ? jsonPart(t) : null;
+  if (jp) return [...sentences(jp.prefix), ...answerPieces(JSON.stringify(jp.json))];
   if (t.startsWith("{") || t.startsWith("[")) {
     try {
       const out: string[] = [];
@@ -704,7 +750,7 @@ export function listNames(piece: string): { name: string; strong: boolean }[] {
           const joined = words.join("").toUpperCase();
           if (words.length > 1 && JOINED_SETTING.test(joined)) got.push(joined);
           // A later word in an environment variable's form or a known joined setting is a name of its own ("wallet DB_HOST").
-          for (const w of words.slice(1)) if (ENV_FORM.test(w) || JOINED_SETTING.test(w)) got.push(w);
+          for (const w of words.slice(1)) if (settingCaps(w) || JOINED_SETTING.test(w)) got.push(w);
         }
         const wasQuoted = !!q;
         eat(/^\s*\]/);
@@ -729,6 +775,23 @@ export function listNames(piece: string): { name: string; strong: boolean }[] {
  * required") and the part of the request before an input word ("Missing required query parameter 'wallet'"). The
  * part (query, body, path) is where the name goes, not a name.
  */
+/** Words after which a value follows, not a missing name. */
+const VALUE_AFTER = String.raw`(?:e\.g\.?|i\.e\.?|for\s+example|such\s+as|one\s+of|default|expected|example|code|error|status|reason|request[ _-]?id|trace(?:[ _-]?id)?)`;
+
+/**
+ * Pure. A sentence with every place where no missing name stands blanked out: brackets "( )", URLs, the value after
+ * "e.g.", "for example", "one of", "default:", "expected:", "code", "error", "status", "reason", "request id",
+ * "trace", and "of type 'X'", "not a 'X'". A name read only from such a place is never the seller's setting.
+ */
+export function namePlaces(piece: string): string {
+  const blank = (x: string) => " ".repeat(x.length);
+  let t = piece.replace(/\b(?:https?|ftp):\/\/\S+/gi, blank);
+  for (let k = 0; k < 3; k++) t = t.replace(/\([^()]*\)/g, blank);
+  t = t.replace(new RegExp(String.raw`\b(?:${VALUE_AFTER}\s*[:=]?\s*)+(?:${QUOTED_LIST}|${ID}(?:\s*(?:,|\bor\b)\s*${ID})*)`, "gi"), blank);
+  t = t.replace(new RegExp(String.raw`\b(?:of\s+type|not\s+an?)\s+${Q}${ID}${Q}`, "gi"), blank);
+  return t;
+}
+
 /** Pure. A sentence without its format and type notes ("(format: 'ETH_ADDRESS')", "(type: 'HEX_STRING')"). */
 export function withoutTypeNotes(piece: string): string {
   return piece.replace(/\s*\(\s*(?:type|format)\s*:[^()]*\)/gi, "");
@@ -736,6 +799,7 @@ export function withoutTypeNotes(piece: string): string {
 
 export function plainSentence(piece: string): string {
   return piece
+    .replace(new RegExp(String.raw`\s+of\s+type\s+${Q}${ID}${Q}`, "gi"), "")
     .replace(/\s*\(\s*(?:type|format|in|location|expected)\s*:[^()]*\)/gi, "")
     .replace(new RegExp(String.raw`(\b(?:missing|required)\s+(?:required\s+)?)(?:query|querystring|body|path|form|url)\s+(?=${INPUT_WORDS}\b)`, "gi"), "$1");
 }
@@ -857,12 +921,7 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
   let tainted = false;
   /** Sentences whose only sign of the seller's side is a payment or authentication word (NOT_INPUT). */
   const authPieces: number[] = [];
-  let j: unknown = undefined;
-  try {
-    j = JSON.parse(text.trim());
-  } catch {
-    j = undefined;
-  }
+  const j: unknown = jsonPart(text)?.json;
   const strs = (a: unknown[]) => a.filter((x): x is string => typeof x === "string");
   const walk = (v: unknown, keys: string[], depth: number): void => {
     if (depth > 8 || !v || typeof v !== "object") return;
@@ -924,8 +983,15 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence). A seller-side word
     // (env, config, server, password...) makes it the seller's. A payment or authentication word ("a valid
     // signature") alone counts only when the sentence names no input of vet402's (laneInputProblem).
-    if (SELLER_SIDE.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
-    else if (NOT_INPUT.test(piece)) authPieces.push(pi);
+    // Seller-side words count where a name stands, not in a URL, brackets, an example or "not a 'privateKey'".
+    const noUrl = namePlaces(piece);
+    if (SELLER_SIDE.test(noUrl) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
+    else if (NOT_INPUT.test(noUrl)) authPieces.push(pi);
+    const places = namePlaces(raw);
+    // A joined setting read from two words ("RPC url" gives RPCURL) is looked for with the space.
+    const inPlace = (n: string) =>
+      new RegExp(String.raw`(?<![\w$.-])${n.replace(/[$.]/g, "\\$&")}(?![\w$])`, "i").test(places) ||
+      (JOINED_SETTING.test(n) && new RegExp(String.raw`(?<![\w$.-])${n.split("").join(String.raw`\s*`)}(?![\w$])`, "i").test(places));
     // Headers (rule 4 of nameClass). Structural: an annotation "(in: header)" / "(location: header)" (on the name, or
     // anywhere in the sentence), and a list the answer gives as missing headers ("Missing required header: 'x'").
     // In prose ("checked headers 'x'", "'x' header"): quoted only, and S only when vet402 does not send x.
@@ -960,7 +1026,7 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       // In a sentence written all in capitals the subject is read without case ("IT" is it, USER_ID is user_id), except
       // a name with an underscore that looks like a setting (a setting word, or an environment prefix: NODE_ENV,
       // AWS_REGION, INFURA_PROJECT_ID), which keeps its spelling for the environment-variable form.
-      const keepsSpelling = n.includes("_") && (CAPS_SETTING_WORD.test(n) || ENV_PREFIX.test(n));
+      const keepsSpelling = settingCaps(n);
       const settingCheck = shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n;
       const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(settingCheck);
       names.push({
@@ -973,29 +1039,16 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
         ...(proseHeader.has(n) ? { proseHeader: true } : {}),
         ...(envVar.has(n) ? { envVar: true } : {}),
         ...(isSoft ? { soft: true } : {}),
+        ...(inPlace(n) ? {} : { outOfPlace: true }),
       });
     }
-    // Every quoted name of the sentence that is one of the seller's own settings or a header counts, wherever it
-    // stands ("(and 'DB_HOST')", "(also check 'DATABASE_URL')", "(expected: 'DATABASE_URL')").
-    // A format or type note ("(format: 'ETH_ADDRESS')", "(type: 'HEX_STRING')") describes a value; it is not read.
+    // A name the answer gives as a header in its structure ("Missing required header: 'x'", "'x' (in: header)") counts
+    // even where the sentence reading above does not give it.
     const read = new Set(names.filter((x) => x.piece === pi).map((x) => x.name));
-    for (const q of withoutTypeNotes(raw).matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]`, "g"))) {
-      const n = q[1]!;
+    for (const n of headerNames) {
       if (read.has(n)) continue;
-      const m: MissingName = {
-        name: n,
-        header: headerNames.has(n) || headerSentence,
-        path: [],
-        source: "quoted-setting",
-        piece: pi,
-        quoted: true,
-        ...(proseHeader.has(n) ? { proseHeader: true } : {}),
-        ...(envVar.has(n) ? { envVar: true } : {}),
-      };
-      if (m.header || m.proseHeader || m.envVar || ENV_FORM.test(n) || JOINED_SETTING.test(n) || secretWordName(n)) {
-        names.push(m);
-        read.add(n);
-      }
+      names.push({ name: n, header: true, path: [], source: "header", piece: pi, quoted: true, ...(inPlace(n) ? {} : { outOfPlace: true }) });
+      read.add(n);
     }
   }
   return { names, tainted, authPieces };
