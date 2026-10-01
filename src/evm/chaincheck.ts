@@ -116,8 +116,10 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
 
   // 0. Settled at purchase time on the receipt of the tx the seller named. When the tx carries the payer's
   // AuthorizationUsed nonces and a claimant recorded its nonce, the tx goes only to the claimant whose nonce it
-  // carries; if none matches, every claimant is ambiguous. Without nonces (records before 2026-10-01) the first
-  // record keeps the tx and a later one is ambiguous: one tx cannot settle two purchases.
+  // carries. A claimant whose nonce it does not carry is set aside here (contested), and the tx stays free: step 1
+  // gives it to the purchase whose nonce it carries, and looks for the claimant's own tx by its own nonce. Without
+  // nonces (records before 2026-10-01) the first record keeps the tx and a later one is contested: one tx cannot
+  // settle two purchases. A contested record that step 1 does not settle ends ambiguous.
   const contested = new Set<number>();
   const claimants = new Map<string, number[]>();
   for (const { r, i } of idx) {
@@ -132,15 +134,14 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
       const match = is.filter((i) => out[i]!.authorization?.nonce && nonces.has(norm(out[i]!.authorization!.nonce)));
       if (match.length === 1) claim(match[0]!, out[match[0]!]!.settlementTx!, by);
       for (const i of is) if (!(match.length === 1 && i === match[0])) contested.add(i);
-      if (match.length !== 1) owner.set(tx, -1); // held by nobody, and not free for steps 1 to 3 either
       continue;
     }
     claim(is[0]!, out[is[0]!]!.settlementTx!, by);
     for (const i of is.slice(1)) contested.add(i);
   }
-  // 1. The nonce vet402 signed.
+  // 1. The nonce vet402 signed. Contested records too: their own nonce finds their own tx.
   for (const { r, i } of idx) {
-    if (found.has(i) || contested.has(i) || !r.authorization?.nonce) continue;
+    if (found.has(i) || !r.authorization?.nonce) continue;
     const t = txs.find((x) => x.nonces.some((n) => norm(n) === norm(r.authorization!.nonce)) && fits(x, r) && !owner.has(norm(x.tx)));
     if (t) claim(i, t.tx, "nonce");
   }
@@ -187,8 +188,9 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
     const f = found.get(i);
     const rec = out[i]!;
     if (f) {
-      const was = r.settledOnChain === true;
+      const was = r.settledOnChain === true && !!r.settlementTx && norm(r.settlementTx) === norm(f.tx);
       rec.chainCheck = note("transfer_found", f.by, f.tx);
+      // Newly settled, or settled by another tx than the one its answer named (that one was another purchase's).
       if (!was) {
         rec.settledOnChain = true;
         rec.settlementTx = f.tx;
@@ -198,8 +200,8 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
       }
       continue;
     }
-    // Its receipt named a tx another purchase already holds: one tx cannot settle both. Not decided here, and
-    // not counted as settled (cause: vet402 could not confirm; never the seller's).
+    // Its answer named a tx that is another purchase's, and its own nonce found nothing: not decided here, and
+    // not counted as settled. Cause: vet402 could not confirm; never held against the seller (site.ts isNegative).
     if (contested.has(i)) {
       rec.chainCheck = note("ambiguous", null, null);
       rec.settledOnChain = false;

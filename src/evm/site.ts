@@ -49,9 +49,11 @@ export const BOUGHT_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["deli
 /** Statuses in which the payment settled on chain. */
 export const SETTLED_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["delivered", "settled_no_answer", "settled_vet402_input"]);
 /** Statuses that say something against the seller (published only for sellers vet402 has told). */
-const NEGATIVE_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["settled_no_answer", "not_settled", "unconfirmed", "refused"]);
+// "unconfirmed" is not one: vet402 could not read its own payment back (an RPC timeout, or a tx that another of
+// its purchases holds). That is vet402's side, never the seller's.
+const NEGATIVE_STATUSES: ReadonlySet<RowStatus> = new Set<RowStatus>(["settled_no_answer", "not_settled", "refused"]);
 /** Causes that are not against the seller. */
-const NEUTRAL_CAUSES = new Set(["delivered", "not_paid", "seller_free"]);
+const NEUTRAL_CAUSES = new Set(["delivered", "not_paid", "seller_free", "unconfirmed"]);
 const isInputCause = (c: CauseResult | null) => c?.cause === "vet402" && c.rule.startsWith("input:");
 
 /** Pure. A status (and its cause) that says something against the seller. */

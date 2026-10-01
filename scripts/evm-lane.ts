@@ -30,7 +30,7 @@ import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
 import { DEXTER_DISCOVERY, STOCK_SELLER, confirmLive, groupByPayTo, laneEntries, mirrorEntries, stockEntries, type LiveChoice, type Probe } from "../src/evm/lane-plan.js";
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
-import { laneInputProblem, type LastPaid } from "../src/evm/lane-input.js";
+import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
 import { CHAINLINK_DIRECTORY, STOCK_REFS, checkAgainstDirectory, compareStockAnswer, readStockReference, type StockReference } from "../src/robinhood/stock-check.js";
 
 const argv = process.argv.slice(2);
@@ -241,22 +241,15 @@ function choiceSummary(ch: LiveChoice[]) {
   }));
 }
 
-/**
- * vet402's last paid answer per listing on these lanes, by the catalog's URL (listingResource; older records sent
- * the catalog URL itself): its status and the request sent. The same request after a 400/404/422 is not sent again.
- */
+/** vet402's last paid answer per listing on these lanes (src/evm/lane-input.ts lastPaidByListing). */
 function lastPaid(laneIds: LaneId[]): Map<string, LastPaid> {
-  const m = new Map<string, LastPaid>();
+  const rows: ChainBuyRecord[] = [];
   for (const id of laneIds) {
     const f = `results/evm/${id}-purchases.jsonl`;
     if (!existsSync(f)) continue;
-    for (const line of readFileSync(f, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      const r = JSON.parse(line) as ChainBuyRecord;
-      if (r.outcome === "sent") m.set(r.listingResource ?? r.resource, { status: r.response?.status ?? null, requestKey: r.requestKey ?? null, at: r.at, inputError: laneInputProblem(r) !== null });
-    }
+    for (const line of readFileSync(f, "utf8").split("\n")) if (line.trim()) rows.push(JSON.parse(line) as ChainBuyRecord);
   }
-  return m;
+  return lastPaidByListing(rows);
 }
 
 // ---------- main ----------

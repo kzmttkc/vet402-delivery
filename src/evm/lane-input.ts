@@ -29,7 +29,7 @@ export interface LaneRequest {
 }
 
 export type LaneRepair =
-  | { ok: true; changed: boolean; request: LaneRequest; filled: FilledParam[]; declaredParams: string[] }
+  | { ok: true; changed: boolean; request: LaneRequest; filled: FilledParam[]; declaredParams: string[]; datedParams: string[]; requestKey: string }
   | { ok: false; reason: string; param: string | null };
 
 /** HTTP statuses of a paid answer that point at the request rather than the seller. */
@@ -83,12 +83,30 @@ export interface LastPaid {
   inputError: boolean;
 }
 
+/**
+ * Pure. vet402's newest paid answer per listing, by the catalog's URL (listingResource; older records sent the
+ * catalog URL itself), across every lane file given: the newest `at` wins whatever file it came from (arbitrum and
+ * base-compare buy the same listing). inputError is read the same way the pages read it (laneInputProblem).
+ */
+export function lastPaidByListing(rows: readonly ChainBuyRecord[]): Map<string, LastPaid> {
+  const m = new Map<string, LastPaid>();
+  for (const r of rows) {
+    if (r.outcome !== "sent") continue;
+    const k = r.listingResource ?? r.resource;
+    const prev = m.get(k);
+    if (prev?.at && Date.parse(prev.at) >= Date.parse(r.at)) continue;
+    m.set(k, { status: r.response?.status ?? null, requestKey: r.requestKey ?? null, at: r.at, inputError: laneInputProblem(r) !== null });
+  }
+  return m;
+}
+
 /** A seller-side 400/404/422 to an unchanged request is bought again once this long after it. */
-export const SELLER_4XX_RETRY_MS = 7 * 86_400_000;
+export const SELLER_4XX_RETRY_MS = 7 * 86_400_000; // every 7 days: the record of that listing stays fresh
 
 /**
  * Pure. Why the same (or an unfillable) request must not be sent again after `last`, or null. vet402's own wrong
- * request: never again until the request changes. A seller-side 400/404/422: again once SELLER_4XX_RETRY_MS later.
+ * request: never again until the request changes. A seller-side 400/404/422: bought again every 7 days
+ * (SELLER_4XX_RETRY_MS after the last answer), so the record of that listing stays fresh.
  */
 export function holdAfter4xx(last: LastPaid | null, nowMs: number): string | null {
   if (!last || last.status === null || !INPUT_STATUSES.has(last.status)) return null;
@@ -165,11 +183,14 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
   const request: LaneRequest = { resource, method: req.method, query: Object.keys(query).length ? query : null, body: isPost ? body : null };
   // Compare with what was actually sent last time (old records: the catalog's request, unfilled), not with the
   // catalog: a filled request that got 400/404/422 is filled the same way again and must not be bought again.
+  // The date vet402 filled in is not a change of request (only those parameters; a catalog date stays a value).
+  const datedParams = filled.filter((f) => f.rule === "table:date").map((f) => f.param);
+  const requestKey = laneRequestKey(request, { date: today, params: datedParams });
   if (hold) {
-    const before = last?.requestKey ?? laneRequestKey(req, today);
-    if (laneRequestKey(request, today) === before) return { ok: false, reason: hold, param: null };
+    const before = last?.requestKey ?? laneRequestKey(req);
+    if (requestKey === before) return { ok: false, reason: hold, param: null };
   }
-  return { ok: true, changed, request, filled, declaredParams: (spec?.params ?? []).map((p) => p.name) };
+  return { ok: true, changed, request, filled, declaredParams: (spec?.params ?? []).map((p) => p.name), datedParams, requestKey };
 }
 
 // ---------- reading a paid answer ----------
@@ -177,36 +198,85 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
 export type LaneInputProblem = "path_placeholder" | "missing_input";
 
 /**
- * The seller's error names an input that is required or empty. Not authentication or payment. A bare "missing"
- * counts only next to an input word or a parameter the listing declares (MISSING_NEAR), so "missing data" or
- * "resource missing" is not read as vet402's request.
+ * The seller's error names an input that is required or empty. The answer is read one piece at a time: each string
+ * value of a JSON answer (also of a cut-off one), or each sentence of a plain one. A piece counts as vet402's
+ * request only on its own words, so another key of the same JSON ("url", "query", "payment") never decides it:
+ *   - MISSING_TEXT ("is required", "field required", "cannot be empty", ...), or
+ *   - "missing" with an input word (INPUT_WORD), or with a parameter the listing declares after it, or
+ *   - "missing" followed by a quoted identifier that is a declared parameter or an input word, or that is not
+ *     written like an environment variable (ALL_CAPS),
+ * and never when the same piece speaks of the seller's own side (SELLER_SIDE: env, config, upstream, server,
+ * response, an API key) or of payment or authentication (NOT_INPUT).
  */
 const MISSING_TEXT = /\b(is required|are required|(field|url|value|param|parameter|query|body|input|argument)s? required|required (field|param|parameter|query|argument)|cannot be empty|must not be empty|must be provided|empty (json )?body|no (query|input|body) (given|provided|sent))\b/i;
-const MISSING_WORD = /\bmissing\b/gi;
+const MISSING_WORD = /\bmissing\b/i;
 const INPUT_WORD = /\b(quer(y|ies)|bod(y|ies)|param\w*|fields?|inputs?|arguments?|args?|url|required|values?)\b/i;
-/** "missing" followed by a quoted identifier: Missing "address", missing: 'wallet' (also inside a JSON string). */
-const MISSING_QUOTED = /\bmissing\s*:?\s*\\?["'`][A-Za-z_]\w*\\?["'`]/i;
-/** Characters on each side of "missing" in which an input word or a declared name must appear. */
-export const MISSING_NEAR = 40;
-
-function missingNearInput(text: string, declared: readonly string[]): boolean {
-  if (MISSING_QUOTED.test(text)) return true;
-  const names = declared.filter((n) => /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(n));
-  const nameRe = names.length ? new RegExp(`(^|[^A-Za-z0-9_])(${names.map((n) => n.replace(/-/g, "\\-")).join("|")})([^A-Za-z0-9_]|$)`) : null;
-  for (const m of text.matchAll(MISSING_WORD)) {
-    const around = text.slice(Math.max(0, m.index - MISSING_NEAR), m.index + m[0].length + MISSING_NEAR);
-    if (INPUT_WORD.test(around) || (nameRe && nameRe.test(around))) return true;
-  }
-  return false;
-}
-
-const NOT_INPUT = /\b(payment|x-payment|api[ -]?key|authori[sz]ation|authenticat\w*|auth token|bearer|signature|header|login|subscription)\b/i;
+/** "missing" followed by a quoted identifier: Missing "address", missing: 'wallet'. */
+const MISSING_QUOTED = /\bmissing\s*:?\s*\\?["'`]([A-Za-z_]\w*)\\?["'`]/i;
+/** The seller's own side: its environment, configuration, upstream, server or response, or its API key. */
+const SELLER_SIDE = /(\b(env|environment|config\w*|upstream|server|response|misconfigur\w*)\b|api[ _-]?key)/i;
+const NOT_INPUT = /\b(payment|x-payment|authori[sz]ation|authenticat\w*|auth token|bearer|signature|header|login|subscription)\b/i;
 /** A seller's validation error that quotes a path slot vet402 sent as the value. */
 const SLOT_ECHO = /"input"\s*:\s*":[A-Za-z_]/;
 
+/** Pure. The pieces of an answer: every string value of JSON (or of cut-off JSON), else each sentence. */
+export function answerPieces(text: string): string[] {
+  const t = text.trim();
+  if (!t) return [];
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try {
+      const out: string[] = [];
+      const walk = (v: unknown, depth: number): void => {
+        if (depth > 8) return;
+        if (typeof v === "string") out.push(v);
+        else if (Array.isArray(v)) for (const x of v) walk(x, depth + 1);
+        else if (v && typeof v === "object") for (const x of Object.values(v)) walk(x, depth + 1);
+      };
+      walk(JSON.parse(t), 0);
+      return out.flatMap(sentences);
+    } catch {
+      // Cut off at 300 characters, or not JSON after all: the quoted strings, without their keys.
+      return [...t.matchAll(/"((?:[^"\\]|\\.)*)"(?!\s*:)/g)].map((m) => m[1]!.replace(/\\"/g, '"')).flatMap(sentences);
+    }
+  }
+  return sentences(t);
+}
+
+function sentences(s: string): string[] {
+  return s.split(/(?<=[.!?;])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+}
+
+function declaredAfterMissing(piece: string, declared: readonly string[]): boolean {
+  const names = declared.filter((n) => /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(n));
+  if (!names.length) return false;
+  const i = piece.search(MISSING_WORD);
+  if (i < 0) return false;
+  const after = piece.slice(i);
+  return new RegExp(`(^|[^A-Za-z0-9_])(${names.map((n) => n.replace(/-/g, "\\-")).join("|")})([^A-Za-z0-9_]|$)`).test(after.slice("missing".length));
+}
+
+/** Pure. What in one piece says vet402's request was wrong, or null. */
+export function inputErrorIn(piece: string, declared: readonly string[] = []): string | null {
+  if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece)) return null;
+  const m = MISSING_TEXT.exec(piece);
+  if (m) return m[0];
+  if (!MISSING_WORD.test(piece)) return null;
+  const q = MISSING_QUOTED.exec(piece);
+  if (q) {
+    const name = q[1]!;
+    const known = declared.includes(name) || INPUT_WORD.test(name);
+    const envLike = /^[A-Z][A-Z0-9_]*$/.test(name) && /[A-Z]{2}/.test(name);
+    if (known || !envLike) return q[0];
+    return null;
+  }
+  if (INPUT_WORD.test(piece)) return piece.match(MISSING_WORD)![0];
+  if (declaredAfterMissing(piece, declared)) return piece.match(MISSING_WORD)![0];
+  return null;
+}
+
 /**
  * Pure. Was the paid answer about vet402's request? Only 400, 404 and 422 answers, and only on definite
- * evidence: a slot left in the URL vet402 requested, or the seller's error naming a missing or empty input.
+ * evidence: a slot left in the URL vet402 requested, or a piece of the seller's error naming a missing or empty input.
  */
 export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response" | "body" | "declaredParams">): { kind: LaneInputProblem; detail: string } | null {
   const status = r.response?.status ?? null;
@@ -216,10 +286,10 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   if (slot) return { kind: "path_placeholder", detail: `the URL vet402 sent still had the slot ${slot === "*" ? "*" : `:${slot}`} in its path` };
   if (status === 404) return null;
   if (SLOT_ECHO.test(text)) return { kind: "path_placeholder", detail: "the seller's error quotes a path slot vet402 sent as the value" };
-  if (NOT_INPUT.test(text)) return null;
-  const m = MISSING_TEXT.exec(text);
-  if (m) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${m[0]}")` };
-  if (missingNearInput(text, r.declaredParams ?? [])) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing` };
+  for (const piece of answerPieces(text)) {
+    const hit = inputErrorIn(piece, r.declaredParams ?? []);
+    if (hit) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${hit}")` };
+  }
   return null;
 }
 

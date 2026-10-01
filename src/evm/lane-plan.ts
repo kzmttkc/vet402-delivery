@@ -31,8 +31,9 @@ export interface ListingOption {
   listingResource: string;
   /** Parameter names the listing declares. */
   declaredParams: string[];
-  /** The UTC date used to fill the request. */
+  /** The UTC date used to fill the request, and the parameters vet402 filled with it. */
   inputDate: string;
+  datedParams: string[];
 }
 
 export interface PayToGroup {
@@ -101,7 +102,7 @@ export function groupByPayTo(
         const req = requestOf(l);
         const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastPaid?.get(l.resource) ?? null, opts.nowMs ?? Date.now());
         if (!fix.ok) (g.inputSkipped ??= []).push({ resource: l.resource, why: `input_unfillable: ${fix.reason.replace(/^input_unfillable:/, "")}${fix.param ? ` (${fix.param})` : ""}` });
-        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, inputDate: today, declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
+        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, inputDate: today, datedParams: fix.datedParams, declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
       }
       groups.set(payTo.toLowerCase(), g);
     }
@@ -183,6 +184,7 @@ export function laneEntries(choices: LiveChoice[], spec: EvmChainSpec, sameOn?: 
         body: c.chosen.body,
         listingResource: c.chosen.listingResource,
         inputDate: c.chosen.inputDate,
+        ...(c.chosen.datedParams.length ? { datedParams: c.chosen.datedParams } : {}),
         ...(c.chosen.declaredParams.length ? { declaredParams: c.chosen.declaredParams } : {}),
         ...(sameOn ? { sameSellerOn: sameOn.caip2 } : {}),
         lock: { payTo: c.payTo, amount },
