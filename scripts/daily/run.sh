@@ -14,6 +14,12 @@
 #                                            (anchor-receipts --day --post-root --send, posting key
 #                                            .keys/mainnet/roots-poster.json); a failure there is alerted and the
 #                                            records are still published.
+#                                            With ~/.config/vet402-daily/evm-roots-enabled, each closed UTC day with
+#                                            purchases on the Robinhood Chain or Arbitrum lane (results/evm/, bought
+#                                            on some days only) also gets its root written into DeliveryRoots on that
+#                                            chain (scripts/evm-anchor.ts --send, key .keys/evm-roots-poster.json)
+#                                            and published in data/evm/roots/<lane>.json; a day with no purchase
+#                                            writes nothing, and a failure is alerted while the rest is published.
 #   scripts/daily/run.sh board    19:05 JST  watches kzmttkc/vet402-algorand's board workflow from outside: when
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
@@ -55,6 +61,7 @@
 #   VET402_ALERTS_FILE   file that gets one line per stop                         required
 #   ~/.config/vet402-daily/records-enabled  present: records sends the anchor; absent: records runs as a dry run
 #   ~/.config/vet402-daily/tempo-anchor-enabled  present: records also writes each root on Tempo; absent (default): Solana only
+#   ~/.config/vet402-daily/evm-roots-enabled  present: records also writes the EVM lanes' daily roots; absent (default): not
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
 #   VET402_DAILY_END     first JST day with no am/pm/publish runs (YYYY-MM-DD)    default none (no end)
@@ -571,13 +578,15 @@ records_lane() {
     log "$CONF/records-enabled is absent: records run as a dry run (no anchor sent, nothing pushed)"
     DRY=1
   fi
-  local days
+  local days evm_days
   days="$(open_record_days | head -3)"
-  if [ -z "$days" ]; then
+  evm_days="$(evm_root_days)"
+  if [ -z "$days" ] && [ -z "$evm_days" ]; then
     log "no closed day with purchases waits for its records"
     return 0
   fi
-  log "days to record (oldest first, at most 3): $(echo $days)"
+  [ -z "$days" ] || log "days to record (oldest first, at most 3): $(echo $days)"
+  [ -z "$evm_days" ] || log "EVM daily roots to write or publish: $(echo $evm_days | tr '\n' ' ')"
   no_inflight || return 1
   preflight_pub || return 1
   gate_tree || return 1
@@ -590,11 +599,64 @@ records_lane() {
     [ -d "$RECEIPTS" ] && cp -R "$RECEIPTS"/. "$R"/
     anchor_from=(--from "$R")
   fi
-  local day
+  local day msg=""
   for day in $days; do
     record_day "$day" "$R" ${anchor_from[@]+"${anchor_from[@]}"} || return 1
   done
-  publish "records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
+  [ -z "$days" ] || msg="records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
+  if [ -n "$evm_days" ]; then
+    evm_roots "$evm_days"
+    msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots $(printf '%s\n' "$evm_days" | tr ' ' ':' | paste -sd, -)$([ "$DRY" = 1 ] && echo ' (simulated)')"
+  fi
+  publish "$msg"
+}
+
+# ---------- EVM daily roots (Robinhood Chain, Arbitrum One) ----------
+
+# evm_root_days: "<lane> <day>" for each closed UTC day with purchases on the lane whose root is not written into
+# DeliveryRoots yet, or not in data/evm/roots/<lane>.json on main. The lanes buy on some days only; a day with no
+# purchase is never listed. Off unless $CONF/evm-roots-enabled exists and scripts/evm-anchor.ts on main knows it.
+evm_root_days() {
+  local lane out
+  [ -f "$CONF/evm-roots-enabled" ] || return 0
+  grep -q -- "--open-days" "$REPO/scripts/evm-anchor.ts" 2>/dev/null || return 0
+  for lane in robinhood arbitrum; do
+    [ -f "$REPO/results/evm/$lane-purchases.jsonl" ] || continue
+    if ! out="$(in_repo env VET402_DAILY_NOW="$NOW" "$TSX" scripts/evm-anchor.ts --lane "$lane" --open-days --data "$REPO/data")"; then
+      continues "EVM root" "evm-anchor --lane $lane --open-days failed: no $lane root this run" >&2
+      continue
+    fi
+    printf '%s\n' "$out" | while read -r d; do [ -z "$d" ] || echo "$lane $d"; done
+  done
+}
+
+# evm_roots <"lane day" lines>: plan and write each day's root (scripts/evm-anchor.ts), then write
+# data/evm/roots/*.json into the publish worktree. Every failure is alerted and the run goes on: the Solana
+# records are published either way, and a day not written is listed again by the next run.
+evm_roots() {
+  local lane day rc
+  while read -r lane day; do
+    [ -n "$day" ] || continue
+    if [ "$DRY" = 1 ]; then
+      run "EVM root $lane $day (plan, scratch)" in_repo "$TSX" scripts/evm-anchor.ts --lane "$lane" --day "$day" --anchors-dir "$STATE/dry-evm-anchors" ||
+        continues "EVM root" "the plan for $lane $day did not pass (dry run)"
+      continue
+    fi
+    if [ ! -f "$KEYS/evm-roots-poster.json" ]; then
+      continues "EVM root" "no DeliveryRoots key at $KEYS/evm-roots-poster.json: the $lane $day root is not written"
+      continue
+    fi
+    rc=0
+    run "EVM root $lane $day (plan)" in_repo "$TSX" scripts/evm-anchor.ts --lane "$lane" --day "$day" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      continues "EVM root" "evm-anchor --lane $lane --day $day (plan) exited $rc: nothing sent"
+      continue
+    fi
+    run "EVM root $lane $day --send" in_repo env VET402_ANCHOR_SEND="$lane" EVM_KEY_DIR="$KEYS" "$TSX" scripts/evm-anchor.ts --lane "$lane" --day "$day" --send || rc=$?
+    [ "$rc" -eq 0 ] || continues "EVM root" "evm-anchor --lane $lane --day $day --send exited $rc (not retried; look at results/evm/anchors/$lane-$day.sent.json)"
+  done <<<"$1"
+  run "data/evm/roots" in_repo "$TSX" scripts/evm-roots-publish.ts --data "$PUB/data" ||
+    continues "EVM root" "evm-roots-publish failed: data/evm/roots is not updated this run"
 }
 
 # record_day <day> <receipts dir> [--from <dir>]: build, verify every record, publish-records, anchor, publish-records.

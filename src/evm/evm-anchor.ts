@@ -2,15 +2,18 @@
  * The daily root of an EVM lane's purchase records, written once per closed UTC day on the chain the lane
  * bought on (Robinhood Chain, Arbitrum One).
  *
- *   digest = keccak256(utf8(canonical JSON of one record))      (keys sorted, no whitespace)
+ *   digest = keccak256(utf8(canonical JSON of one leaf record))  (keys sorted, no whitespace)
  *   root   = the Merkle root of src/receipt/merkle.ts over the day's digests in file order
  *            (leaf = keccak256(0x00 || digest), node = keccak256(0x01 || min || max))
+ * The leaf record is what `toLeaf` makes of a purchase line: src/evm/roots.ts gives the public form, so anyone
+ * can rebuild a leaf from data/evm/roots/<lane>.json (the raw line holds the seller's answer and is not published).
  *
- * Two ways to write it, both one transaction from the payer wallet:
- *   calldata   a 0-value transaction to the payer itself whose data is the text
- *              "vet402-purchases/v0 chain=<caip2> day=<day> root=<root> n=<n>". Cheapest: no contract.
+ * Two transaction shapes, each one 0-value transaction from the given sender:
+ *   calldata   to the sender itself, whose data is the text
+ *              "vet402-purchases/v0 chain=<caip2> day=<day> root=<root> n=<n>". No contract; not used by the scripts.
  *   registry   DeliveryRoots.record(day, root, n) on a deployed contracts/DeliveryRoots.sol, which then
- *              answers verify(day, digest, proof) for any other contract.
+ *              answers verify(day, digest, proof) for any other contract. scripts/evm-anchor.ts writes this one,
+ *              from the DeliveryRoots key (src/evm/roots.ts), never from the payer wallet.
  * This module builds and checks the transaction and asks the RPC for eth_estimateGas. It never signs and
  * never sends.
  */
@@ -41,14 +44,21 @@ export interface DayRoot {
   root: Hex;
   digests: Hex[];
   proofs: Hex[][];
+  /** The leaf records, in order: digests[i] = recordDigest(leaves[i]). */
+  leaves: unknown[];
+  /** The exact input lines used (the sent purchases of the day, in file order). */
+  lines: string[];
   /** sha256 of the exact input lines used, so a later run can refuse a changed input. */
   inputSha256: string;
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Records of one UTC day (by `at`) that sent a payment. Refuses an open day: the day must be over in UTC. */
-export function dayRoot(spec: EvmChainSpec, day: string, lines: string[], nowIso: string = new Date().toISOString()): DayRoot {
+/**
+ * Records of one UTC day (by `at`) that sent a payment, each made a leaf record by `toLeaf`. Refuses an open day:
+ * the day must be over in UTC.
+ */
+export function dayRoot(spec: EvmChainSpec, day: string, lines: string[], nowIso: string, toLeaf: (record: unknown, line: string) => unknown): DayRoot {
   if (!DAY.test(day)) throw new Error(`day ${day} is not YYYY-MM-DD`);
   if (day >= nowIso.slice(0, 10)) throw new Error(`day ${day} is not over in UTC (now ${nowIso}); anchor only a closed day`);
   const picked: string[] = [];
@@ -61,7 +71,8 @@ export function dayRoot(spec: EvmChainSpec, day: string, lines: string[], nowIso
     records.push(r);
   }
   if (records.length === 0) throw new Error(`no sent purchase on ${day}`);
-  const digests = records.map(recordDigest);
+  const leaves = records.map((r, i) => toLeaf(r, picked[i]!));
+  const digests = leaves.map(recordDigest);
   const tree = buildTree(digests);
   return {
     chain: spec.caip2,
@@ -70,6 +81,8 @@ export function dayRoot(spec: EvmChainSpec, day: string, lines: string[], nowIso
     root: tree.root,
     digests,
     proofs: tree.proofs,
+    leaves,
+    lines: picked,
     inputSha256: createHash("sha256").update(picked.join("\n")).digest("hex"),
   };
 }

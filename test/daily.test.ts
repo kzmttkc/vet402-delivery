@@ -854,6 +854,37 @@ if (a.includes("--post-root")) {
   if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-program-sent.json", JSON.stringify({ status: "posted" }, null, 2));
 } else if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--day") + "/anchor-sent.json", JSON.stringify({ status: "sent" }, null, 2));
 `,
+  // EVM daily roots: --open-days lists FAKE_EVM_DAYS ("lane:day,...") not yet sent and published; --send marks a day sent.
+  "evm-anchor.ts": `import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1], lane = v("--lane");
+appendFileSync(process.env.FAKE_CALLS!, "evm-anchor " + a.join(" ") + (a.includes("--send") ? " VET402_ANCHOR_SEND=" + process.env.VET402_ANCHOR_SEND + " EVM_KEY_DIR=" + process.env.EVM_KEY_DIR : "") + "\\n");
+const sent = (d: string) => existsSync("results/evm/anchors/" + lane + "-" + d + ".sent.json");
+if (a.includes("--open-days")) {
+  const pub = v("--data") + "/evm/roots/" + lane + ".json";
+  const published: string[] = existsSync(pub) ? JSON.parse(readFileSync(pub, "utf8")).days : [];
+  for (const x of (process.env.FAKE_EVM_DAYS ?? "").split(",").filter(Boolean)) {
+    const [l, d] = x.split(":");
+    if (l === lane && !(sent(d!) && published.includes(d!))) console.log(d);
+  }
+  process.exit(0);
+}
+if (a.includes("--send")) {
+  if (process.env.FAKE_EVM_FAIL === lane) process.exit(1);
+  mkdirSync("results/evm/anchors", { recursive: true });
+  writeFileSync("results/evm/anchors/" + lane + "-" + v("--day") + ".sent.json", "{}");
+}
+`,
+  "evm-roots-publish.ts": `import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+const a = process.argv.slice(2), data = a[a.indexOf("--data") + 1];
+appendFileSync(process.env.FAKE_CALLS!, "evm-roots-publish\\n");
+const files = existsSync("results/evm/anchors") ? readdirSync("results/evm/anchors") : [];
+for (const lane of ["robinhood", "arbitrum"]) {
+  const days = files.filter((f) => f.startsWith(lane + "-")).map((f) => f.slice(lane.length + 1, lane.length + 11));
+  if (!days.length) continue;
+  mkdirSync(data + "/evm/roots", { recursive: true });
+  writeFileSync(data + "/evm/roots/" + lane + ".json", JSON.stringify({ days }) + "\\n");
+}
+`,
   "anchor-receipts-tempo.ts": `import { appendFileSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
 appendFileSync(process.env.FAKE_CALLS!, "tempo-anchor " + a.join(" ") + "\\n");
@@ -1502,4 +1533,86 @@ test("board: dry run, an unreadable file, or on/after VET402_BOARD_END (JST): no
   assert.equal(b.run({ VET402_DAILY_NOW: at("2026-11-15T10:05:00Z") }).status, 0, b.logText());
   assert.equal(b.dispatches(), 1);
   rmSync(b.dir, { recursive: true });
+});
+
+// ---------- run.sh records: the EVM lanes' daily roots (DeliveryRoots on Robinhood Chain and Arbitrum One) ----------
+
+/** No Solana day waits; the Robinhood Chain and Arbitrum lanes bought on 2026-09-30 (once). */
+function evmBox(opts: { enabled?: boolean; records?: boolean } = {}) {
+  const sb = sandbox({ records: true });
+  mkdirSync(join(sb.repo, "results", "evm"), { recursive: true });
+  for (const l of ["robinhood", "arbitrum"]) writeFileSync(join(sb.repo, "results", "evm", `${l}-purchases.jsonl`), "{}\n");
+  mkdirSync(join(sb.dir, "keys"), { recursive: true });
+  writeFileSync(join(sb.dir, "keys", "evm-roots-poster.json"), "{}");
+  if (opts.enabled !== false) writeFileSync(join(sb.home, ".config", "vet402-daily", "evm-roots-enabled"), "");
+  if (opts.records !== false) writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  return sb;
+}
+const EVM_DAYS = { FAKE_EVM_DAYS: "robinhood:2026-09-30,arbitrum:2026-09-30" };
+const evmCalls = (sb: Sandbox) => calls(sb).split("\n").filter((l) => l.startsWith("evm-"));
+
+test("records: without evm-roots-enabled (the default) no EVM root is planned or written", () => {
+  const sb = evmBox({ enabled: false });
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS });
+  assert.equal(r.status, 0, logs(sb));
+  assert.deepEqual(evmCalls(sb), []);
+  assert.match(logs(sb), /no closed day with purchases waits for its records/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: with evm-roots-enabled, each lane-day with purchases is planned, sent once with its own variable and key folder, then data/evm/roots and one publish", () => {
+  const sb = evmBox();
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS });
+  assert.equal(r.status, 0, logs(sb));
+  const keys = join(sb.dir, "keys");
+  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), [
+    "evm-anchor --lane robinhood --day 2026-09-30",
+    `evm-anchor --lane robinhood --day 2026-09-30 --send VET402_ANCHOR_SEND=robinhood EVM_KEY_DIR=${keys}`,
+    "evm-anchor --lane arbitrum --day 2026-09-30",
+    `evm-anchor --lane arbitrum --day 2026-09-30 --send VET402_ANCHOR_SEND=arbitrum EVM_KEY_DIR=${keys}`,
+    "evm-roots-publish",
+  ]);
+  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots robinhood:2026-09-30,arbitrum:2026-09-30");
+  assert.ok(git(sb.origin, "show", "--name-only", "--format=", "main").split("\n").includes("data/evm/roots/arbitrum.json"));
+  assert.equal(alerts(sb), "");
+  // Written and on main: the next run has nothing to do, and a day with no purchase never gets a root.
+  const before = evmCalls(sb).length;
+  const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), ...EVM_DAYS });
+  assert.equal(r2.status, 0, logs(sb));
+  assert.ok(evmCalls(sb).slice(before).every((l) => l.includes("--open-days")), evmCalls(sb).join("\n"));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a failed EVM root is alerted, not retried, the other lane and the publish go on, and the next run lists the day again", () => {
+  const sb = evmBox();
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS, FAKE_EVM_FAIL: "robinhood" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /\] records: EVM root failed, publish continues: evm-anchor --lane robinhood --day 2026-09-30 --send exited 1 \(not retried; look at results\/evm\/anchors\/robinhood-2026-09-30\.sent\.json\)/);
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT for an EVM root");
+  assert.equal(evmCalls(sb).filter((l) => l.includes("--send")).length, 2, "each lane tried once");
+  assert.match(git(sb.origin, "show", "--name-only", "--format=", "main"), /data\/evm\/roots\/arbitrum\.json/);
+  runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:20:00Z"), ...EVM_DAYS });
+  assert.deepEqual(evmCalls(sb).filter((l) => l.includes("--send")).slice(2).map((l) => l.split(" ").slice(0, 6).join(" ")), ["evm-anchor --lane robinhood --day 2026-09-30 --send"]);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: the Solana days and the EVM roots go in one publish; without records-enabled the EVM root is only planned, in scratch, and nothing is sent", () => {
+  const sb = evmBox({ records: false });
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS });
+  assert.equal(r.status, 0, logs(sb));
+  const ev = evmCalls(sb).filter((l) => !l.includes("--open-days"));
+  assert.ok(ev.filter((l) => l.startsWith("evm-anchor")).every((l) => !l.includes("--send") && l.includes("--anchors-dir")), ev.join("\n"));
+  assert.match(logs(sb), /commit [0-9a-f]{40}: records: 2026-09-30 delivery records and each day's root \(simulated anchor\); EVM daily roots robinhood:2026-09-30,arbitrum:2026-09-30 \(simulated\)/);
+  assert.ok(!existsSync(join(sb.repo, "results", "evm", "anchors")), "nothing marked sent");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a lane with no purchases file is not asked", () => {
+  const sb = evmBox();
+  rmSync(join(sb.repo, "results", "evm", "robinhood-purchases.jsonl"));
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!evmCalls(sb).some((l) => l.includes("robinhood")), evmCalls(sb).join("\n"));
+  rmSync(sb.dir, { recursive: true });
 });

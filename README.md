@@ -58,7 +58,7 @@ The x402 fetch hook, the output fields and the options: `packages/check/README.m
 | Solana feedback | Writes the outcome of a paid Solana purchase to the 8004-solana reputation registry (the Solana port of ERC-8004), from the wallet that paid, with the published delivery record as the feedback file | `scripts/solana-feedback.ts`, `src/solana-feedback/` |
 | Robinhood Chain | Buys, in USDG, every seller whose live 402 lists Robinhood Chain (one purchase per payTo), and checks stock prices sold over x402 against the Chainlink feed of the Stock Token: age against the heartbeat, `oraclePaused()`, and the ERC-8056 multiplier between share price and token price | `scripts/evm-lane.ts`, `src/robinhood/`, `src/evm/`, `site/robinhood.html` |
 | Arbitrum One | Buys each seller that lists Arbitrum One with the same payTo as its Base accept, once on Arbitrum and once on Base, and shows per seller whether each chain settled and came back, and why not | `scripts/evm-lane.ts`, `src/evm/`, `site/arbitrum.html` |
-| Daily root on EVM chains | One transaction a day on the chain the lane bought on, carrying the Merkle root of that day's purchase records; `contracts/DeliveryRoots.sol` holds the same root for other contracts to verify in one call (tested, not deployed) | `scripts/evm-anchor.ts`, `src/evm/evm-anchor.ts`, `contracts/` |
+| Daily root on EVM chains | After each UTC day with purchases on the Robinhood Chain or Arbitrum lane, that day's Merkle root goes into `contracts/DeliveryRoots.sol` on that chain: written once per day, never changed, only by its own key (not the payer wallet). Each leaf is a public record of one purchase (no seller answer, only its sha256), published in `data/evm/roots/<lane>.json` with its proof, so anyone, or another contract, can call `verify(day, digest, proof)`. Once deployed, the contract is at `0x84DB4733f8F9e6803Af811fD9E438aEBc0b90145` on both chains (the key's first transaction); the days written so far are the ones in `data/evm/roots/` | `scripts/evm-roots-deploy.ts`, `scripts/evm-anchor.ts`, `scripts/evm-roots-publish.ts`, `src/evm/roots.ts`, `contracts/` |
 | Proxy buy | An agent pays vet402 the seller's price + 0.005 (x402 on Solana, MPP on Tempo); after that payment settles, vet402 pays a seller it already paid before and returns the answer with both transactions and a record, or refunds the agent when it did not pay the seller. State in Postgres; runs on Vercel Functions. Running since 2026-10-01 at https://vet402-delivery.vercel.app/v1/buy, Solana only | `src/proxy-buy/`, `api/`, `scripts/proxy-buy-serve.ts` |
 
 ## Money safety
@@ -375,7 +375,9 @@ Published data is corrected only toward what the chain shows, and every correcti
 ```bash
 npx tsx scripts/evm-lane.ts --lane robinhood --dry-run   # catalogs, unpaid 402s, Chainlink reads; signs with a throwaway key
 npx tsx scripts/evm-lane.ts --lane arbitrum --dry-run    # the same listings on Arbitrum One and on Base
-npx tsx scripts/evm-anchor.ts --lane robinhood --sample 18   # quote the daily root transaction (eth_estimateGas only)
+npx tsx scripts/evm-roots-deploy.ts --chain robinhood     # simulate deploying DeliveryRoots (eth_call, eth_estimateGas); --send deploys
+npx tsx scripts/evm-anchor.ts --lane robinhood --day 2026-09-30   # plan the day's root: public leaves, record() and its gas; --send writes it
+npx tsx scripts/evm-roots-publish.ts --data data          # data/evm/roots/<lane>.json from the days written
 npx tsx scripts/evm-publish.ts --lane robinhood && npx tsx scripts/build-site.ts --out site
 cd contracts && forge test                                # DeliveryRoots against Merkle vectors from src/receipt/merkle.ts
 ```

@@ -16,6 +16,8 @@ import type { ChainBuyRecord, ChainCheckNote, PaymentResponseHeaderNote } from "
 import type { CauseResult } from "./settle-cause.js";
 import { STOCK_SELLER } from "./lane-plan.js";
 import { notifiedSellers, type NotifiedFile } from "../receipt/publish.js";
+import { rootsFileProblems, type RootsFile } from "./roots.js";
+import { rootsSection } from "./roots-site.js";
 
 const STOCK_SELLER_RESOURCE = STOCK_SELLER.resource;
 
@@ -116,6 +118,8 @@ export interface LanePublic {
    */
   compare?: CompareRow[];
   stock?: StockRow[];
+  /** data/evm/roots/<lane>.json when a daily root has been written (src/evm/roots.ts), checked on load. */
+  roots?: RootsFile;
 }
 
 type DryRunChoice = { payTo: string; catalogListings: number; hosts: string[]; chosen: { resource: string; liveAmount: string } | null; tried?: { status: number | null; why: string }[] };
@@ -317,7 +321,11 @@ export function loadLanePublic(dataDir: string): { robinhood?: LanePublic; arbit
     if (j.kind !== "vet402-evm-lane" || j.lane !== lane) throw new Error(`${f}: not a vet402 ${lane} lane file`);
     const bad = unpublishableRows(j, notified);
     if (bad.length) throw new Error(`${f}: negative results for sellers not in notified.json: ${bad.join("; ")}`);
-    out[lane] = j;
+    const rf = join(dataDir, "evm", "roots", `${lane}.json`);
+    const roots = existsSync(rf) ? (JSON.parse(readFileSync(rf, "utf8")) as RootsFile) : undefined;
+    const rbad = roots ? rootsFileProblems(roots, lane, notified) : [];
+    if (rbad.length) throw new Error(`${rf}: ${rbad.join("; ")}`);
+    out[lane] = roots ? { ...j, roots } : j;
   }
   return out;
 }
@@ -421,9 +429,7 @@ function limits(l: LanePublic): string {
 }
 
 function anchorSection(l: LanePublic): string {
-  return `<h2 id="root">The daily record on ${escapeHtml(EVM_CHAINS[l.lane].label)}</h2>
-<p>After each UTC day with purchases, vet402 writes one transaction on ${escapeHtml(EVM_CHAINS[l.lane].label)} from its wallet to itself. Its input data is the text <code>vet402-purchases/v0 chain=${escapeHtml(l.chain)} day=… root=… n=…</code>: the Merkle root of that day's purchase records (each leaf is keccak256 of one record's canonical JSON). Anyone holding a record can recompute its leaf and check it against the root on chain.</p>
-${l.lane === "arbitrum" ? `<p class="meta">The same root can go to a contract, <a href="${escapeHtml(PUBLIC_REPO_URL)}/blob/main/contracts/src/DeliveryRoots.sol" rel="noopener noreferrer nofollow">DeliveryRoots.sol</a>, whose <code>verify(day, digest, proof)</code> lets another contract ask in one call whether vet402 recorded a purchase. It is tested, not deployed yet.</p>` : ""}`;
+  return rootsSection(l.lane, l.roots);
 }
 
 export function renderRobinhoodPage(r: RankReport, _g: GroupReport, l: LanePublic | undefined): string {
