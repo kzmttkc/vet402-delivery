@@ -479,6 +479,12 @@ const Q = String.raw`\\?["'\x60]?`;
  */
 const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|transactions?|records?|results?|info|information|prices?|quotes?|liquidity|holders?|activity|metadata|stats|statistics|coverage)\b/i;
 
+/**
+ * "x is required to <verb>": the verbs that make it a condition on what x holds (the seller's content), not a
+ * missing input. Any other verb ("to proceed", "to check the balance", "to get a quote") reads x as the input.
+ */
+const CONTENT_CONDITION = String.raw`(?:own|hold|have|contain|stake|be\s+(?:whitelisted|on\s+the\s+allowlist|registered|verified|eligible|funded|active))\b`;
+
 /** A validator's fixed message for one field (marshmallow, webargs, DRF, FastAPI, Zod): the field is the JSON key. */
 const VALIDATOR_FIELD_MESSAGE = /^(missing data for required field|this field is required|this field may not be (?:null|blank)|field required|required)\.?$/i;
 /** Keys that hold such messages for the whole request, not for a field named by the key. */
@@ -506,8 +512,9 @@ function inputForNames(piece: string): string[] {
 /**
  * Pure. The names a sentence gives in a form that leaves no doubt that this input is what is missing: "required
  * property 'x'", "x is required" (not "x is required to ..."), "required field: x", and a quoted name ("missing 'x'",
- * "'x' is missing", not after "for"). "x is required to <verb>" counts only for proceed, continue, be a/an (a valid
- * ...) and be provided; any other verb is a condition on content ("required to own an NFT"). With one of these, the sentence's content words (data, price, history) are
+ * "'x' is missing", not after "for"). "x is required to <verb>" counts unless the verb is a condition on content
+ * (CONTENT_CONDITION: own, hold, have, contain, stake, be whitelisted / on the allowlist / registered / verified /
+ * eligible / funded / active). With one of these, the sentence's content words (data, price, history) are
  * not read as the seller's missing content.
  */
 export function strongNamesInSentence(piece: string): string[] {
@@ -516,7 +523,7 @@ export function strongNamesInSentence(piece: string): string[] {
     if (n && !STOP.has(n.toLowerCase())) out.add(n);
   };
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+property\s+${Q}(${ID})`, "gi"))) add(q[1]);
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?!(?:proceed|continue|be\s+an?|be\s+provided)\b))`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+${CONTENT_CONDITION})`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
   for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
@@ -554,7 +561,7 @@ export function namesInSentence(piece: string): string[] {
   // names the seller's data, and "(… for balance lookup)" is a note, not a name).
   for (const n of inputForNames(piece)) push(n);
   // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+(?!(?:proceed|continue|be\s+an?|be\s+provided)\b))`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b(?!\s+to\s+${CONTENT_CONDITION})`, "gi"))) push(q[1]);
   // "required field(s): x, y" / "required property 'x'"
   // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
@@ -627,7 +634,11 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence).
     if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
     const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
-    for (const n of namesInSentence(piece)) names.push({ name: n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text" });
+    // A sentence written all in capitals ("WALLET IS REQUIRED TO PROCEED") is read without case: its unquoted names
+    // are not ALL_CAPS setting names. A quoted name keeps its case (\"DATABASE_URL\" is required).
+    const shouting = /[A-Z]/.test(piece) && !/[a-z]/.test(piece);
+    const quoted = (n: string) => new RegExp(String.raw`["'\x60]${n.replace(/[$.]/g, "\\$&")}["'\x60]`).test(piece);
+    for (const n of namesInSentence(piece)) names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text" });
   }
   return { names, tainted };
 }

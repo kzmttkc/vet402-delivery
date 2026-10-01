@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyDeclaredPatches, loadLaneRecords, loadLaneRecordsChecked, payStopForUnreadableLines, readDeclaredPatches, readJsonl, type DeclaredPatch } from "../src/evm/lane-records.js";
 import { spawnSync } from "node:child_process";
-import { buildLanePublic as buildLanePublic2 } from "../src/evm/site.js";
+import { buildLanePublic as buildLanePublic2, statusOf } from "../src/evm/site.js";
 import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
@@ -1164,4 +1164,34 @@ test("no control character other than tab, newline and carriage return in src, s
   };
   for (const d of ["src", "scripts", "test"]) walk(new URL(`../${d}`, import.meta.url).pathname);
   assert.deepEqual(bad, []);
+});
+
+
+// ---------- review of 959121c (the verb rule turned the right way) ----------
+
+test("'x is required to <verb>' is the seller's only for a condition on content; every other verb reads x as the input, and a settled purchase is never shown as the seller's failure", () => {
+  const ten = ["wallet is required to check the balance", "'address' is required to access this resource", "The 'symbol' field is required to get a quote", "wallet is required to query balances", "wallet is required to fetch data", "wallet is required to look up the price", "wallet is required to use this endpoint", "wallet is required to perform a search", "wallet is required to scrape", "wallet is required to complete the request"];
+  for (const t of ten) {
+    const name = (/(wallet|address|symbol)/.exec(t) ?? [])[1]!;
+    for (const declared of [undefined, [name]]) {
+      assert.equal(answer400(t, declared)?.kind, "missing_input", `${t} (declared ${declared ?? "none"})`);
+      const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, ...(declared ? { declaredParams: declared } : {}) };
+      const cause = classifyRecord(rec);
+      assert.equal(cause.rule, "input:missing_input:settled", t);
+      const status = statusOf({ ...rec, cause } as never);
+      assert.equal(status, "settled_vet402_input", t);
+      assert.notEqual(status, "settled_no_answer");
+    }
+  }
+  for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake", "wallet is required to hold USDC", "wallet is required to have a balance", "wallet is required to contain funds", "wallet is required to be registered", "wallet is required to be verified", "wallet is required to be eligible", "wallet is required to be funded", "wallet is required to be active"]) {
+    assert.equal(answer400(t, ["wallet", "address"]), null, t);
+  }
+});
+
+test("a sentence all in capitals is read without case; a quoted ALL_CAPS name stays a setting name", () => {
+  assert.equal(answer400("WALLET IS REQUIRED TO PROCEED", ["wallet"])?.kind, "missing_input");
+  assert.equal(answer400("WALLET IS REQUIRED TO PROCEED")?.kind, "missing_input");
+  assert.equal(answer400("MISSING REQUIRED FIELD: WALLET", ["wallet"])?.kind, "missing_input");
+  assert.equal(answer400('"DB_HOST" IS REQUIRED'), null);
+  assert.equal(answer400("Missing required field: DB_HOST"), null, "mixed case: an ALL_CAPS name is a setting name, as before");
 });

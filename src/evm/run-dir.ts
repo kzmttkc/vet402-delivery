@@ -8,7 +8,7 @@
  * Read-only and dry runs keep using results/evm under the working directory (the daily records run works in the
  * production checkout, so both are the same there).
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { KEY_DIR } from "./key.js";
 import type { LaneSpec } from "./chains.js";
@@ -25,8 +25,23 @@ export function payResultsDir(env: NodeJS.ProcessEnv = process.env, keyDir: stri
 export function payResultsDirProblem(env: NodeJS.ProcessEnv = process.env): string | null {
   const v = env.VET402_EVM_RESULTS_DIR;
   if (v === undefined) return null;
-  const why = v === "" ? "is set but empty" : !isAbsolute(v) ? `is a relative path (${v})` : !existsSync(v) ? `names a directory that does not exist (${v})` : null;
+  const why =
+    v === "" ? "is set but empty" : !isAbsolute(v) ? `is a relative path (${v})` : !existsSync(v) ? `names a directory that does not exist (${v})` : !statSync(v).isDirectory() ? `names a file, not a directory (${v})` : null;
   return why ? `ALERT VET402_EVM_RESULTS_DIR ${why}: --pay stops before any purchase (unset it to use the key's root, or give an existing absolute path)` : null;
+}
+
+/**
+ * With VET402_EVM_RESULTS_DIR set, every lane of the run must already have its ledger there: an override is for
+ * pointing at an existing production ledger, never for starting a new one. A first purchase (no ledger yet) is run
+ * with the variable unset, on the key's root. Returns the ALERT, or null.
+ */
+export function overrideLedgerProblem(lanes: readonly Pick<LaneSpec, "ledger">[], env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = env.VET402_EVM_RESULTS_DIR;
+  if (v === undefined) return null;
+  const missing = lanes.map((l) => laneLedgerPath(l, v)).filter((f) => !existsSync(f));
+  return missing.length
+    ? `ALERT VET402_EVM_RESULTS_DIR is set, but ${missing.join(", ")} does not exist: --pay stops before any purchase. A first purchase that creates a ledger is run with VET402_EVM_RESULTS_DIR unset (the key's root).`
+    : null;
 }
 
 /** The ledger file of a lane inside a results directory. */

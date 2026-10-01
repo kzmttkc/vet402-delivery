@@ -778,3 +778,41 @@ test("VET402_EVM_RESULTS_DIR that is empty, relative or missing stops --pay befo
   const src = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
   assert.ok(src.indexOf("process.exit(6)") < src.indexOf("const resultsDir = pay ? payResultsDir()"), "checked before the directory is used");
 });
+
+
+test("an override must be an existing directory that already holds every ledger of the run; else --pay stops (exit 6) and says to unset it for a first purchase", async () => {
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const { overrideLedgerProblem, payResultsDirProblem } = await import("../src/evm/run-dir.js");
+  const root = mkdtempSync(join(tmpdir(), "vet402-override-2-"));
+  try {
+    const keys = join(root, ".keys");
+    mkdirSync(keys); // empty: nothing could be signed
+    const file = join(root, "a-file");
+    writeFileSync(file, "x");
+    assert.match(payResultsDirProblem({ VET402_EVM_RESULTS_DIR: file })!, /names a file, not a directory/);
+    const dir = join(root, "results", "evm");
+    mkdirSync(dir, { recursive: true });
+    assert.equal(payResultsDirProblem({ VET402_EVM_RESULTS_DIR: dir }), null);
+    assert.match(overrideLedgerProblem([LANES.robinhood], { VET402_EVM_RESULTS_DIR: dir })!, /robinhood-ledger\.json does not exist: --pay stops before any purchase\. A first purchase that creates a ledger is run with VET402_EVM_RESULTS_DIR unset/);
+    assert.equal(overrideLedgerProblem([LANES.robinhood], {}), null);
+    const script = new URL("../scripts/evm-lane.ts", import.meta.url).pathname;
+    const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+    const run = (v: string) => spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: root, encoding: "utf8", env: { ...process.env, VET402_EVM_PAY: "robinhood", EVM_KEY_DIR: keys, VET402_EVM_RESULTS_DIR: v }, timeout: 60_000 });
+    for (const [v, why] of [[file, /names a file, not a directory/], [dir, /robinhood-ledger\.json does not exist/]] as [string, RegExp][]) {
+      const r = run(v);
+      assert.equal(r.status, 6, r.stderr);
+      assert.match(r.stderr, why);
+      assert.doesNotMatch(r.stderr, /\[pay\] results and ledgers|\[pay\] lane |evm\.pub/, "stopped before the ledger, the key and any purchase");
+    }
+    // With the ledger there, the override is used (and the run stops at the empty key directory: nothing bought).
+    writeFileSync(join(dir, "robinhood-ledger.json"), JSON.stringify({ baselineAtomic: null, spentAtomic: "0", purchases: [] }));
+    const go = run(dir);
+    assert.ok(go.stderr.includes(`[pay] results and ledgers: ${dir}`), go.stderr);
+    assert.match(go.stderr, /evm\.pub/);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
