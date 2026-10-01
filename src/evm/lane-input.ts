@@ -510,8 +510,31 @@ export function answerPieces(text: string): string[] {
   return sentences(t);
 }
 
+/** A line (or a piece after ";") that holds only list items: 'a', "b", `c`, a, - a, [a, b]. */
+const BARE_ITEMS = new RegExp(
+  String.raw`^\[?\s*(?:[-*\u2022]\s+)?(?:\\?["'\x60][A-Za-z_$][\w$.-]*\\?["'\x60]|[A-Za-z_$][\w$.-]*)(?:\s*[,;]\s*(?:[-*\u2022]\s+)?(?:\\?["'\x60][A-Za-z_$][\w$.-]*\\?["'\x60]|[A-Za-z_$][\w$.-]*))*\s*\]?\s*[,;]?$`,
+);
+
+/**
+ * The sentences of a text. A list the answer spreads over lines or ";" ("Missing required parameters:\nwallet\nsymbol",
+ * "'wallet';  'DATABASE_URL'", "'wallet',\n  'DATABASE_URL'") stays one sentence: a piece that holds only list items
+ * joins the piece before it when that piece ends with ":", "," or ";", or is itself such a list.
+ */
 function sentences(s: string): string[] {
-  return s.split(/(?<=[.!?;])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+  const out: string[] = [];
+  let inList = false;
+  for (const x of s.split(/(?<=[.!?;])\s+|\n+/).map((y) => y.trim()).filter(Boolean)) {
+    const prev = out.at(-1);
+    if (prev !== undefined && BARE_ITEMS.test(x) && (/[:,;]$/.test(prev) || inList)) {
+      const item = x.replace(/^(\[?\s*)[-*\u2022]\s+/, "$1");
+      out[out.length - 1] = /[:,;]$/.test(prev) ? `${prev} ${item}` : `${prev}, ${item}`;
+      inList = true;
+      continue;
+    }
+    inList = false;
+    out.push(x);
+  }
+  return out;
 }
 
 const ID = String.raw`[A-Za-z_$][\w$.-]*`;
@@ -534,6 +557,9 @@ const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|tra
 const VALIDATOR_FIELD_MESSAGE = /^(missing data for required field|this field is required|this field may not be (?:null|blank)|field required|required)\.?$/i;
 /** Keys that hold such messages for the whole request, not for a field named by the key. */
 const FIELD_MESSAGE_KEYS_NOT_NAMES = new Set(["formErrors", "fieldErrors", "errors", "non_field_errors", "detail", "message", "messages", "error", "msg"]);
+
+/** JSON keys whose value lists the missing names. */
+const MISSING_LIST_KEY = /^(?:missing|required)(?:[_-]?(?:fields?|params?|parameters?|keys?|args?|arguments?|inputs?|properties))?$/i;
 
 /** A sentence that says something is missing or required. */
 const CUE = /\b(missing|required|cannot be empty|must not be empty|must be provided)\b/i;
@@ -567,10 +593,87 @@ export function quotedListNames(piece: string): string[] {
   return [...new Set(out)];
 }
 
+/** Words that never start a list item (articles, joining words, the cue words themselves). */
+const ITEM_STOP = new Set([...STOP, "missing", "required", "not", "must", "should", "please", "see", "check"]);
+const INPUT_WORDS = String.raw`(?:parameter|param|property|field|argument|arg|key|value|input)s?`;
+/** List openers: after an input word ("Missing required parameters:", "Missing value for key", "required fields:"), or after "missing" alone. */
+const LIST_HEADS: readonly [RegExp, boolean][] = [
+  [new RegExp(String.raw`\bmissing\s+(?:required\s+)?${INPUT_WORDS}\b\s*:?\s*(?:for\s+(?:the\s+)?(?:(?:key|field|parameter|param|argument)\s+)?)?`, "gi"), true],
+  [new RegExp(String.raw`\brequired\s+${INPUT_WORDS}\b\s*:?\s*`, "gi"), true],
+  [/\bmissing\b\s*(:?)\s*/gi, false],
+];
+
+/**
+ * Pure. Every name of every list a sentence gives as missing, quoted or not, in [ ] or not, separated by ",", ";",
+ * "and", "or" or a line ("Missing required parameters: 'wallet', DB_HOST", "Missing keys: ['wallet', 'symbol']",
+ * "Missing required parameters: 'wallet' and RPC url"). Each item gives its first word; an item of several words that
+ * makes a setting name ("RPC url", "database url") gives the whole item too. After "missing" alone, an unquoted list is
+ * read only after a colon. `strong`: read after an input word, or quoted or in [ ].
+ */
+export function listNames(piece: string): { name: string; strong: boolean }[] {
+  const out: { name: string; strong: boolean }[] = [];
+  const quotedItem = new RegExp(String.raw`^\\?["'\x60](${ID})\\?["'\x60]`);
+  const word = new RegExp(String.raw`^(${ID})`);
+  for (const [head, inputWord] of LIST_HEADS) {
+    for (const h of piece.matchAll(head)) {
+      const s = piece.slice(h.index! + h[0].length);
+      let i = 0;
+      const eat = (re: RegExp) => {
+        const m = re.exec(s.slice(i));
+        if (m) i += m[0].length;
+        return m;
+      };
+      let marked = !!eat(/^\[\s*/);
+      const got: string[] = [];
+      for (;;) {
+        eat(/^(?:[-*\u2022]\s+)?/);
+        const q = eat(quotedItem);
+        if (q) {
+          got.push(q[1]!);
+          marked = true;
+        } else {
+          eat(/^(?:(?:a|an|the)\s+)?/i);
+          const w = eat(word);
+          if (!w || ITEM_STOP.has(w[1]!.toLowerCase())) break;
+          const words = [w[1]!];
+          for (let k = 0; k < 2; k++) {
+            const more = new RegExp(String.raw`^\s+(${ID})`).exec(s.slice(i));
+            if (!more || ITEM_STOP.has(more[1]!.toLowerCase()) || /^(?:is|are)$/i.test(more[1]!)) break;
+            words.push(more[1]!);
+            i += more[0].length;
+          }
+          got.push(words[0]!);
+          if (words.length > 1 && sellerSettingName(words.join(" "))) got.push(words.join(" "));
+        }
+        eat(/^\s*\]/);
+        if (!eat(/^\s*[,;]\s*(?:(?:and|or)\s+)?\[?\s*|^\s+(?:and|or)\s+\[?\s*/i)) break;
+      }
+      if (!got.length) continue;
+      if (!inputWord && !marked && !h[1]) continue;
+      for (const n of got) out.push({ name: n, strong: inputWord || marked });
+    }
+  }
+  // One entry per name ("Missing required parameters: ..." opens the same list twice); strong when any opener says so.
+  const by = new Map<string, boolean>();
+  for (const n of out) by.set(n.name, (by.get(n.name) ?? false) || n.strong);
+  return [...by].map(([name, strong]) => ({ name, strong }));
+}
+
+/**
+ * Pure. A sentence with the words around a name taken off: an annotation after it ("'wallet' (type: 'string') is
+ * required") and the part of the request before an input word ("Missing required query parameter 'wallet'"). The
+ * part (query, body, path) is where the name goes, not a name.
+ */
+export function plainSentence(piece: string): string {
+  return piece
+    .replace(/\s*\(\s*(?:type|format|in|location|expected)\s*:[^()]*\)/gi, "")
+    .replace(new RegExp(String.raw`(\b(?:missing|required)\s+(?:required\s+)?)(?:query|querystring|body|path|form|url)\s+(?=${INPUT_WORDS}\b)`, "gi"), "$1");
+}
+
 function inputForNames(piece: string): string[] {
   const out: string[] = [];
   const W = String.raw`(?:value|parameter|param|argument|field|input)s?`;
-  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:(?:a|an|the)\s+)?${W}\s+for\s+(?:the\s+)?${Q}(${ID})`, "gi"))) out.push(q[1]!);
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:(?:a|an|the)\s+)?${W}\s+for\s+(?:the\s+)?(?:(?:key|field|parameter|param|argument)\s+(?=${Q}${ID}))?${Q}(${ID})`, "gi"))) out.push(q[1]!);
   for (const q of piece.matchAll(new RegExp(String.raw`\b${W}\s+for\s+(?:the\s+)?${Q}(${ID})${Q}\s+(?:is|are)\s+missing\b`, "gi"))) out.push(q[1]!);
   for (const q of piece.matchAll(new RegExp(String.raw`\bparam is missing or the value is empty:\s*${Q}(${ID})`, "gi"))) out.push(q[1]!);
   return out.filter((n) => !STOP.has(n.toLowerCase()));
@@ -583,7 +686,8 @@ function inputForNames(piece: string): string[] {
  * "required to" never decide the side. With one of these, the sentence's content words (data, price, history) are
  * not read as the seller's missing content.
  */
-export function strongNamesInSentence(piece: string): string[] {
+export function strongNamesInSentence(text: string): string[] {
+  const piece = plainSentence(text);
   const out = new Set<string>();
   const add = (n: string | undefined) => {
     if (n && !STOP.has(n.toLowerCase())) out.add(n);
@@ -594,6 +698,7 @@ export function strongNamesInSentence(piece: string): string[] {
   for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
   for (const n of quotedListNames(piece)) add(n);
+  for (const n of listNames(piece)) if (n.strong) add(n.name);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:parameter|param|property|field|argument|key|value|input)s?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`(?<!\bfor\s{1,3})\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) add(q[1]);
   return [...out];
@@ -614,7 +719,8 @@ export function softNamesInSentence(piece: string): string[] {
   return out;
 }
 
-export function namesInSentence(piece: string): string[] {
+export function namesInSentence(text: string): string[] {
+  const piece = plainSentence(text);
   const out: string[] = [];
   const push = (n: string | undefined) => {
     const x = (n ?? "").replace(/^[.\-]+|[.\-]+$/g, "");
@@ -627,6 +733,9 @@ export function namesInSentence(piece: string): string[] {
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
   // Every name of a quoted list ("Missing required parameters: 'wallet', 'DATABASE_URL'"), not only the first.
   for (const n of quotedListNames(piece)) push(n);
+  // Every list, quoted or not, in [ ] or on lines: "'wallet', DB_HOST" gives both names (a list is never cut at its
+  // first unquoted name).
+  for (const n of listNames(piece)) push(n.name);
   // missing parameter: "x", Missing required field 'x'
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:parameter|param|property|field|argument|key|value|input)s?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
   // Missing [required] [fields|params|...][:] a, b and c  |  missing <generic>  |  missing x
@@ -635,7 +744,9 @@ export function namesInSentence(piece: string): string[] {
     const list = (q[3] ?? "").split(/\s*(?:,|\band\b)\s*/).filter(Boolean);
     if (head && GENERIC.test(head)) {
       if (list.length && !STOP.has(list[0]!.toLowerCase())) list.forEach(push);
-      else if (list[0]?.toLowerCase() !== "for") push(head); // "missing value for x": x is the name (below), not value
+      // "missing value for x": x is the name (below), not value. "Missing key: 'wallet'", "Missing keys ['a']": the
+      // input word opens the list, it is no name.
+      else if (list[0]?.toLowerCase() !== "for" && !/^\s*:?\s*(?:\\?["'\x60]|\[)/.test(piece.slice(q.index! + q[0].length))) push(head);
     } else if (head) push(head);
     else list.slice(0, 1).forEach(push);
   }
@@ -704,6 +815,15 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       // Under "headers": a header vet402 does not send, never its input.
       if (v.some((x) => typeof x === "string" && VALIDATOR_FIELD_MESSAGE.test(x.trim()))) names.push({ name: k, header: keys.some((x) => /^headers?$/i.test(x)), path: [...keys, k], source: "field-messages" });
     }
+    // {"missing":["wallet"]}, {"required":["wallet"]}, {"missingFields":["a","b"]}: each element is a missing name. A
+    // JSON schema the answer quotes (with properties or a JSON type) is a declaration, not a list of what is missing.
+    if (!isObjD(o.properties) && !isJsonType(o.type)) {
+      for (const [k, v] of Object.entries(o)) {
+        if (!MISSING_LIST_KEY.test(k)) continue;
+        const items = Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
+        for (const x of items) if (typeof x === "string" && new RegExp(String.raw`^${ID}$`).test(x.trim())) names.push({ name: x.trim(), header: keys.some((y) => /^headers?$/i.test(y)), path: [...keys, k], source: "json-list" });
+      }
+    }
     // Zod .flatten()
     if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
       for (const [k, msgs] of Object.entries(o.fieldErrors as Record<string, unknown>)) {
@@ -713,7 +833,8 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     for (const [k, x] of Object.entries(o)) walk(x, [...keys, k], depth + 1);
   };
   if (j !== undefined) walk(j, [], 0);
-  for (const piece of answerPieces(text)) {
+  for (const raw of answerPieces(text)) {
+    const piece = plainSentence(raw);
     if (!CUE.test(piece)) continue;
     // A validator's fixed message for one field ("Missing data for required field.") is read with its key above.
     if (VALIDATOR_FIELD_MESSAGE.test(piece.trim())) continue;

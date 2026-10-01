@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, quotedListNames, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, quotedListNames, listNames, plainSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -1493,4 +1493,71 @@ test("a quoted list is read whole: one undeclared or setting name in it makes th
     assert.equal(got.negative, false, t);
   }
   assert.deepEqual(quotedListNames("Missing required parameters: 'wallet', 'rpc_url', and 'symbol'"), ["wallet", "rpc_url", "symbol"]);
+});
+
+
+// ---------- review of c25044c: every list is read whole, in every shape ----------
+
+test("a list in [ ], in JSON, on lines, or after key, query or value for key is read: every name declared makes the answer vet402's", () => {
+  const vet: [string, string[]][] = [
+    ["Missing required parameters: ['wallet']", ["wallet"]],
+    ['Missing required parameters: ["wallet"]', ["wallet"]],
+    ["Missing required parameters: [wallet]", ["wallet"]],
+    ['{"missing":["wallet"]}', ["wallet"]],
+    ['{"required":["wallet"]}', ["wallet"]],
+    ['{"error":"bad request","missing":["wallet","symbol"]}', ["wallet", "symbol"]],
+    ["Missing required parameters:\nwallet", ["wallet"]],
+    ["Missing required parameters:\nwallet\nsymbol", ["wallet", "symbol"]],
+    ["Missing required parameters:\n- wallet\n- symbol", ["wallet", "symbol"]],
+    ["Missing required parameters:\n  'wallet'\n  'symbol'", ["wallet", "symbol"]],
+    ["Missing required query parameter 'wallet'", ["wallet"]],
+    ["Missing value for key 'wallet'", ["wallet"]],
+    ["'wallet' (type: 'string') is required", ["wallet"]],
+    ["Missing key: 'wallet'", ["wallet"]],
+    ["Missing required key: 'wallet'", ["wallet"]],
+    ["Missing key 'wallet' in query", ["wallet"]],
+    ["Missing keys: 'wallet', 'symbol'", ["wallet", "symbol"]],
+    ["Missing keys: ['wallet', 'symbol']", ["wallet", "symbol"]],
+  ];
+  for (const [t, d] of vet) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", `${t} (declared ${d})`);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  // A JSON schema the answer quotes is a declaration, not a list of what is missing.
+  assert.equal(answer400('{"error":"invalid","schema":{"type":"object","properties":{"wallet":{"type":"string"}},"required":["wallet"]}}', ["wallet"]), null);
+  assert.equal(plainSentence("Missing required query parameter 'wallet'"), "Missing required parameter 'wallet'");
+  assert.equal(plainSentence("'wallet' (type: 'string') is required"), "'wallet' is required");
+});
+
+test("a list is never cut at its first quoted name: an unquoted name, or a name after ';' or a line, in it makes the answer the seller's", () => {
+  const tails = [
+    "'wallet', DB_HOST",
+    "'wallet' and RPC url",
+    "'wallet',DATABASE_URL",
+    "'wallet'; 'DATABASE_URL'",
+    "'wallet',\n  'DATABASE_URL'",
+    "'wallet', DATABASE_URL",
+    '"wallet" and DB_PASSWORD',
+  ];
+  const seller = [
+    ...tails.flatMap((x) => [`Missing required parameters: ${x}`, `Missing: ${x}`, `Missing required fields: ${x}`, x]),
+    "Missing required parameters: ['wallet', 'DB_HOST']",
+    "Missing keys: ['wallet', DATABASE_URL]",
+    '{"missing":["wallet","DATABASE_URL"]}',
+    "Missing required parameters:\nwallet\nDB_HOST",
+    "Missing required parameters:\n- 'wallet'\n- 'DATABASE_URL'",
+  ];
+  for (const t of seller) {
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  assert.deepEqual(listNames("Missing required parameters: 'wallet', DB_HOST").map((n) => n.name), ["wallet", "DB_HOST"]);
+  assert.deepEqual(listNames("Missing required parameters: 'wallet' and RPC url").map((n) => n.name), ["wallet", "RPC", "RPC url"]);
+  assert.deepEqual(namesInSentence("Missing required parameters: 'wallet' and RPC url"), ["wallet", "RPC", "RPC url"]);
+  // After "missing" alone, an unquoted word without a colon is not a list ("Missing wallet, try again").
+  assert.deepEqual(listNames("Missing wallet, try again"), []);
 });
