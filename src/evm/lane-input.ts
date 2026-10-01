@@ -215,25 +215,43 @@ const isObjD = (v: unknown): v is Record<string, unknown> => typeof v === "objec
 /** Keys of an x402 Bazaar input that describe the request itself, not a parameter ("body" is read as a part only
  * where it holds the body's parameters; a parameter named body is still a name). */
 const INPUT_META = new Set(["type", "method", "bodyType", "headers", "queryParams", "bodyFields", "pathParams", "discoverable"]);
-/** JSON Schema keywords: never a parameter name, on any path. */
+/**
+ * JSON Schema keywords. They are left out only where they sit in a schema's own structure (the keys of a schema
+ * object: type, properties, required, items, ...). A key inside `properties`, an element of `required` and a key of
+ * an example map are parameter names whatever they are called (a parameter may be named type, title or format).
+ * In a seller's answer, such a word is a missing name only when the listing declares it.
+ */
 export const SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
   "type", "properties", "additionalProperties", "patternProperties", "required", "items", "prefixItems", "contains", "description", "example", "examples",
   "enum", "const", "default", "format", "$schema", "$ref", "$id", "$defs", "definitions", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "title",
   "pattern", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems",
   "uniqueItems", "minProperties", "maxProperties", "nullable", "readOnly", "writeOnly", "deprecated", "contentMediaType", "contentEncoding", "dependentRequired",
 ]);
-const isName = (k: string) => !SCHEMA_KEYWORDS.has(k);
+/** The values JSON Schema's `type` takes. */
+const JSON_TYPES = new Set(["object", "string", "number", "integer", "boolean", "array", "null"]);
+const isJsonType = (t: unknown) => (typeof t === "string" && JSON_TYPES.has(t)) || (Array.isArray(t) && t.length > 0 && t.every((x) => typeof x === "string" && JSON_TYPES.has(x)));
 
-/** A part that is a JSON schema (it has a type or properties), not a map of example values. */
-const looksLikeSchema = (part: Record<string, unknown>) => "type" in part || isObjD(part.properties) || "additionalProperties" in part || "$ref" in part;
+/**
+ * A part that is a JSON schema, not a map of example values: its `type` is a JSON Schema type ("object", "string",
+ * ...). Without a `type`, only a part whose `properties` holds schemas (objects), or that is a bare `$ref`, is one.
+ * {"query":"...","numResults":10,"type":"auto"} is an example map: type "auto" is a value, and a parameter name.
+ */
+const looksLikeSchema = (part: Record<string, unknown>) => {
+  if ("type" in part) return isJsonType(part.type);
+  if (isObjD(part.properties) && Object.values(part.properties).every(isObjD)) return true;
+  return typeof part.$ref === "string" && Object.keys(part).every((k) => k.startsWith("$"));
+};
 
 /** A part (queryParams, body, bodyFields, or a flat input schema): its parameter names and required names. */
 function partNames(part: unknown): { declared: string[]; required: string[] } {
   if (!isObjD(part)) return { declared: [], required: [] };
-  const req = (Array.isArray(part.required) ? part.required.filter((x): x is string => typeof x === "string") : []).filter(isName);
-  if (looksLikeSchema(part)) return { declared: [...new Set([...(isObjD(part.properties) ? Object.keys(part.properties) : []), ...req])].filter(isName), required: req };
-  // An example map ({"chain":"base"}) names parameters but marks none required.
-  return { declared: Object.keys(part).filter((k) => !INPUT_META.has(k) && isName(k)), required: req };
+  if (looksLikeSchema(part)) {
+    // The schema's own keys (type, properties, required, items, ...) are structure; its properties and required are names.
+    const req = Array.isArray(part.required) ? part.required.filter((x): x is string => typeof x === "string") : [];
+    return { declared: [...new Set([...(isObjD(part.properties) ? Object.keys(part.properties) : []), ...req])], required: req };
+  }
+  // An example map ({"chain":"base"}, {"query":"...","type":"auto"}): every key is a parameter; none is marked required.
+  return { declared: Object.keys(part), required: [] };
 }
 
 /** A property of an input schema that is itself a part (holds the body's or the query's parameters). */
@@ -287,7 +305,8 @@ export function declarationFrom(doc: unknown, label: string): InputDeclaration {
     }
     if (isObjD(doc.inputSchema)) {
       const is = doc.inputSchema;
-      if ("queryParams" in is || "bodyFields" in is || ("body" in is && isObjD(is.body))) input(is, "inputSchema");
+      // An input-level descriptor ({"type":"http","method":"GET",...}) is read like info.input; else it is a part.
+      if (is.type === "http" || "method" in is || "queryParams" in is || "bodyFields" in is || ("body" in is && isObjD(is.body))) input(is, "inputSchema");
       else take(is, "inputSchema");
     }
     if (isObjD(doc.metadata)) input(doc.metadata.input, "metadata.input");
@@ -409,7 +428,7 @@ export function namesInSentence(piece: string): string[] {
   const out: string[] = [];
   const push = (n: string | undefined) => {
     const x = (n ?? "").replace(/^[.\-]+|[.\-]+$/g, "");
-    if (x && !STOP.has(x.toLowerCase()) && isName(x)) out.push(x);
+    if (x && !STOP.has(x.toLowerCase())) out.push(x);
   };
   let m: RegExpExecArray | null;
   // Fastify: "querystring must have required property 'x'" (the part is read by namesInAnswer).
@@ -429,9 +448,12 @@ export function namesInSentence(piece: string): string[] {
   // "... for x" after a missing value/parameter
   if ((m = new RegExp(String.raw`\bmissing\b[^.]*?\bfor\s+(?:the\s+)?${Q}(${ID})`, "i").exec(piece))) push(m[1]);
   // Joi / plain: '"x" is required', "x is required", "The 'x' parameter is required", Yup "x is a required field"
-  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|field|property|argument|value)\s+)?(?:is|are)\s+(?:a\s+)?required\b`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\b`, "gi"))) push(q[1]);
   // "required field(s): x, y" / "required property 'x'"
-  for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:field|param|parameter|property|argument|key)s?\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
+  // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
+  for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
+  // "'x' is missing", "parameter x is missing"
+  for (const q of piece.matchAll(new RegExp(String.raw`(?:\b(?:parameter|param|property|field|argument|key)s?\b\s+)?${Q}(${ID})${Q}\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
   // "x cannot be empty", "x must not be empty", "x must be provided"
   for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:cannot be empty|must not be empty|must be provided)`, "gi"))) push(q[1]);
   return [...new Set(out)];
@@ -461,18 +483,18 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     if (Array.isArray(o.path) && /^required\.?$/i.test(msg.trim())) {
       const path = strs(o.path);
       const last = path.at(-1);
-      if (last && isName(last)) names.push({ name: last, header: path.some((x) => /^headers?$/i.test(x)), path: [...keys, ...path], source: "zod" });
+      if (last) names.push({ name: last, header: path.some((x) => /^headers?$/i.test(x)), path: [...keys, ...path], source: "zod" });
     }
     // pydantic / FastAPI
     if (Array.isArray(o.loc) && (o.type === "missing" || o.type === "value_error.missing" || /field required/i.test(msg))) {
       const loc = strs(o.loc);
       const last = loc.at(-1);
-      if (last && isName(last)) names.push({ name: last, header: /^headers?$/i.test(loc[0] ?? ""), path: [...keys, ...loc], source: "pydantic" });
+      if (last) names.push({ name: last, header: /^headers?$/i.test(loc[0] ?? ""), path: [...keys, ...loc], source: "pydantic" });
     }
     // Zod .flatten()
     if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
       for (const [k, msgs] of Object.entries(o.fieldErrors as Record<string, unknown>)) {
-        if (isName(k) && Array.isArray(msgs) && msgs.some((x) => typeof x === "string" && CUE.test(x))) names.push({ name: k, header: false, path: [...keys, k], source: "zod.fieldErrors" });
+        if (Array.isArray(msgs) && msgs.some((x) => typeof x === "string" && CUE.test(x))) names.push({ name: k, header: false, path: [...keys, k], source: "zod.fieldErrors" });
       }
     }
     for (const [k, x] of Object.entries(o)) walk(x, [...keys, k], depth + 1);
@@ -504,9 +526,12 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   // Rule 0: a required input vet402 did not send.
   const lacking = missingRequired(r);
   if (lacking.length) return { kind: "missing_input", detail: `vet402 did not send ${lacking.join(", ")}, which the listing declares required (${(r.requiredFrom ?? r.declaredFrom ?? []).join("; ") || "declaration"})` };
-  const { names, tainted } = namesInAnswer(text);
-  if (tainted || names.length === 0) return null;
   const declared = r.declaredParams ?? [];
+  const declaredCanon = new Set(declared.map(canon));
+  // A JSON Schema word in an answer ("type", "items") is a missing name only when the listing declares it.
+  const { names: all, tainted } = namesInAnswer(text);
+  const names = all.filter((n) => !SCHEMA_KEYWORDS.has(n.name) || declaredCanon.has(canon(n.name)));
+  if (tainted || names.length === 0) return null;
   if (!names.every((n) => missingNameSide(n, declared) === "input")) return null;
   return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(names.map((n) => n.name))].join(", ")}` };
 }

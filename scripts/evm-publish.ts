@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildLanePublic, withholdUnnotified } from "../src/evm/site.js";
 import { uncheckedPurchases } from "../src/evm/chaincheck.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { loadLaneRecords } from "../src/evm/lane-records.js";
+import { loadLaneRecordsChecked } from "../src/evm/lane-records.js";
 import { notifiedSellers, type NotifiedFile } from "../src/receipt/publish.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
 import { compareStockAnswer } from "../src/robinhood/stock-check.js";
@@ -32,7 +32,14 @@ console.error(`plan: ${planFile}`);
 // (scripts/evm-chaincheck.ts), one record per purchase (a later reading replaces the earlier), with rule 0's
 // material (results/evm/declared-inputs.jsonl, tracked) filled where a record lacks it: src/evm/lane-records.ts.
 const lanes = lane === "arbitrum" ? ["arbitrum", "base-compare"] : ["robinhood"];
-const raw = loadLaneRecords(lanes) as (ChainBuyRecord & { lane: string } & Record<string, any>)[];
+const loaded = loadLaneRecordsChecked(lanes);
+const raw = loaded.rows as (ChainBuyRecord & { lane: string } & Record<string, any>)[];
+// A line that does not parse is skipped, never fatal: said on stderr with its file and line, and the run ends with
+// exit code 3 (the page is written; 1 stays "nothing written"). A purchase whose rule 0 material was on such a line
+// is withheld (materialLost), never read as the seller's.
+for (const p of loaded.problems) console.error(`ALERT ${p.file}:${p.line}: not JSON, skipped (${p.error})`);
+const lost = raw.filter((r) => r.materialLost).length;
+if (lost) console.error(`ALERT ${lost} purchase(s) withheld: their rule 0 material was on a line that did not parse`);
 // Settled is the chain's word, not the seller's header: every sent purchase must have been read by the chain check.
 const unchecked = uncheckedPurchases(raw);
 if (unchecked.length) throw new Error(`${unchecked.length} sent purchase(s) without a chain check; run npx tsx scripts/evm-chaincheck.ts --lane <lane> first: ${unchecked.slice(0, 5).join("; ")}`);
@@ -51,3 +58,4 @@ const out = withholdUnnotified(buildLanePublic(lane, dry, paid), notified);
 mkdirSync(`${dataDir}/evm`, { recursive: true });
 writeFileSync(`${dataDir}/evm/${lane}.json`, JSON.stringify(out, null, 2) + "\n");
 console.log(`${dataDir}/evm/${lane}.json: ${out.source}, ${out.payTosInCatalogs} payTos in catalogs, ${out.payTosOffered} offered, ${out.rows.length} rows${out.stock ? `, ${out.stock.length} stock references` : ""}`);
+if (loaded.problems.length) process.exitCode = 3;

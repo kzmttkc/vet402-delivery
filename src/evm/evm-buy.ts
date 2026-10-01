@@ -337,6 +337,8 @@ export interface ChainBuyRecord {
   requiredFrom?: string[];
   /** The parameter names the request carried (query keys, JSON body keys); never the values. */
   sentParams?: string[];
+  /** Set when loading: rule 0's material for this purchase was on a line that did not parse (src/evm/lane-records.ts). */
+  materialLost?: boolean;
 }
 
 export interface PaymentResponseHeaderNote {

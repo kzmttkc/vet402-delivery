@@ -150,6 +150,8 @@ type Rec = ChainBuyRecord & { lane: string; cause: CauseResult; relayer?: string
 export function statusOf(r: Rec | undefined): RowStatus {
   if (!r || r.outcome === "would_pay" || r.outcome === "not_sent") return "not_bought_yet";
   if (r.outcome === "refused") return "refused";
+  // Rule 0's material was on a line that did not parse: not read either way, not published.
+  if (r.materialLost) return "withheld";
   if (r.delivered) return "delivered";
   if (isInputCause(r.cause)) return r.settledOnChain === true ? "settled_vet402_input" : "vet402_input";
   if (r.cause?.cause === "seller_free" && r.settledOnChain !== true) return "free_delivered";

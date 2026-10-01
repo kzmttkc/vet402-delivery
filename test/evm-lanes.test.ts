@@ -620,7 +620,7 @@ test("Base receipts are read from mainnet.base.org (publicnode rejects eth_getTr
   assert.equal(classifyRecord(empty).cause, "seller_config", "settled with an empty answer");
   // The publish reads the re-read settlements through src/evm/lane-records.ts (purchases, reverify, chain check).
   const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
-  assert.match(pub, /loadLaneRecords\(lanes\)/);
+  assert.match(pub, /loadLaneRecordsChecked\(lanes\)/);
   const rec = readFileSync(new URL("../src/evm/lane-records.ts", import.meta.url), "utf8");
   assert.match(rec, /\["purchases", "reverify", "chaincheck"\]/);
 });

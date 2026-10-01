@@ -19,8 +19,37 @@ export const DECLARED_FIELDS = ["declaredParams", "requiredParams", "declaredFro
 export type LaneRecord = ChainBuyRecord & { lane: string };
 export type DeclaredPatch = Pick<LaneRecord, "lane" | "agentId" | "at" | "resource"> & Partial<Pick<ChainBuyRecord, (typeof DECLARED_FIELDS)[number]>> & { sentFrom?: string };
 
-function jsonl<T>(f: string): T[] {
-  return existsSync(f) ? readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as T) : [];
+/** A line of a results file that is not JSON: the file, its 1-based line number, the parser's error. */
+export interface LineProblem {
+  file: string;
+  line: number;
+  error: string;
+}
+
+/** Every JSON line of a file; a line that does not parse is skipped and reported, never thrown. */
+export function readJsonl<T>(f: string): { rows: T[]; problems: LineProblem[] } {
+  if (!existsSync(f)) return { rows: [], problems: [] };
+  const rows: T[] = [];
+  const problems: LineProblem[] = [];
+  readFileSync(f, "utf8")
+    .split("\n")
+    .forEach((l, i) => {
+      if (!l.trim()) return;
+      try {
+        rows.push(JSON.parse(l) as T);
+      } catch (err) {
+        problems.push({ file: f, line: i + 1, error: (err as Error).message.slice(0, 160) });
+      }
+    });
+  return { rows, problems };
+}
+
+/** The purchase a broken patch line was about, when its key fields can still be read from the text. */
+function keyOfBrokenLine(f: string, line: number): string | null {
+  const text = readFileSync(f, "utf8").split("\n")[line - 1] ?? "";
+  const field = (k: string) => new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(text)?.[1];
+  const [lane, agentId, at, resource] = ["lane", "agentId", "at", "resource"].map(field);
+  return lane && agentId && at && resource ? recordKey({ lane, agentId, at, resource }) : null;
 }
 
 /** Pure. Fill rule 0's fields a record lacks from the patch of the same purchase. */
@@ -35,14 +64,43 @@ export function applyDeclaredPatches<T extends LaneRecord>(rows: readonly T[], p
   });
 }
 
-/** The patches for these lanes: the tracked file, then any local per-lane file. */
-export function readDeclaredPatches(laneIds: readonly string[], dir = "results/evm"): DeclaredPatch[] {
-  const all = [...jsonl<DeclaredPatch>(join(dir, DECLARED_INPUTS_FILE)), ...laneIds.flatMap((l) => jsonl<DeclaredPatch>(join(dir, `${l}-declared.jsonl`)))];
-  return all.filter((p) => laneIds.includes(p.lane));
+/**
+ * The patches for these lanes. The tracked file first; a local per-lane file only for purchases the tracked file
+ * does not have, so every field of one purchase comes from one source. Lines that do not parse are reported.
+ */
+export function readDeclaredPatches(laneIds: readonly string[], dir = "results/evm"): { patches: DeclaredPatch[]; problems: LineProblem[] } {
+  const tracked = readJsonl<DeclaredPatch>(join(dir, DECLARED_INPUTS_FILE));
+  const locals = laneIds.map((l) => readJsonl<DeclaredPatch>(join(dir, `${l}-declared.jsonl`)));
+  const have = new Set(tracked.rows.map((p) => recordKey(p)));
+  const patches = [...tracked.rows, ...locals.flatMap((x) => x.rows).filter((p) => !have.has(recordKey(p)))].filter((p) => laneIds.includes(p.lane));
+  return { patches, problems: [...tracked.problems, ...locals.flatMap((x) => x.problems)] };
 }
 
-/** Every reading of these lanes, one record per purchase, with rule 0's material applied. */
+/**
+ * Every reading of these lanes, one record per purchase, with rule 0's material applied, and every line that did
+ * not parse. A purchase whose material may have been on a broken line of a declarations file is marked
+ * materialLost (the pages withhold it rather than read its 4xx without the material): the purchase the line names
+ * when its key can still be read, else every 4xx purchase of these lanes that has no material.
+ */
+export function loadLaneRecordsChecked(laneIds: readonly string[], dir = "results/evm", kinds: readonly string[] = ["purchases", "reverify", "chaincheck"]): { rows: LaneRecord[]; problems: LineProblem[] } {
+  const reads = laneIds.flatMap((l) => kinds.map((k) => readJsonl<LaneRecord>(join(dir, `${l}-${k}.jsonl`))));
+  const decl = readDeclaredPatches(laneIds, dir);
+  let rows = applyDeclaredPatches(mergeReadings(reads.flatMap((r) => r.rows)), decl.patches);
+  if (decl.problems.length) {
+    const keys = decl.problems.map((p) => keyOfBrokenLine(p.file, p.line));
+    const named = new Set(keys.filter((k): k is string => k !== null));
+    const unknown = keys.some((k) => k === null);
+    rows = rows.map((r) => {
+      const lacks = r.outcome === "sent" && [400, 404, 422].includes(r.response?.status ?? -1) && r.requiredParams === undefined && r.sentParams === undefined;
+      return named.has(recordKey(r)) || (unknown && lacks) ? { ...r, materialLost: true } : r;
+    });
+  }
+  return { rows, problems: [...reads.flatMap((r) => r.problems), ...decl.problems] };
+}
+
+/** loadLaneRecordsChecked, with every line that did not parse said on stderr. */
 export function loadLaneRecords(laneIds: readonly string[], dir = "results/evm", kinds: readonly string[] = ["purchases", "reverify", "chaincheck"]): LaneRecord[] {
-  const rows = mergeReadings(laneIds.flatMap((l) => kinds.flatMap((k) => jsonl<LaneRecord>(join(dir, `${l}-${k}.jsonl`)))));
-  return applyDeclaredPatches(rows, readDeclaredPatches(laneIds, dir));
+  const { rows, problems } = loadLaneRecordsChecked(laneIds, dir, kinds);
+  for (const p of problems) console.error(`ALERT ${p.file}:${p.line}: not JSON, skipped (${p.error})`);
+  return rows;
 }

@@ -8,12 +8,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyDeclaredPatches, loadLaneRecords, type DeclaredPatch } from "../src/evm/lane-records.js";
+import { applyDeclaredPatches, loadLaneRecords, loadLaneRecordsChecked, readDeclaredPatches, readJsonl, type DeclaredPatch } from "../src/evm/lane-records.js";
+import { buildLanePublic as buildLanePublic2 } from "../src/evm/site.js";
 import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { SCHEMA_KEYWORDS, declarationFrom, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { SCHEMA_KEYWORDS, declarationFrom, namesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -857,4 +858,91 @@ test("chain check ranges: one range per run of purchases; a lane that buys again
   assert.ok(r[1]!.toMs > Date.parse("2026-09-30T12:40:00.000Z"), "two purchases 40 minutes apart are one range");
   assert.ok(r.every((x) => x.toMs - x.fromMs < 3 * 3_600_000), "no range spans the weeks between");
   assert.deepEqual(readRanges([sent("2026-09-30T12:00:00.000Z", "refused")]), []);
+});
+
+
+// ---------- review of b9e9f14 ----------
+
+/** CDP api.exa.ai/search, Dexter's metadata of the same, CDP wiki.use.x402atlas.com/summary, PayAI api.delx.ai (2026-10-02, input parts). */
+const EXA_CDP = { resource: "https://api.exa.ai/search", extensions: { bazaar: { info: { input: { body: { numResults: 10, query: "example search query", type: "auto" }, bodyType: "json", method: "POST", type: "http" } }, schema: { properties: { input: { additionalProperties: false, properties: { body: { properties: { contents: { description: "Content fields to include: text, highlights, summary", type: "object" }, numResults: { description: "Number of results to return (max 10 for x402)", type: "number" }, query: { description: "Search query", type: "string" }, type: { description: "Search type: auto, keyword, neural, deep-lite, deep, deep-reasoning", type: "string" } }, required: ["query"], type: "object" }, bodyType: { type: "string" }, method: { type: "string" }, type: { type: "string" } }, type: "object" } } } } } };
+const EXA_DEXTER = { resource: "https://api.exa.ai/search", metadata: { input: { body: { type: "auto", query: "example search query", numResults: 10 }, type: "http", method: "POST", bodyType: "json" } } };
+const ATLAS = { resource: "https://wiki.use.x402atlas.com/summary", extensions: { bazaar: { info: { input: { method: "GET", queryParams: { redirect: "true", title: "Albert Einstein" }, type: "http" } }, schema: { properties: { input: { additionalProperties: false, properties: { method: { enum: ["GET"], type: "string" }, queryParams: { properties: { redirect: { default: "true", description: "Set to false to disable redirect following.", type: "string" }, title: { description: "Wikipedia article title (e.g. Albert Einstein).", maxLength: 300, type: "string" } }, required: ["title"], type: "object" }, type: { const: "http", type: "string" } }, type: "object" } } } } } };
+const DELX = { resource: "https://api.delx.ai/api/v1/x402/usgs-quake-stub-parse", inputSchema: { body: { properties: { mag: 4.2, place: "10km N of X" } }, type: "http", method: "POST", bodyType: "json" } };
+
+test("names stay names: an example map with type:\"auto\" is a map; a required title survives; twzrd stays []", () => {
+  const exa = declarationFrom(EXA_CDP, "catalog");
+  for (const n of ["query", "numResults", "type"]) assert.ok(exa.declared.includes(n), n);
+  assert.deepEqual(exa.required, ["query"]);
+  assert.deepEqual(declarationFrom(EXA_DEXTER, "catalog").declared.sort(), ["numResults", "query", "type"]);
+  assert.deepEqual(declarationFrom(ATLAS, "catalog").required, ["title"]);
+  assert.ok(declarationFrom(ATLAS, "catalog").declared.includes("title"));
+  assert.deepEqual(declarationFrom(TWZRD, "catalog").declared, []);
+  // A body whose parameter is literally named "properties" (USGS style), with values not schemas: the name stays.
+  assert.deepEqual(declarationFrom(DELX, "catalog").declared, ["properties"]);
+  // Schema structure is still not a name: the loyalspark schema part.
+  assert.deepEqual(declarationFrom({ extensions: { bazaar: { schema: LOYALSPARK.extensions.bazaar.schema } } }, "catalog").declared, []);
+  // type is a schema only with a JSON Schema type value.
+  assert.deepEqual(declarationFrom({ inputSchema: { type: "object", properties: { format: { type: "string" }, items: { type: "array" } }, required: ["format"] } }, "c").required, ["format"]);
+});
+
+test("answers: a schema word is a missing name when the listing declares it; 'required parameter' never yields 'eter'", () => {
+  assert.equal(answer400('"type" is required', ["query", "type"])?.kind, "missing_input");
+  assert.equal(answer400('"title" is required', ["title"])?.kind, "missing_input");
+  assert.equal(answer400('"type" is required'), null, "undeclared: not a name");
+  for (const t of ["Missing required parameter: wallet", "Missing required param: wallet", "required parameter 'wallet' is missing"]) {
+    assert.deepEqual(namesInSentence(t), ["wallet"], t);
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+  }
+});
+
+test("every line of the tracked results/evm/declared-inputs.jsonl parses", () => {
+  const f = new URL("../results/evm/declared-inputs.jsonl", import.meta.url).pathname;
+  const { rows, problems } = readJsonl<DeclaredPatch>(f);
+  assert.deepEqual(problems, []);
+  assert.ok(rows.length > 0);
+});
+
+test("a line that does not parse is skipped and reported with its file and line; the purchase whose material it held is withheld, never the seller's", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vet402-broken-lines-"));
+  try {
+    const qi = { ...byHost("quickintel"), lane: "arbitrum" };
+    writeFileSync(join(dir, "arbitrum-purchases.jsonl"), JSON.stringify(qi) + "\n{not json\n");
+    const good = TRACKED.find((p) => p.lane === "arbitrum" && p.resource.includes("quickintel"))!;
+    // The patch line of quickintel is cut: its key fields can still be read.
+    writeFileSync(join(dir, "declared-inputs.jsonl"), JSON.stringify(good).slice(0, -12) + "\n");
+    const { rows, problems } = loadLaneRecordsChecked(["arbitrum"], dir, ["purchases"]);
+    assert.deepEqual(problems.map((p) => [p.file.endsWith("arbitrum-purchases.jsonl") || p.file.endsWith("declared-inputs.jsonl"), p.line]), [[true, 2], [true, 1]]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.materialLost, true);
+    // On the page: withheld (not settled_vet402_input read without its material, not the seller's settled_no_answer).
+    const dry = { generatedAt: "2026-09-30T06:20:02Z", catalogs: {}, arbitrum: { payTosInCatalogs: 1, payTosWithLive402: 1, choices: [{ payTo: qi.payTo!, catalogListings: 1, hosts: ["x402.quickintel.io"], chosen: { resource: qi.resource, liveAmount: qi.amountAtomic! } }] } };
+    const l = buildLanePublic2("arbitrum", dry, rows.map((r) => ({ ...r, cause: classifyRecord(r) })) as never);
+    assert.equal(l.rows[0]!.status, "withheld");
+    // A broken line whose purchase cannot be named: every 4xx purchase without material is withheld.
+    writeFileSync(join(dir, "declared-inputs.jsonl"), "{broken\n");
+    assert.equal(loadLaneRecordsChecked(["arbitrum"], dir, ["purchases"]).rows[0]!.materialLost, true);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+  const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
+  assert.match(pub, /if \(loaded\.problems\.length\) process\.exitCode = 3;/);
+  assert.match(pub, /console\.error\(`ALERT \$\{p\.file\}:\$\{p\.line\}: not JSON, skipped/);
+});
+
+test("the tracked file wins over a local one; a local patch is used only for purchases the tracked file does not have, never mixed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vet402-patch-order-"));
+  try {
+    const k = { lane: "arbitrum", agentId: "payto:A", at: "2026-10-04T00:00:00Z", resource: "https://s.test/a" };
+    const k2 = { ...k, agentId: "payto:B" };
+    writeFileSync(join(dir, "declared-inputs.jsonl"), JSON.stringify({ ...k, requiredParams: ["x"] }) + "\n");
+    writeFileSync(join(dir, "arbitrum-declared.jsonl"), [JSON.stringify({ ...k, requiredParams: ["y"], sentParams: ["z"] }), JSON.stringify({ ...k2, requiredParams: ["w"] })].join("\n") + "\n");
+    const { patches } = readDeclaredPatches(["arbitrum"], dir);
+    const a = patches.filter((p) => p.agentId === "payto:A");
+    assert.equal(a.length, 1, "one source for purchase A");
+    assert.deepEqual(a[0]!.requiredParams, ["x"]);
+    assert.equal(a[0]!.sentParams, undefined, "the local sentParams is not mixed into the tracked patch");
+    assert.deepEqual(patches.find((p) => p.agentId === "payto:B")!.requiredParams, ["w"]);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
 });
