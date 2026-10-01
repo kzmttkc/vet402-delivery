@@ -189,7 +189,13 @@ function fits(ledger: Ledger, monthElsewhere: bigint, monthCap: bigint, monthCha
     const books = monthElsewhere + day;
     const chain = await monthChain();
     const spent = chain > books ? chain : books;
-    if (spent + need > monthCap) return `month_cap_reached: ${spent} (ledgers ${books}, chain ${chain}) + ${need} > ${monthCap}`;
+    if (spent + need > monthCap) {
+      // The month cap proper only when the ledgers account for what left the key (chain <= ledgers). Chain above the
+      // ledgers is money gone outside them (a lost file, a transfer by hand): a stop a person must look at, never
+      // the month's end (src/daily/steps.ts isMonthCapStop does not match it, so the runner halts).
+      if (chain > books) return `chain_spend_exceeds_ledger: month outflow on chain ${chain} > ledgers ${books}; ${chain} + ${need} > ${monthCap}`;
+      return `month_cap_reached: ${spent} (ledgers ${books}, chain ${chain}) + ${need} > ${monthCap}`;
+    }
     return null;
   };
 }

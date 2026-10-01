@@ -3,9 +3,12 @@
  *
  *   npx tsx scripts/daily/steps.ts check-plan <dry-run.json> --chain solana|tempo --day YYYY-MM-DD --per-payto N [--ledger <file>]
  *       the estimate leaves out slots the spend ledger already holds (bought earlier that day)
- *       exit 0 pay, 10 nothing to buy, 4 stop (over a cap, the month, the balance, or not today's plan)
+ *       exit 0 pay, 10 nothing to buy, 11 skip this chain today (the Tempo purchase key cannot sign; others go on),
+ *       4 stop (over a cap, the month, the balance, or not today's plan). A second line "WARN: ..." is something to
+ *       act on soon (the Tempo purchase key expires within three days).
  *   npx tsx scripts/daily/steps.ts run-outcome <result.json> --since <ISO time>
- *       exit 0 when exactly one run started since then and ended without a stop, else 4
+ *       exit 0 when exactly one run started since then and ended without a stop, 5 when it ended at the month cap
+ *       (what it bought is published; buying resumes next month), else 4
  *   npx tsx scripts/daily/steps.ts manifest <data dir> --file remeasure/<chain>-<day>.json --day <day> --redactions <json>
  *       updates <data dir>/manifest.json for that copy (sha256 read from the file); prints changed|unchanged
  *   npx tsx scripts/daily/steps.ts message <data dir> --day <day> --redacted solana,tempo
@@ -42,7 +45,8 @@ if (cmd === "check-plan") {
   if ((chain !== "solana" && chain !== "tempo") || !day || !file || !Number.isInteger(per)) usage("check-plan needs <file> --chain --day --per-payto");
   const v = planVerdict(readJson(file), chain, day, per, ledger && existsSync(ledger) ? ledgerKeys(readJson(ledger)) : new Set());
   console.log(v.line);
-  process.exit(v.pay ? 0 : v.stop ? 4 : 10);
+  if (!v.stop && v.warn) console.log(`WARN: ${v.warn}`);
+  process.exit(v.pay ? 0 : v.stop ? 4 : v.skip ? 11 : 10);
 } else if (cmd === "run-outcome") {
   const since = opt("--since");
   const [file] = args;
@@ -53,7 +57,7 @@ if (cmd === "check-plan") {
   }
   const v = runOutcome(readJson(file), since);
   console.log(v.line);
-  process.exit(v.ok ? 0 : 4);
+  process.exit(v.ok ? (v.monthCap ? 5 : 0) : 4);
 } else if (cmd === "manifest") {
   const file = opt("--file");
   const day = opt("--day");

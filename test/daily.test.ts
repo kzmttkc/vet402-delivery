@@ -30,7 +30,7 @@ import {
   type Finding,
 } from "../src/daily/secret-gate.js";
 import { alnum, b64url, base58, bytes, GATE_SHAPES, hex, seeded, withDetail } from "../src/daily/gate-shapes.js";
-import { commitMessage, ledgerKeys, planVerdict, redactionNote, runOutcome, updateManifest } from "../src/daily/steps.js";
+import { commitMessage, isMonthCapStop, ledgerKeys, planVerdict, redactionNote, runOutcome, updateManifest } from "../src/daily/steps.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 /** Fixed copies of published files (test/fixtures/daily/), so a new day's data changes no test. */
@@ -517,6 +517,74 @@ test("run outcome: only one run since the start, ended, not stopped", () => {
   assert.match(runOutcome(file([{ startedAt: "2026-10-01T00:10:00.000Z", endedAt: "2026-10-01T00:20:00.000Z", stopped: null }]), since).line, /found 0/);
 });
 
+test("run outcome: a run that ended at the month cap is an end (ok, monthCap); the run cap, the day cap and other stops are not", () => {
+  const since = "2026-10-13T13:17:40.000Z";
+  const file = (stopped: string | null) => ({ runs: [{ startedAt: "2026-10-13T13:17:41.000Z", endedAt: "2026-10-13T13:40:00.000Z", stopped, perPayTo: 2 }], rows: [] });
+  const sol = runOutcome(file("total_cap_reached: month 29960000 + 50000 > 30000000"), since);
+  assert.equal(sol.ok, true);
+  assert.equal(sol.monthCap, true);
+  assert.match(sol.line, /ended at the month cap \(total_cap_reached: month /);
+  const tem = runOutcome(file("month_cap_reached: 29990000 (ledgers 29990000, chain 29990000) + 12000 > 30000000"), since);
+  assert.equal(tem.ok && tem.monthCap, true);
+  for (const s of ["total_cap_reached: run 2990000 + 50000 > 3000000", "total_cap_reached: run/day 990000 + 12000 > 1000000", "total_cap_reached", "chain_spend_exceeds_ledger", "tx_check_failed"]) {
+    const v = runOutcome(file(s), since);
+    assert.equal(v.ok, false, s);
+    assert.equal(v.monthCap, undefined, s);
+    assert.equal(isMonthCapStop(s), false, s);
+  }
+  assert.equal(runOutcome(file(null), since).monthCap, undefined, "a run without a stop is ok without monthCap");
+});
+
+test("plan: the Tempo purchase key in the plan: one that cannot sign leaves Tempo out (skip, not stop); one near its expiry warns; Solana and old plans are unchanged", () => {
+  const tempo = (signer?: Record<string, unknown>) => ({ ...plan({ chain: "tempo", would: 20, est: "0.500000", perRun: "1.000000" }), ...(signer ? { signer } : {}) });
+  const base = planVerdict(tempo(), "tempo", "2026-10-01", 1);
+  assert.equal(base.pay, true);
+  assert.equal(base.warn, undefined);
+  // the same plan with a root key, or an access key well ahead of its expiry: the same verdict, the same line
+  for (const signer of [{ kind: "root", problem: null, warn: null }, { kind: "access-key", keyId: "0x1e9a", expiresAt: "2026-12-31T23:59:59.000Z", problem: null, warn: null }]) {
+    assert.deepEqual(planVerdict(tempo(signer), "tempo", "2026-10-01", 1), base);
+  }
+  const skip = planVerdict(tempo({ kind: "access-key", problem: "access key expires at 1791590399 (now 1791600000) (expiry 2026-10-09T23:59:59.000Z)", warn: null }), "tempo", "2026-10-10", 1);
+  // The day check comes before the key: a plan of another day still stops.
+  assert.ok(!skip.pay && skip.stop, "a plan of another day stops before the key is looked at");
+  const s2 = planVerdict(tempo({ kind: "access-key", problem: "access key expires at 1791590399 (now 1791600000)", warn: null }), "tempo", "2026-10-01", 1);
+  assert.ok(!s2.pay && !s2.stop && s2.skip, s2.line);
+  assert.match(s2.line, /^tempo: not buying today, the purchase key cannot sign: access key expires at/);
+  const w = planVerdict(tempo({ kind: "access-key", problem: null, warn: "the Tempo purchase key 0x1e9a expires at 2026-10-09T23:59:59.000Z; renew it before then (README, Tempo access key)" }), "tempo", "2026-10-01", 1);
+  assert.equal(w.pay, true);
+  assert.equal(w.line, base.line, "a warning changes nothing about the purchase");
+  assert.match(w.warn!, /^tempo: the Tempo purchase key 0x1e9a expires at 2026-10-09/);
+  // a warning does not lift a cap stop, and is not attached to it
+  const over = planVerdict({ ...plan({ chain: "tempo", would: 35, est: "0.950000", perRun: "1.000000" }), signer: { kind: "access-key", problem: null, warn: "expires soon" } }, "tempo", "2026-10-01", 1);
+  assert.ok(over.stop && over.warn === undefined);
+  // Solana ignores a signer field: its key is not the Tempo key
+  assert.deepEqual(planVerdict({ ...plan(), signer: { kind: "access-key", problem: "expired", warn: null } }, "solana", "2026-10-01", 1), planVerdict(plan(), "solana", "2026-10-01", 1));
+});
+
+test("plan: a dry run that left slots out because the chain shows more spent than the ledgers stops (halt), even with nothing else to buy", () => {
+  const p = { ...plan({ chain: "tempo", would: 0, est: "0.000000", perRun: "1.000000" }), skipped: [{ url: "https://a.example/x", payTo: "0xab", slot: 0, reason: "chain_spend_exceeds_ledger", detail: "month outflow on chain 29950001 > ledgers 29950000; 29950001 + 100000 > 30000000" }] };
+  const v = planVerdict(p, "tempo", "2026-10-01", 1);
+  assert.ok(!v.pay && v.stop, v.line);
+  assert.match(v.line, /^tempo: chain_spend_exceeds_ledger: month outflow on chain 29950001 > ledgers 29950000/);
+  const cap = { ...p, skipped: [{ ...p.skipped[0]!, reason: "month_cap_reached", detail: "29990000 (ledgers 29990000, chain 29990000) + 100000 > 30000000" }] };
+  const c = planVerdict(cap, "tempo", "2026-10-01", 1);
+  assert.ok(!c.pay && !c.stop, "the month cap proper: nothing to buy, not a stop");
+});
+
+test("plan: the CLI exits 11 for a Tempo plan whose key cannot sign, and prints a WARN line next to a paying verdict", () => {
+  const dir = tmp();
+  const t = { ...plan({ chain: "tempo", would: 20, est: "0.500000", perRun: "1.000000" }) };
+  writeFileSync(join(dir, "skip.json"), JSON.stringify({ ...t, signer: { kind: "access-key", problem: "access key is revoked", warn: null } }));
+  writeFileSync(join(dir, "warn.json"), JSON.stringify({ ...t, signer: { kind: "access-key", problem: null, warn: "expires soon" } }));
+  const skip = stepsCli("check-plan", join(dir, "skip.json"), "--chain", "tempo", "--day", "2026-10-01", "--per-payto", "1");
+  assert.equal(skip.status, 11);
+  assert.match(skip.stdout, /not buying today, the purchase key cannot sign: access key is revoked/);
+  const warn = stepsCli("check-plan", join(dir, "warn.json"), "--chain", "tempo", "--day", "2026-10-01", "--per-payto", "1");
+  assert.equal(warn.status, 0);
+  assert.match(warn.stdout, /^WARN: tempo: expires soon$/m);
+  rmSync(dir, { recursive: true });
+});
+
 test("manifest: a new day adds the input, moves the date and labels the CDP fetch the way 2026-09-29 did", () => {
   const text = read(join(FIX, "manifest.json"));
   const before = JSON.parse(text);
@@ -631,14 +699,25 @@ function git(cwd: string, ...args: string[]) {
 const FAKE_REMEASURE = `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), v = (n) => a[a.indexOf(n) + 1];
 appendFileSync(process.env.FAKE_CALLS, a.join(" ") + "\\n");
-if (a.includes("--pay")) process.exit(0);
 const chain = v("--chain"), out = v("--out"), day = new Date(Number(process.env.VET402_DAILY_NOW) * 1000).toISOString().slice(0, 10);
+if (a.includes("--pay")) {
+  // FAKE_PAY_WRITE: write the result file a real --pay run leaves (one run, one paid row), stopped as FAKE_PAY_STOP_<CHAIN> says.
+  if (process.env.FAKE_PAY_WRITE) {
+    const at = new Date().toISOString();
+    mkdirSync("results/remeasure", { recursive: true });
+    writeFileSync("results/remeasure/" + chain + "-" + day + ".json", JSON.stringify({ kind: "vet402-remeasure", chain, date: day,
+      runs: [{ startedAt: at, endedAt: at, perPayTo: Number(v("--per-payto")), stopped: process.env["FAKE_PAY_STOP_" + chain.toUpperCase()] || null }],
+      rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  }
+  process.exit(0);
+}
+const signer = chain === "tempo" && process.env.FAKE_SIGNER ? { signer: JSON.parse(process.env.FAKE_SIGNER) } : {};
 const est = process.env["FAKE_ESTIMATE_" + chain.toUpperCase()] ?? process.env.FAKE_ESTIMATE ?? "0.500000";
 const rows = Array.from({ length: 10 }, (_, i) => ({ key: day + "|226DYoWb2e6uYxDkFp7vK8jZhzzh2VNvHH6DgbDsNueC|" + i, outcome: "would_pay", priceUsdc: i === 0 ? est : "0.000000" }));
 mkdirSync(out, { recursive: true });
 writeFileSync(out + "/" + chain + "-" + day + ".dry-run.json", JSON.stringify({ kind: "vet402-remeasure-dry-run", chain, createdAt: day + "T01:18:00.000Z", perPayTo: Number(v("--per-payto")),
   caps: { perRun: chain === "solana" ? "3.000000" : "1.000000", monthLeft: "25.000000" },
-  summary: { would: 10, estimate: est, payerUsdcBefore: "40.000000", payerUsdcEBefore: "15.000000" }, rows }));
+  summary: { would: 10, estimate: est, payerUsdcBefore: "40.000000", payerUsdcEBefore: "15.000000" }, rows, ...signer }));
 `;
 
 const FAKE_RANK = `import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -795,17 +874,80 @@ test("run.sh: without ~/.config/vet402-daily/env (the alert file) nothing runs",
   rmSync(sb.dir, { recursive: true });
 });
 
-test("run.sh: on or after 2026-10-09 (JST) nothing runs", () => {
+test("run.sh: no default end date: am runs after 2026-10-09 (JST); VET402_DAILY_END stops it from that day; an end that is not a date stops with an alert", () => {
   const sb = sandbox();
-  const r = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-10-09T01:17:00Z") });
+  for (const iso of ["2026-10-09T01:17:00Z", "2026-11-15T01:17:00Z", "2027-03-01T01:17:00Z"]) {
+    const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at(iso) });
+    assert.equal(r.status, 0, logs(sb));
+  }
+  assert.equal((calls(sb).match(/--chain solana --dry-run --per-payto 1/g) ?? []).length, 3, "the dry run of each of the three days");
+  assert.ok(!/nothing runs/.test(logs(sb)));
+  const before = calls(sb);
+  const r = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-12-01T01:17:00Z"), VET402_DAILY_END: "2026-12-01" });
   assert.equal(r.status, 0);
-  assert.match(logs(sb), /JST 2026-10-09 is on or after 2026-10-09: nothing runs/);
+  assert.match(logs(sb), /JST 2026-12-01 is on or after 2026-12-01: nothing runs/);
   assert.equal(alerts(sb), "");
-  assert.equal(calls(sb), "");
-  const r2 = runSh(sb, ["pm", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-08T13:17:00Z") });
+  assert.equal(calls(sb), before);
+  const r2 = runSh(sb, ["pm", "--dry-run"], { VET402_DAILY_NOW: at("2026-11-30T13:17:00Z"), VET402_DAILY_END: "2026-12-01" });
   assert.equal(r2.status, 0, logs(sb));
   assert.match(calls(sb), /--chain solana --dry-run --per-payto 2/);
+  const bad = calls(sb);
+  const r3 = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-11-30T01:17:00Z"), VET402_DAILY_END: "2026-12" });
+  assert.equal(r3.status, 1);
+  assert.match(alerts(sb), /am stopped: the end date for am is '2026-12', not a day in YYYY-MM-DD/);
+  for (const end of ["2026-13-01", "2026-02-30", "2026-00-10"]) {
+    const rx = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-11-30T01:17:00Z"), VET402_DAILY_END: end });
+    assert.equal(rx.status, 1, end);
+    assert.match(alerts(sb), new RegExp(`the end date for am is '${end}', not a day in YYYY-MM-DD`));
+  }
+  assert.equal(calls(sb), bad, "nothing ran");
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")), "a bad setting is not a halt: it stops until the setting is fixed");
   rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: a Tempo purchase key that cannot sign leaves Tempo out with one alert line; Solana still buys and publishes; no HALT", () => {
+  const sb = sandbox();
+  writeFileSync(join(sb.rmdir, "solana-2026-10-10.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-10", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const signer = JSON.stringify({ kind: "access-key", keyId: "0x1e9a", expiresAt: "2026-10-09T23:59:59.000Z", problem: "access key expires at 1791590399 (now 1791595020) (expiry 2026-10-09T23:59:59.000Z)", warn: null });
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-10T01:17:00Z"), FAKE_SIGNER: signer });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /\[vet402_daily\] am \(dry run\): remeasure tempo failed, publish continues: tempo: not buying today, the purchase key cannot sign: access key expires at 1791590399/);
+  assert.equal((alerts(sb).match(/^## /gm) ?? []).length, 1, "one line");
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.match(calls(sb), /--chain tempo --dry-run/);
+  assert.ok(!/--chain tempo --pay/.test(calls(sb)));
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-10 remeasure on Solana/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: a Tempo purchase key near its expiry: one notice line, and the run goes on as before", () => {
+  const sb = sandbox();
+  const warn = "the Tempo purchase key 0x1e9a expires at 2026-10-09T23:59:59.000Z; renew it before then (README, Tempo access key)";
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-07T01:17:00Z"), FAKE_SIGNER: JSON.stringify({ kind: "access-key", problem: null, warn }) });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /\[vet402_daily\] am: tempo: the Tempo purchase key 0x1e9a expires at 2026-10-09T23:59:59\.000Z; renew it/);
+  assert.equal((alerts(sb).match(/^## /gm) ?? []).length, 1);
+  assert.match(logs(sb), /dry run: would pay now \(remeasure --chain tempo --pay --per-payto 1\)/);
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: a --pay run that ends at the month cap is published with one notice line, no HALT; a run-cap stop still halts", () => {
+  const sb = sandbox();
+  const r = runSh(sb, ["pm"], { VET402_DAILY_NOW: at("2026-10-13T13:17:00Z"), FAKE_PAY_WRITE: "1", FAKE_PAY_STOP_SOLANA: "total_cap_reached: month 29960000 + 50000 > 30000000" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(calls(sb), /--chain solana --pay --per-payto 2/);
+  assert.match(alerts(sb), /\[vet402_daily\] pm: remeasure solana reached the month cap: run .* ended at the month cap \(total_cap_reached: month 29960000/);
+  assert.equal((alerts(sb).match(/^## /gm) ?? []).length, 1);
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-13 remeasure on Solana/);
+  const sb2 = sandbox();
+  const r2 = runSh(sb2, ["pm"], { VET402_DAILY_NOW: at("2026-10-13T13:17:00Z"), FAKE_PAY_WRITE: "1", FAKE_PAY_STOP_SOLANA: "total_cap_reached: run 2990000 + 50000 > 3000000" });
+  assert.equal(r2.status, 2, logs(sb2));
+  assert.match(alerts(sb2), /pm stopped: remeasure solana --pay exit 0: the run stopped: total_cap_reached: run/);
+  assert.ok(existsSync(join(sb2.state, "HALT-pay")));
+  rmSync(sb.dir, { recursive: true });
+  rmSync(sb2.dir, { recursive: true });
 });
 
 test("run.sh: a second run while one holds the lock stops, alerts, and does nothing", async () => {
@@ -1147,24 +1289,29 @@ test("launch.sh: when run.sh is missing, launchd's start still writes the alert 
   rmSync(dir, { recursive: true });
 });
 
-test("run.sh end dates: on 2026-10-09 JST records still records UTC 2026-10-08 while am and pm do nothing; on 2026-10-10 records stops too", () => {
+test("run.sh end dates: with VET402_DAILY_END=2026-10-09 and VET402_RECORDS_END=2026-10-10 set, records still records UTC 2026-10-08 on 2026-10-09 JST while am and pm do nothing; on 2026-10-10 records stops too; unset, records goes on", () => {
   const sb = sandbox({ records: true });
+  const ends = { VET402_DAILY_END: "2026-10-09", VET402_RECORDS_END: "2026-10-10" };
   writeFileSync(join(sb.rmdir, "solana-2026-10-08.json"), "{}");
-  const am = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-10-09T01:17:00Z") });
-  const pm = runSh(sb, ["pm"], { VET402_DAILY_NOW: at("2026-10-09T13:17:00Z") });
+  const am = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-10-09T01:17:00Z"), ...ends });
+  const pm = runSh(sb, ["pm"], { VET402_DAILY_NOW: at("2026-10-09T13:17:00Z"), ...ends });
   assert.equal(am.status, 0);
   assert.equal(pm.status, 0);
   assert.match(logs(sb), /JST 2026-10-09 is on or after 2026-10-09: nothing runs/);
   assert.ok(!calls(sb).includes("remeasure") && !calls(sb).includes("--chain"), "no remeasure on 2026-10-09");
-  const rec = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-09T00:05:00Z") });
+  const rec = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-09T00:05:00Z"), ...ends });
   assert.equal(rec.status, 0, logs(sb));
   assert.match(logs(sb), /days to record \(oldest first, at most 3\): 2026-10-08/);
   assert.match(calls(sb), /anchor-receipts --day 2026-10-08/);
   const before = calls(sb);
-  const late = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-10T00:05:00Z") });
+  const late = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-10T00:05:00Z"), ...ends });
   assert.equal(late.status, 0);
   assert.match(logs(sb), /JST 2026-10-10 is on or after 2026-10-10: nothing runs/);
   assert.equal(calls(sb), before, "records does nothing on 2026-10-10");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-20.json"), "{}");
+  const goesOn = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-21T00:05:00Z") });
+  assert.equal(goesOn.status, 0, logs(sb));
+  assert.match(calls(sb), /anchor-receipts --day 2026-10-20/, "no default end: records goes on");
   rmSync(sb.dir, { recursive: true });
 });
 
@@ -1246,15 +1393,18 @@ test("board: no completedAt and nothing running: board.yml mode=daily is started
   rmSync(b.dir, { recursive: true });
 });
 
-test("board: dry run, an unreadable file, or on/after 2026-10-31 JST: nothing is started", () => {
+test("board: dry run, an unreadable file, or on/after VET402_BOARD_END (JST): nothing is started", () => {
   const b = boardBox();
   assert.equal(b.run({}, ["--dry-run"]).status, 0);
   assert.match(b.logText(), /dry run: would run gh workflow run board\.yml -R kzmttkc\/vet402-algorand --ref main -f mode=daily/);
   assert.equal(b.run({ FAKE_API_ERROR: "1" }).status, 1);
   assert.match(b.alertText(), /board stopped: could not read board\/2026-10-01\.json/);
   assert.equal(b.run({ FAKE_BOARD: "not json" }).status, 1);
-  assert.equal(b.run({ VET402_DAILY_NOW: at("2026-10-30T15:00:00Z") }).status, 0);
+  assert.equal(b.run({ VET402_DAILY_NOW: at("2026-10-30T15:00:00Z"), VET402_BOARD_END: "2026-10-31" }).status, 0);
   assert.match(b.logText(), /JST 2026-10-31 is on or after 2026-10-31: nothing runs/);
   assert.equal(b.dispatches(), 0);
+  // No default end: unset, the board is still watched after 2026-10-31.
+  assert.equal(b.run({ VET402_DAILY_NOW: at("2026-11-15T10:05:00Z") }).status, 0, b.logText());
+  assert.equal(b.dispatches(), 1);
   rmSync(b.dir, { recursive: true });
 });

@@ -14,7 +14,8 @@ import {
   normalizeTempoLedger,
   parseTempoRunLog,
 } from "../src/rank/normalize.js";
-import { buildReport, REBUY_FIRST_DAY, REBUY_LAST_DAY, REBUY_PLAN, rebuyFacts, rebuySeller } from "../src/rank/report.js";
+import { buildReport, REBUY_FIRST_DAY, REBUY_MONTH_CAPS, REBUY_PLAN, rebuyFacts, rebuySeller } from "../src/rank/report.js";
+import { RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_MONTH_ATOMIC } from "../src/remeasure/constants.js";
 import { decideVerdict } from "../src/receipt/build.js";
 import { aggregate, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
@@ -548,21 +549,24 @@ test("index: purchase numbers first; graded rows carry grade, count and date; me
 
 // ---------- rebuy wording: the dates match the daily runner, no "once a day" left ----------
 
-test("rebuy copy: the last day is the day before run.sh's default VET402_DAILY_END; no 'once a day' in the public text", () => {
+test("rebuy copy: no end date, as run.sh has no default VET402_DAILY_END; the month caps are the code's; no 'once a day' in the public text", () => {
   const run = readFileSync(new URL("../scripts/daily/run.sh", import.meta.url), "utf8");
-  const end = /END_DAY="\$\{VET402_DAILY_END:-(\d{4}-\d{2}-\d{2})\}"/.exec(run)?.[1];
-  assert.ok(end, "run.sh default VET402_DAILY_END");
-  const next = new Date(Date.parse(`${REBUY_LAST_DAY}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-  assert.equal(next, end);
-  assert.ok(REBUY_FIRST_DAY < REBUY_LAST_DAY);
+  assert.match(run, /END_DAY="\$\{VET402_DAILY_END:-\}"/, "run.sh: no default end for am/pm/publish");
+  assert.match(run, /END_DAY="\$\{VET402_RECORDS_END:-\}"/, "run.sh: no default end for records");
+  assert.equal(REBUY_MONTH_CAPS.solana, `${Number(RM_SOLANA_MAX_PER_MONTH_ATOMIC) / 1e6} USDC`);
+  assert.equal(REBUY_MONTH_CAPS.tempo, `${Number(RM_TEMPO_MAX_PER_MONTH_ATOMIC) / 1e6} USDC.e`);
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const rankReadme = readFileSync(new URL("../src/rank/README.md", import.meta.url), "utf8");
   const texts: [string, string][] = [["README.md", readme], ["src/rank/README.md", rankReadme], ["REBUY_PLAN", REBUY_PLAN]];
   for (const [name, text] of texts) {
     assert.ok(!/once a day|about once|two slots a day/i.test(text), name);
+    // No end date left anywhere the plan is stated (the old window ended on UTC day 2026-10-08).
+    assert.ok(!/2026-09-29 to 2026-10-08|Remeasure window/i.test(text), `${name} still states the old window`);
   }
-  assert.ok(readme.includes(`${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}`), "README.md names the window");
-  assert.ok(REBUY_PLAN.includes(`${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY}`));
+  assert.ok(readme.includes(`from UTC day ${REBUY_FIRST_DAY}, with no end date`), "README.md states the plan as the site does");
+  assert.ok(rankReadme.includes(`from UTC day ${REBUY_FIRST_DAY}, with no end date`), "src/rank/README.md states the plan as the site does");
+  assert.ok(REBUY_PLAN.includes(`from UTC day ${REBUY_FIRST_DAY}, with no end date`));
+  assert.ok(REBUY_PLAN.includes(`${REBUY_MONTH_CAPS.solana} on Solana, ${REBUY_MONTH_CAPS.tempo} on Tempo`));
   // The plan is the only declaration; it carries no claim of what happened, so it needs no tense switch.
   assert.ok(!/\b(buys|bought) again every day\b/.test(REBUY_PLAN));
 });

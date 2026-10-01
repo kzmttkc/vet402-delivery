@@ -1,8 +1,8 @@
 /**
  * Remeasure: buy again from sellers vet402 already paid (payment settled), so the ranking gets purchases
- * on more than one day. Never buys from a new seller. It runs every day from 2026-09-29 to 2026-10-08, twice
- * on Solana and once on Tempo (one purchase per payTo per slot per UTC day): by hand on 2026-09-29, then from
- * the daily runner (scripts/daily/run.sh).
+ * on more than one day. Never buys from a new seller. It runs every day from 2026-09-29 with no end date, twice
+ * on Solana and once on Tempo (one purchase per payTo per slot per UTC day), within the month caps
+ * (src/remeasure/constants.ts): by hand on 2026-09-29, then from the daily runner (scripts/daily/run.sh).
  *
  *   npm run remeasure -- --chain solana               # dry run (the default): targets and estimate, pays nothing
  *   npm run remeasure -- --chain tempo --dry-run
@@ -249,8 +249,13 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
   const dayFile = dayLedgerPath(OUT, DATE);
   const monthElsewhere = monthCommittedElsewhere(OUT, MONTH, DATE);
 
+  const keyFile = opt("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json");
   if (!PAY) {
     const before = await tchain.usdcBalance(TEMPO_PAYER);
+    // The key that will sign: an access key past (or near) its expiry is in the plan, so the runner leaves Tempo out
+    // (or warns) before any --pay instead of every purchase being refused at signing time (src/daily/steps.ts).
+    const { signerPlan } = await import("../src/tempo/access-key.js");
+    const signer = await signerPlan(keyFile, tchain.publicClient() as never, BigInt(Math.floor(Date.now() / 1000)));
     const today = existsSync(dayFile) ? new Ledger(dayFile, TEMPO_PAYER, RM_TEMPO_MAX_PER_RUN_ATOMIC).committed() : 0n;
     const monthChainOutflow = await chainView.outflowSinceMonthStart(MONTH);
     const res = await dryRunTempo(slotsAll.slots, fetch, { date: DATE, monthElsewhere, monthCommittedToday: today, monthChainOutflow, now: () => new Date() });
@@ -274,11 +279,13 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
       inputRepair,
       rows: res.rows,
       skipped: res.skipped,
+      signer,
     });
     for (const r of res.rows) console.log(`${r.reason.padEnd(16)} ${`${r.host}#${r.service}`.padEnd(60)} ${r.priceUsdc ?? "-"} payTo=${r.payTo ?? "-"}${r.payTo && r.payTo !== r.expectedPayTo ? ` (recorded ${r.expectedPayTo})` : ""}`);
     console.log(`TARGETS payTos ${slotsAll.payTos}, resources ${slotsAll.resources}, slots ${slotsAll.slots.length} (per payTo ${perPayTo}); excluded ${JSON.stringify(tally(slotsAll.excluded))}`);
     console.log(`WOULD PAY ${sum.would}, estimated ${sum.estimate} USDC.e before fees (run cap ${atomicToUnits(RM_TEMPO_MAX_PER_RUN_ATOMIC)} incl. fee reserve, month left ${atomicToUnits(monthLeft)}); not paid: ${JSON.stringify(sum.refusals)}; skipped: ${JSON.stringify(sum.skipped)}`);
     console.log(`payer USDC.e before ${atomicToUnits(before)} after ${atomicToUnits(after)}`);
+    console.log(`signer: ${signer.kind}${signer.expiresAt ? `, expires ${signer.expiresAt}` : ""}${signer.problem ? `; CANNOT SIGN: ${signer.problem}` : ""}${signer.warn ? `; ${signer.warn}` : ""}`);
     console.log(`wrote ${out}`);
     return 0;
   }
@@ -288,7 +295,7 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
   let ledger: InstanceType<typeof Ledger> | null = null;
   try {
     await tchain.assertMainnet();
-    const signer = tchain.loadSigner(opt("--key") ?? process.env.VET402_EVM_KEY_FILE ?? join(ROOT, ".keys", "evm.json"));
+    const signer = tchain.loadSigner(keyFile);
     // Purchases a killed run reserved but never recorded: one unknown_after_sign row each, never paid again.
     for (const r of reconcileTempo(OUT, targets, TEMPO_PAYER)) console.log(`recorded unknown_after_sign ${r.key} ${r.host}#${r.service}`);
     // List today's day ledger in the index (and create it empty) before anything is reserved; refuses when it was deleted.
@@ -328,7 +335,9 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
     );
     save();
     console.log(`results: ${file}`);
-    return res.stopped ? 2 : checked ? 0 : 3;
+    // The month cap is an end, not a fault: the runner reads it from the result (src/daily/steps.ts runOutcome).
+    const { isMonthCapStop } = await import("../src/daily/steps.js");
+    return res.stopped && !isMonthCapStop(res.stopped) ? 2 : checked ? 0 : 3;
   } finally {
     ledger?.release();
     release();

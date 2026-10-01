@@ -39,9 +39,13 @@
 # HALT-<lane> in the state folder, and later runs of that lane stop until a person has looked and removed it.
 # A refused plan (over a cap) still publishes what the chains before it bought; a failed or stopped --pay run
 # publishes nothing.
-# Only one run at a time (lockf on the state folder's lock). Each job stops on its own JST day: am, pm and
-# publish on VET402_DAILY_END, records a day later on VET402_RECORDS_END (so the last purchase day, UTC
-# 2026-10-08, is still recorded, published and anchored on 2026-10-09 09:05 JST), board on VET402_BOARD_END.
+# Only one run at a time (lockf on the state folder's lock). The jobs have no end date: they go on until a person
+# sets one. VET402_DAILY_END stops am, pm and publish from that JST day; set VET402_RECORDS_END to the day after it,
+# so the last purchase day is still recorded, published and anchored the next morning; VET402_BOARD_END stops board.
+# What bounds the money is not a date but the caps in src/remeasure/constants.ts (per run, per day, per month).
+# A run that ends at the month cap is said (a notice), not halted; buying resumes on the first of the next month.
+# A Tempo purchase key that cannot sign (an access key past its expiry, src/tempo/access-key.ts) leaves Tempo out
+# for the day (said, not halted) while Solana buys and publishes; three days before its expiry it is said daily.
 #
 # Settings: KEY=value lines in ~/.config/vet402-daily/env (outside the repository). Without that file, or without
 # VET402_ALERTS_FILE in it, nothing runs: the stop is logged and shown as a notification.
@@ -53,9 +57,9 @@
 #   ~/.config/vet402-daily/tempo-anchor-enabled  present: records also writes each root on Tempo; absent (default): Solana only
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
-#   VET402_DAILY_END     first JST day with no am/pm/publish runs                 default 2026-10-09
-#   VET402_RECORDS_END   first JST day with no records runs                       default 2026-10-10
-#   VET402_BOARD_END     first JST day with no board runs                         default 2026-10-31
+#   VET402_DAILY_END     first JST day with no am/pm/publish runs (YYYY-MM-DD)    default none (no end)
+#   VET402_RECORDS_END   first JST day with no records runs                       default none (no end)
+#   VET402_BOARD_END     first JST day with no board runs                         default none (no end)
 #   VET402_PROXY_ALERTS_URL     https://<host>/api/alerts (unset: proxy-alerts reads nothing)
 #   VET402_PROXY_ALERTS_SECRET  the deployment's read-only alerts secret, not the cron's (never printed)
 #   VET402_PROXY_ALERTS_END     first JST day with no proxy-alerts runs                default 2026-12-31
@@ -110,9 +114,10 @@ main() {
   LOGDIR="${VET402_DAILY_LOGS:-$HOME/Library/Logs/vet402-daily}"
   STATE="${VET402_DAILY_STATE:-$HOME/.local/state/vet402-daily}"
   ALERTS="${VET402_ALERTS_FILE:-}"
-  END_DAY="${VET402_DAILY_END:-2026-10-09}"
-  [ "$MODE" = records ] && END_DAY="${VET402_RECORDS_END:-2026-10-10}"
-  [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-2026-10-31}"
+  # No default end for am/pm/publish, records and board: an empty value means the job goes on (see the header).
+  END_DAY="${VET402_DAILY_END:-}"
+  [ "$MODE" = records ] && END_DAY="${VET402_RECORDS_END:-}"
+  [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-}"
   [ "$MODE" = proxy-alerts ] && END_DAY="${VET402_PROXY_ALERTS_END:-2026-12-31}"
   NOW="${VET402_DAILY_NOW:-$(/bin/date +%s)}"
   GIT=/usr/bin/git
@@ -137,7 +142,14 @@ main() {
   UTC_DAY="$(/bin/date -u -r "$NOW" +%Y-%m-%d)"
   UTC_HM="$(/bin/date -u -r "$NOW" +%H%M)"
 
-  if [[ "$JST_DAY" > "$END_DAY" || "$JST_DAY" == "$END_DAY" ]]; then
+  # An end that is not a date stops the job (and says so): a typo must not mean "no end". The shape, then the day
+  # itself read back (date -j -f rolls 2026-02-30 over to 2026-03-02 and refuses 2026-13-01).
+  if [ -n "$END_DAY" ] && { ! [[ "$END_DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || [ "$(/bin/date -j -f %Y-%m-%d "$END_DAY" +%Y-%m-%d 2>/dev/null)" != "$END_DAY" ]; }; then
+    ALERTED=0
+    alert "the end date for $MODE is '$END_DAY', not a day in YYYY-MM-DD (VET402_DAILY_END, VET402_RECORDS_END, VET402_BOARD_END in $envfile); nothing ran"
+    return 1
+  fi
+  if [ -n "$END_DAY" ] && [[ "$JST_DAY" > "$END_DAY" || "$JST_DAY" == "$END_DAY" ]]; then
     log "JST $JST_DAY is on or after $END_DAY: nothing runs"
     # proxy-alerts is a watch: its end is said once, not only logged.
     if [ "$MODE" = proxy-alerts ] && [ ! -f "$STATE/proxy-alerts-ended" ]; then
@@ -353,7 +365,15 @@ remeasure() {
   verdict="$(daily_steps check-plan "$file" --chain "$chain" --day "$UTC_DAY" --per-payto "$per" --ledger "$ledger")"
   rc=$?
   log "plan: $verdict"
+  local warn
+  warn="$(printf '%s\n' "$verdict" | /usr/bin/sed -n 's/^WARN: //p' | head -1)"
+  [ -n "$warn" ] && notice "$warn"
   if [ $rc -eq 10 ]; then return 0; fi
+  # This chain is left out today (the Tempo purchase key cannot sign); the other chains buy and publish.
+  if [ $rc -eq 11 ]; then
+    continues "remeasure $chain" "$(printf '%s\n' "$verdict" | head -1). Nothing paid on $chain; see README (Tempo access key) to renew it"
+    return 0
+  fi
   if [ $rc -ne 0 ]; then
     alert "not paying: $verdict" halt
     return 1
@@ -369,6 +389,11 @@ remeasure() {
   out="$(daily_steps run-outcome "$RMDIR/$chain-$UTC_DAY.json" --since "$start")"
   local orc=$?
   log "outcome: $out"
+  # The month cap reached: the run bought what fit and ended; it is published, and buying resumes next month.
+  if [ $rc -eq 0 ] && [ $orc -eq 5 ]; then
+    notice "remeasure $chain reached the month cap: $out. Published; $chain buys again from the first of the next month (UTC)"
+    return 0
+  fi
   if [ $rc -ne 0 ] || [ $orc -ne 0 ]; then
     alert "remeasure $chain --pay exit $rc: $out. Not paying again, not publishing" halt
     return 2
