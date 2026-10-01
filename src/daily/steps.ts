@@ -1,7 +1,7 @@
 /**
  * The decisions scripts/daily/run.sh hands to code, so each one is tested:
- *  - planVerdict: pay or not, from a remeasure dry run (caps, month left, payer balance)
- *  - runOutcome: did the --pay run that just ended finish without a stop
+ *  - planVerdict: pay or not, from a remeasure dry run (caps, month left, payer balance, the Tempo purchase key)
+ *  - runOutcome: did the --pay run that just ended finish without a stop (the month cap is an end, not a stop)
  *  - updateManifest: data/manifest.json after a remeasure file is copied into data/
  *  - commitMessage: the data commit's subject line, from the files it adds
  * Reads files, decides, writes nothing on its own. No key, no network.
@@ -21,7 +21,27 @@ const fmt = (a: bigint) => `${a / 1_000_000n}.${(a % 1_000_000n).toString().padS
 /** Fee reserve per Tempo purchase, counted even when the live 402 would be sponsored (src/tempo/constants.ts). */
 export const TEMPO_FEE_RESERVE_ATOMIC = 2_000n;
 
-export type PlanVerdict = { pay: true; line: string } | { pay: false; stop: false; line: string } | { pay: false; stop: true; line: string };
+/**
+ * pay: buy now. Not pay and not stop: nothing to buy, or (skip) this chain is left out today while the others go on
+ * (the Tempo purchase key cannot sign: said, not halted). stop: a cap, the balance or the plan itself refuses.
+ * warn: something a person should act on soon, said while paying goes on (the Tempo purchase key expires soon).
+ */
+export type PlanVerdict =
+  | { pay: true; stop?: false; skip?: undefined; line: string; warn?: string }
+  | { pay: false; stop: false; skip?: true; line: string; warn?: string }
+  | { pay: false; stop: true; skip?: undefined; line: string; warn?: undefined };
+
+/**
+ * What the Tempo dry run read about the key that will sign (scripts/remeasure.ts tempoSignerCheck): the payer's root
+ * key, or its AccountKeychain access key with the chain's expiry. problem: it cannot sign the run; warn: it expires soon.
+ */
+export interface PlanSigner {
+  kind?: string;
+  keyId?: string;
+  expiresAt?: string | null;
+  problem?: string | null;
+  warn?: string | null;
+}
 
 interface DryRunFile {
   kind?: string;
@@ -31,6 +51,7 @@ interface DryRunFile {
   caps?: { perRun?: string; monthLeft?: string };
   summary?: { would?: number; estimate?: string; payerUsdcBefore?: string; payerUsdcEBefore?: string };
   rows?: { key?: string; outcome?: string; priceUsdc?: string | null }[];
+  signer?: PlanSigner;
 }
 
 /** Keys the spend ledger already holds (Solana budget-solana-YYYY-MM.json purchases, Tempo day ledger entries). */
@@ -48,13 +69,21 @@ export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: st
   if (plan.kind !== "vet402-remeasure-dry-run" || plan.chain !== chain) return stop("the plan is not a remeasure dry run for this chain");
   if (!DAY.test(day) || plan.createdAt?.slice(0, 10) !== day) return stop(`the plan is from ${plan.createdAt ?? "?"}, not UTC day ${day}`);
   if (plan.perPayTo !== perPayTo) return stop(`the plan is for --per-payto ${plan.perPayTo}, not ${perPayTo}`);
+  // The Tempo purchase key: one that cannot sign (expired, revoked, not registered) leaves Tempo out today, said
+  // without halting the lane, so Solana still buys and publishes; nothing is signed with it.
+  const signer = chain === "tempo" ? plan.signer : undefined;
+  if (signer && typeof signer.problem === "string" && signer.problem) {
+    return { pay: false, stop: false, skip: true, line: `${chain}: not buying today, the purchase key cannot sign: ${signer.problem}` };
+  }
+  const warn = signer && typeof signer.warn === "string" && signer.warn ? `${chain}: ${signer.warn}` : undefined;
+  const withWarn = <V extends PlanVerdict>(v: V): V => (warn && !v.stop ? { ...v, warn } : v);
   // The dry run prices every slot; slots the ledger already holds are bought and are not paid again.
   if (!Array.isArray(plan.rows)) return stop("the plan has no rows");
   const toBuy = plan.rows.filter((r) => r.outcome === "would_pay" && !(typeof r.key === "string" && bought.has(r.key)));
   if (plan.rows.some((r) => r.outcome === "would_pay" && typeof r.key !== "string")) return stop("a planned purchase has no key");
   const would = toBuy.length;
   const skipped = plan.rows.filter((r) => r.outcome === "would_pay").length - would;
-  if (would === 0) return { pay: false, stop: false, line: `${chain}: nothing to buy${skipped ? ` (${skipped} already in the ledger)` : ""}` };
+  if (would === 0) return withWarn({ pay: false, stop: false, line: `${chain}: nothing to buy${skipped ? ` (${skipped} already in the ledger)` : ""}` });
   let est: bigint, perRun: bigint, monthLeft: bigint, balance: bigint;
   try {
     est = toBuy.reduce((a, r) => a + toAtomic(r.priceUsdc), 0n);
@@ -69,7 +98,7 @@ export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: st
   if (need > perRun) return stop(`${what} is over the run cap ${fmt(perRun)}`);
   if (need > monthLeft) return stop(`${what} is over what is left this month ${fmt(monthLeft)}`);
   if (need > balance) return stop(`${what} is over the payer balance ${fmt(balance)}`);
-  return { pay: true, line: `${chain}: ${would} purchases${skipped ? ` (${skipped} already in the ledger)` : ""}, ${what} within run cap ${fmt(perRun)}, month left ${fmt(monthLeft)}, balance ${fmt(balance)}` };
+  return withWarn({ pay: true, line: `${chain}: ${would} purchases${skipped ? ` (${skipped} already in the ledger)` : ""}, ${what} within run cap ${fmt(perRun)}, month left ${fmt(monthLeft)}, balance ${fmt(balance)}` });
 }
 
 interface ResultFile {
@@ -80,12 +109,25 @@ interface ResultFile {
   rows?: { outcome?: string; settled?: boolean | null; delivered?: boolean | null }[];
 }
 
-/** The --pay run that started at or after `since` (ISO): exactly one, ended, and not stopped. */
-export function runOutcome(result: ResultFile, since: string): { ok: boolean; line: string } {
+/**
+ * A run that ended because the month's spending cap was reached (src/remeasure: Solana's month budget,
+ * "total_cap_reached: month ...", Tempo's "month_cap_reached: ..."). It bought what fit and stopped before the
+ * next purchase, as the cap means it to: an end, not a fault. The run cap and the day cap are not this.
+ */
+export function isMonthCapStop(stopped: string | null | undefined): boolean {
+  return typeof stopped === "string" && (/^total_cap_reached: month /.test(stopped) || /^month_cap_reached:/.test(stopped));
+}
+
+/**
+ * The --pay run that started at or after `since` (ISO): exactly one, ended, and not stopped. A stop at the month
+ * cap is ok with monthCap set: what it bought is published and the runner says so without halting.
+ */
+export function runOutcome(result: ResultFile, since: string): { ok: boolean; monthCap?: true; line: string } {
   const runs = (result.runs ?? []).filter((r) => r.startedAt >= since);
   if (runs.length !== 1) return { ok: false, line: `expected one run started at or after ${since}, found ${runs.length}` };
   const r = runs[0]!;
   if (!r.endedAt) return { ok: false, line: `the run started ${r.startedAt} has no end (killed or still running)` };
+  if (isMonthCapStop(r.stopped)) return { ok: true, monthCap: true, line: `run ${r.startedAt}..${r.endedAt} ended at the month cap (${r.stopped}); ${tally(result)}` };
   if (r.stopped) return { ok: false, line: `the run stopped: ${r.stopped}` };
   return { ok: true, line: `run ${r.startedAt}..${r.endedAt} ended without a stop; ${tally(result)}` };
 }

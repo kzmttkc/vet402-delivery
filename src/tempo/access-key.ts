@@ -33,7 +33,12 @@ export const TEMPO_ACCESS_KEY_ID = "0x1e9AadDc86f9132DFBA8B4287978aDE1ceC93c4b";
 /** Same as remeasure's day ledger cap: 1 USDC.e. */
 export const ACCESS_KEY_LIMIT_ATOMIC = RM_TEMPO_MAX_PER_RUN_ATOMIC;
 export const ACCESS_KEY_PERIOD_S = 86_400n;
-/** End of 2026-10-09 UTC. remeasure's last Tempo purchase day is 2026-10-08. */
+/**
+ * End of 2026-10-09 UTC (the registered key's expiry on chain). The rebuy has no end date since 2026-10-01: the daily
+ * dry run warns three days before this and leaves Tempo out once the key cannot sign (signerPlan); README says how to
+ * go on (the root key, or a new access key: an existing key's expiry cannot be changed, authorizeKey reverts
+ * KeyAlreadyExists).
+ */
 export const ACCESS_KEY_EXPIRY = BigInt(Date.parse("2026-10-09T23:59:59Z") / 1000);
 /**
  * The authorization is refused when its network fee could exceed this (atomic USDC.e, 0.08). About 3.1M gas
@@ -282,3 +287,52 @@ export function readAccessKeyFile(path: string): AccessKeyFile {
   return f;
 }
 
+
+// ---------- the daily dry run's look at the key ----------
+
+/** The dry run warns this long before the access key's expiry (src/daily/steps.ts planVerdict, then the runner says it daily). */
+export const KEY_EXPIRY_WARN_S = 3n * 86_400n;
+/** The key must outlive the run that follows the dry run by this much (a run with slow sellers takes well under it). */
+export const KEY_RUN_MARGIN_S = 6n * 3_600n;
+
+export interface SignerPlan {
+  kind: "root" | "access-key";
+  keyId?: string;
+  expiresAt?: string | null;
+  /** The key cannot sign the run that would follow: Tempo is left out today (the runner says so, without halting). */
+  problem: string | null;
+  /** It can sign, but expires within KEY_EXPIRY_WARN_S. */
+  warn: string | null;
+}
+
+/**
+ * What the key that will sign Tempo purchases looks like now, for the dry run's plan (scripts/remeasure.ts writes it
+ * as `signer`). A root key file needs no chain read. An access key file is read back from the AccountKeychain: the
+ * same checks accessSigner makes before every signature (registered, this key, not revoked, secp256k1, limited, the
+ * USDC.e transfer scope), with its expiry at least KEY_RUN_MARGIN_S ahead; the amount is left to the signature-time
+ * check. Signs nothing; the key itself is never printed.
+ */
+export async function signerPlan(keyFile: string, read: Reader, nowS: bigint, opts: { keyId?: string } = {}): Promise<SignerPlan> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(keyFile, "utf8"));
+  } catch {
+    return { kind: "root", problem: `${keyFile}: unreadable key file`, warn: null };
+  }
+  let f: AccessKeyFile | null;
+  try {
+    f = parseAccessKeyFile(raw);
+  } catch (e) {
+    return { kind: "access-key", problem: `${keyFile}: ${(e as Error).message}`, warn: null };
+  }
+  if (!f) return { kind: "root", problem: null, warn: null };
+  if (normAddr(f.account) !== normAddr(PAYER_ADDRESS)) return { kind: "access-key", problem: "access key file is for another account than the payer", warn: null };
+  const keyId = accessKeyIdOf(f);
+  const want = opts.keyId ?? TEMPO_ACCESS_KEY_ID;
+  if (normAddr(keyId) !== normAddr(want)) return { kind: "access-key", keyId, problem: `access key ${keyId} is not the registered key ${want}`, warn: null };
+  const s = await readKeyState(read, f.account, keyId);
+  const expiresAt = s.registered ? new Date(Number(s.expiry) * 1000).toISOString() : null;
+  const problem = keyProblem(s, keyId, 0n, nowS + KEY_RUN_MARGIN_S - MIN_TIME_LEFT_S);
+  const warn = !problem && s.expiry <= nowS + KEY_EXPIRY_WARN_S ? `the Tempo purchase key ${keyId} expires at ${expiresAt}; renew it before then (README, Tempo access key)` : null;
+  return { kind: "access-key", keyId, expiresAt, problem: problem ? `${problem}${expiresAt ? ` (expiry ${expiresAt})` : ""}` : null, warn };
+}

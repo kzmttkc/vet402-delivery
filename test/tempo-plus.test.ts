@@ -47,6 +47,7 @@ import {
   authorizeTxProblem,
   keychainProblem,
   keyProblem,
+  signerPlan,
   TEMPO_ACCESS_KEY_ID,
   type KeyState,
 } from "../src/tempo/access-key.js";
@@ -528,6 +529,46 @@ test("access key: the key's on-chain state must allow the payment before anythin
   assert.match(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [...USDC_SCOPE.scopes, { target: other, selectors: ["0xa9059cbb"], recipients: [[]] }] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /may call 0x2222/);
   assert.match(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [{ target: USDC_E, selectors: ["0xa9059cbb", "0x095ea7b3"], recipients: [[], []] }] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW)!, /may call 0x095ea7b3 on USDC.e/);
   assert.equal(keyProblem(state({ allowedCalls: { isScoped: true, scopes: [{ target: USDC_E, selectors: ["0xa9059cbb"], recipients: [[]] }] } }), TEMPO_ACCESS_KEY_ID, 6000n, NOW), null, "a subset is fine");
+});
+
+test("signer plan (the daily dry run): a root key needs no read; an access key is read back, warned three days before its expiry, and refused six hours before it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "vet402-signer-plan-"));
+  const rootFile = join(dir, "evm.json");
+  writeFileSync(rootFile, JSON.stringify({ privateKey: generatePrivateKey() }));
+  const f = accessFileFor(generatePrivateKey());
+  const keyId = accessKeyIdOf(f);
+  const accessFile = join(dir, "tempo-access.json");
+  writeFileSync(accessFile, JSON.stringify(f));
+  const reads: string[] = [];
+  const reader = (over: Partial<{ expiry: bigint; isRevoked: boolean }> = {}) => ({
+    readContract: async (a: { functionName: string }) => {
+      reads.push(a.functionName);
+      if (a.functionName === "getKey") return { signatureType: 0, keyId, expiry: over.expiry ?? ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: over.isRevoked ?? false };
+      if (a.functionName === "getAllowedCalls") return onChainScope([{ target: USDC_E, selectors: ["0xa9059cbb", "0x95777d59"] }]);
+      return [0n, 1790800000n]; // the day's limit used up: the plan does not look at the amount (signature time does)
+    },
+  });
+  const at = (iso: string) => BigInt(Date.parse(iso) / 1000);
+  const root = await signerPlan(rootFile, reader(), at("2026-10-01T01:17:00Z"), { keyId });
+  assert.deepEqual(root, { kind: "root", problem: null, warn: null });
+  assert.equal(reads.length, 0, "a root key file reads nothing on chain");
+  const ok = await signerPlan(accessFile, reader(), at("2026-10-01T01:17:00Z"), { keyId });
+  assert.deepEqual(ok, { kind: "access-key", keyId, expiresAt: "2026-10-09T23:59:59.000Z", problem: null, warn: null });
+  assert.ok(!JSON.stringify(ok).includes(f.accessKey.slice(2)), "the key is never in the plan");
+  const warn = await signerPlan(accessFile, reader(), at("2026-10-07T01:17:00Z"), { keyId });
+  assert.equal(warn.problem, null);
+  assert.match(warn.warn!, /expires at 2026-10-09T23:59:59\.000Z; renew it/);
+  assert.equal((await signerPlan(accessFile, reader(), at("2026-10-06T23:59:58Z"), { keyId })).warn, null, "more than three days left");
+  const late = await signerPlan(accessFile, reader(), at("2026-10-09T18:00:00Z"), { keyId });
+  assert.match(late.problem!, /access key expires at 1791590399 .*\(expiry 2026-10-09T23:59:59\.000Z\)/, "less than six hours left: the run that follows could outlive it");
+  assert.equal((await signerPlan(accessFile, reader(), at("2026-10-09T17:59:58Z"), { keyId })).problem, null);
+  assert.match((await signerPlan(accessFile, reader(), at("2026-10-10T01:17:00Z"), { keyId })).problem!, /expires at/);
+  assert.match((await signerPlan(accessFile, reader({ isRevoked: true }), at("2026-10-01T01:17:00Z"), { keyId })).problem!, /revoked/);
+  assert.match((await signerPlan(accessFile, reader({ expiry: 0n }), at("2026-10-01T01:17:00Z"), { keyId })).problem!, /not authorized/);
+  // the file's key is not the registered one (the default TEMPO_ACCESS_KEY_ID), or the file is missing
+  assert.match((await signerPlan(accessFile, reader(), at("2026-10-01T01:17:00Z"))).problem!, /is not the registered key/);
+  assert.match((await signerPlan(join(dir, "missing.json"), reader(), at("2026-10-01T01:17:00Z"))).problem!, /unreadable key file/);
+  rmSync(dir, { recursive: true });
 });
 
 function accessFileFor(pk: Hex) {

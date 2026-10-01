@@ -164,16 +164,18 @@ export const MONEY_LINE =
   "Grades come only from vet402's own purchases. vet402 also sells paid checks (paid in USDC on Algorand or Base); a paid check is a separate report and never moves a grade.";
 
 /**
- * The rebuy plan: remeasure is planned from the first to the last UTC day here, twice a day on Solana and once
- * on Tempo (by hand on 2026-09-29, then from the daily runner scripts/daily/run.sh: am and pm on Solana, am on
- * Tempo). The runner's default VET402_DAILY_END is the JST day after REBUY_LAST_DAY (test/rank.test.ts keeps
- * them equal). The public text states only this plan and its rules; what was bought again comes from the rows
- * in data/remeasure/ (SellerStats.rebuy), so it needs no tense and no date check.
+ * The rebuy plan: remeasure runs from the first UTC day here with no end date, twice a day on Solana and once on
+ * Tempo (by hand on 2026-09-29, then from the daily runner scripts/daily/run.sh: am and pm on Solana, am on Tempo).
+ * The runner has no default end (VET402_DAILY_END stops it when a person sets one); what bounds it is the month
+ * cap per chain (src/remeasure/constants.ts; test/rank.test.ts keeps REBUY_MONTH_CAPS equal to it). The public text
+ * states only this plan and its rules; what was bought again comes from the rows in data/remeasure/
+ * (SellerStats.rebuy), so it needs no tense and no date check.
  */
 export const REBUY_FIRST_DAY = "2026-09-29";
-export const REBUY_LAST_DAY = "2026-10-08";
+/** The month caps as the public text states them (RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_MONTH_ATOMIC). */
+export const REBUY_MONTH_CAPS = { solana: "30 USDC", tempo: "30 USDC.e" } as const;
 /** The plan and its rules (rank.json method.measurement, the first page, the method page). */
-export const REBUY_PLAN = `Rebuy plan for ${REBUY_FIRST_DAY} to ${REBUY_LAST_DAY} (UTC days): two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them.`;
+export const REBUY_PLAN = `Rebuy plan from UTC day ${REBUY_FIRST_DAY}, with no end date: two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. Spending is capped per calendar month (${REBUY_MONTH_CAPS.solana} on Solana, ${REBUY_MONTH_CAPS.tempo} on Tempo); a chain that reaches its cap buys nothing more until the next month. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them.`;
 
 /** What was bought again, from the paid remeasure rows of the given sellers. */
 export function rebuyFacts(sellers: readonly Pick<SellerStats, "rebuy">[], through: string): string {
