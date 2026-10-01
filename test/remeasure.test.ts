@@ -29,6 +29,7 @@ import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
 import type { Slot } from "../src/remeasure/loop.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
 import { resultFilesUpTo, runDirs, type RemeasureRow, type ResultFile } from "../src/remeasure/results.js";
+import { isMonthCapStop, runOutcome } from "../src/daily/steps.js";
 
 const FACILITATOR = (await generateKeyPairSigner()).address;
 const P1 = (await generateKeyPairSigner()).address;
@@ -371,12 +372,35 @@ test("tempo: run (day ledger) cap and month cap stop before signing, at the boun
   assert.equal(e2.signs(), 1);
   assert.match(r2.stopped!, /^month_cap_reached: 30000000 /);
 
-  // month cap from the chain: no ledger shows it (files lost), but 29.900001 USDC.e left the key this month
+  // month cap from the chain: no ledger shows it (files lost), but 29.900001 USDC.e left the key this month. The
+  // chain bounds the month all the same, but the stop is money outside the ledgers, not the month's end.
   const e3 = tempoEnv({ liveFor });
   e3.chain.month = 29_900_001n;
   const r3 = await e3.run(selectSlots(targets.slice(0, 2), 1).slots, DATE);
   assert.equal(e3.signs(), 0);
-  assert.match(r3.stopped!, /^month_cap_reached: 29900001 \(ledgers 0, chain 29900001\) \+ 100000 > 30000000/);
+  assert.match(r3.stopped!, /^chain_spend_exceeds_ledger: month outflow on chain 29900001 > ledgers 0; 29900001 \+ 100000 > 30000000/);
+});
+
+test("tempo: at the month cap, ledgers that account for the chain's outflow (chain <= ledgers) are the month's end; chain above the ledgers is chain_spend_exceeds_ledger, which the runner halts on", async () => {
+  const targets = Array.from({ length: 2 }, (_, i) => tempoTarget(`m${i}`, "98000", `0x${(i + 1).toString(16).padStart(40, "b")}`));
+  const liveFor = (url: string) => ({ recipient: targets.find((t) => t.requestUrl === url)!.payTo, amount: "98000" });
+  // ledgers 29.95, chain 29.95 (and chain 29.90, below them): the month cap proper
+  for (const chain of [29_950_000n, 29_900_000n]) {
+    const e = tempoEnv({ liveFor });
+    e.chain.month = chain;
+    const r = await e.run(selectSlots(targets, 1).slots, DATE, e.dayLedger(DATE), 29_950_000n);
+    assert.equal(e.signs(), 0);
+    assert.match(r.stopped!, /^month_cap_reached: 29950000 \(ledgers 29950000, chain \d+\) \+ 100000 > 30000000/);
+    assert.equal(isMonthCapStop(r.stopped), true);
+  }
+  // ledgers 29.95, chain 29.950001: one atomic unit left the key outside the ledgers
+  const e = tempoEnv({ liveFor });
+  e.chain.month = 29_950_001n;
+  const r = await e.run(selectSlots(targets, 1).slots, DATE, e.dayLedger(DATE), 29_950_000n);
+  assert.equal(e.signs(), 0);
+  assert.match(r.stopped!, /^chain_spend_exceeds_ledger: month outflow on chain 29950001 > ledgers 29950000/);
+  assert.equal(isMonthCapStop(r.stopped), false, "not an end: the runner halts");
+  assert.equal(runOutcome({ runs: [{ startedAt: "2026-10-13T01:17:41.000Z", endedAt: "2026-10-13T01:20:00.000Z", stopped: r.stopped, perPayTo: 1 }], rows: [] }, "2026-10-13T01:17:40.000Z").ok, false);
 });
 
 test("tempo B1: deleting the day ledger does not reopen the budget; no second signature", async () => {

@@ -561,6 +561,16 @@ test("plan: the Tempo purchase key in the plan: one that cannot sign leaves Temp
   assert.deepEqual(planVerdict({ ...plan(), signer: { kind: "access-key", problem: "expired", warn: null } }, "solana", "2026-10-01", 1), planVerdict(plan(), "solana", "2026-10-01", 1));
 });
 
+test("plan: a dry run that left slots out because the chain shows more spent than the ledgers stops (halt), even with nothing else to buy", () => {
+  const p = { ...plan({ chain: "tempo", would: 0, est: "0.000000", perRun: "1.000000" }), skipped: [{ url: "https://a.example/x", payTo: "0xab", slot: 0, reason: "chain_spend_exceeds_ledger", detail: "month outflow on chain 29950001 > ledgers 29950000; 29950001 + 100000 > 30000000" }] };
+  const v = planVerdict(p, "tempo", "2026-10-01", 1);
+  assert.ok(!v.pay && v.stop, v.line);
+  assert.match(v.line, /^tempo: chain_spend_exceeds_ledger: month outflow on chain 29950001 > ledgers 29950000/);
+  const cap = { ...p, skipped: [{ ...p.skipped[0]!, reason: "month_cap_reached", detail: "29990000 (ledgers 29990000, chain 29990000) + 100000 > 30000000" }] };
+  const c = planVerdict(cap, "tempo", "2026-10-01", 1);
+  assert.ok(!c.pay && !c.stop, "the month cap proper: nothing to buy, not a stop");
+});
+
 test("plan: the CLI exits 11 for a Tempo plan whose key cannot sign, and prints a WARN line next to a paying verdict", () => {
   const dir = tmp();
   const t = { ...plan({ chain: "tempo", would: 20, est: "0.500000", perRun: "1.000000" }) };
@@ -884,7 +894,12 @@ test("run.sh: no default end date: am runs after 2026-10-09 (JST); VET402_DAILY_
   const bad = calls(sb);
   const r3 = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-11-30T01:17:00Z"), VET402_DAILY_END: "2026-12" });
   assert.equal(r3.status, 1);
-  assert.match(alerts(sb), /am stopped: the end date for am is '2026-12', not YYYY-MM-DD/);
+  assert.match(alerts(sb), /am stopped: the end date for am is '2026-12', not a day in YYYY-MM-DD/);
+  for (const end of ["2026-13-01", "2026-02-30", "2026-00-10"]) {
+    const rx = runSh(sb, ["am"], { VET402_DAILY_NOW: at("2026-11-30T01:17:00Z"), VET402_DAILY_END: end });
+    assert.equal(rx.status, 1, end);
+    assert.match(alerts(sb), new RegExp(`the end date for am is '${end}', not a day in YYYY-MM-DD`));
+  }
   assert.equal(calls(sb), bad, "nothing ran");
   assert.ok(!existsSync(join(sb.state, "HALT-pay")), "a bad setting is not a halt: it stops until the setting is fixed");
   rmSync(sb.dir, { recursive: true });

@@ -142,10 +142,11 @@ main() {
   UTC_DAY="$(/bin/date -u -r "$NOW" +%Y-%m-%d)"
   UTC_HM="$(/bin/date -u -r "$NOW" +%H%M)"
 
-  # An end that is not a date stops the job (and says so): a typo must not mean "no end".
-  if [ -n "$END_DAY" ] && ! [[ "$END_DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  # An end that is not a date stops the job (and says so): a typo must not mean "no end". The shape, then the day
+  # itself read back (date -j -f rolls 2026-02-30 over to 2026-03-02 and refuses 2026-13-01).
+  if [ -n "$END_DAY" ] && { ! [[ "$END_DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || [ "$(/bin/date -j -f %Y-%m-%d "$END_DAY" +%Y-%m-%d 2>/dev/null)" != "$END_DAY" ]; }; then
     ALERTED=0
-    alert "the end date for $MODE is '$END_DAY', not YYYY-MM-DD (VET402_DAILY_END, VET402_RECORDS_END, VET402_BOARD_END in $envfile); nothing ran"
+    alert "the end date for $MODE is '$END_DAY', not a day in YYYY-MM-DD (VET402_DAILY_END, VET402_RECORDS_END, VET402_BOARD_END in $envfile); nothing ran"
     return 1
   fi
   if [ -n "$END_DAY" ] && [[ "$JST_DAY" > "$END_DAY" || "$JST_DAY" == "$END_DAY" ]]; then

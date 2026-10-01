@@ -51,6 +51,8 @@ interface DryRunFile {
   caps?: { perRun?: string; monthLeft?: string };
   summary?: { would?: number; estimate?: string; payerUsdcBefore?: string; payerUsdcEBefore?: string };
   rows?: { key?: string; outcome?: string; priceUsdc?: string | null }[];
+  /** Slots the dry run left out, with the cap or check that refused them (src/remeasure/loop.ts). */
+  skipped?: { reason?: string; detail?: string }[];
   signer?: PlanSigner;
 }
 
@@ -81,6 +83,9 @@ export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: st
   if (!Array.isArray(plan.rows)) return stop("the plan has no rows");
   const toBuy = plan.rows.filter((r) => r.outcome === "would_pay" && !(typeof r.key === "string" && bought.has(r.key)));
   if (plan.rows.some((r) => r.outcome === "would_pay" && typeof r.key !== "string")) return stop("a planned purchase has no key");
+  // Money left the key outside the ledgers (Tempo's month check, src/remeasure/tempo.ts): a stop, never "nothing to buy".
+  const outside = (plan.skipped ?? []).find((x) => x.reason === "chain_spend_exceeds_ledger");
+  if (outside) return stop(`chain_spend_exceeds_ledger: ${outside.detail ?? "the chain shows more spent than the ledgers"}`);
   const would = toBuy.length;
   const skipped = plan.rows.filter((r) => r.outcome === "would_pay").length - would;
   if (would === 0) return withWarn({ pay: false, stop: false, line: `${chain}: nothing to buy${skipped ? ` (${skipped} already in the ledger)` : ""}` });
