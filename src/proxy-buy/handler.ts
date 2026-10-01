@@ -72,7 +72,25 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 
 /** The client address as the platform reports it (Vercel sets x-real-ip; the node adapter overwrites it with the socket address). */
 function clientIp(req: Request): string {
-  return req.headers.get("x-real-ip")?.trim() || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return rateKeyOfIp(req.headers.get("x-real-ip")?.trim() || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown");
+}
+
+/**
+ * The rate limits count one IPv6 client per /64: a single host usually holds a whole /64, so counting each address
+ * would let one client multiply its limit (2026-10-02, handoff item 1). IPv4 and IPv4-mapped IPv6 stay per address.
+ */
+export function rateKeyOfIp(ip: string): string {
+  const v = ip.replace(/^\[|\]$/g, "").split("%")[0]!.toLowerCase();
+  if (!v.includes(":")) return v;
+  const mapped = /^(?:0{0,4}:){0,5}(?:0{0,4}:)?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v) ?? /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v);
+  if (mapped) return mapped[1]!;
+  const [head, tail] = v.includes("::") ? v.split("::", 2) as [string, string] : [v, null];
+  const left = head ? head.split(":") : [];
+  const right = tail === null ? [] : tail ? tail.split(":") : [];
+  if (tail === null && left.length !== 8) return v;
+  const groups = tail === null ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return v;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
 }
 
 function toResponse(a: PaidAnswer): Response {
