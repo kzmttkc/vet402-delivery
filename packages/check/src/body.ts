@@ -25,8 +25,6 @@ export function checkBody(r: CheckResult) {
     answered: b?.answered ?? 0,
     notCounted: b?.notCounted ?? 0,
     days: b?.days ?? 0,
-    /** "seller_not_told": a negative result is held until the seller has been told; the verdict is then "unknown". */
-    held: r.held,
     /** Purchases whose result is held until the seller is told (Robinhood Chain, Arbitrum): in no other number, not in the verdict. */
     heldPurchases: r.heldPurchases,
     heldNote: r.heldNote,

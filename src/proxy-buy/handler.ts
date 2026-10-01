@@ -55,7 +55,7 @@ export interface ProxyBuyOptions {
   reconcileGateMs?: number;
 }
 
-/** Default spacing of the reconcile turns that paid requests trigger (the cron runs every five minutes anyway). */
+/** Default spacing of the reconcile turns that paid requests trigger (the cron runs every 30 minutes anyway). */
 export const RECONCILE_GATE_MS = 30_000;
 
 export interface ProxyBuy {

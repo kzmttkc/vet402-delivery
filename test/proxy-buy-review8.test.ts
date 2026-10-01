@@ -178,8 +178,10 @@ test("zz8-M4: the runner reports a late reconciler and a read that is not the ex
   const now = new Date("2026-10-01T00:00:00Z");
   const fresh = itemsFor({ alerts: [], reconcilerLastRunAt: "2026-09-30T23:57:00Z" }, now);
   assert.equal(fresh.length, 0);
-  const late = itemsFor({ alerts: [], reconcilerLastRunAt: "2026-09-30T23:40:00Z" }, now);
-  assert.match(late[0]!.line, /the reconciler has not run in full since 2026-09-30T23:40:00Z/);
+  // The cron runs every 30 minutes: two missed runs in a row are not late, three are (RECONCILER_LATE_MS, 95 min).
+  assert.equal(itemsFor({ alerts: [], reconcilerLastRunAt: "2026-09-30T22:34:00Z" }, now).length, 0);
+  const late = itemsFor({ alerts: [], reconcilerLastRunAt: "2026-09-30T22:20:00Z" }, now);
+  assert.match(late[0]!.line, /the reconciler has not run in full since 2026-09-30T22:20:00Z/);
   assert.match(itemsFor({ alerts: [], reconcilerLastRunAt: null }, now)[0]!.line, /since \(never\)/);
   const a = toReport(late, { reported: {} }, now);
   assert.equal(a.lines.length, 1);

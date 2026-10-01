@@ -9,7 +9,7 @@
  */
 import { type PublicData } from "./sources.js";
 import { PUBLIC_SITE_URL } from "./sources.js";
-import { verdictFor, type Held, type Verdict, type VerdictBasis } from "./verdict.js";
+import { verdictFor, type Verdict, type VerdictBasis } from "./verdict.js";
 import { notifiedSellers, type NotifiedFile } from "../../../src/receipt/publish.js";
 
 export interface CheckInput {
@@ -109,8 +109,6 @@ export interface CheckResult {
   why: string;
   /** The seller figures the verdict rests on; null when vet402 has no record. */
   basis: VerdictBasis | null;
-  /** "seller_not_told": a negative result exists but is held until the seller has been told; the verdict is then "unknown". */
-  held: Held;
   /** Purchases held until the seller is told (Robinhood Chain, Arbitrum); not used for the verdict. */
   heldPurchases: number;
   /** One sentence on those purchases, also at the end of why; null when there are none. */
@@ -606,7 +604,6 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
     verdict: v.verdict,
     why: v.why,
     basis: v.basis,
-    held: v.held,
     heldPurchases: v.heldPurchases,
     heldNote: v.heldNote,
     kind: "vet402-check-before-paying",

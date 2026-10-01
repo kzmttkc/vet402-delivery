@@ -18,7 +18,7 @@
 #                                            today's board/<UTC day>.json on main has no completedAt and no board
 #                                            run is queued or running, it starts board.yml (mode=daily) once.
 #                                            The workflow itself buys once per UTC day, so a later run only checks.
-#   scripts/daily/run.sh proxy-alerts  every 15 min  reads the open proxy-buy ALERTs (api/alerts.ts, with the cron
+#   scripts/daily/run.sh proxy-alerts  :02 and :32   reads the open proxy-buy ALERTs (api/alerts.ts, with the cron
 #                                            secret) and writes each new one, or one still open a day later, to the
 #                                            alert file with a notification (scripts/daily/proxy-alerts.ts). Its own
 #                                            lock, so it never waits on or blocks a paying run; pays nothing.
@@ -683,7 +683,7 @@ program_root_day() {
 # ---------- proxy-alerts (the deployed proxy buy's open ALERTs) ----------
 
 # once_alert <stamp> <message>: an alert the first time only (until the stamp is removed); a watch that cannot
-# watch says so instead of stopping quietly, without a line every 15 minutes.
+# watch says so instead of stopping quietly, without a line every 30 minutes.
 once_alert() {
   if [ ! -f "$STATE/$1" ]; then
     /bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$STATE/$1"

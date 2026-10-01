@@ -167,7 +167,8 @@ test("Use it: the verdict first, the live answer built from the data, the hook's
   assert.ok(use.includes(`<pre class="cmd">${escapeHtml(JSON.stringify(live, null, 2))}</pre>`), "the answer on use.html is the endpoint's, byte for byte");
   assert.ok(use.includes("so it works under any x402 client that pays through <code>fetch</code>"));
   assert.ok(use.includes("the hook is not Solana-only"));
-  assert.ok(use.includes('avoid is given only once vet402 has told the seller, the same rule as for its signed records of failures. Until then the verdict is unknown, the JSON says <code>"held": "seller_not_told"</code>, and the fetch hook does not stop on it.'));
+  assert.ok(use.includes("On Robinhood Chain and Arbitrum, a purchase whose result is held until the seller is told is never used: the verdict comes from the published purchases, and the answer adds <code>heldPurchases</code> and <code>heldNote</code>. A seller with nothing but held purchases is unknown."));
+  assert.ok(!use.includes("seller_not_told") && !/has told the seller/.test(use), "no word on verdicts held back from sellers not told");
   const line = laneVerdictLine(pub, recordsIndex, lanes, notified);
   assert.match(line, /^As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown:/);
   assert.ok(use.includes(escapeHtml(line)));

@@ -9,11 +9,10 @@
  * verdict.ts, the function the CLI, the MCP tool and the fetch hook read. The numbers in `why` are the
  * fields right after it (`tried`, `settled`, `counted`, `answered`, `days`, `notCounted`).
  */
-import { CHECK_ENDPOINT, checkForm, escapeHtml, publicPage } from "../../../src/rank/html.js";
+import { CHECK_ENDPOINT, checkForm, escapeHtml, publicPage, VERDICT_CSS, VERDICT_LINE, verdictBadge } from "../../../src/rank/html.js";
 import { checkBody } from "./body.js";
 import { lookup, normalizeChain } from "./check.js";
 import { PUBLIC_SITE_URL } from "./sources.js";
-import { VERDICTS } from "./verdict.js";
 
 export { checkBody };
 
@@ -112,11 +111,6 @@ function html(status: number, page: string, cache = CACHE): Response {
   });
 }
 
-const VERDICT_TEXT: Record<(typeof VERDICTS)[number], string> = {
-  pay: "pay: most of vet402's paid purchases from this seller came back with an answer",
-  avoid: "avoid: vet402 paid this seller, and most of those payments got no usable answer",
-  unknown: "unknown: not enough to tell",
-};
 
 function htmlPage(q: CheckQuery | null, body: ReturnType<typeof checkBody> | null, error: string | null): string {
   const back = `<p class="meta"><a href="${escapeHtml(PUBLIC_SITE_URL)}/">All sellers vet402 bought from</a> · <a href="${escapeHtml(PUBLIC_SITE_URL)}/method.html">How vet402 measures</a></p>`;
@@ -132,9 +126,9 @@ function htmlPage(q: CheckQuery | null, body: ReturnType<typeof checkBody> | nul
       ? [row("Held", `${body.heldPurchases} purchase${body.heldPurchases === 1 ? "" : "s"}, shown after the seller is told`)]
       : [
           row("Tried / settled", `${body.tried} / ${body.settled}`),
-          row("Came back with an answer / paid calls that count", `${body.answered} / ${body.counted}`),
+          row("Paid calls answered", `${body.answered} of ${body.counted}`),
           row("Not counted against the seller", String(body.notCounted)),
-          row("Days with paid calls that count", String(body.days)),
+          row("Days with paid calls", String(body.days)),
           ...(body.heldPurchases ? [row("Held", `${body.heldPurchases} more, shown after the seller is told`)] : []),
         ]),
     body.newest
@@ -148,8 +142,10 @@ function htmlPage(q: CheckQuery | null, body: ReturnType<typeof checkBody> | nul
   ].filter(Boolean);
   const content = `<h1>Check a seller before you pay</h1>
 <p class="mono">${escapeHtml(body.url)}</p>
-<p class="big">${escapeHtml(VERDICT_TEXT[body.verdict])}</p>
+<style>${VERDICT_CSS}</style>
+<p class="big">${verdictBadge(body.verdict)}</p>
 <p class="lead">${escapeHtml(body.why)}</p>
+<p class="meta">${escapeHtml(VERDICT_LINE)}</p>
 <table>${rows.join("")}</table>
 ${body.sellerPage ? `<p><a href="${escapeHtml(body.sellerPage)}">Every purchase vet402 made from this seller</a></p>` : ""}
 <p class="meta">${escapeHtml(body.rule)}</p>

@@ -33,8 +33,16 @@ export interface ReportState {
 
 /** Report again something still true this long after it was last reported. */
 export const REPORT_AGAIN_MS = 24 * 3_600_000;
-/** The cron runs every five minutes: a last full run older than this means it stopped. */
-export const RECONCILER_LATE_MS = 15 * 60_000;
+/** The reconciler cron (vercel.json, every 30 minutes): at :00 and :30. */
+export const RECONCILE_EVERY_MS = 30 * 60_000;
+/** The longest a reconcile run can take before it records its full run (vercel.json maxDuration of api/reconcile.ts). */
+export const RECONCILE_MAX_RUN_MS = 300_000;
+/**
+ * A last full run older than this means the cron stopped: three intervals and one run's time, so two runs in a
+ * row may be missed or cut short (as the 15 minutes did for the old five-minute cron) without a false alarm.
+ * The runner reads at :02 and :32, while the run that started at :00 or :30 may still be going.
+ */
+export const RECONCILER_LATE_MS = 3 * RECONCILE_EVERY_MS + RECONCILE_MAX_RUN_MS;
 
 export function lineFor(a: ProxyAlert): string {
   const reason = a.reason.replace(/\s+/g, " ").slice(0, 400);

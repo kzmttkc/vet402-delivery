@@ -91,8 +91,8 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <li><span class="v v-avoid">avoid</span> vet402 paid, and most paid calls were not answered: the interval's upper bound is below 0.5 (the line for grade D), over 2 or more days.</li>
 <li><span class="v v-unknown">unknown</span> Too little data, or vet402 never bought from this seller. With 1 to 3 counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
 </ul>
-<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. A result held until the seller is told is never used: unknown.</p>
-<p class="meta">avoid is given only once vet402 has told the seller, the same rule as for its signed records of failures. Until then the verdict is unknown, the JSON says <code>"held": "seller_not_told"</code>, and the fetch hook does not stop on it. <a href="https://github.com/kzmttkc/vet402-delivery/blob/main/packages/check/src/verdict.ts" rel="noopener noreferrer nofollow">The rule in code</a></p>
+<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown.</p>
+<p class="meta">On Robinhood Chain and Arbitrum, a purchase whose result is held until the seller is told is never used: the verdict comes from the published purchases, and the answer adds <code>heldPurchases</code> and <code>heldNote</code>. A seller with nothing but held purchases is unknown. <a href="https://github.com/kzmttkc/vet402-delivery/blob/main/packages/check/src/verdict.ts" rel="noopener noreferrer nofollow">The rule in code</a></p>
 <p class="meta">As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown: vet402 bought from them in one run, on one day, which is too little to say pay or avoid.</p>
 
 <h2 id="http">HTTP: GET /v1/check</h2>
@@ -102,7 +102,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <p>The answer for that URL, built by the same code from the same data as the live endpoint (rank.json of 2026-10-01):</p>
 <pre class="cmd">{
   &quot;verdict&quot;: &quot;avoid&quot;,
-  &quot;why&quot;: &quot;vet402 paid this seller 6 times on Solana over 4 days; 0 of the 6 that count came back with an answer (the newest failed one answered HTTP 500).&quot;,
+  &quot;why&quot;: &quot;vet402 paid this seller 6 times on Solana over 4 days; 0 of 6 paid calls answered (the newest failed one answered HTTP 500).&quot;,
   &quot;url&quot;: &quot;https://api.xona-agent.com/token/pumpfun-trending&quot;,
   &quot;chain&quot;: null,
   &quot;payTo&quot;: null,
@@ -116,7 +116,6 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
   &quot;answered&quot;: 0,
   &quot;notCounted&quot;: 0,
   &quot;days&quot;: 4,
-  &quot;held&quot;: null,
   &quot;heldPurchases&quot;: 0,
   &quot;heldNote&quot;: null,
   &quot;interval&quot;: {

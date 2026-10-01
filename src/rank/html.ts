@@ -578,9 +578,9 @@ function topCheckForm(): string {
 export const TOP_EXAMPLES = ["https://api.xona-agent.com/token/pumpfun-trending", "https://brasil-dados-api.onrender.com/cambio"] as const;
 const NO_RECORDS = { kind: "vet402-observation-records", records: [], days: [] };
 
-/** "0 of 6 paid calls answered.": answered out of settled, from the figures the verdict rests on. */
-export function paidCallsLine(c: { basis: { answered: number; settled: number } | null }): string {
-  return c.basis ? `${c.basis.answered} of ${c.basis.settled} paid calls answered.` : "Never bought.";
+/** "0 of 6 paid calls answered.": answered out of the paid calls that count, the figures the verdict rests on. */
+export function paidCallsLine(c: { basis: { answered: number; counted: number } | null }): string {
+  return c.basis ? `${c.basis.answered} of ${c.basis.counted} paid calls answered.` : "Never bought.";
 }
 
 /** Each example links to the check itself (the answer page fills the field and shows the verdict). */
@@ -792,8 +792,8 @@ ${siteNav("use")}
 <li>${verdictBadge("avoid")} vet402 paid, and most paid calls were not answered: the interval's upper bound is below ${D_UPPER_LINE} (the line for grade D), over ${MIN_DAYS_VERDICT} or more days.</li>
 <li>${verdictBadge("unknown")} Too little data, or vet402 never bought from this seller. With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
 </ul>
-<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. A result held until the seller is told is never used: unknown.</p>
-<p class="meta">avoid is given only once vet402 has told the seller, the same rule as for its signed records of failures. Until then the verdict is unknown, the JSON says <code>"held": "seller_not_told"</code>, and the fetch hook does not stop on it. <a href="${escapeHtml(GH("packages/check/src/verdict.ts"))}" rel="noopener noreferrer nofollow">The rule in code</a></p>
+<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown.</p>
+<p class="meta">On Robinhood Chain and Arbitrum, a purchase whose result is held until the seller is told is never used: the verdict comes from the published purchases, and the answer adds <code>heldPurchases</code> and <code>heldNote</code>. A seller with nothing but held purchases is unknown. <a href="${escapeHtml(GH("packages/check/src/verdict.ts"))}" rel="noopener noreferrer nofollow">The rule in code</a></p>
 ${laneLine ? `<p class="meta">${escapeHtml(laneLine)}</p>` : ""}
 
 <h2 id="http">HTTP: GET /v1/check</h2>
