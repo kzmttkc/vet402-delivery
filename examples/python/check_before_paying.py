@@ -13,17 +13,19 @@ It asks GET https://vet402-delivery.vercel.app/v1/check (free, no key, no paymen
 
 Exit 0 to go on, 1 on avoid, 2 on bad input.
 
-In your own code, put `pay_after_check(url, pay)` where you pay, or register `vet402_before_payment` on the
-x402 Python client (pip install "x402[requests]"), so it runs before the client signs a payment:
+In your own code, put `pay_after_check(url, pay)` where you pay, or register `vet402_on_payment_required`
+on the x402 Python HTTP client (pip install "x402[requests]"). It runs on every 402, with the URL your
+code requested, before the client signs anything:
 
     from x402 import x402ClientSync
-    from x402.http.clients import x402_requests, PaymentError
-    from check_before_paying import vet402_before_payment
+    from x402.http import x402HTTPClientSync
+    from x402.http.clients.requests import x402_requests, PaymentError
+    from check_before_paying import vet402_on_payment_required
 
     client = x402ClientSync()
     # client.register(<network>, <scheme client>)   your schemes and signer, as usual
-    client.on_before_payment_creation(vet402_before_payment)
-    session = x402_requests(client)
+    http_client = x402HTTPClientSync(client).on_payment_required(vet402_on_payment_required)
+    session = x402_requests(http_client)
     try:
         session.get("https://api.example.com/paid")
     except PaymentError as e:
@@ -56,6 +58,7 @@ CHAIN_IDS = {
     "eip155:4663": "robinhood",
 }
 PAY_TO = re.compile(r"^[A-Za-z0-9]{1,128}$")
+UNREADABLE = "vet402's record could not be read"
 
 T = TypeVar("T")
 
@@ -102,13 +105,13 @@ def should_pay(url: str, chain: Optional[str] = None, pay_to: Optional[str] = No
     try:
         answer = check(url, chain, pay_to)
     except json.JSONDecodeError as e:  # before ValueError: it is one
-        return True, f"vet402's record could not be read ({e}); going on without it."
+        return True, f"{UNREADABLE} ({e}); going on without it."
     except ValueError:
         raise
     except OSError as e:
-        return True, f"vet402's record could not be read ({e}); going on without it."
+        return True, f"{UNREADABLE} ({e}); going on without it."
     if not isinstance(answer, dict):
-        return True, "vet402's answer was not a JSON object; going on without it."
+        return True, f"{UNREADABLE} (the answer was not a JSON object); going on without it."
     verdict = answer.get("verdict")
     why = f"vet402: {verdict}. {answer.get('why', '')}".strip()
     if verdict == "avoid":
@@ -126,26 +129,40 @@ def pay_after_check(url: str, pay: Callable[[str], T], chain: Optional[str] = No
     return pay(url)
 
 
-def vet402_before_payment(ctx: Any) -> Any:
-    """A before-payment hook for the x402 Python client (x402ClientSync.on_before_payment_creation).
+class Vet402Avoid(Exception):
+    """Raised by vet402_on_payment_required on avoid. The x402 requests client turns it into its PaymentError."""
 
-    Reads the resource URL, network and payTo of the requirement the client is about to pay, and returns
-    x402's AbortResult on avoid, so the payment is never created. Returns None to go on.
+
+def vet402_on_payment_required(ctx: Any) -> None:
+    """An on_payment_required hook for the x402 Python HTTP client (x402HTTPClientSync).
+
+    Looks up `ctx.request_url` (the URL the code requested, not one the 402 names) once for each network and
+    payTo the 402 offers, and raises Vet402Avoid when any of them is avoid: the client cannot know yet which
+    offer it will pay, so the same rule as the fetch hook. Returns None to go on (pay, unknown, a record that
+    cannot be read, which prints one line to stderr, or a URL /v1/check does not take).
     """
-    req = ctx.selected_requirements
-    resource = getattr(ctx.payment_required, "resource", None)
-    url = getattr(resource, "url", None) or getattr(req, "resource", None)
-    if not isinstance(url, str) or not url.startswith("https://"):
+    url = getattr(ctx, "request_url", None)
+    if not isinstance(url, str) or not url:
         return None
-    try:
-        ok, why = should_pay(url, getattr(req, "network", None), getattr(req, "pay_to", None))
-    except ValueError:  # a URL /v1/check refuses (400): nothing to look up, go on
-        return None
-    if ok:
-        return None
-    from x402 import AbortResult
-
-    return AbortResult(reason="vet402_avoid", message=why)
+    offers = getattr(ctx.payment_required, "accepts", None) or [None]
+    asks = []
+    for o in offers:
+        ask = (getattr(o, "network", None), getattr(o, "pay_to", None))
+        if ask not in asks:
+            asks.append(ask)
+    said = False
+    for network, pay_to in asks:
+        try:
+            ok, why = should_pay(url, network, pay_to)
+        except ValueError as e:  # a URL /v1/check refuses (400): nothing to look up
+            print(f"vet402: {url} was not looked up ({e}); going on.", file=sys.stderr)
+            return None
+        if not ok:
+            raise Vet402Avoid(why)
+        if why.startswith(UNREADABLE) and not said:  # one line, however many offers
+            print(why, file=sys.stderr)
+            said = True
+    return None
 
 
 def main(argv: list) -> int:

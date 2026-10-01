@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-import dataclasses
+import base64
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -63,12 +65,6 @@ class Mock(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-@dataclasses.dataclass
-class FakeAbortResult:
-    reason: str
-    message: object = None
-
-
 class CheckBeforePayingTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -78,17 +74,10 @@ class CheckBeforePayingTest(unittest.TestCase):
         cls.endpoint = f"http://127.0.0.1:{cls.server.server_address[1]}/v1/check"
         cls.saved = cbp.CHECK_ENDPOINT
         cbp.CHECK_ENDPOINT = cls.endpoint
-        # x402's AbortResult, without installing x402: the hook imports it only on avoid.
-        cls.saved_x402 = sys.modules.get("x402")
-        sys.modules["x402"] = types.SimpleNamespace(AbortResult=FakeAbortResult)
 
     @classmethod
     def tearDownClass(cls):
         cbp.CHECK_ENDPOINT = cls.saved
-        if cls.saved_x402 is None:
-            sys.modules.pop("x402", None)
-        else:
-            sys.modules["x402"] = cls.saved_x402
         cls.server.shutdown()
         cls.server.server_close()
 
@@ -143,32 +132,45 @@ class CheckBeforePayingTest(unittest.TestCase):
         self.assertEqual(cbp.chain_param("algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k"), "algorand")
         self.assertEqual(cbp.chain_param("Base"), "base")
 
-    def test_x402_hook_aborts_on_avoid(self):
-        req = types.SimpleNamespace(network="solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", pay_to="PayTo111")
-        v2 = types.SimpleNamespace(payment_required=types.SimpleNamespace(resource=types.SimpleNamespace(url=AVOID_URL)), selected_requirements=req)
-        out = cbp.vet402_before_payment(v2)
-        self.assertIsInstance(out, FakeAbortResult)
-        self.assertEqual(out.reason, "vet402_avoid")
-        self.assertIn("vet402: avoid.", out.message)
+    def ctx(self, request_url, offers):
+        accepts = [types.SimpleNamespace(network=n, pay_to=p) for n, p in offers]
+        return types.SimpleNamespace(request_url=request_url, payment_required=types.SimpleNamespace(accepts=accepts))
+
+    def test_x402_hook_raises_on_avoid_with_the_requested_url(self):
+        ctx = self.ctx(AVOID_URL, [("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "PayTo111")])
+        with self.assertRaises(cbp.Vet402Avoid) as e:
+            cbp.vet402_on_payment_required(ctx)
+        self.assertIn("vet402: avoid.", str(e.exception))
         self.assertEqual(Mock.seen[-1], {"url": AVOID_URL, "chain": "solana", "payTo": "PayTo111"})
-        # x402 v1: the URL is on the requirement.
-        v1 = types.SimpleNamespace(payment_required=types.SimpleNamespace(), selected_requirements=types.SimpleNamespace(network="base", pay_to="0x1", resource=AVOID_URL))
-        self.assertIsInstance(cbp.vet402_before_payment(v1), FakeAbortResult)
+
+    def test_x402_hook_asks_once_per_offer(self):
+        ctx = self.ctx(PAY_URL, [("eip155:8453", "0x1"), ("eip155:8453", "0x1"), ("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "So1")])
+        self.assertIsNone(cbp.vet402_on_payment_required(ctx))
+        self.assertEqual([q.get("chain") for q in Mock.seen], ["base", "solana"])
 
     def test_x402_hook_goes_on(self):
-        req = types.SimpleNamespace(network="eip155:8453", pay_to="0x1")
-        for url in (PAY_URL, UNKNOWN_URL):
-            ctx = types.SimpleNamespace(payment_required=types.SimpleNamespace(resource=types.SimpleNamespace(url=url)), selected_requirements=req)
-            self.assertIsNone(cbp.vet402_before_payment(ctx))
-        no_url = types.SimpleNamespace(payment_required=types.SimpleNamespace(resource=None), selected_requirements=req)
-        self.assertIsNone(cbp.vet402_before_payment(no_url))
+        for url in (PAY_URL, UNKNOWN_URL, "http://plain.example/"):
+            self.assertIsNone(cbp.vet402_on_payment_required(self.ctx(url, [("eip155:8453", "0x1")])))
+        self.assertIsNone(cbp.vet402_on_payment_required(types.SimpleNamespace(request_url="", payment_required=None)))
+
+    def test_x402_hook_says_when_the_record_cannot_be_read(self):
+        saved = cbp.CHECK_ENDPOINT
+        err = io.StringIO()
+        try:
+            cbp.CHECK_ENDPOINT = "http://127.0.0.1:9/v1/check"
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(cbp.vet402_on_payment_required(self.ctx(AVOID_URL, [("eip155:8453", "0x1"), ("solana", "So1")])))
+        finally:
+            cbp.CHECK_ENDPOINT = saved
+        self.assertTrue(err.getvalue().startswith(cbp.UNREADABLE), err.getvalue())
+        self.assertEqual(err.getvalue().count("\n"), 1, "one line")
 
     def test_command_line_exit_codes(self):
         script = os.path.join(HERE, "check_before_paying.py")
         env = {**os.environ, "VET402_CHECK_ENDPOINT": self.endpoint}
 
         def run(*args):
-            return subprocess.run([sys.executable, script, *args], env=env, capture_output=True, text=True, timeout=30)
+            return subprocess.run([sys.executable, "-B", script, *args], env=env, capture_output=True, text=True, timeout=30)
 
         avoid = run(AVOID_URL)
         self.assertEqual(avoid.returncode, 1, avoid.stderr)
@@ -177,6 +179,109 @@ class CheckBeforePayingTest(unittest.TestCase):
         self.assertEqual(run(UNKNOWN_URL, "--chain", "base").returncode, 0)
         self.assertEqual(run("http://plain.example/").returncode, 2)
         self.assertEqual(run().returncode, 2)
+
+
+try:
+    import x402  # noqa: F401
+    from x402.http import x402HTTPClientSync  # noqa: F401
+    from x402.http.clients.requests import PaymentError, x402_requests  # noqa: F401
+
+    HAVE_X402 = True
+except ImportError:
+    HAVE_X402 = False
+
+
+@unittest.skipUnless(HAVE_X402, 'x402 is not installed (pip install "x402[requests]" to run this end to end)')
+class RealX402ClientTest(unittest.TestCase):
+    """The hook in the real x402 requests client: a local seller answers 402, a stub scheme stands in for the signer."""
+
+    verdict = "avoid"
+
+    @classmethod
+    def setUpClass(cls):
+        test = cls
+
+        class Seller(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                if self.path.startswith("/v1/check"):
+                    test.asked.append(dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.path).query)))
+                    if test.verdict == "down":
+                        self.send_response(503)
+                        self.end_headers()
+                        return
+                    body = json.dumps({"verdict": test.verdict, "why": "test"}).encode()
+                    self.send_response(200)
+                    self.send_header("content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if self.headers.get("PAYMENT-SIGNATURE"):
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"paid")
+                    return
+                pr = {
+                    "x402Version": 2,
+                    "resource": {"url": "https://another-name.example/paid"},
+                    "accepts": [{"scheme": "exact", "network": "eip155:8453", "asset": "0xA", "amount": "1000", "payTo": "0xabc", "maxTimeoutSeconds": 60, "extra": {}}],
+                }
+                self.send_response(402)
+                self.send_header("PAYMENT-REQUIRED", base64.b64encode(json.dumps(pr).encode()).decode())
+                self.end_headers()
+
+        cls.asked = []
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Seller)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        cls.saved = cbp.CHECK_ENDPOINT
+        cbp.CHECK_ENDPOINT = cls.base + "/v1/check"
+
+    @classmethod
+    def tearDownClass(cls):
+        cbp.CHECK_ENDPOINT = cls.saved
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def session(self, signed):
+        from x402 import x402ClientSync
+        from x402.http import x402HTTPClientSync
+        from x402.http.clients.requests import x402_requests
+
+        class StubScheme:
+            scheme = "exact"
+
+            def create_payment_payload(self, requirements):
+                signed.append(requirements)
+                return {"signature": "0xstub"}
+
+        client = x402ClientSync()
+        client.set_spend_controls(False)
+        client.register("eip155:8453", StubScheme())
+        return x402_requests(x402HTTPClientSync(client).on_payment_required(cbp.vet402_on_payment_required))
+
+    def test_avoid_raises_payment_error_and_nothing_is_signed(self):
+        from x402.http.clients.requests import PaymentError
+
+        type(self).verdict = "avoid"
+        signed = []
+        with self.assertRaises(PaymentError) as e:
+            self.session(signed).get(self.base + "/paid")
+        self.assertEqual(signed, [])
+        self.assertIn("vet402: avoid.", str(e.exception))
+        self.assertEqual(self.asked[-1]["url"], self.base + "/paid", "the requested URL, not the one the 402 names")
+
+    def test_pay_unknown_and_down_go_on(self):
+        for v in ("pay", "unknown", "down"):
+            type(self).verdict = v
+            signed = []
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                r = self.session(signed).get(self.base + "/paid")
+            self.assertEqual((r.status_code, len(signed)), (200, 1), v)
+            self.assertEqual(err.getvalue().startswith(cbp.UNREADABLE), v == "down", err.getvalue())
 
 
 if __name__ == "__main__":

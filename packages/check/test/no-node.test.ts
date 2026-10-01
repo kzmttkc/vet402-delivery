@@ -73,7 +73,7 @@ test("the handler on loopback: XONA is avoid on these fixtures, an unknown selle
 test("Python example: its own tests pass (python3, standard library, a mock of /v1/check)", { skip: !PYTHON && "no python3" }, async () => {
   const r = await run("python3", ["-B", "-m", "unittest", "discover", "-s", join(ROOT, "examples", "python"), "-p", "test_*.py"]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /Ran 8 tests[\s\S]*\nOK\n/);
+  assert.match(r.stderr, /Ran 12 tests[\s\S]*\nOK( \(skipped=2\))?\n/, "12 tests; the 2 with the real x402 client run where x402 is installed");
 });
 
 test("Python example against the real handler: avoid exits 1 and says why; unknown goes on; chain and payTo reach the query", { skip: !PYTHON && "no python3" }, async () => {

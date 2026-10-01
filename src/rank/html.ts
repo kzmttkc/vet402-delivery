@@ -762,7 +762,7 @@ export const CURL_LINES = [
   `# with jq`,
   `curl -fsSG -m 10 ${CHECK_ENDPOINT} --data-urlencode "url=$URL" | jq -e '.verdict != "avoid"' >/dev/null && pay "$URL"`,
   `# without jq`,
-  `curl -fsSG -m 10 ${CHECK_ENDPOINT} --data-urlencode "url=$URL" | grep -Eq '"verdict": *"(pay|unknown)"' && pay "$URL"`,
+  `curl -fsSG -m 10 ${CHECK_ENDPOINT} --data-urlencode "url=$URL" | grep -o '"verdict": *"[a-z]*"' | head -1 | grep -Eq 'pay|unknown' && pay "$URL"`,
 ] as const;
 
 /** The Use it page (use.html), for developers: each way in, with a minimal example and the full spec. */
@@ -836,7 +836,7 @@ ${spec(GH("packages/check/src/http.ts"), "Spec: packages/check/src/http.ts")}
 <h2 id="python">Python</h2>
 <p>Standard library only: ask before paying, and pay only when the verdict is not avoid.</p>
 <pre class="cmd">${escapeHtml(PYTHON_SNIPPET)}</pre>
-<p class="meta">With the x402 Python client, register the example file's hook: <code>client.on_before_payment_creation(vet402_before_payment)</code> runs before the client signs, and on avoid the payment is never created. The file also sends the chain and payTo of the 402, and, like the fetch hook, goes on when the record cannot be read.</p>
+<p class="meta">With the x402 Python client, register the example file's hook: <code>x402HTTPClientSync(client).on_payment_required(vet402_on_payment_required)</code> looks up the URL your code requested on every 402, before the client signs; on avoid the request raises <code>PaymentError</code> and the payment is never created. The file also sends the chain and payTo of each offer, and, like the fetch hook, goes on when the record cannot be read, saying so in one line.</p>
 ${spec(GH("examples/python/check_before_paying.py"), "Spec: examples/python/check_before_paying.py")}
 
 <h2 id="curl">Shell: curl</h2>

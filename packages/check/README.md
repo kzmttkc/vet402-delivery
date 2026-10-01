@@ -30,7 +30,7 @@ claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp
 
 The same lookup over HTTP, free and with no key: `GET https://vet402-delivery.vercel.app/v1/check?url=<seller URL>` (optional `chain` and `payTo`). The answer starts with `verdict` and `why` ([what the verdict means](https://kzmttkc.github.io/vet402-delivery/use.html#verdict)).
 
-- Python, standard library only: [`examples/python/check_before_paying.py`](https://github.com/kzmttkc/vet402-delivery/blob/main/examples/python/check_before_paying.py). A command, a `pay_after_check(url, pay)` function, and a hook for the x402 Python client (`client.on_before_payment_creation(vet402_before_payment)`) that runs before the client signs.
+- Python, standard library only: [`examples/python/check_before_paying.py`](https://github.com/kzmttkc/vet402-delivery/blob/main/examples/python/check_before_paying.py). A command, a `pay_after_check(url, pay)` function, and a hook for the x402 Python HTTP client (`x402HTTPClientSync(client).on_payment_required(vet402_on_payment_required)`) that looks up the requested URL on every 402, before the client signs.
 - curl, one line each with jq and without: [use.html#curl](https://kzmttkc.github.io/vet402-delivery/use.html#curl).
 
 ## The command line
