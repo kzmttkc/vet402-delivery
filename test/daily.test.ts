@@ -880,7 +880,17 @@ const a = process.argv.slice(2), v = (n: string) => a[a.indexOf(n) + 1];
 appendFileSync(process.env.FAKE_CALLS!, "evm-publish " + a.join(" ") + "\\n");
 if (process.env.FAKE_EVM_PUBLISH_FAIL === v("--lane")) process.exit(1);
 mkdirSync(v("--data") + "/evm", { recursive: true });
-writeFileSync(v("--data") + "/evm/" + v("--lane") + ".json", JSON.stringify({ page: v("--lane"), at: process.env.VET402_DAILY_NOW }) + "\\n");
+writeFileSync(v("--data") + "/evm/" + v("--lane") + ".json", JSON.stringify({ page: v("--lane"), v: process.env.FAKE_EVM_PAGE ?? "1" }) + "\\n");
+`,
+  // The chain check: writes results/evm/<lane>-chaincheck.jsonl in the checkout (FAKE_EVM_CC_FAIL=<lane>:<exit code>).
+  "evm-chaincheck.ts": `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+const a = process.argv.slice(2), lane = a[a.indexOf("--lane") + 1];
+appendFileSync(process.env.FAKE_CALLS!, "evm-chaincheck " + a.join(" ") + " EVM_KEY_DIR=" + process.env.EVM_KEY_DIR + "\\n");
+const [fl, code] = (process.env.FAKE_EVM_CC_FAIL ?? "").split(":");
+if (fl === lane && code !== "3") process.exit(Number(code));
+mkdirSync("results/evm", { recursive: true });
+writeFileSync("results/evm/" + lane + "-chaincheck.jsonl", "{}\\n");
+if (fl === lane) process.exit(3);
 `,
   "evm-roots-publish.ts": `import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), data = a[a.indexOf("--data") + 1];
@@ -1559,7 +1569,7 @@ test("board: dry run, an unreadable file, or on/after VET402_BOARD_END (JST): no
 function evmBox(opts: { enabled?: boolean; records?: boolean } = {}) {
   const sb = sandbox({ records: true });
   mkdirSync(join(sb.repo, "results", "evm"), { recursive: true });
-  for (const l of ["robinhood", "arbitrum"]) writeFileSync(join(sb.repo, "results", "evm", `${l}-purchases.jsonl`), "{}\n");
+  for (const l of ["robinhood", "arbitrum", "base-compare"]) writeFileSync(join(sb.repo, "results", "evm", `${l}-purchases.jsonl`), "{}\n");
   mkdirSync(join(sb.dir, "keys"), { recursive: true });
   writeFileSync(join(sb.dir, "keys", "evm-roots-poster.json"), "{}");
   if (opts.enabled !== false) writeFileSync(join(sb.home, ".config", "vet402-daily", "evm-roots-enabled"), "");
@@ -1568,13 +1578,21 @@ function evmBox(opts: { enabled?: boolean; records?: boolean } = {}) {
 }
 const EVM_DAYS = { FAKE_EVM_DAYS: "robinhood:2026-09-30,arbitrum:2026-09-30" };
 const evmCalls = (sb: Sandbox) => calls(sb).split("\n").filter((l) => l.startsWith("evm-"));
+const pageCalls = (sb: Sandbox) => [
+  `evm-chaincheck --lane robinhood EVM_KEY_DIR=${join(sb.dir, "keys")}`,
+  `evm-publish --lane robinhood --data ${sb.pub}/data`,
+  `evm-chaincheck --lane arbitrum EVM_KEY_DIR=${join(sb.dir, "keys")}`,
+  `evm-chaincheck --lane base-compare EVM_KEY_DIR=${join(sb.dir, "keys")}`,
+  `evm-publish --lane arbitrum --data ${sb.pub}/data`,
+];
 
-test("records: without evm-roots-enabled (the default) no EVM root is planned or written", () => {
+
+test("records: without evm-roots-enabled (the default) no EVM root is planned or written; the lane pages are still read on chain", () => {
   const sb = evmBox({ enabled: false });
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS });
   assert.equal(r.status, 0, logs(sb));
-  assert.deepEqual(evmCalls(sb), []);
-  assert.match(logs(sb), /no closed day with purchases waits for its records/);
+  assert.ok(!evmCalls(sb).some((l) => l.startsWith("evm-anchor") || l.startsWith("evm-roots-publish")), evmCalls(sb).join("\n"));
+  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM lane pages read again on chain");
   rmSync(sb.dir, { recursive: true });
 });
 
@@ -1584,22 +1602,22 @@ test("records: with evm-roots-enabled, each lane-day with purchases is planned, 
   assert.equal(r.status, 0, logs(sb));
   const keys = join(sb.dir, "keys");
   assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), [
+    ...pageCalls(sb),
     "evm-anchor --lane robinhood --day 2026-09-30",
     `evm-anchor --lane robinhood --day 2026-09-30 --send VET402_ANCHOR_SEND=robinhood EVM_KEY_DIR=${keys}`,
     "evm-anchor --lane arbitrum --day 2026-09-30",
     `evm-anchor --lane arbitrum --day 2026-09-30 --send VET402_ANCHOR_SEND=arbitrum EVM_KEY_DIR=${keys}`,
-    `evm-publish --lane robinhood --data ${sb.pub}/data`,
-    `evm-publish --lane arbitrum --data ${sb.pub}/data`,
     "evm-roots-publish",
   ]);
-  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots robinhood:2026-09-30,arbitrum:2026-09-30");
+  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots robinhood:2026-09-30,arbitrum:2026-09-30; EVM lane pages read again on chain");
   assert.ok(git(sb.origin, "show", "--name-only", "--format=", "main").split("\n").includes("data/evm/roots/arbitrum.json"));
   assert.equal(alerts(sb), "");
   // Written and on main: the next run has nothing to do, and a day with no purchase never gets a root.
   const before = evmCalls(sb).length;
   const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), ...EVM_DAYS });
   assert.equal(r2.status, 0, logs(sb));
-  assert.ok(evmCalls(sb).slice(before).every((l) => l.includes("--open-days") || l.includes("--check")), evmCalls(sb).join("\n"));
+  assert.ok(!evmCalls(sb).slice(before).some((l) => l.startsWith("evm-anchor --lane") && l.includes("--day")), evmCalls(sb).join("\n"));
+  assert.match(logs(sb), /no closed day with purchases waits for its records, and the EVM lane pages are unchanged/);
   rmSync(sb.dir, { recursive: true });
 });
 
@@ -1641,13 +1659,13 @@ test("records: with no day to write, a published roots file that today's rules j
   const sb = evmBox();
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), FAKE_EVM_REFRESH: "1" });
   assert.equal(r.status, 0, logs(sb));
-  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", `evm-publish --lane robinhood --data ${sb.pub}/data`, `evm-publish --lane arbitrum --data ${sb.pub}/data`, "evm-roots-publish"]);
-  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots judged again with today's rules");
+  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", ...pageCalls(sb), "evm-roots-publish"]);
+  assert.equal(git(sb.origin, "log", "-1", "--format=%s", "main"), "records: EVM daily roots judged again with today's rules; EVM lane pages read again on chain");
   const before = evmCalls(sb).length;
   const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:20:00Z"), FAKE_EVM_REFRESH: "1" });
   assert.equal(r2.status, 0, logs(sb));
-  assert.deepEqual(evmCalls(sb).slice(before).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check"], "nothing to judge again");
-  assert.match(logs(sb), /no closed day with purchases waits for its records/);
+  assert.deepEqual(evmCalls(sb).slice(before).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", ...pageCalls(sb)], "nothing to judge again");
+  assert.match(logs(sb), /no closed day with purchases waits for its records, and the EVM lane pages are unchanged/);
   rmSync(sb.dir, { recursive: true });
 });
 
@@ -1676,4 +1694,39 @@ test("records: a roots file that cannot be made puts the new lane pages back too
   assert.ok(files.includes("data/records/2026-09-30/index.json"), "the Solana records are on main");
   assert.ok(!files.some((f) => f.startsWith("data/evm/")), files.join("\n"));
   rmSync(sb.dir, { recursive: true });
+});
+
+test("records: the chain check runs every morning, flag or not, before each lane page (Arbitrum with its Base side), writes into the checkout's results/, and an unchanged page publishes nothing", () => {
+  const sb = evmBox({ enabled: false });
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.deepEqual(evmCalls(sb), pageCalls(sb));
+  for (const l of ["robinhood", "arbitrum", "base-compare"]) assert.ok(existsSync(join(sb.repo, "results", "evm", `${l}-chaincheck.jsonl`)), l);
+  assert.equal(git(sb.repo, "status", "--porcelain", "--untracked-files=no"), "", "no tracked file in the checkout changed");
+  const head = git(sb.origin, "rev-parse", "main");
+  const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z") });
+  assert.equal(r2.status, 0, logs(sb));
+  assert.equal(git(sb.origin, "rev-parse", "main"), head, "unchanged pages: nothing pushed");
+  assert.match(logs(sb), /the EVM lane pages are unchanged/);
+  assert.equal(alerts(sb), "");
+  // The real checkout ignores the chain check's files.
+  for (const l of ["robinhood", "arbitrum", "base-compare"]) assert.equal(spawnSync("/usr/bin/git", ["check-ignore", "-q", `results/evm/${l}-chaincheck.jsonl`], { cwd: ROOT }).status, 0, l);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a chain check that fails (an RPC error, or exit 3: a transfer without a purchase) is alerted, never a HALT, and the Solana records are published", () => {
+  for (const [fail, re] of [
+    ["arbitrum:1", /\] records: EVM chain check failed, publish continues: evm-chaincheck --lane arbitrum exited 1 \(an RPC error\?\): the arbitrum page is made from the previous chain check, if any/],
+    ["base-compare:3", /\] records: EVM chain check failed, publish continues: evm-chaincheck --lane base-compare: a transfer out of the payer without a purchase, or a purchase ambiguous or still pending \(see log\)/],
+  ] as const) {
+    const sb = evmBox({ enabled: false });
+    writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+    const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), FAKE_EVM_CC_FAIL: fail });
+    assert.equal(r.status, 0, logs(sb));
+    assert.match(alerts(sb), re);
+    assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
+    assert.ok(evmCalls(sb).includes(`evm-publish --lane arbitrum --data ${sb.pub}/data`), "the page is still made");
+    assert.ok(git(sb.origin, "show", "--name-only", "--format=", "main").split("\n").includes("data/records/2026-09-30/index.json"), "the Solana records are on main");
+    rmSync(sb.dir, { recursive: true });
+  }
 });

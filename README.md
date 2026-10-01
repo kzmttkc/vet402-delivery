@@ -383,6 +383,19 @@ npx tsx scripts/evm-publish.ts --lane robinhood && npx tsx scripts/build-site.ts
 cd contracts && forge test                                # DeliveryRoots against Merkle vectors from src/receipt/merkle.ts
 ```
 
+Every morning the records run (`scripts/daily/run.sh records`, 09:05 JST) reads each lane's purchases against its chain before it makes the lane pages: `scripts/evm-chaincheck.ts` for Robinhood Chain, Arbitrum One and Arbitrum's Base side, read-only (`eth_getLogs` and `eth_getBlockByNumber`, nothing signed), around each run of purchases and in block chunks a public RPC answers (10,000 blocks on Arbitrum and Robinhood Chain, 2,000 on Base; `EVM_LOG_CHUNK` overrides). Its files, `results/evm/<lane>-chaincheck.jsonl`, stay in the checkout and are ignored by git. This runs with or without `evm-roots-enabled`; a failure is alerted and the rest is published, and an unchanged page publishes nothing. Exit 3 means a transfer out of the payer with no purchase, or a purchase ambiguous or still pending: the file is written, and a person looks.
+
+Purchases made before the daily chain check (the lanes' runs up to 2026-09-30), once, by hand, in the runner's checkout (`~/vet402-solana` on main):
+
+```bash
+npx tsx scripts/evm-chaincheck.ts --lane robinhood      # each prints its tally; exit 3: look before going on
+npx tsx scripts/evm-chaincheck.ts --lane arbitrum
+npx tsx scripts/evm-chaincheck.ts --lane base-compare   # the Arbitrum page needs its Base side too
+git status --porcelain --untracked-files=no             # nothing: the chain check only wrote ignored results/
+```
+
+The next records run makes the pages from them (and, with `evm-roots-enabled` and DeliveryRoots deployed, writes each closed day's root, 2026-09-30 included). Running them again is harmless: every run reads the same windows again and replaces the file.
+
 The daily root holds facts, not verdicts: each leaf is one purchase's payment, the settlement the chain check read, the HTTP status, and the size and sha256 of the answer. Whether it counts as delivered, and whose side a failure is on, is decided again with the current rules each time `data/evm/roots/<lane>.json` is written (run `scripts/evm-roots-publish.ts` after every `scripts/evm-publish.ts`), so a rule change never leaves an old verdict on chain.
 
 Rebuilding a leaf in another language: digest = keccak256 of the UTF-8 bytes of the record's canonical JSON, which is what `JSON.stringify` gives after the object keys are sorted (JavaScript's default sort, by UTF-16 code unit) and with no whitespace. Strings must be escaped exactly as `JSON.stringify` escapes them: only `"`, `\` and control characters (`\b \f \n \r \t`, the rest as `\u00xx` in lowercase hex). A lone UTF-16 surrogate (half of a pair, which UTF-8 cannot carry) is written as `\udxxx` in lowercase hex, as `JSON.stringify` does since ES2019; a language that keeps it raw or replaces it with U+FFFD gives another digest. Non-ASCII characters and `/` are written as they are, so a library that escapes them (Python's `json.dumps` without `ensure_ascii=False`, PHP's `json_encode` without `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`) gives another digest. `null` fields are kept; numbers are integers in plain decimal. `src/evm/evm-anchor.ts` `canonicalJson` is the reference.

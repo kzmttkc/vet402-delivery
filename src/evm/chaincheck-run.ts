@@ -8,7 +8,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createPublicClient, http, type Address, type PublicClient } from "viem";
 import { EVM_CHAINS, LANES, type LaneId } from "./chains.js";
-import { chainCheckRecords, mergeReadings, readEvmOutflows, readRange, type EvmCheckSummary } from "./chaincheck.js";
+import { chainCheckRecords, mergeReadings, readEvmOutflows, readRange, readRanges, type EvmCheckSummary } from "./chaincheck.js";
 import type { ChainBuyRecord } from "./evm-buy.js";
 
 export interface LaneCheckOutput {
@@ -41,7 +41,20 @@ export async function checkLaneFiles(laneId: LaneId, payer: Address, dir = "resu
   if ((await client.getChainId()) !== spec.chainId) throw new Error(`${rpc}: chainId is not ${spec.chainId}`);
   // Blocks a few seconds old may not be served by every RPC node yet.
   const readTo = Math.min(range.toMs, nowMs - 30_000);
-  const txs = await readEvmOutflows(client, spec, payer, range.fromMs, readTo, BigInt(process.env.EVM_LOG_CHUNK ?? (spec.key === "base" ? "2000" : "10000")));
+  // Each run of purchases on its own (readRanges), each in block chunks a public RPC answers (eth_getLogs ranges).
+  const chunk = BigInt(process.env.EVM_LOG_CHUNK ?? (spec.key === "base" ? "2000" : "10000"));
+  const seen = new Set<string>();
+  const txs: Awaited<ReturnType<typeof readEvmOutflows>> = [];
+  for (const g of readRanges(rows)) {
+    const to = Math.min(g.toMs, readTo);
+    if (to <= g.fromMs) continue;
+    for (const t of await readEvmOutflows(client, spec, payer, g.fromMs, to, chunk)) {
+      if (seen.has(t.tx.toLowerCase())) continue;
+      seen.add(t.tx.toLowerCase());
+      txs.push(t);
+    }
+  }
+  txs.sort((a, b) => a.timeMs - b.timeMs);
   const { records, summary } = chainCheckRecords(rows, txs, { payer, checkedAt: new Date(nowMs).toISOString(), readToMs: readTo });
   const sent = records.filter((r) => r.outcome === "sent");
   writeFileSync(`${dir}/${laneId}-chaincheck.jsonl`, sent.map((r) => JSON.stringify(r)).join("\n") + (sent.length ? "\n" : ""));

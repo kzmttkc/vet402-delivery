@@ -14,6 +14,11 @@
 #                                            (anchor-receipts --day --post-root --send, posting key
 #                                            .keys/mainnet/roots-poster.json); a failure there is alerted and the
 #                                            records are still published.
+#                                            Every records run also reads each EVM lane's purchases (Robinhood Chain,
+#                                            Arbitrum and its Base side) against its chain (scripts/evm-chaincheck.ts:
+#                                            eth_getLogs and eth_getBlockByNumber only, nothing signed) and makes the
+#                                            lane pages (scripts/evm-publish.ts); a failure there is alerted and the
+#                                            rest is published, and unchanged pages publish nothing.
 #                                            With ~/.config/vet402-daily/evm-roots-enabled, each closed UTC day with
 #                                            purchases on the Robinhood Chain or Arbitrum lane (results/evm/, bought
 #                                            on some days only) also gets its root written into DeliveryRoots on that
@@ -578,10 +583,11 @@ records_lane() {
     log "$CONF/records-enabled is absent: records run as a dry run (no anchor sent, nothing pushed)"
     DRY=1
   fi
-  local days evm_days
+  local days evm_days evm_lanes
   days="$(open_record_days | head -3)"
   evm_days="$(evm_root_days)"
-  if [ -z "$days" ] && [ -z "$evm_days" ]; then
+  evm_lanes="$(evm_page_lanes)"
+  if [ -z "$days" ] && [ -z "$evm_days" ] && [ -z "$evm_lanes" ]; then
     log "no closed day with purchases waits for its records"
     return 0
   fi
@@ -604,6 +610,7 @@ records_lane() {
     record_day "$day" "$R" ${anchor_from[@]+"${anchor_from[@]}"} || return 1
   done
   [ -z "$days" ] || msg="records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
+  [ -z "$evm_lanes" ] || evm_pages "$evm_lanes"
   if [ -n "$evm_days" ]; then
     evm_roots "$evm_days"
     if [ "$evm_days" = "refresh -" ]; then
@@ -612,7 +619,48 @@ records_lane() {
       msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots $(printf '%s\n' "$evm_days" | tr ' ' ':' | paste -sd, -)$([ "$DRY" = 1 ] && echo ' (simulated)')"
     fi
   fi
+  if [ -n "$evm_lanes" ] && [ -n "$($GIT -C "$PUB" status --porcelain -- data/evm)" ]; then
+    msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM lane pages read again on chain"
+  fi
+  if [ -z "$msg" ]; then
+    log "no closed day with purchases waits for its records, and the EVM lane pages are unchanged"
+    return 0
+  fi
   publish "$msg"
+}
+
+# ---------- EVM lane pages (Robinhood Chain, Arbitrum One) ----------
+
+# evm_page_lanes: the lanes that have bought (results/evm/<lane>-purchases.jsonl in the checkout).
+evm_page_lanes() {
+  local lane
+  for lane in robinhood arbitrum; do
+    [ -f "$REPO/results/evm/$lane-purchases.jsonl" ] && printf '%s\n' "$lane"
+  done
+  return 0
+}
+
+# evm_pages <lanes>: every records run, with or without evm-roots-enabled. First each purchase is read against its
+# chain (scripts/evm-chaincheck.ts, read-only: eth_getLogs and eth_getBlockByNumber; results/evm/*-chaincheck.jsonl
+# in the checkout, which git ignores); the Arbitrum page also needs its Base side. Then the lane page is made into
+# the publish worktree (scripts/evm-publish.ts). Exit 3 of the chain check: a transfer without a purchase, or a
+# purchase ambiguous or still pending (its file is written). Every failure is alerted and the run goes on; a page
+# that cannot be made stays as on main.
+evm_pages() {
+  local lane l rc
+  for lane in $1; do
+    for l in $lane $([ "$lane" = arbitrum ] && [ -f "$REPO/results/evm/base-compare-purchases.jsonl" ] && echo base-compare); do
+      rc=0
+      run "chain check $l" in_repo env EVM_KEY_DIR="$KEYS" "$TSX" scripts/evm-chaincheck.ts --lane "$l" || rc=$?
+      if [ "$rc" -eq 3 ]; then
+        continues "EVM chain check" "evm-chaincheck --lane $l: a transfer out of the payer without a purchase, or a purchase ambiguous or still pending (see log); the page uses what the chain check decided"
+      elif [ "$rc" -ne 0 ]; then
+        continues "EVM chain check" "evm-chaincheck --lane $l exited $rc (an RPC error?): the $lane page is made from the previous chain check, if any"
+      fi
+    done
+    run "data/evm/$lane.json" in_repo "$TSX" scripts/evm-publish.ts --lane "$lane" --data "$PUB/data" ||
+      continues "EVM lane page" "evm-publish --lane $lane failed: data/evm/$lane.json stays as on main, and data/evm/roots/$lane.json shows nothing it withholds"
+  done
 }
 
 # ---------- EVM daily roots (Robinhood Chain, Arbitrum One) ----------
@@ -673,14 +721,7 @@ evm_roots() {
     run "EVM root $lane $day --send" in_repo env VET402_ANCHOR_SEND="$lane" EVM_KEY_DIR="$KEYS" "$TSX" scripts/evm-anchor.ts --lane "$lane" --day "$day" --send || rc=$?
     [ "$rc" -eq 0 ] || continues "EVM root" "evm-anchor --lane $lane --day $day --send exited $rc (not retried; look at results/evm/anchors/$lane-$day.sent.json)"
   done <<<"$1"
-  # The lane pages first (results/ from this checkout, data/ in the publish worktree), then the roots file, which
-  # never shows what a lane page withholds. A lane page that cannot be made stays as on main: the roots file then
-  # follows that page, on the cautious side, and nothing here stops the run.
-  for lane in robinhood arbitrum; do
-    [ -f "$REPO/results/evm/$lane-purchases.jsonl" ] || continue
-    run "data/evm/$lane.json" in_repo "$TSX" scripts/evm-publish.ts --lane "$lane" --data "$PUB/data" ||
-      continues "EVM lane page" "evm-publish --lane $lane failed: data/evm/$lane.json stays as on main, and data/evm/roots/$lane.json shows nothing it withholds"
-  done
+  # The lane pages are made before this (evm_pages); the roots file never shows what a lane page withholds.
   if ! run "data/evm/roots" in_repo "$TSX" scripts/evm-roots-publish.ts --data "$PUB/data"; then
     # A new lane page next to an old roots file could withhold what the old file shows: both go back to main.
     $GIT -C "$PUB" checkout -q -- data/evm 2>/dev/null

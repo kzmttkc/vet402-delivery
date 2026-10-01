@@ -75,6 +75,22 @@ export function settleWindow(r: Pick<ChainBuyRecord, "at" | "authorization">): {
   return { fromMs, toMs };
 }
 
+/**
+ * Pure. The ranges to read: the sent records' windows, sorted, with windows less than `gapMs` apart merged. A lane
+ * that buys on 2026-09-30 and again weeks later is read around each run, not over every block in between (on
+ * Arbitrum one day is about 345,600 blocks).
+ */
+export function readRanges(records: readonly ChainBuyRecord[], gapMs = 3_600_000): { fromMs: number; toMs: number }[] {
+  const ws = records.filter((r) => r.outcome === "sent").map(settleWindow).sort((a, b) => a.fromMs - b.fromMs);
+  const out: { fromMs: number; toMs: number }[] = [];
+  for (const w of ws) {
+    const last = out.at(-1);
+    if (last && w.fromMs <= last.toMs + gapMs) last.toMs = Math.max(last.toMs, w.toMs);
+    else out.push({ ...w });
+  }
+  return out;
+}
+
 /** Pure. The read range that covers every sent record's window. */
 export function readRange(records: readonly ChainBuyRecord[]): { fromMs: number; toMs: number } | null {
   const ws = records.filter((r) => r.outcome === "sent").map(settleWindow);

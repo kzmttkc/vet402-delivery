@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getAddress, type Hex } from "viem";
-import { chainCheckRecords, mergeReadings, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
+import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
 import { holdAfter4xx, laneInputProblem, lastPaidByListing, repairLaneRequest, sellerSaidFree, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
@@ -467,4 +467,14 @@ test("review of 7a967b8 [low]: a catalog date equal to today is a value, not <to
   // Only a parameter in datedParams is written as <today>.
   assert.equal(laneRequestKey(req, { date: "2026-10-01", params: [] }), laneRequestKey(req));
   assert.equal(laneRequestKey(req, { date: "2026-10-01", params: ["date"] }), laneRequestKey({ ...req, query: { date: "<today>" } }));
+});
+
+test("chain check ranges: one range per run of purchases; a lane that buys again weeks later is not read over every block in between", () => {
+  const sent = (at: string, outcome = "sent") => ({ agentId: "a", resource: `https://s.test/${at}`, method: "GET", at, outcome }) as unknown as ChainBuyRecord;
+  const r = readRanges([sent("2026-09-30T12:00:00.000Z"), sent("2026-09-30T12:40:00.000Z"), sent("2026-09-30T08:00:00.000Z"), sent("2026-10-20T01:00:00.000Z"), sent("2026-10-21T00:00:00.000Z", "refused")]);
+  assert.equal(r.length, 3, JSON.stringify(r));
+  assert.deepEqual(r.map((x) => new Date(x.fromMs).toISOString()), ["2026-09-30T08:00:00.000Z", "2026-09-30T12:00:00.000Z", "2026-10-20T01:00:00.000Z"]);
+  assert.ok(r[1]!.toMs > Date.parse("2026-09-30T12:40:00.000Z"), "two purchases 40 minutes apart are one range");
+  assert.ok(r.every((x) => x.toMs - x.fromMs < 3 * 3_600_000), "no range spans the weeks between");
+  assert.deepEqual(readRanges([sent("2026-09-30T12:00:00.000Z", "refused")]), []);
 });
