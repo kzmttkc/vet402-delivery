@@ -19,7 +19,7 @@ pub mod hashing;
 
 pub use hashing::{leaf_hash, node_hash, observation_digest, root_from_proof, ObservationFields, StrField, Verdict};
 
-declare_id!("58HtYvvBLCQisVNQyiSgFi9go6JY7CGpbiqhzqJDtknf");
+declare_id!("EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3");
 
 /// A day's tree depth is ceil(log2(n)); 32 covers any realistic count.
 pub const MAX_PROOF_LEN: usize = 32;
@@ -35,7 +35,25 @@ pub mod observation_roots {
     pub fn initialize(ctx: Context<Initialize>, authority: Pubkey) -> Result<()> {
         let config = &mut ctx.accounts.config;
         config.authority = authority;
+        config.pending_authority = None;
         config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
+    /// Step 1 of changing the posting authority: the upgrade authority names the new key.
+    /// Nothing changes until that key accepts. Proposing again replaces the pending key.
+    pub fn propose_authority(ctx: Context<ProposeAuthority>, new_authority: Pubkey) -> Result<()> {
+        ctx.accounts.config.pending_authority = Some(new_authority);
+        Ok(())
+    }
+
+    /// Step 2: the proposed key signs to take over. A key that cannot sign never becomes
+    /// the authority, so a mistyped key cannot lock posting.
+    pub fn accept_authority(ctx: Context<AcceptAuthority>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require!(config.pending_authority == Some(ctx.accounts.new_authority.key()), RootsError::NotPendingAuthority);
+        config.authority = ctx.accounts.new_authority.key();
+        config.pending_authority = None;
         Ok(())
     }
 
@@ -125,6 +143,8 @@ pub struct VerifyResult {
 #[derive(InitSpace)]
 pub struct Config {
     pub authority: Pubkey,
+    /// Proposed by the upgrade authority, set as `authority` once that key accepts.
+    pub pending_authority: Option<Pubkey>,
     pub bump: u8,
 }
 
@@ -156,6 +176,24 @@ pub struct Initialize<'info> {
     #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ RootsError::NotUpgradeAuthority)]
     pub program_data: Account<'info, ProgramData>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ProposeAuthority<'info> {
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    pub upgrade_authority: Signer<'info>,
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ RootsError::NotUpgradeAuthority)]
+    pub program: Program<'info, crate::program::ObservationRoots>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(upgrade_authority.key()) @ RootsError::NotUpgradeAuthority)]
+    pub program_data: Account<'info, ProgramData>,
+}
+
+#[derive(Accounts)]
+pub struct AcceptAuthority<'info> {
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    pub new_authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -209,6 +247,8 @@ pub enum RootsError {
     WrongProgram,
     #[msg("no verify result from observation-roots")]
     NoReturnData,
+    #[msg("signer is not the proposed posting authority")]
+    NotPendingAuthority,
 }
 
 /// Unix time of 00:00 UTC on `day` (yyyymmdd), or None for an invalid date.

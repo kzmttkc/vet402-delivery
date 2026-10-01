@@ -10,8 +10,10 @@
  *
  * --post-root (off by default) copies an already anchored day's root into the observation-roots program
  * (src/receipt/roots-post.ts), after checking the day's memo on chain. The memo stays the primary record.
- * VET402_ROOTS_RPC selects the cluster (default SOLANA_RPC_URL); the program is the one pinned for that
- * cluster's genesis in ROOTS_PROGRAM_BY_GENESIS, and a cluster without one (mainnet, today) is refused.
+ * VET402_ROOTS_RPC selects the cluster (default SOLANA_RPC_URL); the program and the posting key are the
+ * ones pinned for that cluster's genesis in ROOTS_DEPLOYMENTS_BY_GENESIS, and any other cluster is refused.
+ * post_root is signed and paid (fee and the day account's rent) by the posting key
+ * (.keys/mainnet/roots-poster.json on mainnet), never by the payer wallet.
  *
  * Records are read from ~/vet402-solana-receipt/results/receipts, the one place the signed records are
  * built. --from <dir> reads elsewhere for a simulation; --send and --resume refuse any other folder
@@ -33,8 +35,8 @@ import { jsonRpc } from "../src/chain.js";
 import { PAYER_ADDRESS } from "../src/constants.js";
 import { dayRoot, plan, readDay, resume, send, type AnchorDeps } from "../src/receipt/anchor-run.js";
 import { checkAnchorOnChain } from "../src/receipt/chain.js";
-import { planPostRoot, postRootArgsFromRecord, sendPostRoot, type PostRootDeps } from "../src/receipt/roots-post.js";
-import { ROOTS_PROGRAM_BY_GENESIS } from "../src/receipt/roots-program.js";
+import { loadKeyFile, planPostRoot, postRootArgsFromRecord, sendPostRoot, type PostRootDeps } from "../src/receipt/roots-post.js";
+import { ROOTS_DEPLOYMENTS_BY_GENESIS } from "../src/receipt/roots-program.js";
 import { assertDaySourcesCurrent } from "../src/receipt/sources.js";
 import { RM_PROD_DIR } from "../src/remeasure/constants.js";
 
@@ -90,12 +92,12 @@ const deps: AnchorDeps = {
 if (args.includes("--post-root")) {
   // Off unless asked for: mirror the day's memo into the observation-roots program.
   // Only a day whose memo is already on chain qualifies; the memo stays the primary record.
-  // The program is pinned per cluster (src/receipt/roots-program.ts), never taken from the environment:
-  // the key that signs here is vet402's anchor wallet.
+  // The program and the posting key are pinned per cluster (src/receipt/roots-program.ts), never taken
+  // from the environment. The posting key is its own key, not the payer wallet.
   const rootsRpc = jsonRpc(process.env.VET402_ROOTS_RPC ?? process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com");
   const genesis = (await rootsRpc("getGenesisHash", [])) as string;
-  const program = ROOTS_PROGRAM_BY_GENESIS[genesis];
-  if (!program) {
+  const deployment = ROOTS_DEPLOYMENTS_BY_GENESIS[genesis];
+  if (!deployment) {
     console.error(`not posting: no observation-roots deployment is pinned for the cluster with genesis ${genesis}`);
     process.exit(2);
   }
@@ -112,9 +114,9 @@ if (args.includes("--post-root")) {
   }
   const rootsDeps: PostRootDeps = {
     rpc: rootsRpc,
-    program,
-    feePayer: PAYER_ADDRESS,
-    loadSigner: deps.loadSigner,
+    program: deployment.program,
+    feePayer: deployment.poster,
+    loadSigner: () => loadKeyFile(join(ROOT, deployment.posterKeyFile), deployment.poster), // mode 600, address checked
     log: deps.log,
   };
   const a = postRootArgsFromRecord(obs[0]!);

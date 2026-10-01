@@ -11,15 +11,39 @@ import { hexToBytes, keccak256, stringToBytes, type Hex } from "viem";
 import { observationMessage } from "./eip712.js";
 import { VERDICTS, type Observation, type VerdictCode } from "./types.js";
 
-/** Devnet deployment. Mainnet has no deployment yet. */
-export const ROOTS_PROGRAM_DEVNET = "58HtYvvBLCQisVNQyiSgFi9go6JY7CGpbiqhzqJDtknf";
+/** The observation-roots program id (the same on every cluster it is deployed to). */
+export const ROOTS_PROGRAM = "EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3";
+/** The CPI example; devnet and local tests only, never deployed on mainnet. */
 export const GATE_EXAMPLE_PROGRAM_DEVNET = "BTVeASLyz5HvRz1eKChUgBj6hFbn89orEyGuTUW2yrUH";
+export const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+
+export interface RootsDeployment {
+  program: string;
+  /** The posting authority set in the config. It signs post_root and pays its fee and the day's rent. */
+  poster: string;
+  /** Its key file, relative to the repository root (git-ignored .keys/). */
+  posterKeyFile: string;
+  /** The program's upgrade authority (it deploys, initializes and proposes a new poster), and its key file. */
+  upgradeAuthority?: string;
+  upgradeAuthorityKeyFile?: string;
+}
+
 /**
- * The one observation-roots program a signing path may call, by the cluster's genesis hash. A cluster
- * that is not listed (mainnet, today) has no deployment, and nothing is signed for it.
+ * The one observation-roots deployment a signing path may use, by the cluster's genesis hash. A cluster
+ * that is not listed has no deployment, and nothing is signed for it. The poster is a key of its own,
+ * not the wallet that pays for purchases or writes the memo.
  */
-export const ROOTS_PROGRAM_BY_GENESIS: Readonly<Record<string, string>> = { [DEVNET_GENESIS]: ROOTS_PROGRAM_DEVNET };
+export const ROOTS_DEPLOYMENTS_BY_GENESIS: Readonly<Record<string, RootsDeployment>> = {
+  [MAINNET_GENESIS]: {
+    program: ROOTS_PROGRAM,
+    poster: "Ew2RYGSWQygVoPTgp1kQzQUcyAfsQ6n5RPZYr2B7CsxW",
+    posterKeyFile: ".keys/mainnet/roots-poster.json",
+    upgradeAuthority: "DNkH3i35X29YjALuK7ay2qB95fmduHxfQJkCKqA6Jakh",
+    upgradeAuthorityKeyFile: ".keys/mainnet/deployer.json",
+  },
+  [DEVNET_GENESIS]: { program: ROOTS_PROGRAM, poster: "D9P2fD5J9GD6CPk5giTMzRWydP8ZYd6sMXuk2iuPS9d1", posterKeyFile: ".keys/devnet/poster.json" },
+};
 export const BPF_LOADER_UPGRADEABLE = "BPFLoaderUpgradeab1e11111111111111111111111";
 export const SYSTEM_PROGRAM = "11111111111111111111111111111111";
 
@@ -206,6 +230,33 @@ export async function initializeIx(a: { program: string; payer: string; authorit
   };
 }
 
+/** Step 1 of an authority change: the upgrade authority proposes `newAuthority`. */
+export async function proposeAuthorityIx(a: { program: string; upgradeAuthority: string; newAuthority: string }): Promise<Instruction> {
+  const data = new Writer().fixed(ixDiscriminator("propose_authority"), 8).fixed(Uint8Array.from(getAddressEncoder().encode(address(a.newAuthority))), 32).bytes();
+  return {
+    programAddress: address(a.program),
+    accounts: [
+      { address: await configPda(a.program), role: AccountRole.WRITABLE },
+      { address: address(a.upgradeAuthority), role: AccountRole.READONLY_SIGNER },
+      { address: address(a.program), role: AccountRole.READONLY },
+      { address: await programDataAddress(a.program), role: AccountRole.READONLY },
+    ],
+    data,
+  };
+}
+
+/** Step 2: the proposed key signs to become the posting authority. */
+export async function acceptAuthorityIx(a: { program: string; newAuthority: string }): Promise<Instruction> {
+  return {
+    programAddress: address(a.program),
+    accounts: [
+      { address: await configPda(a.program), role: AccountRole.WRITABLE },
+      { address: address(a.newAuthority), role: AccountRole.READONLY_SIGNER },
+    ],
+    data: ixDiscriminator("accept_authority"),
+  };
+}
+
 export interface PostRootArgs {
   day: string;
   root: Hex;
@@ -331,9 +382,34 @@ export function decodeDayRoot(b: Uint8Array): DayRootAccount {
   return { day, root, count, seqStart, seqEnd, observer, postedSlot, postedAt, bump: b[o]! };
 }
 
-export function decodeConfig(b: Uint8Array): { authority: string; bump: number } {
-  if (b.length !== 8 + 32 + 1) throw new Error(`Config account is ${b.length} bytes`);
+/** Bytes of the Config account: 8 discriminator + authority 32 + Option<Pubkey> 33 + bump 1. */
+export const CONFIG_ACCOUNT_BYTES = 8 + 32 + 33 + 1;
+
+export function decodeConfig(b: Uint8Array): { authority: string; pendingAuthority: string | null; bump: number } {
+  if (b.length !== CONFIG_ACCOUNT_BYTES) throw new Error(`Config account is ${b.length} bytes`);
   const disc = accountDiscriminator("Config");
   if (disc.some((x, i) => b[i] !== x)) throw new Error("not a Config account");
-  return { authority: getAddressDecoder().decode(b.subarray(8, 40)) as string, bump: b[40]! };
+  const dec = getAddressDecoder();
+  const authority = dec.decode(b.subarray(8, 40)) as string;
+  if (b[40] === 0) return { authority, pendingAuthority: null, bump: b[41]! };
+  if (b[40] !== 1) throw new Error("Config account: bad Option tag");
+  return { authority, pendingAuthority: dec.decode(b.subarray(41, 73)) as string, bump: b[73]! };
+}
+
+/** UpgradeableLoaderState::ProgramData header: tag u32 (3), slot u64, Option<Pubkey> (1 + 32). */
+export const PROGRAMDATA_HEADER_BYTES = 4 + 8 + 1 + 32;
+
+/** The upgrade authority (null once frozen) and the program bytes of a ProgramData account. */
+export function decodeProgramData(b: Uint8Array): { upgradeAuthority: string | null; program: Uint8Array } {
+  if (b.length < PROGRAMDATA_HEADER_BYTES || Buffer.from(b).readUInt32LE(0) !== 3) throw new Error("not a ProgramData account");
+  const upgradeAuthority = b[12] === 1 ? (getAddressDecoder().decode(b.subarray(13, 45)) as string) : null;
+  return { upgradeAuthority, program: b.subarray(PROGRAMDATA_HEADER_BYTES) };
+}
+
+/** True when `onChain` is `local` followed only by zero padding (a ProgramData account may be longer). */
+export function sameProgramBytes(onChain: Uint8Array, local: Uint8Array): boolean {
+  if (onChain.length < local.length) return false;
+  for (let i = 0; i < local.length; i++) if (onChain[i] !== local[i]) return false;
+  for (let i = local.length; i < onChain.length; i++) if (onChain[i] !== 0) return false;
+  return true;
 }

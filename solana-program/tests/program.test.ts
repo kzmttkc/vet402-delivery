@@ -1,14 +1,16 @@
 /**
  * observation-roots and the delivery-gate example on a local solana-test-validator, with the real
- * published records of 2026-09-28 and 2026-09-29 (data/records) and their real proofs.
+ * published records of 2026-09-28, 2026-09-29 and 2026-09-30 (data/records) and their real proofs.
  *
  *   npm run program:build && npm run program:test
+ *   npm run program:test:mainnet-features   # the validator copies mainnet's feature set (needs network)
  *
- * Needs solana-test-validator on PATH (or SOLANA_BIN pointing at its folder).
+ * Needs solana-test-validator, solana and solana-keygen on PATH (or SOLANA_BIN pointing at their folder).
  */
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -29,7 +31,12 @@ import {
   initializeIx,
   postRootIx,
   requireDeliveredIx,
-  ROOTS_PROGRAM_DEVNET as ROOTS,
+  acceptAuthorityIx,
+  decodeProgramData,
+  programDataAddress,
+  proposeAuthorityIx,
+  sameProgramBytes,
+  ROOTS_PROGRAM as ROOTS,
   SYSTEM_PROGRAM,
   verifyIx,
   type ObservationFields,
@@ -47,7 +54,7 @@ const URL = `http://127.0.0.1:${PORT}`;
 const bin = (name: string) => (process.env.SOLANA_BIN ? join(process.env.SOLANA_BIN, name) : name);
 
 // Error codes (Anchor custom errors start at 6000, in declaration order).
-const E = { NotUpgradeAuthority: 6000, NotAuthority: 6001, InvalidDay: 6002, DayStillOpen: 6003, EmptyRoot: 6004, SequenceRangeMismatch: 6005, SequenceOutsideRoot: 6008, NotInRoot: 6009 };
+const E = { NotUpgradeAuthority: 6000, NotAuthority: 6001, InvalidDay: 6002, DayStillOpen: 6003, EmptyRoot: 6004, SequenceRangeMismatch: 6005, SequenceOutsideRoot: 6008, NotInRoot: 6009, NotPendingAuthority: 6012 };
 const G = { OtherPurchase: 6000, NotDelivered: 6001 };
 const ACCOUNT_NOT_INITIALIZED = 3012;
 
@@ -59,7 +66,9 @@ function readDay(day: string): Observation[] {
     .sort((a, b) => a.observer.sequence - b.observer.sequence);
 }
 
-const DAYS = ["2026-09-28", "2026-09-29"] as const;
+const DAYS = ["2026-09-28", "2026-09-29", "2026-09-30"] as const;
+/** Set to an RPC URL to start the validator with that cluster's feature set (e.g. mainnet). */
+const FEATURES_FROM = process.env.ROOTS_FEATURES_FROM;
 const records = Object.fromEntries(DAYS.map((d) => [d, readDay(d)])) as Record<(typeof DAYS)[number], Observation[]>;
 
 let validator: ChildProcess;
@@ -93,6 +102,7 @@ before(async () => {
       "--rpc-port", String(PORT),
       "--faucet-port", String(PORT + 1012),
       "--dynamic-port-range", `${PORT + 20}-${PORT + 60}`,
+      ...(FEATURES_FROM ? ["--clone-feature-set", "--url", FEATURES_FROM] : []),
       "--upgradeable-program", ROOTS, join(DEPLOY, "observation_roots.so"), upgradeAuthority.address,
       "--bpf-program", GATE, join(DEPLOY, "delivery_gate_example.so"),
     ],
@@ -155,7 +165,7 @@ describe("post_root", () => {
     assert.equal(await bad({ count: 164 }), E.SequenceRangeMismatch);
   });
 
-  test("posts the real 2026-09-28 and 2026-09-29 roots through the anchor module (roots-post.ts)", async () => {
+  test("posts the real roots of every day through the anchor module (roots-post.ts)", async () => {
     // Someone sends lamports to the 2026-09-29 PDA first: the post must still go through.
     const data = new Uint8Array(12);
     new DataView(data.buffer).setUint32(0, 2, true);
@@ -206,7 +216,7 @@ async function verifySim(day: string, fields: ObservationFields, proof: readonly
 }
 
 describe("verify", () => {
-  test("every published record of both days checks against its day's root, with the record's own verdict", async () => {
+  test("every published record of every day checks against its day's root, with the record's own verdict", async () => {
     let n = 0;
     let maxUnits = 0;
     for (const day of DAYS) {
@@ -223,7 +233,7 @@ describe("verify", () => {
         n++;
       }
     }
-    assert.equal(n, records["2026-09-28"].length + records["2026-09-29"].length);
+    assert.equal(n, DAYS.reduce((t, d) => t + records[d].length, 0));
     console.log(`verified ${n} records; max compute units ${maxUnits}`);
   });
 
@@ -281,7 +291,7 @@ describe("delivery-gate-example (CPI)", () => {
       }),
     ]);
 
-  test("passes for DELIVERED records of both days", async () => {
+  test("passes for DELIVERED records of every day", async () => {
     let maxBytes = 0;
     let maxHashed = 0;
     for (const day of DAYS) {
@@ -317,5 +327,74 @@ describe("delivery-gate-example (CPI)", () => {
     assert.equal(customError((await gate(o, { network: "eip155:8453" })).err), G.OtherPurchase);
     const nd = records["2026-09-29"].find((x) => x.verdict.code === "NOT_DELIVERED")!;
     assert.equal(customError((await gate(nd, { fields: { ...fieldsFromObservation(nd), verdict: "DELIVERED" } })).err), E.NotInRoot);
+  });
+});
+
+describe("posting authority change (propose, then accept)", () => {
+  const day = "2026-09-27";
+  const a = () => ({ ...postRootArgsFromRecord(records["2026-09-28"][0]!), day });
+
+  test("only the upgrade authority proposes, only the proposed key accepts, then only it can post", async () => {
+    const next = await generateKeyPairSigner();
+    await airdrop(next.address, 1);
+    const propose = async (signer: KeyPairSigner, to: string) =>
+      sendIxs(rpc, signer, [await proposeAuthorityIx({ program: ROOTS, upgradeAuthority: signer.address, newAuthority: to })]);
+    const accept = async (signer: KeyPairSigner) => sendIxs(rpc, signer, [await acceptAuthorityIx({ program: ROOTS, newAuthority: signer.address })]);
+    const config = async () =>
+      decodeConfig(Buffer.from(((await rpc("getAccountInfo", [await configPda(ROOTS), { encoding: "base64", commitment: "confirmed" }])) as { value: { data: [string, string] } }).value.data[0], "base64"));
+
+    assert.equal(customError((await propose(stranger, stranger.address)).err), E.NotUpgradeAuthority);
+    assert.equal(customError((await propose(poster, next.address)).err), E.NotUpgradeAuthority); // the posting key cannot hand itself on
+    assert.equal(customError((await accept(next)).err), E.NotPendingAuthority); // nothing proposed yet
+    assert.equal((await propose(upgradeAuthority, next.address)).err, null);
+    const pending = await config();
+    assert.equal(pending.authority, poster.address); // nothing changes until the new key accepts
+    assert.equal(pending.pendingAuthority, next.address);
+    assert.equal(customError((await accept(stranger)).err), E.NotPendingAuthority);
+    assert.equal((await accept(next)).err, null);
+    const c = await config();
+    assert.equal(c.authority, next.address);
+    assert.equal(c.pendingAuthority, null);
+
+    const old = await sendIxs(rpc, poster, [await postRootIx({ ...a(), program: ROOTS, authority: poster.address })]);
+    assert.equal(customError(old.err), E.NotAuthority);
+    const posted = await sendIxs(rpc, next, [await postRootIx({ ...a(), program: ROOTS, authority: next.address })]);
+    assert.equal(posted.err, null, posted.logs.join("\n"));
+  });
+});
+
+describe("deploying with the solana CLI", () => {
+  test("the built .so deploys under this validator's feature set, and the on-chain program data hashes to the local file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "roots-deploy-"));
+    try {
+      const deployer = join(dir, "deployer.json");
+      const programKey = join(dir, "program.json");
+      execFileSync(bin("solana-keygen"), ["new", "--no-bip39-passphrase", "--silent", "-o", deployer]);
+      execFileSync(bin("solana-keygen"), ["new", "--no-bip39-passphrase", "--silent", "-o", programKey]);
+      const deployerAddr = execFileSync(bin("solana-keygen"), ["pubkey", deployer]).toString().trim();
+      const programId = execFileSync(bin("solana-keygen"), ["pubkey", programKey]).toString().trim();
+      await airdrop(deployerAddr, 5);
+      const so = join(DEPLOY, "observation_roots.so");
+      execFileSync(bin("solana"), ["program", "deploy", so, "--program-id", programKey, "--keypair", deployer, "--url", URL, "--commitment", "confirmed"], { stdio: "pipe" });
+      const dumped = join(dir, "dumped.so");
+      execFileSync(bin("solana"), ["program", "dump", programId, dumped, "--url", URL, "--commitment", "confirmed"], { stdio: "pipe" });
+      const local = readFileSync(so);
+      const onChain = readFileSync(dumped);
+      assert.equal(statSync(dumped).size >= local.length, true);
+      const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+      assert.equal(sha(onChain.subarray(0, local.length)), sha(local));
+      assert.ok(onChain.subarray(local.length).every((x) => x === 0), "anything after the program is zero padding");
+      // The same check scripts/roots-mainnet.ts makes, read over RPC.
+      const pd = (await rpc("getAccountInfo", [await programDataAddress(programId), { encoding: "base64", commitment: "confirmed" }])) as { value: { data: [string, string] } };
+      const decoded = decodeProgramData(Buffer.from(pd.value.data[0], "base64"));
+      assert.equal(decoded.upgradeAuthority, deployerAddr);
+      assert.ok(sameProgramBytes(decoded.program, local));
+      const flipped = Buffer.from(local);
+      flipped[1000] = flipped[1000]! ^ 1;
+      assert.equal(sameProgramBytes(decoded.program, flipped), false);
+      console.log(`deployed ${local.length} bytes with the CLI${FEATURES_FROM ? ` under the feature set of ${FEATURES_FROM}` : ""}; sha256 ${sha(local)}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

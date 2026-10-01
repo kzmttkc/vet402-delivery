@@ -1,0 +1,24 @@
+[toolchain]
+anchor_version = "0.32.2"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.mainnet]
+observation_roots = "EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3"
+
+[programs.devnet]
+observation_roots = "EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3"
+delivery_gate_example = "BTVeASLyz5HvRz1eKChUgBj6hFbn89orEyGuTUW2yrUH"
+
+[programs.localnet]
+observation_roots = "EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3"
+delivery_gate_example = "BTVeASLyz5HvRz1eKChUgBj6hFbn89orEyGuTUW2yrUH"
+
+[provider]
+cluster = "localnet"
+wallet = "../.keys/mainnet/deployer.json"
+
+[scripts]
+test = "npm --prefix .. run program:test"

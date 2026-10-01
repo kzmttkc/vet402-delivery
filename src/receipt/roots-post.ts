@@ -24,6 +24,8 @@ import {
   type Blockhash,
   type KeyPairSigner,
 } from "@solana/kit";
+import { readFileSync, statSync } from "node:fs";
+import { createKeyPairSignerFromBytes } from "@solana/kit";
 import type { Hex } from "viem";
 import type { Rpc } from "../chain.js";
 import {
@@ -53,6 +55,22 @@ export interface PostRootDeps {
   sleep?: (ms: number) => Promise<void>;
   pollTries?: number;
   pollMs?: number;
+}
+
+/** Loads a solana-keygen key file (mode 600) and refuses it unless it is `expected`. Never echoes the file. */
+export async function loadKeyFile(file: string, expected: string): Promise<KeyPairSigner> {
+  const mode = statSync(file).mode & 0o777;
+  if (mode & 0o077) throw new Error(`${file} must be mode 600 (is ${mode.toString(8)})`);
+  let arr: number[];
+  try {
+    arr = JSON.parse(readFileSync(file, "utf8")) as number[];
+  } catch {
+    throw new Error(`${file} is not valid JSON`);
+  }
+  if (!Array.isArray(arr) || arr.length !== 64) throw new Error(`${file} is not a 64-byte solana-keygen array`);
+  const signer = await createKeyPairSignerFromBytes(Uint8Array.from(arr));
+  if (signer.address !== expected) throw new Error(`${file} holds ${signer.address}, not ${expected}`);
+  return signer;
 }
 
 /** post_root arguments taken from an anchored record: the same values as the day's memo. */
