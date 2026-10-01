@@ -1393,3 +1393,36 @@ test("a pronoun in a sentence all in capitals, and an abbreviation without an un
   for (const n of ["NFT", "ID", "ETH", "USDC", "API", "IP", "ENS", "EVM", "JSON", "IT"]) assert.ok(!sellerSettingName(n), n);
   for (const n of ["DATABASE_URL", "DB_HOST", "STRIPE_SECRET_KEY"]) assert.ok(sellerSettingName(n), n);
 });
+
+
+// ---------- review of 5f230a8: the declaration is checked first, whatever the case ----------
+
+test("a declared name written in capitals is vet402's; an undeclared setting name (joined or with an underscore, in capitals or not) is the seller's", () => {
+  for (const n of ["ETH_ADDRESS", "TOKEN_ID", "NFT_ID", "USER_ID", "CHAIN_ID", "WALLET_ADDRESS", "TX_HASH", "ENS_NAME"]) {
+    const t = `wallet is required. ${n} is required to have a 0x prefix.`;
+    const d = ["wallet", n.toLowerCase()];
+    assert.equal(answer400(t, d)?.kind, "missing_input", t);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  const quotedCaps = settledAs('"WALLET" IS REQUIRED', ["wallet"]);
+  assert.equal(quotedCaps.status, "settled_vet402_input");
+  assert.equal(quotedCaps.negative, false);
+  const seller: [string, string[] | undefined][] = [
+    ['"DB_HOST" is required', ["wallet"]],
+    ["wallet is required. DATABASE_URL is required to start.", ["wallet"]],
+    ["wallet is required. secret_token is required to sign.", ["wallet"]],
+    ...["ACCESSTOKEN", "RPCURL", "DATABASEURL", "SECRETKEY", "AUTHTOKEN", "DBPASSWORD", "APITOKEN"].flatMap((n): [string, string[] | undefined][] => [[`wallet is required. ${n} is required to sign.`, ["wallet"]], [`wallet is required. ${n} is required to sign.`, undefined]]),
+    ...["NODE_ENV", "AWS_REGION", "INFURA_PROJECT_ID"].flatMap((n): [string, string[] | undefined][] => [[`WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`, ["wallet"]], [`WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`, undefined]]),
+  ];
+  for (const [t, d] of seller) {
+    assert.equal(answer400(t, d), null, `${t} (declared ${d ?? "none"})`);
+    const got = settledAs(t, d);
+    assert.equal(got.cause.cause, "seller_config", t);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  for (const n of ["ACCESSTOKEN", "RPCURL", "DATABASEURL", "SECRETKEY", "AUTHTOKEN", "DBPASSWORD", "APITOKEN"]) assert.ok(sellerSettingName(n), n);
+  for (const n of ["NFT", "ID", "ETH", "USDC", "API", "IP", "ENS", "EVM", "JSON", "IT", "ACCOUNT", "REQUEST"]) assert.ok(!sellerSettingName(n), n);
+});

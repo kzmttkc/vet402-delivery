@@ -440,14 +440,18 @@ const SETTING_WORDS = new Set(["secret", "secrets", "token", "tokens", "password
 
 /**
  * Pure. A name that is one of the seller's own settings: written like an environment variable with an underscore
- * (DATABASE_URL, DB_HOST), or made of a setting word (secret_token, db_password, rpcUrl, apiKey). An allowed word
- * (token_address) and an abbreviation without an underscore (NFT, ID, ETH, USDC, API, JSON) are not.
+ * (DATABASE_URL, DB_HOST), a setting run together in capitals (ACCESSTOKEN, RPCURL, DBPASSWORD), or made of a
+ * setting word (secret_token, db_password, rpcUrl, apiKey). An allowed word (token_address) and an abbreviation
+ * without an underscore (NFT, ID, ETH, USDC, API, JSON) are not. A name the listing declares is checked against the
+ * declaration first (missingNameSide), so a declared ETH_ADDRESS or TOKEN_ID is vet402's.
  */
 export function sellerSettingName(name: string): boolean {
   const c = canon(name);
   if (ALLOWED.has(c) || ALLOWED.has(singular(c))) return false;
   // An environment-variable name has an underscore (DATABASE_URL, DB_HOST); NFT, ID, ETH, USDC, API, JSON are not.
   if (/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(name)) return true;
+  // A setting run together in capitals (ACCESSTOKEN, RPCURL, DATABASEURL, SECRETKEY, DBPASSWORD, APITOKEN).
+  if (/^[A-Z][A-Z0-9]*$/.test(name) && /TOKEN|URL|SECRET|KEY|PASSWORD|DSN|JWT/.test(name)) return true;
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
@@ -459,15 +463,17 @@ export function sellerSettingName(name: string): boolean {
 
 export function missingNameSide(m: MissingName, declared: readonly string[] = []): "input" | "seller" {
   const n = m.name;
+  // Where the name sits first: a header vet402 does not send, or the seller's own configuration.
   if (m.header) return "seller";
   if (m.path.some((x) => SELLER_PATH.test(x))) return "seller";
-  if (/^[A-Z][A-Z0-9_]*$/.test(n) && /[A-Z]{2}/.test(n)) return "seller";
-  if (SELLER_SIDE.test(n) || NOT_INPUT.test(n)) return "seller";
+  // Then the listing's own declaration, whatever case the answer writes it in (ETH_ADDRESS for eth_address, "WALLET").
   const c = canon(n);
-  if (declared.length) {
-    if (declared.some((d) => canon(d) === c)) return "input";
-    return "seller";
-  }
+  if (declared.some((d) => canon(d) === c)) return "input";
+  // Only a name the listing does not declare is read for the seller's signs: ALL_CAPS, a setting name, auth words.
+  if (/^[A-Z][A-Z0-9_]*$/.test(n) && /[A-Z]{2}/.test(n)) return "seller";
+  if (sellerSettingName(n)) return "seller";
+  if (SELLER_SIDE.test(n) || NOT_INPUT.test(n)) return "seller";
+  if (declared.length) return "seller";
   if (ALLOWED.has(c) || ALLOWED.has(singular(c))) return "input";
   return "seller";
 }
@@ -683,7 +689,10 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     for (const n of namesInSentence(piece)) {
       // A setting name as the subject (secret_token, DATABASE_URL, db_password) is never soft: it is the seller's.
       // In a sentence written all in capitals the subject is read without case ("IT" is it, not a setting name).
-      const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(shouting && !quoted(n) ? n.toLowerCase() : n);
+      // In a sentence written all in capitals the subject is read without case ("IT" is it), except a name with an
+      // underscore, which keeps its spelling for the environment-variable form (NODE_ENV, AWS_REGION).
+      const settingCheck = shouting && !quoted(n) && !n.includes("_") ? n.toLowerCase() : n;
+      const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(settingCheck);
       names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text", ...(isSoft ? { soft: true } : {}) });
     }
   }
