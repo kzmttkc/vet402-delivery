@@ -1,5 +1,5 @@
 /**
- * The npm package vet402-check (packages/check/package.json), as `npm pack` would ship it: built by
+ * The npm package @vet402/check (packages/check/package.json), as `npm pack` would ship it: built by
  * scripts/build.mjs, only dist/, README.md, LICENSE and package.json in the tarball, nothing secret-shaped
  * in them, and the built CLI and module running from a folder outside this repository (so the bundle does
  * not reach back into src/) with the same answer as the source CLI.
@@ -26,7 +26,7 @@ const pkg = JSON.parse(readFileSync(join(PKG, "package.json"), "utf8")) as Recor
 const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Record<string, any>;
 
 test("package.json: a name of its own, bin, exports with types, files, and the repository's dependency versions", () => {
-  assert.equal(pkg.name, "vet402-check");
+  assert.equal(pkg.name, "@vet402/check");
   assert.notEqual(pkg.private, true);
   assert.equal(pkg.type, "module");
   assert.deepEqual(pkg.bin, { "vet402-check": "dist/cli.js" });
@@ -35,7 +35,7 @@ test("package.json: a name of its own, bin, exports with types, files, and the r
   assert.equal(pkg.license, "MIT");
   for (const [name, v] of Object.entries(pkg.dependencies as Record<string, string>)) assert.equal(v, rootPkg.dependencies[name], name);
   assert.ok(!pkg.dependencies.tsx, "runs on plain Node: no tsx");
-  assert.equal(packed[0]!.name, "vet402-check");
+  assert.equal(packed[0]!.name, "@vet402/check");
 });
 
 test("npm pack: only dist, README, LICENSE and package.json; no TypeScript source, tests, fixtures, keys or env files", () => {
@@ -77,7 +77,7 @@ test("npm pack: nothing secret-shaped in any file", () => {
 test("built package: runs outside the repository, the CLI gives the source CLI's answer byte for byte, and verifies a record", () => {
   const dir = mkdtempSync(join(tmpdir(), "vet402-check-pkg-"));
   try {
-    const app = join(dir, "node_modules", "vet402-check");
+    const app = join(dir, "node_modules", "@vet402", "check");
     for (const f of files) cpSync(join(PKG, f), join(app, f));
     // npm packages from this repository's install (the versions package.json pins); no source file of the repository.
     symlinkSync(join(ROOT, "node_modules"), join(app, "node_modules"), "dir");
@@ -95,14 +95,14 @@ test("built package: runs outside the repository, the CLI gives the source CLI's
     assert.match(usage.stdout + usage.stderr, /usage:\n {2}vet402-check <url>/);
     // The module: import by package name from a file in the temp folder.
     const probe = join(dir, "probe.mjs");
-    writeFileSync(probe, `import * as m from "vet402-check";\nconsole.log(JSON.stringify(Object.keys(m).sort()));\n`);
+    writeFileSync(probe, `import * as m from "@vet402/check";\nconsole.log(JSON.stringify(Object.keys(m).sort()));\n`);
     const keys = JSON.parse(execFileSync(process.execPath, [probe], { cwd: dir, encoding: "utf8" })) as string[];
     for (const k of ["wrapFetchWithCheck", "checkBeforePaying", "verifyRecord", "verdictFor", "PublicData", "CheckBlockedError", "serveStdio"]) assert.ok(keys.includes(k), k);
     // The declarations: a TypeScript user without skipLibCheck gets the types and no error.
     writeFileSync(join(dir, "package.json"), `{"type":"module"}\n`);
     writeFileSync(
       join(dir, "consumer.ts"),
-      `import { wrapFetchWithCheck, checkBeforePaying, PublicData, type CheckResult } from "vet402-check";\nexport const f = wrapFetchWithCheck(fetch, { block: "avoid" });\nexport const r: Promise<CheckResult> = checkBeforePaying({ url: "https://x.example/" }, new PublicData());\n// @ts-expect-error block takes only "avoid"\nwrapFetchWithCheck(fetch, { block: "pay" });\n`,
+      `import { wrapFetchWithCheck, checkBeforePaying, PublicData, type CheckResult } from "@vet402/check";\nexport const f = wrapFetchWithCheck(fetch, { block: "avoid" });\nexport const r: Promise<CheckResult> = checkBeforePaying({ url: "https://x.example/" }, new PublicData());\n// @ts-expect-error block takes only "avoid"\nwrapFetchWithCheck(fetch, { block: "pay" });\n`,
     );
     const tsconfig = { compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: false, types: ["node"], typeRoots: [join(ROOT, "node_modules", "@types")] }, files: ["consumer.ts"] };
     writeFileSync(join(dir, "tsconfig.json"), JSON.stringify(tsconfig));
