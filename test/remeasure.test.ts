@@ -665,3 +665,13 @@ test("tempo 2026-10-01: an unknown outcome the chain check found paid counts as 
   assert.equal(s.paidButNotDelivered, 0);
   assert.equal(s.lastFailure, null);
 });
+
+test("2026-10-01: the daily rebuy waits 180 s for a paid answer on both chains; proxy-buy keeps the 90 s default", async () => {
+  const { RM_PAID_TIMEOUT_MS } = await import("../src/remeasure/constants.js");
+  assert.equal(RM_PAID_TIMEOUT_MS, 180_000);
+  const src = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  for (const p of ["remeasure/solana.ts", "remeasure/tempo.ts"]) assert.match(src(p), /payOne\(.*paidTimeoutMs: pay\.paidTimeoutMs \?\? RM_PAID_TIMEOUT_MS/, p);
+  assert.match(src("pay.ts"), /AbortSignal\.timeout\(deps\.paidTimeoutMs \?\? 90_000\)/);
+  assert.match(src("tempo/pay.ts"), /AbortSignal\.timeout\(deps\.paidTimeoutMs \?\? PAID_TIMEOUT_MS\)/);
+  for (const p of ["proxy-buy/solana.ts", "proxy-buy/tempo.ts"]) assert.doesNotMatch(src(p), /paidTimeoutMs|RM_PAID_TIMEOUT_MS/, p);
+});

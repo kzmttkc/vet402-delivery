@@ -30,7 +30,7 @@ import { CENSUS_START_BLOCK, publicClient, usdcOutflowSinceStart } from "../temp
 import { assertDayLedgersPresent, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
 import type { PlanEntry } from "../tempo/census.js";
 import { checkInput, INPUT_REJECT_STATUSES, type InputCheck } from "../tempo/answer.js";
-import { RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
+import { RM_PAID_TIMEOUT_MS, RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
 import { budgetKey } from "./budget.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
 import type { RemeasureRow } from "./results.js";
@@ -239,7 +239,7 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
       const entry = entryFor(s, deps.date);
       const skip = placeholderRefusal(s, targetInput(s));
       if (skip) return { row: tempoRow(s, { result: "refused", refusal: skip }, at, { key: entry.serviceId, livePayTo: null, amountAtomic: null }), stop: null };
-      const o = await payOne(entry, { ...pay, ledger: deps.ledger, chainSpent });
+      const o = await payOne(entry, { ...pay, paidTimeoutMs: pay.paidTimeoutMs ?? RM_PAID_TIMEOUT_MS, ledger: deps.ledger, chainSpent });
       const row = tempoRow(s, o, at, { key: entry.serviceId, livePayTo: null, amountAtomic: o.result === "refused" ? null : paidAmount(deps.ledger, entry.serviceId) });
       return { row, stop: stopReason(o) };
     },

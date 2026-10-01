@@ -82,6 +82,8 @@ export interface PayDeps {
   readBalances: () => Promise<{ lamports: bigint; usdcAtomic: bigint }>;
   waitForSettlement: (signature: string | null, memo: string | null, payTo: string) => Promise<OnChain | null>;
   ownAddresses?: string[];
+  /** How long to wait for the paid response (default 90 s; proxy-buy keeps it, it runs inside a 300 s function). */
+  paidTimeoutMs?: number;
   /**
    * Dry run: build and read back the transaction (signed by `signerAddress`, a throwaway key),
    * then stop. Nothing is sent to the seller.
@@ -202,7 +204,7 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
       method: "GET",
       headers: { accept: "application/json", ...created.headers },
       redirect: "manual",
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(deps.paidTimeoutMs ?? 90_000),
     });
   } catch (e) {
     rec.response = { status: null, contentType: null, first300: null, error: `fetch: ${(e as Error).message}`.slice(0, 200) };

@@ -34,6 +34,12 @@ export const RM_MAX_PURCHASES_PER_MONTH = 5_000;
 
 /** Purchases per payTo in one run: 1 unless --per-payto says more, never above MEASURE_MAX_PER_SELLER. */
 export const RM_DEFAULT_PER_PAYTO = 1;
+/**
+ * The daily rebuy waits this long for a paid answer (the purchase code's own default is 90 s). On 2026-10-01 a Tempo
+ * seller that had answered 200 on 09-29 and 09-30 was cut off at 90 s, after the payment had settled: vet402 lost
+ * the answer it paid for and the run stopped. Nothing waits on these runs, so a slow seller gets the time.
+ */
+export const RM_PAID_TIMEOUT_MS = 180_000;
 export const RM_MAX_PER_PAYTO = MEASURE_MAX_PER_SELLER;
 
 /**

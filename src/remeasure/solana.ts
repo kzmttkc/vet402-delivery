@@ -11,6 +11,7 @@ import { payOne, probe402, type PayDeps, type PlanEntry, type PurchaseRecord } f
 import { SellerPacer } from "../measure.js";
 import { MEASURE_MAX_PER_SELLER } from "../constants.js";
 import { budgetKey, type RemeasureBudget } from "./budget.js";
+import { RM_PAID_TIMEOUT_MS } from "./constants.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
 import type { RemeasureRow } from "./results.js";
 
@@ -81,7 +82,7 @@ export async function paySolana(slots: readonly Slot[], pay: Omit<PayDeps, "budg
     ...(deps.onRow ? { onRow: deps.onRow } : {}),
     attempt: async (s): Promise<AttemptResult> => {
       const at = now().toISOString();
-      const rec = await payOne(planEntry(s, deps.date), { ...pay, budget: deps.budget, ownAddresses: [PAYER_ADDRESS] });
+      const rec = await payOne(planEntry(s, deps.date), { ...pay, paidTimeoutMs: pay.paidTimeoutMs ?? RM_PAID_TIMEOUT_MS, budget: deps.budget, ownAddresses: [PAYER_ADDRESS] });
       const row = solanaRow(s, rec, at, budgetKey(deps.date, s.target.payTo, s.slot));
       if (rec.solDecreased) return { row, stop: `payer SOL decreased after ${s.target.host}` };
       const r = rec.refusal?.refused;
