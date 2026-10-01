@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, quotedListNames, sellerSettingName, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -1464,4 +1464,33 @@ test("joined settings only as whole known words; capitals keep an underscore nam
     assert.equal(got.negative, true, t);
   }
   for (const n of ["MONKEY", "KEYWORD", "TOKENID", "CURL", "URLS", "HURL", "DSNAME", "JWTS"]) assert.ok(!sellerSettingName(n), n);
+});
+
+
+// ---------- review of afbbf32: every name of a quoted list ----------
+
+test("a quoted list is read whole: one undeclared or setting name in it makes the answer the seller's; a fully declared list is vet402's", () => {
+  const seller = [
+    "Missing required parameters: 'wallet', 'DATABASE_URL'",
+    "Missing required parameters: 'DATABASE_URL', 'wallet'",
+    "Missing required parameters: 'wallet', 'rpc_url'",
+    "Missing required parameters: 'wallet' and 'access_token'",
+    'Missing required parameters: "wallet", "chainId"',
+    "Missing required fields: 'wallet', 'amount'",
+    "Missing required parameters: 'wallet', 'rpc_url', and 'symbol'",
+    "'wallet' is required and missing key",
+  ];
+  for (const t of seller) {
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  for (const t of ["Missing required parameters: 'wallet', 'symbol'", "'wallet' and 'symbol' are required", 'Missing required fields: "wallet", "symbol"']) {
+    assert.equal(answer400(t, ["wallet", "symbol"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet", "symbol"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  assert.deepEqual(quotedListNames("Missing required parameters: 'wallet', 'rpc_url', and 'symbol'"), ["wallet", "rpc_url", "symbol"]);
 });

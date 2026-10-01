@@ -545,6 +545,28 @@ const STOP = new Set(["for", "in", "from", "of", "to", "the", "a", "an", "this",
  * for x", "Value for 'x' is missing", and Rails' "param is missing or the value is empty: x". After a content word
  * ("Data for 'x' is missing") the name only says whose content is missing, and is not read here.
  */
+/** A quoted name: 'x', "x", `x` (also with escaped quotes inside JSON). */
+const QUOTED_NAME = String.raw`\\?["'\x60]${"[A-Za-z_$][\\w$.-]*"}\\?["'\x60]`;
+/** A list of quoted names: 'a', 'b' | 'a' and 'b' | "a", "b" | 'a', 'b', and 'c' | 'a' or 'b'. */
+const QUOTED_LIST = String.raw`${QUOTED_NAME}(?:\s*(?:,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)${QUOTED_NAME})*`;
+
+/**
+ * Pure. Every name of every quoted list a sentence gives as missing: after "missing", after "missing <input word>:",
+ * after "required <input word>:", and before "is/are missing|required". Each name of the list, not only the first.
+ */
+export function quotedListNames(piece: string): string[] {
+  const W = String.raw`(?:parameter|param|property|field|argument|key|value|input)s?`;
+  const spans = [
+    new RegExp(String.raw`\bmissing\s*:?\s*(${QUOTED_LIST})`, "gi"),
+    new RegExp(String.raw`\bmissing\s+(?:required\s+)?${W}\s*:?\s*(${QUOTED_LIST})`, "gi"),
+    new RegExp(String.raw`\brequired\s+${W}\b\s*:?\s*(${QUOTED_LIST})`, "gi"),
+    new RegExp(String.raw`(?<!\bfor\s{1,3})(${QUOTED_LIST})\s+(?:is|are)\s+(?:missing|required)\b`, "gi"),
+  ];
+  const out: string[] = [];
+  for (const re of spans) for (const m of piece.matchAll(re)) for (const q of m[1]!.matchAll(/\\?["'`]([A-Za-z_$][\w$.-]*)\\?["'`]/g)) out.push(q[1]!);
+  return [...new Set(out)];
+}
+
 function inputForNames(piece: string): string[] {
   const out: string[] = [];
   const W = String.raw`(?:value|parameter|param|argument|field|input)s?`;
@@ -571,6 +593,7 @@ export function strongNamesInSentence(piece: string): string[] {
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
   for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
+  for (const n of quotedListNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:parameter|param|property|field|argument|key|value|input)s?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`(?<!\bfor\s{1,3})\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) add(q[1]);
   return [...out];
@@ -602,6 +625,8 @@ export function namesInSentence(piece: string): string[] {
   if ((m = new RegExp(String.raw`\bmust have required property\s+${Q}(${ID})`, "i").exec(piece))) push(m[1]);
   // missing "x", missing: 'x'
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
+  // Every name of a quoted list ("Missing required parameters: 'wallet', 'DATABASE_URL'"), not only the first.
+  for (const n of quotedListNames(piece)) push(n);
   // missing parameter: "x", Missing required field 'x'
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:parameter|param|property|field|argument|key|value|input)s?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
   // Missing [required] [fields|params|...][:] a, b and c  |  missing <generic>  |  missing x
@@ -635,7 +660,9 @@ export function namesInSentence(piece: string): string[] {
   for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:cannot be empty|must not be empty|must be provided)`, "gi"))) push(q[1]);
   // A sentence that names the input in quotes ("Missing required parameter: 'wallet'") gives that name; its input
   // words (parameter, field, value...) are not names then.
-  if (new RegExp(String.raw`\\?["'\x60]${ID}\\?["'\x60]`).test(piece)) return [...new Set(out.filter((n) => !GENERIC.test(n)))];
+  // Only when every quoted name of the sentence was read; "key" is never dropped ("... and missing key").
+  const quotedAll = [...piece.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]`, "g"))].map((q) => q[1]!);
+  if (quotedAll.length && quotedAll.every((q) => out.includes(q))) return [...new Set(out.filter((n) => !GENERIC.test(n) || /^keys?$/i.test(n)))];
   return [...new Set(out)];
 }
 
