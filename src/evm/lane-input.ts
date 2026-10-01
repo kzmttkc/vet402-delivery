@@ -205,9 +205,10 @@ export type LaneInputProblem = "path_placeholder" | "missing_input";
  *   - "missing" with an input word (INPUT_WORD), or with a parameter the listing declares after it, or
  *   - "missing" followed by a quoted name read by quotedNameSide (a declared parameter, or an input word when it
  *     names nothing of the seller's own and the listing declares nothing else),
- *   - a validator's standard text: Fastify "querystring|body|params|headers must have required property 'x'" (a
- *     header named authorization, payment or x-payment stays the seller's), Zod "Required" (an issue whose path
- *     names such a header, a secret or a key stays the seller's),
+ *   - a validator's standard text: Fastify "querystring|body|params|headers must have required property 'x'", and
+ *     Zod "Required" (issue paths, and the keys of .flatten() fieldErrors). The name is read by quotedNameSide like
+ *     a quoted one; an auth or payment header (AUTH_HEADER) is the seller's; a "Required" with no name at all
+ *     (formErrors, {"error":"Required"}) is the seller's,
  * and never when the same piece speaks of the seller's own side (SELLER_SIDE: env, config, upstream, server,
  * response, an API key, a secret, a password, a private key, a mnemonic, a JWT, the facilitator, the payTo) or of
  * payment or authentication (NOT_INPUT).
@@ -226,7 +227,7 @@ const SELLER_SIDE = /(\b(env|environment|config\w*|upstream|server|response|misc
 const SELLER_NAME_WORDS = new Set(["secret", "secrets", "password", "passwd", "pwd", "mnemonic", "seed", "token", "tokens", "jwt", "rpc", "url", "uri", "dsn", "facilitator", "credential", "credentials", "apikey", "privatekey", "payto"]);
 const SELLER_NAME_PAIRS: readonly [string, string][] = [["private", "key"], ["api", "key"], ["pay", "to"], ["secret", "key"], ["access", "key"]];
 /** Header names whose absence is about payment or authentication: never vet402's input. */
-const AUTH_HEADER = /^(authorization|proxy-authorization|payment|payment-signature|x-payment(-[\w-]+)?|x-api-key|api-key|cookie)$/i;
+const AUTH_HEADER = /^(authorization|proxy-authorization|payment|payment-signature|x-payment(-[\w-]+)?|x-api-key|api-key|token|x-access-token|x-auth-token|cookie)$/i;
 /** Fastify's standard validation text. */
 const FASTIFY_REQUIRED = /\b(querystring|body|params|headers)\s+must have required property\s+\\?['"`]?([A-Za-z0-9_$.-]+)/i;
 const NOT_INPUT = /\b(payment|x-payment|authori[sz]ation|authenticat\w*|auth token|bearer|signature|header|login|subscription)\b/i;
@@ -307,11 +308,11 @@ export function inputErrorIn(piece: string, declared: readonly string[] = []): s
     const name = f[2]!;
     if (where === "headers" && AUTH_HEADER.test(name)) return null;
     if (SELLER_SIDE.test(name)) return null;
-    return f[0];
+    return quotedNameSide(name, declared) === "input" ? f[0] : null;
   }
   if (SELLER_SIDE.test(piece) || NOT_INPUT.test(piece)) return null;
-  // Zod's message for a value that was not sent.
-  if (/^required\.?$/i.test(piece.trim())) return piece.trim();
+  // A bare "Required" is Zod's; laneInputProblem reads it with its names (zodRequired), never alone.
+  if (/^required\.?$/i.test(piece.trim())) return null;
   const m = MISSING_TEXT.exec(piece);
   if (m) return m[0];
   if (!MISSING_WORD.test(piece)) return null;
@@ -334,34 +335,65 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   if (slot) return { kind: "path_placeholder", detail: `the URL vet402 sent still had the slot ${slot === "*" ? "*" : `:${slot}`} in its path` };
   if (status === 404) return null;
   if (SLOT_ECHO.test(text)) return { kind: "path_placeholder", detail: "the seller's error quotes a path slot vet402 sent as the value" };
-  // Zod issues are read whole: a "Required" whose path names an auth header or a seller setting is the seller's.
-  const zodSeller = zodRequiredPaths(text).some((path) => path.some((x) => AUTH_HEADER.test(x) || sellerSettingName(x) || SELLER_SIDE.test(x)));
+  // Zod's "Required" is vet402's request only when it names what was missing and every such name is read as the
+  // request (quotedNameSide). No name, or any name of the seller's own, is the seller's.
+  const zod = zodRequired(text);
+  if (zod.required && zod.names.length && zod.names.every((n) => zodNameSide(n, r.declaredParams ?? []) === "input")) {
+    return { kind: "missing_input", detail: `the seller's ${status} says an input was missing ("Required": ${zod.names.join(", ")})` };
+  }
   for (const piece of answerPieces(text)) {
-    if (zodSeller && /^required\.?$/i.test(piece.trim())) continue;
     const hit = inputErrorIn(piece, r.declaredParams ?? []);
     if (hit) return { kind: "missing_input", detail: `the seller's ${status} says an input was missing or empty ("${hit}")` };
   }
   return null;
 }
 
-/** Pure. The path of every Zod-shaped issue in a JSON answer whose message is "Required". */
-export function zodRequiredPaths(text: string): string[][] {
+const REQUIRED = /^required\.?$/i;
+
+/**
+ * Pure. Zod's "Required" in a JSON answer: whether one is there, and the names it gives — the path of each issue
+ * (the field itself, its last part; a path through "headers" keeps that) and each key of .flatten() fieldErrors
+ * whose messages say "Required". formErrors and a bare {"error":"Required"} give no name.
+ */
+export function zodRequired(text: string): { required: boolean; names: string[] } {
   let j: unknown;
   try {
     j = JSON.parse(text.trim());
   } catch {
-    return [];
+    return { required: false, names: [] };
   }
-  const out: string[][] = [];
+  let required = false;
+  const names: string[] = [];
   const walk = (v: unknown, depth: number): void => {
-    if (depth > 8 || !v || typeof v !== "object") return;
+    if (depth > 8 || v === null || v === undefined) return;
+    if (typeof v === "string") {
+      if (REQUIRED.test(v.trim())) required = true;
+      return;
+    }
+    if (typeof v !== "object") return;
     if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
     const o = v as Record<string, unknown>;
-    if (typeof o.message === "string" && /^required\.?$/i.test(o.message.trim()) && Array.isArray(o.path)) out.push(o.path.map(String));
+    if (typeof o.message === "string" && REQUIRED.test(o.message.trim()) && Array.isArray(o.path)) {
+      const parts = o.path.filter((x): x is string => typeof x === "string");
+      const last = parts.at(-1);
+      if (last) names.push(parts.some((x) => x.toLowerCase() === "headers") ? `headers.${last}` : last);
+    }
+    if (o.fieldErrors && typeof o.fieldErrors === "object" && !Array.isArray(o.fieldErrors)) {
+      for (const [k, msgs] of Object.entries(o.fieldErrors as Record<string, unknown>)) {
+        if (Array.isArray(msgs) && msgs.some((m) => typeof m === "string" && REQUIRED.test(m.trim()))) names.push(k);
+      }
+    }
     for (const x of Object.values(o)) walk(x, depth + 1);
   };
   walk(j, 0);
-  return out;
+  return { required, names: [...new Set(names)] };
+}
+
+/** A Zod name read like a quoted one; a header name of authentication or payment is the seller's. */
+function zodNameSide(name: string, declared: readonly string[]): "input" | "seller" {
+  if (name.startsWith("headers.")) return AUTH_HEADER.test(name.slice(8)) ? "seller" : quotedNameSide(name.slice(8), declared);
+  if (AUTH_HEADER.test(name) || SELLER_SIDE.test(name)) return "seller";
+  return quotedNameSide(name, declared);
 }
 
 // ---------- the seller said it did not charge ----------

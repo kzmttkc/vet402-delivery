@@ -492,7 +492,7 @@ test("names: a quoted name that is the seller's own setting stays the seller's, 
   }
 });
 
-test("validators: Fastify's 'must have required property' and Zod's 'Required' are vet402's request, except for an auth or payment header", () => {
+test("validators: Fastify's 'must have required property' and Zod's 'Required' with a field name are vet402's request, except for an auth or payment header", () => {
   for (const where of ["querystring", "body", "params", "headers"]) {
     const body = JSON.stringify({ statusCode: 400, code: "FST_ERR_VALIDATION", error: "Bad Request", message: `${where} must have required property 'address'` });
     assert.equal(answer400(body)?.kind, "missing_input", where);
@@ -502,7 +502,8 @@ test("validators: Fastify's 'must have required property' and Zod's 'Required' a
     const body = JSON.stringify({ message: `headers must have required property '${h}'` });
     assert.equal(answer400(body), null, h);
   }
-  assert.equal(answer400('{"message":"Required"}')?.kind, "missing_input");
+  // A "Required" that names nothing is the seller's (review of 99148bc).
+  assert.equal(answer400('{"message":"Required"}'), null);
   assert.equal(answer400('[{"code":"invalid_type","expected":"string","received":"undefined","path":["address"],"message":"Required"}]')?.kind, "missing_input");
   assert.equal(answer400('[{"code":"invalid_type","expected":"string","received":"undefined","path":["headers","authorization"],"message":"Required"}]'), null);
   assert.equal(answer400('[{"code":"invalid_type","expected":"string","received":"undefined","path":["apiSecret"],"message":"Required"}]'), null);
@@ -516,4 +517,56 @@ test("a seller-side reading re-buys every 7 days; only vet402's own wrong reques
   const last = lastPaidByListing([rec]).get(bazaar.resource)!;
   assert.equal(last.inputError, false);
   assert.equal(holdAfter4xx(last, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null, "bought again after 7 days");
+});
+
+// ---------- review of 99148bc ----------
+
+const zodIssue = (path: string[]) => JSON.stringify([{ code: "invalid_type", expected: "string", received: "undefined", path, message: "Required" }]);
+const fastify = (where: string, name: string) => JSON.stringify({ statusCode: 400, code: "FST_ERR_VALIDATION", error: "Bad Request", message: `${where} must have required property '${name}'` });
+
+test("Zod: every name (issue paths, fieldErrors keys) goes through quotedNameSide; a 'Required' with no name is the seller's", () => {
+  for (const body of ['{"fieldErrors":{"STRIPE_SECRET_KEY":["Required"]}}', '{"error":{"fieldErrors":{"DB_HOST":["Required"]}}}', zodIssue(["STORE_ID"]), '{"error":"Required"}', '{"formErrors":["Required"],"fieldErrors":{}}']) {
+    assert.equal(answer400(body), null, body);
+    assert.equal(classifyRecord({ ...bazaar, settledOnChain: true, response: resp(400, body), body }).cause, "seller_config", body);
+  }
+  // A field name that is the request: vet402's, as before.
+  assert.equal(answer400(zodIssue(["address"]))?.kind, "missing_input");
+  assert.equal(answer400('{"fieldErrors":{"address":["Required"]}}')?.kind, "missing_input");
+  // One seller setting among the names makes it the seller's.
+  assert.equal(answer400('{"fieldErrors":{"address":["Required"],"DB_HOST":["Required"]}}'), null);
+  // Declared by the listing: vet402's; not declared while others are: the seller's.
+  assert.equal(answer400(zodIssue(["chain"]), ["q", "address"]), null);
+  assert.equal(answer400(zodIssue(["chain"]), ["q", "chain"])?.kind, "missing_input");
+});
+
+test("Fastify: the name is read by quotedNameSide; token, x-access-token, x-auth-token, x-api-key and api-key headers are auth", () => {
+  for (const name of ["db_password", "jwtSecret", "secret_token", "rpcUrl"]) {
+    for (const where of ["querystring", "body", "params"]) assert.equal(answer400(fastify(where, name)), null, `${where} ${name}`);
+  }
+  assert.equal(answer400(fastify("querystring", "chain"), ["q", "address"]), null, "not declared while others are");
+  for (const h of ["token", "x-access-token", "x-auth-token", "x-api-key", "api-key", "authorization", "payment", "x-payment"]) assert.equal(answer400(fastify("headers", h)), null, h);
+  for (const where of ["querystring", "body", "params", "headers"]) assert.equal(answer400(fastify(where, "address"))?.kind, "missing_input", where);
+});
+
+test("unchanged by this review: the eleven setting names, the earlier seven, Fastify 'address', Zod path [address], Payment Required", () => {
+  for (const n of ["secret_token", "db_password", "privateKey", "rpcUrl", "jwt_secret", "stripe_secret_key", "access_token", "Supabase_Url", "mnemonic", "payTo", "facilitatorUrl"]) {
+    assert.equal(answer400(`missing "${n}"`), null, n);
+    assert.equal(answer400(`missing "${n}"`, ["q", "address"]), null, n);
+  }
+  for (const m of ["Missing input", "Missing required fields: wallet, chain", "missing arguments", "missing value for symbol", "Missing url", "missing queries", 'Missing "address"']) {
+    assert.equal(answer400(JSON.stringify({ error: m }))?.kind, "missing_input", m);
+  }
+  assert.equal(answer400(fastify("querystring", "address"))?.kind, "missing_input");
+  assert.equal(answer400(zodIssue(["address"]))?.kind, "missing_input");
+  assert.equal(answer400('{"error":"Payment Required"}'), null);
+});
+
+test("intended: an undeclared quoted \"url\" or \"tokenAddress\" (vet402's on 4787123) is now the seller's; it is only re-bought every 7 days, never stopped for good", () => {
+  for (const n of ["url", "tokenAddress"]) {
+    assert.equal(answer400(`missing "${n}"`, ["q"]), null, n);
+    const body = `missing "${n}"`;
+    const last = lastPaidByListing([{ ...bazaar, settledOnChain: true, response: resp(400, body), body, declaredParams: ["q"] }]).get(bazaar.resource)!;
+    assert.equal(last.inputError, false);
+    assert.equal(holdAfter4xx(last, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null, `${n}: bought again after 7 days`);
+  }
 });
