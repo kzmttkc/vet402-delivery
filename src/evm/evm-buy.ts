@@ -249,6 +249,8 @@ export interface ChainBuyEntry {
   listingResource?: string;
   /** Parameter names the listing declares (they make a seller's "missing" an input error; src/evm/lane-input.ts). */
   declaredParams?: string[];
+  /** The UTC date vet402 used when it filled the request (a "today" value); normalised out of requestKey. */
+  inputDate?: string;
 }
 
 export interface ChainBuyDeps {
@@ -320,6 +322,8 @@ export interface ChainBuyRecord {
   requestKey?: string;
   /** Parameter names the listing declares. */
   declaredParams?: string[];
+  /** The UTC date vet402 used when it filled the request. */
+  inputDate?: string;
 }
 
 export interface PaymentResponseHeaderNote {
@@ -352,10 +356,16 @@ export interface ChainCheckNote {
 
 const parser = new x402HTTPClient(new x402Client());
 
-/** sha256 of the request exactly as sent: method, URL with query, and the JSON body of a POST. */
-export function laneRequestKey(e: Pick<ChainBuyEntry, "resource" | "query" | "method" | "body">): string {
+/**
+ * sha256 of the request as sent: method, URL with query, and the JSON body of a POST. The date vet402 filled in
+ * (`inputDate`, the run's UTC date from src/inputs/values.ts) is written as <today>, so a request that differs only
+ * by the day it was filled is the same request.
+ */
+export function laneRequestKey(e: Pick<ChainBuyEntry, "resource" | "query" | "method" | "body">, inputDate?: string | null): string {
   const body = e.method === "POST" ? JSON.stringify(e.body ?? {}) : "";
-  return createHash("sha256").update(`${e.method}\n${requestUrl(e)}\n${body}`).digest("hex");
+  let text = `${e.method}\n${requestUrl(e)}\n${body}`;
+  if (inputDate && /^\d{4}-\d{2}-\d{2}$/.test(inputDate)) text = text.split(inputDate).join("<today>");
+  return createHash("sha256").update(text).digest("hex");
 }
 
 export function requestUrl(e: Pick<ChainBuyEntry, "resource" | "query">): string {
@@ -415,7 +425,8 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
     outcome: "refused",
     payer: deps.payer,
     listingResource: e.listingResource ?? e.resource,
-    requestKey: laneRequestKey(e),
+    requestKey: laneRequestKey(e, e.inputDate),
+    ...(e.inputDate ? { inputDate: e.inputDate } : {}),
     ...(e.declaredParams?.length ? { declaredParams: e.declaredParams } : {}),
   };
   const refuse = (r: EvmRefusal): ChainBuyRecord => ({ ...rec, outcome: "refused", refusal: r });

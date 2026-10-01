@@ -114,13 +114,29 @@ export function chainCheckRecords<T extends ChainBuyRecord>(
     return w.fromMs <= t.timeMs && t.timeMs < w.toMs;
   };
 
-  // 0. Settled at purchase time on the receipt of the tx the seller named: that tx is this record's. A tx a
-  // record earlier in the file already holds is not given to a second one: the later record is ambiguous.
+  // 0. Settled at purchase time on the receipt of the tx the seller named. When the tx carries the payer's
+  // AuthorizationUsed nonces and a claimant recorded its nonce, the tx goes only to the claimant whose nonce it
+  // carries; if none matches, every claimant is ambiguous. Without nonces (records before 2026-10-01) the first
+  // record keeps the tx and a later one is ambiguous: one tx cannot settle two purchases.
   const contested = new Set<number>();
+  const claimants = new Map<string, number[]>();
   for (const { r, i } of idx) {
     if (r.settledOnChain !== true || !r.settlementTx || !HEX_TX.test(r.settlementTx)) continue;
-    if (owner.has(norm(r.settlementTx))) contested.add(i);
-    else claim(i, r.settlementTx, byTx.has(norm(r.settlementTx)) ? "named_tx" : "receipt");
+    claimants.set(norm(r.settlementTx), [...(claimants.get(norm(r.settlementTx)) ?? []), i]);
+  }
+  for (const [tx, is] of claimants) {
+    const t = byTx.get(tx);
+    const by: ChainCheckNote["by"] = t ? "named_tx" : "receipt";
+    const nonces = new Set((t?.nonces ?? []).map(norm));
+    if (nonces.size && is.some((i) => out[i]!.authorization?.nonce)) {
+      const match = is.filter((i) => out[i]!.authorization?.nonce && nonces.has(norm(out[i]!.authorization!.nonce)));
+      if (match.length === 1) claim(match[0]!, out[match[0]!]!.settlementTx!, by);
+      for (const i of is) if (!(match.length === 1 && i === match[0])) contested.add(i);
+      if (match.length !== 1) owner.set(tx, -1); // held by nobody, and not free for steps 1 to 3 either
+      continue;
+    }
+    claim(is[0]!, out[is[0]!]!.settlementTx!, by);
+    for (const i of is.slice(1)) contested.add(i);
   }
   // 1. The nonce vet402 signed.
   for (const { r, i } of idx) {

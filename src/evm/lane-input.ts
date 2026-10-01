@@ -77,14 +77,33 @@ export interface LastPaid {
   status: number | null;
   /** laneRequestKey of the request sent; null on records from before 2026-10-01 (they sent the catalog's request unfilled). */
   requestKey: string | null;
+  /** When it was bought (ISO). */
+  at: string | null;
+  /** The 4xx was read as vet402's own wrong request (laneInputProblem). Otherwise it is the seller's answer. */
+  inputError: boolean;
+}
+
+/** A seller-side 400/404/422 to an unchanged request is bought again once this long after it. */
+export const SELLER_4XX_RETRY_MS = 7 * 86_400_000;
+
+/**
+ * Pure. Why the same (or an unfillable) request must not be sent again after `last`, or null. vet402's own wrong
+ * request: never again until the request changes. A seller-side 400/404/422: again once SELLER_4XX_RETRY_MS later.
+ */
+export function holdAfter4xx(last: LastPaid | null, nowMs: number): string | null {
+  if (!last || last.status === null || !INPUT_STATUSES.has(last.status)) return null;
+  if (last.inputError) return "input_unchanged_after_input_error";
+  const at = last.at ? Date.parse(last.at) : NaN;
+  if (Number.isFinite(at) && nowMs - at >= SELLER_4XX_RETRY_MS) return null;
+  return "unchanged_after_seller_4xx_within_7_days";
 }
 
 /**
  * Pure. Fill one lane request from its listing. `last` is vet402's earlier paid answer to this listing (null when
  * none). A request identical to the one that last got 400, 404 or 422 is not sent again.
  */
-export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, last: LastPaid | null = null): LaneRepair {
-  const lastStatus = last?.status ?? null;
+export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, last: LastPaid | null = null, nowMs: number = Date.now()): LaneRepair {
+  const hold = holdAfter4xx(last, nowMs);
   const input = (l.extensions?.bazaar?.info?.input ?? {}) as Obj;
   const pathParams = isObj(input.pathParams) ? input.pathParams : {};
   const filled: FilledParam[] = [];
@@ -125,7 +144,7 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
     const spec2 = spec ? { ...spec, params: spec.params.filter((p) => (isPost ? true : p.in === "query")) } : null;
     const r = fillParams(sent, spec2, today, u.pathname);
     if (!r.ok) {
-      if (lastStatus !== null && INPUT_STATUSES.has(lastStatus)) return { ok: false, reason: `input_unfillable:${r.reason}`, param: r.param };
+      if (hold) return { ok: false, reason: `input_unfillable:${r.reason}`, param: r.param };
     } else {
       for (const f of r.filled) {
         const where = f.param in sentQuery || !isPost ? "query" : spec2?.params.find((p) => p.name === f.param)?.in === "query" ? "query" : "body";
@@ -146,9 +165,9 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
   const request: LaneRequest = { resource, method: req.method, query: Object.keys(query).length ? query : null, body: isPost ? body : null };
   // Compare with what was actually sent last time (old records: the catalog's request, unfilled), not with the
   // catalog: a filled request that got 400/404/422 is filled the same way again and must not be bought again.
-  if (lastStatus !== null && INPUT_STATUSES.has(lastStatus)) {
-    const before = last?.requestKey ?? laneRequestKey(req);
-    if (laneRequestKey(request) === before) return { ok: false, reason: "input_unchanged_after_input_error", param: null };
+  if (hold) {
+    const before = last?.requestKey ?? laneRequestKey(req, today);
+    if (laneRequestKey(request, today) === before) return { ok: false, reason: hold, param: null };
   }
   return { ok: true, changed, request, filled, declaredParams: (spec?.params ?? []).map((p) => p.name) };
 }
@@ -164,11 +183,14 @@ export type LaneInputProblem = "path_placeholder" | "missing_input";
  */
 const MISSING_TEXT = /\b(is required|are required|(field|url|value|param|parameter|query|body|input|argument)s? required|required (field|param|parameter|query|argument)|cannot be empty|must not be empty|must be provided|empty (json )?body|no (query|input|body) (given|provided|sent))\b/i;
 const MISSING_WORD = /\bmissing\b/gi;
-const INPUT_WORD = /\b(query|body|param\w*|field)\b/i;
+const INPUT_WORD = /\b(quer(y|ies)|bod(y|ies)|param\w*|fields?|inputs?|arguments?|args?|url|required|values?)\b/i;
+/** "missing" followed by a quoted identifier: Missing "address", missing: 'wallet' (also inside a JSON string). */
+const MISSING_QUOTED = /\bmissing\s*:?\s*\\?["'`][A-Za-z_]\w*\\?["'`]/i;
 /** Characters on each side of "missing" in which an input word or a declared name must appear. */
 export const MISSING_NEAR = 40;
 
 function missingNearInput(text: string, declared: readonly string[]): boolean {
+  if (MISSING_QUOTED.test(text)) return true;
   const names = declared.filter((n) => /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(n));
   const nameRe = names.length ? new RegExp(`(^|[^A-Za-z0-9_])(${names.map((n) => n.replace(/-/g, "\\-")).join("|")})([^A-Za-z0-9_]|$)`) : null;
   for (const m of text.matchAll(MISSING_WORD)) {

@@ -31,6 +31,8 @@ export interface ListingOption {
   listingResource: string;
   /** Parameter names the listing declares. */
   declaredParams: string[];
+  /** The UTC date used to fill the request. */
+  inputDate: string;
 }
 
 export interface PayToGroup {
@@ -72,7 +74,7 @@ const hostOf = (u: string): string => {
 export function groupByPayTo(
   catalog: Listing[],
   spec: EvmChainSpec,
-  opts: { sameOn?: EvmChainSpec; maxPerAtomic: bigint; ownHosts?: string[]; today?: string; lastPaid?: ReadonlyMap<string, LastPaid> },
+  opts: { sameOn?: EvmChainSpec; maxPerAtomic: bigint; ownHosts?: string[]; today?: string; lastPaid?: ReadonlyMap<string, LastPaid>; nowMs?: number },
 ): PayToGroup[] {
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const seen = new Set<string>();
@@ -97,9 +99,9 @@ export function groupByPayTo(
       if (BigInt(a.amount) > 0n && BigInt(a.amount) <= opts.maxPerAtomic) {
         // The request is filled the way the Solana and Tempo purchases are; one that cannot be is not bought.
         const req = requestOf(l);
-        const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastPaid?.get(l.resource) ?? null);
+        const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastPaid?.get(l.resource) ?? null, opts.nowMs ?? Date.now());
         if (!fix.ok) (g.inputSkipped ??= []).push({ resource: l.resource, why: `input_unfillable: ${fix.reason.replace(/^input_unfillable:/, "")}${fix.param ? ` (${fix.param})` : ""}` });
-        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
+        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, inputDate: today, declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
       }
       groups.set(payTo.toLowerCase(), g);
     }
@@ -180,6 +182,7 @@ export function laneEntries(choices: LiveChoice[], spec: EvmChainSpec, sameOn?: 
         query: c.chosen.query,
         body: c.chosen.body,
         listingResource: c.chosen.listingResource,
+        inputDate: c.chosen.inputDate,
         ...(c.chosen.declaredParams.length ? { declaredParams: c.chosen.declaredParams } : {}),
         ...(sameOn ? { sameSellerOn: sameOn.caip2 } : {}),
         lock: { payTo: c.payTo, amount },
