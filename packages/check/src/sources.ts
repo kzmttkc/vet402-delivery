@@ -12,6 +12,8 @@ export const PUBLIC_REPO_URL = "https://github.com/kzmttkc/vet402-delivery";
 export const RANK_URL = `${PUBLIC_SITE_URL}/rank.json`;
 export const RECORDS_INDEX_URL = "https://raw.githubusercontent.com/kzmttkc/vet402-delivery/main/data/records/index.json";
 export const RECORDS_BASE_URL = `${PUBLIC_SITE_URL}/records`;
+/** Arbitrum and Robinhood Chain purchases (one per payTo), as their pages show them. */
+export const LANE_URLS = ["arbitrum", "robinhood"].map((l) => `https://raw.githubusercontent.com/kzmttkc/vet402-delivery/main/data/evm/${l}.json`);
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -22,6 +24,8 @@ export interface Sources {
   recordsIndex: string;
   /** Folder that holds <id>.json: https URL or local path. */
   recordsBase: string;
+  /** data/evm/arbitrum.json and robinhood.json: https URLs or local paths. Empty: none read. */
+  lanes: string[];
 }
 
 /** The public sources, unless VET402_CHECK_RANK, VET402_CHECK_RECORDS_INDEX or VET402_CHECK_RECORDS_BASE name others. */
@@ -30,12 +34,13 @@ export function defaultSources(env: NodeJS.ProcessEnv = process.env): Sources {
     rank: env.VET402_CHECK_RANK || RANK_URL,
     recordsIndex: env.VET402_CHECK_RECORDS_INDEX || RECORDS_INDEX_URL,
     recordsBase: env.VET402_CHECK_RECORDS_BASE || RECORDS_BASE_URL,
+    lanes: env.VET402_CHECK_LANES !== undefined ? env.VET402_CHECK_LANES.split(",").map((x) => x.trim()).filter(Boolean) : LANE_URLS,
   };
 }
 
 export const RECORD_ID = /^obs_\d{4}-\d{2}-\d{2}_\d{6}$/;
 
-export const MAX_BYTES = { rank: 32_000_000, recordsIndex: 8_000_000, record: 1_000_000 } as const;
+export const MAX_BYTES = { rank: 32_000_000, recordsIndex: 8_000_000, record: 1_000_000, lane: 8_000_000 } as const;
 
 const LOOPBACK = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\//i;
 
@@ -99,6 +104,20 @@ export class PublicData {
 
   recordsIndex(): Promise<unknown> {
     return this.cached("recordsIndex", async () => JSON.parse(await readText(this.sources.recordsIndex, MAX_BYTES.recordsIndex, this.f)) as unknown);
+  }
+
+  /** The Arbitrum and Robinhood Chain files. One that cannot be read is left out (the rest still answers). */
+  lanes(): Promise<unknown[]> {
+    return this.cached("lanes", async () => {
+      const got = await Promise.all(
+        this.sources.lanes.map((src) =>
+          readText(src, MAX_BYTES.lane, this.f)
+            .then((t) => JSON.parse(t) as unknown)
+            .catch(() => null),
+        ),
+      );
+      return got.filter((x) => x !== null);
+    });
   }
 
   /** Where the record with this id is read from. */

@@ -15,6 +15,7 @@ import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY
 import type { ChainFigures, Grade, RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
 import { renderArbitrumPage, renderRobinhoodPage, type LanePublic } from "../evm/site.js";
+import { lookup } from "../../packages/check/src/check.js";
 
 export function escapeHtml(v: unknown): string {
   return String(v)
@@ -279,6 +280,29 @@ ${body}
 `;
 }
 
+/**
+ * The free check (api/check.ts) on Vercel. The site is also served from GitHub Pages, so the form posts to
+ * this absolute URL. A plain GET form: the page keeps its CSP (script-src 'none'), and the endpoint answers
+ * format=html with a page of its own.
+ */
+export const CHECK_ENDPOINT = "https://vet402-delivery.vercel.app/v1/check";
+
+/** "Check a seller before you pay": one URL field, sent to /v1/check?url=...&format=html. No script. */
+export function checkForm(action: string = CHECK_ENDPOINT, value = "", heading = "Check a seller before you pay"): string {
+  return `<section class="checkbox" aria-labelledby="check">
+<style>.checkbox{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0}.checkbox h2{margin:0 0 6px}.checkbox form{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}.checkbox label{flex-basis:100%}.checkbox input[type=url]{flex:1 1 260px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}</style>
+<h2 id="check">${escapeHtml(heading)}</h2>
+<p>Paste the API URL an agent is about to pay. The answer is pay, avoid or unknown, from vet402's own paid purchases, with the numbers behind it. Free, no key.</p>
+<form method="get" action="${escapeHtml(action)}">
+<label class="meta" for="check-url">Seller URL (https)</label>
+<input id="check-url" name="url" type="url" required maxlength="2048" placeholder="https://api.example.com/paid/endpoint" autocomplete="off" spellcheck="false" value="${escapeHtml(value)}">
+<input type="hidden" name="format" value="html">
+<button type="submit">Check</button>
+</form>
+<p class="meta">From code: <code>GET ${escapeHtml(CHECK_ENDPOINT)}?url=&lt;seller URL&gt;</code> returns JSON (optional <code>&amp;chain=</code> and <code>&amp;payTo=</code>).</p>
+</section>`;
+}
+
 function publicBadge(g: Grade): string {
   return `<span class="g g${g}" title="${escapeHtml(PUBLIC_GRADE_TEXT[g])}">${GRADE_TEXT[g].mark}</span>`;
 }
@@ -291,14 +315,36 @@ function publicLegend(): string {
   return `<p class="legend meta">${items}</p>`;
 }
 
-/** The two pages as tabs (links: the site has no scripts), plus the method page. prefix is "../" from seller pages. */
+/** The four places of the site, the same on every page: the check, the sellers, how to use it, the method. */
+export type SitePlace = "check" | "sellers" | "use" | "method";
+export const SITE_NAV: readonly { place: SitePlace; href: string; label: string }[] = [
+  { place: "check", href: "index.html", label: "Check" },
+  { place: "sellers", href: "sellers.html", label: "Sellers" },
+  { place: "use", href: "use.html", label: "Use it" },
+  { place: "method", href: "method.html", label: "Method" },
+];
+
+/** The site's navigation (links only: the site has no scripts). prefix is "../" from seller pages. */
+export function siteNav(current: SitePlace | null, prefix = ""): string {
+  const links = SITE_NAV.map((n) => `<a href="${prefix}${n.href}"${n.place === current ? ' aria-current="page"' : ""}>${escapeHtml(n.label)}</a>`);
+  return `<nav class="tabs site" aria-label="Site">${links.join("")}</nav>`;
+}
+
+/** The page of a group on the site: the Solana, Tempo and Base table is sellers.html (index.html is the check). */
+export function groupPage(g: { id: GroupId; page: string }): string {
+  return g.id === "main" ? "sellers.html" : g.page;
+}
+
+/** The site's navigation, then, on a sellers page, a tab per chain page. */
 export function tabs(current: GroupId | null, prefix = ""): string {
+  if (current === null) return siteNav(null, prefix);
   const links = GROUPS.map((g) =>
     g.id === current
-      ? `<a href="${prefix}${g.page}" aria-current="page">${escapeHtml(TAB_LABEL[g.id])}</a>`
-      : `<a href="${prefix}${g.page}">${escapeHtml(TAB_LABEL[g.id])}</a>`,
+      ? `<a href="${prefix}${groupPage(g)}" aria-current="page">${escapeHtml(TAB_LABEL[g.id])}</a>`
+      : `<a href="${prefix}${groupPage(g)}">${escapeHtml(TAB_LABEL[g.id])}</a>`,
   );
-  return `<nav class="tabs" aria-label="Pages">${links.join("")}<a href="${prefix}method.html">How vet402 measures</a></nav>`;
+  return `${siteNav("sellers", prefix)}
+<nav class="tabs chains" aria-label="Chains">${links.join("")}</nav>`;
 }
 
 function chainList(s: RankedSeller): string {
@@ -393,7 +439,7 @@ function moneySection(): string {
 }
 
 export function publicFooter(): string {
-  return `<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>`;
+  return `<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="method.html#verify">Signed records</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>`;
 }
 
 /** Graded sellers first, then undecided, both with rank numbers; nothing when the page has none. */
@@ -415,8 +461,174 @@ ${publicTable("Rank number kept; no grade yet.", undecided, slugs)}`);
   return out.join("\n\n");
 }
 
-/** The first page: Solana, Tempo and Base. What vet402 bought and what came back, shown in full before any grade. */
-function renderMainIndex(r: RankReport, g: GroupReport, slugs: Map<string, string>): string {
+/** The first page's heading and its explanation for someone who has not heard of x402. */
+export const TOP_HEADING = "Check an x402 API before your agent pays it.";
+
+/** "... vet402 pays first, with its own money, on <the chains it bought on>, and shows what came back." */
+export function topLead(chains: readonly string[]): string {
+  const on = chains.length ? `, on ${chains.length > 1 ? `${chains.slice(0, -1).join(", ")} and ${chains[chains.length - 1]}` : chains[0]}` : "";
+  return `x402 lets an AI agent pay for an API call before it sees the answer. If the API is broken, the money is gone. vet402 pays first, with its own money${on}, and shows what came back.`;
+}
+
+type Lanes = { robinhood?: LanePublic; arbitrum?: LanePublic };
+
+/** The order the first page names the chains in. */
+const TOP_CHAIN_ORDER: Chain[] = ["solana", "base", "tempo", "arbitrum", "robinhood", "algorand"];
+
+/** One page's share of the first page's numbers, for the sources line under the tables. */
+interface TotalsPart {
+  label: string;
+  tried: number;
+  delivered: number;
+  settledNothing: number;
+  period: string;
+}
+
+/**
+ * The first page's three numbers, over every page: Solana, Tempo and Base (rank.json "main"), Algorand
+ * (rank.json "algorand"), Robinhood Chain and Arbitrum (data/evm/<lane>.json, counted the way their own
+ * pages count: bought = delivered + settled_no_answer + not_settled + withheld). A withheld row is
+ * counted as tried only, never as "nothing usable came back": its result is not published yet.
+ */
+export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; delivered: number; settledNothing: number; sellers: number; chains: string[]; parts: TotalsPart[] } {
+  const parts: TotalsPart[] = [];
+  const hosts = new Set<string>();
+  const chains = new Set<Chain>();
+  for (const id of ["main", "algorand"] as const) {
+    const g = r.groups.find((x) => x.id === id);
+    if (!g || g.totals.tried === 0) continue;
+    for (const s of g.ranking) if (s.tried > 0) hosts.add(s.host.toLowerCase());
+    for (const c of g.chains) if (g.ranking.some((s) => (s.chains[c]?.tried ?? 0) > 0)) chains.add(c);
+    parts.push({ label: g.label, tried: g.totals.tried, delivered: g.totals.delivered, settledNothing: g.totals.settledNotDelivered, period: `${day(g.totals.firstPurchaseAt)} to ${day(g.totals.lastPurchaseAt)}` });
+  }
+  for (const lane of ["arbitrum", "robinhood"] as const) {
+    const l = lanes[lane];
+    if (!l) continue;
+    const boughtRows = l.rows.filter((x) => x.status === "delivered" || x.status === "settled_no_answer" || x.status === "not_settled" || x.status === "withheld");
+    if (!boughtRows.length) continue;
+    for (const x of boughtRows) {
+      let h: string | null = null;
+      try {
+        h = x.resource ? new URL(x.resource).hostname.toLowerCase() : null;
+      } catch {
+        h = null;
+      }
+      hosts.add(h ?? x.hosts[0]?.toLowerCase() ?? x.payTo);
+    }
+    chains.add(lane);
+    parts.push({
+      label: CHAIN_LABEL[lane],
+      tried: boughtRows.length,
+      delivered: boughtRows.filter((x) => x.status === "delivered").length,
+      settledNothing: boughtRows.filter((x) => x.status === "settled_no_answer").length,
+      period: `run of ${l.generatedAt.slice(0, 10)}`,
+    });
+  }
+  const sum = (f: (p: TotalsPart) => number) => parts.reduce((n, p) => n + f(p), 0);
+  return {
+    tried: sum((p) => p.tried),
+    delivered: sum((p) => p.delivered),
+    settledNothing: sum((p) => p.settledNothing),
+    sellers: hosts.size,
+    chains: TOP_CHAIN_ORDER.filter((c) => chains.has(c)).map((c) => CHAIN_LABEL[c]),
+    parts,
+  };
+}
+
+/** The package README and other specs on GitHub. */
+const PKG_README = `${PUBLIC_REPO_URL}/tree/main/packages/check`;
+const CHECK_SETUP_URL = `${PKG_README}#at-the-payment-the-x402-fetch-hook`;
+
+/** The first page's form: the URL field only; the heading above it says what it is for. No script. */
+function topCheckForm(): string {
+  return `<form id="check" class="checkbox" method="get" action="${escapeHtml(CHECK_ENDPOINT)}" aria-label="Check a seller before you pay">
+<style>.checkbox{display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 6px}.checkbox label{flex-basis:100%;font-weight:600}.checkbox input[type=url]{flex:1 1 220px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}.checkbox p{flex-basis:100%;margin:0}.examples{margin:0 0 14px}.examples li{padding:6px 0}.examples b{display:inline-block;min-width:3.6em}</style>
+<label for="check-url">API URL to check</label>
+<input id="check-url" name="url" type="url" required maxlength="2048" placeholder="https://api.example.com/paid/endpoint" autocomplete="off" spellcheck="false">
+<input type="hidden" name="format" value="html">
+<button type="submit">Check</button>
+<p class="meta">Answer: pay, avoid or unknown.</p>
+</form>`;
+}
+
+/** Two real answers, computed from the data the page is built from (never written by hand). */
+export const TOP_EXAMPLES = ["https://api.xona-agent.com/token/pumpfun-trending", "https://brasil-dados-api.onrender.com/cambio"] as const;
+const NO_RECORDS = { kind: "vet402-observation-records", records: [], days: [] };
+
+/** Each example links to the check itself (the answer page fills the field and shows the verdict). */
+function topExamples(r: RankReport, lanes: Lanes): string {
+  const items = TOP_EXAMPLES.map((url) => {
+    const c = lookup(r, NO_RECORDS, { url }, [], [lanes.arbitrum, lanes.robinhood].filter(Boolean));
+    const href = `${CHECK_ENDPOINT}?url=${encodeURIComponent(url)}&format=html`;
+    return `<li><a href="${escapeHtml(href)}"><b>${escapeHtml(c.verdict)}</b> <span class="mono">${escapeHtml(url)}</span></a><br><span class="meta">${escapeHtml(c.why)}</span></li>`;
+  });
+  return `<ul class="plain examples" aria-label="Two answers from vet402's data">${items.join("\n")}</ul>`;
+}
+
+/** Three numbers over every page: tried, came back with an answer, settled with nothing usable back. */
+function topStats(t: ReturnType<typeof siteTotals>): string {
+  return `<div class="stats">
+  <div><span class="big">${t.tried}</span><br>purchases tried, from ${plural(t.sellers, "seller")}</div>
+  <div><span class="big">${t.delivered}</span><br>came back with an answer</div>
+  <div><span class="big">${t.settledNothing}</span><br>settled, and nothing usable came back</div>
+</div>`;
+}
+
+/** Where the first page's three numbers come from, page by page, with each page's period. */
+function totalsSources(t: ReturnType<typeof siteTotals>): string {
+  const each = t.parts.map((p) => `${p.label}: ${p.tried} tried, ${p.delivered} came back, ${p.settledNothing} settled with nothing usable back (${p.period})`).join("; ");
+  return `<p>The three numbers on the Check page add up every page. ${escapeHtml(each || "No purchases yet")}. Sellers are counted once per host across pages. "Settled" means read back on chain on Solana, Tempo, Base, Robinhood Chain and Arbitrum, and a facilitator's settlement receipt on Algorand. On Robinhood Chain and Arbitrum, results held until the seller is told count as tried only.</p>`;
+}
+
+/** "Use it every time your agent pays": the hook in one line, and the endpoint for any other language. */
+function useEveryTime(): string {
+  return `<h2 id="use">Use it every time your agent pays</h2>
+<pre class="cmd">wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client)</pre>
+<p class="meta">Stops before signing when the answer is avoid. <a href="${escapeHtml(CHECK_SETUP_URL)}" rel="noopener noreferrer nofollow">Setup</a></p>
+<pre class="cmd">curl '${escapeHtml(CHECK_ENDPOINT)}?url=https://api.example.com/x'</pre>
+<p class="meta">Same answer as JSON. <a href="use.html">All options</a></p>`;
+}
+
+/**
+ * The first page (index.html): only what a first-time visitor needs. What this is, the check with two real
+ * answers, three numbers, and how to use it on every payment. A test keeps it at 120 words or fewer, the
+ * two example answers apart. Everything else is one click away: Sellers, Use it, Method.
+ */
+function renderTopIndex(r: RankReport, lanes: Lanes = {}): string {
+  const all = siteTotals(r, lanes);
+  const body = `
+${siteNav("check")}
+<header>
+<h1>${escapeHtml(TOP_HEADING)}</h1>
+<p class="lead">${escapeHtml(topLead(all.chains))}</p>
+</header>
+${topCheckForm()}
+${topExamples(r, lanes)}
+${topStats(all)}
+${useEveryTime()}
+`;
+  return publicPage("vet402: check an x402 API before paying", PUBLIC_LEAD, body);
+}
+
+/** The first lines of each second-layer page: what the page tells. */
+export const SELLERS_INTRO =
+  "Every seller vet402 bought from on Solana, Tempo and Base, and what came back after each payment. Algorand, Robinhood Chain and Arbitrum have their own tabs.";
+export const USE_INTRO = "Every way to ask vet402 before an agent pays: a minimal example for each, and a link to the full spec.";
+export const METHOD_INTRO = "How vet402 buys, what it counts against a seller and what it does not, how grades are given, and how to check a signed record without trusting vet402.";
+
+/** For sellers, at the top of the Sellers page: how to read a row, fix one, and when a failure is published. */
+function forSellers(r: RankReport): string {
+  return `<h2 id="for-sellers">Are you a seller listed here?</h2>
+<ul>
+<li>Your page (click your name) shows every purchase vet402 made from you, with its tx, and which failures count against you and which do not.</li>
+<li>${escapeHtml(r.method.correction)} <a href="method.html#appeal">How corrections work</a></li>
+<li>Signed records of failed purchases, and the Robinhood Chain and Arbitrum results, are published only after the seller is told. The tables here count every purchase as it happened.</li>
+<li>It costs the seller nothing, and there is nothing to sign up for.</li>
+</ul>`;
+}
+
+/** The Sellers page (sellers.html): Solana, Tempo and Base, everything the first page used to hold, unfolded. */
+function renderSellersMain(r: RankReport, g: GroupReport, slugs: Map<string, string>): string {
   const t = g.totals;
   const chains = r.chains.filter((c) => g.chains.includes(c.chain));
   const perChain = chains
@@ -435,10 +647,12 @@ function renderMainIndex(r: RankReport, g: GroupReport, slugs: Map<string, strin
   const body = `
 ${tabs("main")}
 <header>
-<h1>Did the API deliver after it was paid?</h1>
-<p class="lead">${escapeHtml(PUBLIC_LEAD)}</p>
+<h1>Sellers vet402 paid on Solana, Tempo and Base</h1>
+<p class="lead">${escapeHtml(SELLERS_INTRO)}</p>
+<p class="meta">${escapeHtml(PUBLIC_LEAD)}</p>
 <p class="dim">${escapeHtml(g.label)} · purchases ${periodHtml(t)} · method ${escapeHtml(r.method.version)} (<span class="nw">${escapeHtml(methodDate(r))}</span>)</p>
 </header>
+${forSellers(r)}
 ${purchaseStats(t, g.id)}
 <p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
 <p class="meta">${escapeHtml(perChain)}</p>
@@ -453,7 +667,64 @@ ${moneySection()}
 
 ${publicFooter()}
 `;
-  return publicPage("vet402: did the API deliver?", PUBLIC_LEAD, body);
+  return publicPage("vet402: sellers on Solana, Tempo and Base", SELLERS_INTRO, body);
+}
+
+const GH = (path: string) => `${PUBLIC_REPO_URL}/blob/main/${path}`;
+
+/** The Use it page (use.html), for developers: each way in, with a minimal example and the full spec. */
+function renderUsePage(): string {
+  const spec = (href: string, label: string) => `<p class="meta"><a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${escapeHtml(label)}</a></p>`;
+  const body = `
+${siteNav("use")}
+<header>
+<h1>Use vet402 in your agent</h1>
+<p class="lead">${escapeHtml(USE_INTRO)}</p>
+<p class="meta">Every way below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment.</p>
+</header>
+
+<h2 id="http">HTTP: GET /v1/check</h2>
+<p>Any language, or a browser. Optional <code>chain</code> (solana, tempo, base, algorand, arbitrum, robinhood or a CAIP-2 id) and <code>payTo</code> (the recipient in the 402 you hold). CORS is open.</p>
+<pre class="cmd">curl '${escapeHtml(CHECK_ENDPOINT)}?url=https://api.xona-agent.com/token/pumpfun-trending'</pre>
+<p class="meta">The JSON starts with <code>verdict</code> and <code>why</code>; then <code>tried</code>, <code>settled</code>, <code>counted</code>, <code>answered</code>, <code>days</code>, the newest purchase and its tx, the newest signed records, and <code>asOf</code>. <code>&amp;format=html</code> gives a page instead.</p>
+${spec(GH("packages/check/src/http.ts"), "Spec: packages/check/src/http.ts")}
+
+<h2 id="hook">At the payment: the x402 fetch hook</h2>
+<p>Wrap the fetch your x402 client pays through. Every 402 is looked up before the client signs; with <code>block: "avoid"</code> the payment is never created for a seller whose answer is avoid.</p>
+<pre class="cmd">npm install github:kzmttkc/vet402-delivery
+
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { wrapFetchWithCheck } from "vet402-solana/check";
+
+const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
+<p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
+${spec(CHECK_SETUP_URL, "Spec: the fetch hook (packages/check README)")}
+
+<h2 id="mcp">MCP server</h2>
+<p>Two read-only tools for an agent: <code>check_before_paying</code> and <code>verify_record</code>.</p>
+<pre class="cmd">claude mcp add vet402-check -- npx -y github:kzmttkc/vet402-delivery#main --mcp</pre>
+${spec(`${PKG_README}#mcp-tools`, "Spec: MCP tools (packages/check README)")}
+
+<h2 id="cli">Command line</h2>
+<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main https://api.xona-agent.com/token/pumpfun-trending</pre>
+<p class="meta">Node 22 or newer. <code>--chain</code>, <code>--pay-to</code>, <code>--json</code> and <code>--verify</code> (also check the newest signed record).</p>
+${spec(`${PKG_README}#the-command-line`, "Spec: the command line (packages/check README)")}
+
+<h2 id="verify">Verify a signed record</h2>
+<p>Check one record without trusting vet402: its signature, its Merkle proof to the day's root, the payment on chain, and the root written on chain.</p>
+<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main verify obs_2026-09-28_000164</pre>
+<p class="meta">From a clone, <code>scripts/verify-receipt.ts</code> runs the same checks. <a href="method.html#verify">Where the records and roots are</a></p>
+${spec(GH("scripts/verify-receipt.ts"), "Spec: scripts/verify-receipt.ts")}
+
+<h2 id="program">From a Solana program</h2>
+<p>observation-roots keeps each day's root in an account that programs can read, and checks one record against it, so an escrow or another program can ask by CPI whether a purchase came back.</p>
+<pre class="cmd">require!(observation_roots::verify_cpi(cpi, day, fields, proof)?.verdict == Verdict::Delivered, MyError::NotDelivered);</pre>
+<p class="meta">Program id, deployment status and the full example are in its README.</p>
+${spec(GH("solana-program/README.md"), "Spec: solana-program/README.md")}
+
+${publicFooter()}
+`;
+  return publicPage("vet402: use it in your agent", USE_INTRO, body);
 }
 
 /** The Algorand page: data from vet402-algorand, graded from Algorand purchases only, nothing folded. */
@@ -552,7 +823,7 @@ function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): str
   const where =
     g.id === "algorand"
       ? `From <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project; graded apart from Solana, Tempo and Base. Listed on <a href="../${g.page}">the Algorand page</a>.`
-      : `Graded from Solana, Tempo and Base purchases only. Listed on <a href="../${g.page}">the first page</a>.`;
+      : `Graded from Solana, Tempo and Base purchases only. Listed on <a href="../${groupPage(g)}">the Sellers page</a>.`;
   return `<h2 id="${g.id}">${escapeHtml(g.label)}</h2>
 <p class="meta">${where}</p>
 <p class="lead">vet402 paid this seller ${plural(s.tried, "time")} with its own money (${escapeHtml(triedText)}), most recently on <span class="nw">${escapeHtml(day(s.lastMeasuredAt))}</span> (UTC). ${s.settled} ${SETTLED_TEXT[g.id].short}; ${s.delivered} came back with an answer${s.paidButNotDelivered ? `; ${s.paidButNotDelivered} ${SETTLED_TEXT[g.id].nothing}` : ""}.</p>
@@ -590,15 +861,16 @@ function renderPublicSeller(r: RankReport, key: string, parts: readonly { g: Gro
   const tried = parts.reduce((n, p) => n + p.s.tried, 0);
   const delivered = parts.reduce((n, p) => n + p.s.delivered, 0);
   const body = `
-${tabs(null, "../")}
+${siteNav("sellers", "../")}
 <h1>${escapeHtml(key)}</h1>
 ${parts.length > 1 ? `<p class="meta">Bought on both pages; each part below is graded from its own purchases only: ${parts.map((p) => `<a href="#${p.g.id}">${escapeHtml(p.g.label)}</a>`).join(" · ")}.</p>` : ""}
 ${parts.map((p) => sellerGroupSection(r, p.g, p.s)).join("\n")}
-${recordsSection(records)}<h2 id="appeal">Is a row wrong?</h2>
-<p>${escapeHtml(r.method.correction)}</p>
+${recordsSection(records)}<h2 id="appeal">Are you the seller?</h2>
+<p>Is a row wrong? ${escapeHtml(r.method.correction)}</p>
 <p><a href="${escapeHtml(appealUrl(key, r.date))}" rel="noopener noreferrer nofollow">Tell vet402 a row is wrong (GitHub issue, prefilled)</a></p>
+<p class="meta">Signed records of failed purchases are published only after the seller is told. <a href="../sellers.html#for-sellers">More for sellers</a></p>
 
-<footer><a href="../index.html">Solana, Tempo, Base</a><a href="../algorand.html">Algorand</a><a href="../method.html">How vet402 measures</a><a href="../rank.json">Data (rank.json)</a></footer>
+<footer><a href="../sellers.html">Sellers</a><a href="../algorand.html">Algorand</a><a href="../method.html">How vet402 measures</a><a href="../rank.json">Data (rank.json)</a></footer>
 `;
   return publicPage(`${key} · vet402`, `${key}: ${delivered} of ${tried} purchases by vet402 came back with an answer.`, body);
 }
@@ -609,7 +881,7 @@ function inputLink(location: string): string {
     : `<span class="mono">${escapeHtml(location)}</span>`;
 }
 
-function renderPublicMethod(r: RankReport): string {
+function renderPublicMethod(r: RankReport, lanes: Lanes = {}): string {
   const m = r.method;
   const t = r.totals;
   const rules = m.faultRules
@@ -634,8 +906,9 @@ function renderPublicMethod(r: RankReport): string {
     .map((g) => `<h3>${escapeHtml(g.label)}</h3>\n${g.comparisons.length ? g.comparisons.map(comparisonSection).join("\n") : `<p class="dim">No seller on this page is in a catalog with an order.</p>`}`)
     .join("\n");
   const body = `
-${tabs(null)}
+${siteNav("method")}
 <h1>How vet402 measures</h1>
+<p class="lead">${escapeHtml(METHOD_INTRO)}</p>
 <p class="dim">Method ${escapeHtml(m.version)} (${escapeHtml(methodDate(r))}) · report ${escapeHtml(r.date)} · purchases ${periodHtml(t)} · <a href="#changes">change log</a></p>
 
 <h2>1. How vet402 pays for this</h2>
@@ -681,6 +954,16 @@ ${chainRows}
 <p class="meta">settled: read back on chain on Solana, Tempo and Base; a facilitator's settlement receipt with a tx id on Algorand. body test: purchases tested for an empty body.</p>
 <p class="meta">Algorand rows come from <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project; they are graded on their own page.</p>
 
+<h2 id="totals">The numbers on the Check page</h2>
+${totalsSources(siteTotals(r, lanes))}
+<p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
+
+<h2 id="verify">Verify a record</h2>
+<p>For every purchase that came back with an answer, and for other results once the seller has been told, vet402 publishes a signed record (EIP-712, vet402's observation key). Each UTC day's records form a Merkle tree; the day's root is written in a Solana memo by vet402's anchor wallet, and also in a Tempo memo when the records index names one, so a record cannot be added to or dropped from a day later without the root changing.</p>
+<p><a href="records/index.html">All signed records, by day</a> · each record page shows how to check it.</p>
+<pre class="cmd">npx -y github:kzmttkc/vet402-delivery#main verify obs_2026-09-28_000164</pre>
+<p class="meta">Checks the bytes against the records index, the key, the signature, that the verdict follows from the recorded checks, the Merkle proof, the payment on chain and the memo. A copy of the root kept in a Solana program, for other programs to read: <a href="${escapeHtml(GH("solana-program/README.md"))}" rel="noopener noreferrer nofollow">solana-program/README.md</a>. <a href="use.html#verify">Other ways to verify</a></p>
+
 <h2 id="appeal">7. Mistakes and corrections</h2>
 <p>${escapeHtml(m.correction)}</p>
 <p><a href="${escapeHtml(APPEAL_ISSUES_URL.replace(/\/new$/, ""))}" rel="noopener noreferrer nofollow">GitHub issues</a> · each seller page has a prefilled link.</p>
@@ -710,7 +993,7 @@ ${comparisons}
 <h2 id="changes">Change log</h2>
 <ul>${m.changeLog.map((c) => `<li><b>${escapeHtml(c.version)}</b> (${escapeHtml(c.date)})<ul>${c.changes.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></li>`).join("")}</ul>
 
-<footer><a href="index.html">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}" rel="noopener noreferrer nofollow">Code and inputs</a></footer>
+<footer><a href="sellers.html">Sellers</a><a href="algorand.html">Algorand</a><a href="records/index.html">Signed records</a><a href="rank.json">Data (rank.json)</a><a href="${escapeHtml(PUBLIC_REPO_URL)}" rel="noopener noreferrer nofollow">Code and inputs</a></footer>
 `;
   return publicPage("How vet402 measures", "Method, counted and not counted purchases, grades per page, limits and how to reproduce the vet402 delivery pages.", body);
 }
@@ -730,11 +1013,13 @@ export function renderPublicSite(
 ): Map<string, string> {
   const slugs = siteSlugs(r);
   const out = new Map<string, string>();
-  out.set("index.html", renderMainIndex(r, groupById(r, "main"), slugs));
+  out.set("index.html", renderTopIndex(r, opts.lanes));
+  out.set("sellers.html", renderSellersMain(r, groupById(r, "main"), slugs));
+  out.set("use.html", renderUsePage());
   out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs));
   out.set("robinhood.html", renderRobinhoodPage(r, groupById(r, "robinhood"), opts.lanes?.robinhood));
   out.set("arbitrum.html", renderArbitrumPage(r, groupById(r, "arbitrum"), opts.lanes?.arbitrum));
-  out.set("method.html", renderPublicMethod(r));
+  out.set("method.html", renderPublicMethod(r, opts.lanes));
   for (const [key, slug] of slugs) {
     const parts = r.groups.flatMap((g) => g.ranking.filter((s) => s.key === key).map((s) => ({ g, s })));
     out.set(`seller/${slug}.html`, renderPublicSeller(r, key, parts, opts.records?.get(key)));

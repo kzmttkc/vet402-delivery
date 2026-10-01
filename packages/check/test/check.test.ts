@@ -46,8 +46,10 @@ const replayRpc =
     return patch(method, sig, structuredClone(a));
   };
 
-// Words that would turn facts into advice. The check reports what vet402 recorded; it does not rate.
+// Words that would turn facts into advice. The facts (summary, notes, the lines under the verdict) never
+// rate; the one rating is the verdict line (pay, avoid or unknown, verdict.ts), checked apart below.
 const ADVICE = /\b(safe|safer|unsafe|danger\w*|risk\w*|trust\w*|scam\w*|recommend\w*|avoid|should|reliable|legit\w*|fraud\w*)\b/i;
+const ADVICE_BUT_VERDICT = /\b(safe|safer|unsafe|danger\w*|risk\w*|trust\w*|scam\w*|recommend\w*|should|reliable|legit\w*|fraud\w*)\b/i;
 
 test("known seller with seller-side failures (XONA): counts, failure classes, grade, newest tx, negative records", () => {
   const r = lookup(rank, index, { url: XONA });
@@ -258,7 +260,7 @@ test("MCP: tools/list and tools/call over handleMessage", async () => {
 function mcpSession(messages: object[]): Promise<Record<string, unknown>[]> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [join(PKG, "bin", "vet402-check.mjs"), "--mcp"], {
-      env: { ...process.env, VET402_CHECK_RANK: join(FX, "rank.json"), VET402_CHECK_RECORDS_INDEX: join(FX, "records-index.json"), VET402_CHECK_RECORDS_BASE: join(FX, "records") },
+      env: { ...process.env, VET402_CHECK_RANK: join(FX, "rank.json"), VET402_CHECK_RECORDS_INDEX: join(FX, "records-index.json"), VET402_CHECK_RECORDS_BASE: join(FX, "records"), VET402_CHECK_LANES: "" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let out = "";
@@ -289,7 +291,7 @@ test("MCP over stdio: the bin starts, lists both tools and answers a call", asyn
   assert.equal((byId.get(1)!.result as { serverInfo: { name: string } }).serverInfo.name, "vet402-check");
   assert.equal((byId.get(2)!.result as { tools: unknown[] }).tools.length, 2);
   const text = (byId.get(3)!.result as { content: { text: string }[] }).content[0]!.text;
-  assert.match(text, /^vet402 has no record of this seller/);
+  assert.match(text, /^verdict: unknown\. vet402 has not bought from this seller, so there is no record to go on\.\nvet402 has no record of this seller/);
 });
 
 test("CLI: exit 0 for a lookup, found or not; 1 when a record fails; 2 on bad input", async () => {
@@ -321,15 +323,19 @@ function walk(dir: string): string[] {
   });
 }
 
-test("facts only: no advice words in any answer, tool description or the package README", () => {
+test("facts only: no advice words in any answer's facts or the package README; the verdict line and tool text carry only the verdict", () => {
   const urls = [XONA, "https://agent402.tools/api/crypto-price", "https://no-such-seller.example/x", "https://mpp.orthogonal.com/andi/v1/search", "https://midax402.com/midas-ops/basic"];
+  const verdictLines: string[] = [];
   const texts = urls.flatMap((url) => {
     const r = lookup(rank, index, { url, payTo: "11111111111111111111111111111111" });
-    return [r.summary, formatCheck(r), ...r.notes];
+    const [first, ...rest] = formatCheck(r).split("\n");
+    assert.equal(first, `verdict: ${r.verdict}. ${r.why}`, "the verdict line comes first");
+    verdictLines.push(first!);
+    return [r.summary, rest.join("\n"), ...r.notes];
   });
-  texts.push(...TOOLS.map((t) => `${t.title} ${t.description}`));
   texts.push(readFileSync(join(PKG, "README.md"), "utf8"));
   for (const t of texts) assert.equal(ADVICE.exec(t)?.[0], undefined, t.slice(0, 200));
+  for (const t of [...verdictLines, ...TOOLS.map((t) => `${t.title} ${t.description}`)]) assert.equal(ADVICE_BUT_VERDICT.exec(t)?.[0], undefined, t.slice(0, 200));
 });
 
 // Built from parts so this file does not match itself.

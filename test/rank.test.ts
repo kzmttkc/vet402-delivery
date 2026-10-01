@@ -494,9 +494,9 @@ test("renderSite: seller-controlled strings cannot inject markup on any page", (
   const pages = renderSite(report);
   assert.ok(pages.has("index.html") && pages.has("algorand.html") && pages.has("method.html"));
   const keys = new Set(report.groups.flatMap((g) => g.ranking.map((s) => s.key)));
-  assert.equal(pages.size, 5 + keys.size, "one page per listed seller");
+  assert.equal(pages.size, 7 + keys.size, "one page per listed seller");
   for (const [path, html] of pages) {
-    assert.match(path, /^(index|algorand|robinhood|arbitrum|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
+    assert.match(path, /^(index|sellers|use|algorand|robinhood|arbitrum|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, `safe file name: ${path}`);
     assert.ok(!path.includes(".."), path);
     assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
     assert.ok(!html.includes("<img"), `${path}: no img tag survives`);
@@ -528,9 +528,12 @@ test("index: purchase numbers first; graded rows carry grade, count and date; me
     mercator: null,
     inputs: [],
   });
-  const html = renderSite(report).get("index.html")!;
-  assert.ok(html.includes('<span class="big">41</span><br>purchases tried, from 2 sellers'), "tried and sellers at the top");
-  assert.ok(html.indexOf('<div class="stats">') < html.indexOf("<table"), "numbers before any table");
+  const top = renderSite(report).get("index.html")!;
+  assert.ok(top.includes('<span class="big">41</span><br>purchases tried, from 2 sellers'), "tried and sellers at the top of the Check page");
+  assert.ok(!top.includes("<table"), "the Check page holds no table");
+  const html = renderSite(report).get("sellers.html")!;
+  assert.ok(html.includes('<span class="big">41</span><br>purchases tried, from 2 sellers'), "and of the Sellers page");
+  assert.ok(html.indexOf('<div class="stats">') > 0 && html.indexOf('<div class="stats">') < html.indexOf("<table"), "numbers before any table");
   assert.ok(
     html.includes('<td class="rk">1</td><td class="gr"><span class="g gA" title="90%+ came back">A</span></td><td class="name"><a href="seller/good.example.html">good.example</a>'),
     "graded row",
@@ -630,11 +633,11 @@ test("rebuy on seller pages: what the paid rows in data/remeasure/ say, per sell
     assert.ok(!/(buys|bought) (this seller )?again/.test(page(k)), `${k}: no rebuy sentence`);
     assert.ok(page(k).includes("It costs the seller nothing"), `${k}: the rest of the line stays`);
   }
-  // The first page and the method page: the plan, then the facts from the same rows.
+  // The Sellers page (the tables, once the first page) and the method page: the plan, then the facts from the same rows.
   const facts = "Through 2026-10-01, the data holds 6 purchases bought again from 4 sellers on 3 UTC days (Solana 3, Tempo 3).";
   assert.equal(rebuyFacts(main.ranking, report.date), facts);
   assert.ok(pages.get("method.html")!.includes(escapeHtml(facts)), "method page: facts");
-  assert.ok(pages.get("index.html")!.includes(`${escapeHtml(REBUY_PLAN)} ${escapeHtml(facts)}`), "first page: plan, then facts");
+  assert.ok(pages.get("sellers.html")!.includes(`${escapeHtml(REBUY_PLAN)} ${escapeHtml(facts)}`), "Sellers page: plan, then facts");
   assert.equal(report.method.measurement.includes(REBUY_PLAN), true);
   assert.equal(rebuySeller(by("refused.example")), null);
   assert.equal(rebuyFacts([], "2026-09-28"), "Through 2026-09-28, the data holds no purchase bought again.");

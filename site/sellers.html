@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Every seller vet402 bought from on Solana, Tempo and Base, and what came back after each payment. Algorand, Robinhood Chain and Arbitrum have their own tabs.">
+<title>vet402: sellers on Solana, Tempo and Base</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1d1b;--dim:#62625d;--line:#e2e1dc;--card:#fff;--warn:#9a3b00;--link:#0b5cad;
+--gA:#1f7a3d;--gB:#3f7f6a;--gC:#8a6400;--gD:#b3261e;--gU:#62625d;--on:#fff}
+@media (prefers-color-scheme: dark){:root{--bg:#141413;--fg:#ecebe6;--dim:#a8a79f;--line:#34332f;--card:#1d1d1b;--warn:#ffb27a;--link:#8cc2ff;
+--gA:#5cc27f;--gB:#7cc1a9;--gC:#e0b64a;--gD:#ff8a80;--gU:#a8a79f;--on:#141413}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.45rem;line-height:1.25;margin:0 0 6px;overflow-wrap:anywhere}h2{font-size:1.1rem;margin:28px 0 8px}h3{font-size:1rem;margin:18px 0 6px}
+p{margin:6px 0}a{color:var(--link)}ul,ol{padding-left:1.2em}
+.lead{font-size:1.05rem;margin:4px 0}
+.dim{color:var(--dim)}.warn{color:var(--warn)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
+.g{display:inline-block;min-width:1.7em;padding:0 .3em;border-radius:5px;text-align:center;font-weight:700;color:var(--on);font-variant-numeric:tabular-nums}
+.gA{background:var(--gA)}.gB{background:var(--gB)}.gC{background:var(--gC)}.gD{background:var(--gD)}.gundecided{background:var(--gU)}
+.gmeasuring{background:transparent;color:var(--dim);border:1px solid var(--line)}
+.legend{font-size:.85rem;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px 12px;margin:12px 0}
+.legend span.item{min-width:0}
+ol.board{list-style:none;padding:0;margin:8px 0}
+.board li{display:grid;grid-template-columns:2.4em 2em minmax(0,1fr) auto 5.6em;gap:0 8px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)}
+.board .head{font-size:.8rem;color:var(--dim);border-bottom:1px solid var(--fg)}
+.board .rk{color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+.board .name{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.board .num,.board .date{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.board .date{color:var(--dim);font-size:.85rem}
+.board .sub{grid-column:3 / -1;font-size:.8rem;color:var(--dim)}
+@media (max-width:420px){.board li{grid-template-columns:2em 1.9em minmax(0,1fr) auto}.board .date{grid-column:3 / -1;text-align:left}}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:12px 0}
+.stats>div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.85rem;color:var(--dim)}
+.big{font-size:1.25rem;font-weight:700;color:var(--fg);font-variant-numeric:tabular-nums}
+.bar{position:relative;height:10px;background:var(--line);border-radius:5px;margin:8px 0 2px}
+.bar span{position:absolute;top:0;bottom:0;background:var(--fg);opacity:.35;border-radius:5px}
+.bar i{position:absolute;top:-3px;bottom:-3px;width:3px;margin-left:-1px;background:var(--fg)}
+.scale{display:flex;justify-content:space-between;font-size:.75rem;color:var(--dim)}
+ul.plain,ol.plain{list-style:none;padding:0;margin:0}
+.plain li{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.meta{font-size:.85rem;color:var(--dim);overflow-wrap:anywhere}
+.fault{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;background:var(--card)}
+.fault b.big{margin-right:6px}
+details{margin:12px 0}summary{cursor:pointer;font-weight:600}
+nav{margin-bottom:12px;font-size:.9rem}
+footer{margin-top:32px;padding-top:12px;border-top:1px solid var(--line);font-size:.9rem;display:flex;flex-wrap:wrap;gap:6px 16px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:6px 3px;text-align:right}th{font-size:.8rem;font-weight:600;vertical-align:bottom}th:first-child,td:first-child{text-align:left}
+
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 14px;font-size:.95rem}
+nav.tabs a[aria-current="page"]{color:var(--fg);font-weight:700;text-decoration:none;border-bottom:2px solid var(--fg)}
+table.board{table-layout:fixed;width:100%;margin:8px 0;font-size:.95rem}
+table.board caption{text-align:left;font-size:.85rem;color:var(--dim);padding:0 0 6px}
+table.board th,table.board td{padding:7px 3px;vertical-align:baseline;border-bottom:1px solid var(--line)}
+table.board thead th{border-bottom:1px solid var(--fg)}
+table.board .rk{width:2.3em;text-align:right;color:var(--dim)}
+table.board .gr{width:2.2em;text-align:center}
+table.board .name{text-align:left;overflow-wrap:anywhere;word-break:break-word}
+table.board .num{width:5.3em;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+table.board .date{width:3.6em;text-align:right;white-space:nowrap;color:var(--dim);font-size:.85rem;padding-left:6px}
+table.board td.name a{font-weight:600}
+table.board .sub{display:block;font-size:.78rem;color:var(--dim);font-weight:400}
+table.chain .num{width:3.9em}
+table.chain th.num{white-space:normal}
+.notcounted{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:10px 0;font-size:.9rem}
+.nw{white-space:nowrap}
+.legend{display:block}
+code,.cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;overflow-wrap:anywhere}
+pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
+</style>
+</head>
+<body><main>
+
+<nav class="tabs site" aria-label="Site"><a href="index.html">Check</a><a href="sellers.html" aria-current="page">Sellers</a><a href="use.html">Use it</a><a href="method.html">Method</a></nav>
+<nav class="tabs chains" aria-label="Chains"><a href="sellers.html" aria-current="page">Solana, Tempo, Base</a><a href="algorand.html">Algorand</a><a href="robinhood.html">Robinhood Chain</a><a href="arbitrum.html">Arbitrum</a></nav>
+<header>
+<h1>Sellers vet402 paid on Solana, Tempo and Base</h1>
+<p class="lead">Every seller vet402 bought from on Solana, Tempo and Base, and what came back after each payment. Algorand, Robinhood Chain and Arbitrum have their own tabs.</p>
+<p class="meta">Before an AI agent pays for an API, vet402 buys it with its own money and shows what came back. Grades come only from vet402&#39;s own purchases.</p>
+<p class="dim">Solana, Tempo and Base · purchases <span class="nw">2026-09-28</span> to <span class="nw">2026-10-01</span> (UTC) · method v3 (<span class="nw">2026-09-29</span>)</p>
+</header>
+<h2 id="for-sellers">Are you a seller listed here?</h2>
+<ul>
+<li>Your page (click your name) shows every purchase vet402 made from you, with its tx, and which failures count against you and which do not.</li>
+<li>A seller who thinks a row is wrong opens a GitHub issue with the URL or tx. vet402 checks it against the chain and the raw result; a wrong row is fixed and the fix is noted in the change log. <a href="method.html#appeal">How corrections work</a></li>
+<li>Signed records of failed purchases, and the Robinhood Chain and Arbitrum results, are published only after the seller is told. The tables here count every purchase as it happened.</li>
+<li>It costs the seller nothing, and there is nothing to sign up for.</li>
+</ul>
+<div class="stats">
+  <div><span class="big">774</span><br>purchases tried, from 220 sellers</div>
+  <div><span class="big">718</span><br>payments settled on chain</div>
+  <div><span class="big">632</span><br>came back with an answer</div>
+  <div><span class="big">86</span><br>settled on chain, and nothing usable came back</div>
+</div>
+<p class="meta">Came back with an answer = vet402&#39;s payment settled, then the seller answered 2xx with a non-empty body. vet402 did not check that the answer is what the listing promised; whether its keys matched what the seller declared is a separate column.</p>
+<p class="meta">Solana: 602 tried, 549 settled, 523 came back. Tempo: 164 tried, 162 settled, 102 came back (for 73 of these 164 the runner kept no body, so for them &quot;came back&quot; means settled, then 2xx; the other 91 were tested for an empty body). Base: 8 tried, 7 settled, 7 came back.</p>
+<p class="meta">No grades on this page yet. A grade needs 10 counted purchases on 2 different days; the most any seller here has is 7 counted on 4 days. Rebuy plan for 2026-09-29 to 2026-10-08 (UTC days): two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them. Through 2026-10-01, the data holds 544 purchases bought again from 131 sellers on 3 UTC days (Solana 453, Tempo 91). One or two purchases are a start, not a verdict.</p>
+<p class="meta">Jump to: <a href="#solana">Solana (141)</a> · <a href="#tempo">Tempo (73)</a> · <a href="#base">Base (8)</a></p>
+
+<h2 id="solana">Solana: 141 sellers</h2>
+<table class="board chain">
+<caption>Sorted by name. tried = vet402 sent a payment; settled = the payment settled on chain; came back = settled, then an answer.</caption>
+<thead><tr><th class="name" scope="col">seller</th><th class="num" scope="col">tried</th><th class="num" scope="col">settled</th><th class="num" scope="col">came back</th></tr></thead>
+<tbody>
+<tr><td class="name"><a href="seller/2s-3cpr6qm6j-alleyford.vercel.app.html">2s-3cpr6qm6j-alleyford.vercel.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/47620.xyz.html">47620.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/ads.apitoll.cloud.html">ads.apitoll.cloud</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/agent402.tools.html">agent402.tools</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/agentic-reservations.vercel.app.html">agentic-reservations.vercel.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/agents.datamancer.io.html">agents.datamancer.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">2</td></tr>
+<tr><td class="name"><a href="seller/agentworld.me.html">agentworld.me</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/aijobsboom-x402.sonofgus.workers.dev.html">aijobsboom-x402.sonofgus.workers.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.aidress.ai.html">api.aidress.ai</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.bentcrypto.com.html">api.bentcrypto.com</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/api.biotechcatalystsentinel.com.html">api.biotechcatalystsentinel.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.bitrefill.com.html">api.bitrefill.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.botpay.network.html">api.botpay.network</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.carbon-cashmere.de.html">api.carbon-cashmere.de</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.cn402.com.html">api.cn402.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.cookin.fun.html">api.cookin.fun</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.cra-agent.tech.html">api.cra-agent.tech</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.cryptoetfsentinel.com.html">api.cryptoetfsentinel.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.deepnets.ai.html">api.deepnets.ai</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.eucompliance.tools.html">api.eucompliance.tools</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.govparse.io.html">api.govparse.io</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.groundtruths.xyz.html">api.groundtruths.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.loopholetape.com.html">api.loopholetape.com</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/api.losbeto.xyz.html">api.losbeto.xyz</a><span class="sub">last 09-29</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/api.marketintelligenceapi.com.html">api.marketintelligenceapi.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.maxwellinternational.ai.html">api.maxwellinternational.ai</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.messari.io.html">api.messari.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.monpham.work.html">api.monpham.work</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.oblique.markets.html">api.oblique.markets</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.prereason.com.html">api.prereason.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">5</td><td class="num">5</td></tr>
+<tr><td class="name"><a href="seller/api.printmoneylab.com.html">api.printmoneylab.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.seerium.xyz.html">api.seerium.xyz</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.solsentry.app.html">api.solsentry.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.stelardigital.com.html">api.stelardigital.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.syraa.fun.html">api.syraa.fun</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.tcgapi.dev.html">api.tcgapi.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.telemost.io.html">api.telemost.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.x-402.online.html">api.x-402.online</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/api.xona-agent.com.html">api.xona-agent.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.you.com.html">api.you.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api.zerion.io.html">api.zerion.io</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/api2ls.com.html">api2ls.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/app.fortiblox.com.html">app.fortiblox.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/aws-bedrock.grok.me.html">aws-bedrock.grok.me</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/bentcrypto-x402-production.up.railway.app.html">bentcrypto-x402-production.up.railway.app</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/blocksearch.dev.html">blocksearch.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/brasil-dados-api.onrender.com.html">brasil-dados-api.onrender.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/bykaranteli.com.html">bykaranteli.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/changelog-state-api.replit.app.html">changelog-state-api.replit.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/citable.run.html">citable.run</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">5</td><td class="num">5</td></tr>
+<tr><td class="name"><a href="seller/clawhunter.fun.html">clawhunter.fun</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/coil.trade.html">coil.trade</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/coingecko.use.x402atlas.com.html">coingecko.use.x402atlas.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/content.hugen.tokyo.html">content.hugen.tokyo</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/contextaiagent.xyz.html">contextaiagent.xyz</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/crypto.apitoll.cloud.html">crypto.apitoll.cloud</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/dartapi.ljaysk.com.html">dartapi.ljaysk.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/deposit.now.html">deposit.now</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/earlythunder.com.html">earlythunder.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/edgar.apitoll.cloud.html">edgar.apitoll.cloud</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/gateway.spraay.app.html">gateway.spraay.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/gdzlcxskuhupymyxywzm.supabase.co.html">gdzlcxskuhupymyxywzm.supabase.co</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/helprentdanang.com.html">helprentdanang.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/houjin.agentic-jp.com.html">houjin.agentic-jp.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/htrlhl3y49.execute-api.us-east-2.amazonaws.com.html">htrlhl3y49.execute-api.us-east-2.amazonaws.com</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/hypernatt.com.html">hypernatt.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/insider-radar-agent.insider-radar-agent.workers.dev.html">insider-radar-agent.insider-radar-agent.workers.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/intel.twzrd.xyz.html">intel.twzrd.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/ip402.xyz.html">ip402.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/kael-ecosystem-pulse.onrender.com.html">kael-ecosystem-pulse.onrender.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/kaisha-api.hp-vladic.workers.dev.html">kaisha-api.hp-vladic.workers.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/laso.finance.html">laso.finance</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/law-mcp.toulaw.workers.dev.html">law-mcp.toulaw.workers.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/lazareus.xyz.html">lazareus.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/loki.freedomlab.space.html">loki.freedomlab.space</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/madeonsol.com.html">madeonsol.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/mcp.blocksize.info.html">mcp.blocksize.info</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/merchant-production-c224.up.railway.app.html">merchant-production-c224.up.railway.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/midax402.com.html">midax402.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/minifetch.com.html">minifetch.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/mpp.hyreagent.fun.html">mpp.hyreagent.fun</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/mysticapi.com.html">mysticapi.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/netintel.dev.html">netintel.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/news.apitoll.cloud.html">news.apitoll.cloud</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/nuza.io.html">nuza.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/offersignal.io.html">offersignal.io</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/onchainpulse.theaslangroupllc.com.html">onchainpulse.theaslangroupllc.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/overhang.ochinimus.app.html">overhang.ochinimus.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/palmyr.ai.html">palmyr.ai</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/parallax402.com.html">parallax402.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/pay.edge-agents.ai.html">pay.edge-agents.ai</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/payable.nsgoods.org.html">payable.nsgoods.org</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/payai.agentstools.dev.html">payai.agentstools.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">5</td><td class="num">5</td></tr>
+<tr><td class="name"><a href="seller/polynews.news.html">polynews.news</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/pro-api.coingecko.com.html">pro-api.coingecko.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/proxy.suverse.io.html">proxy.suverse.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/quartermaster.surewhynot.app.html">quartermaster.surewhynot.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/read.lonestaroracle.xyz.html">read.lonestaroracle.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/readx.sh.html">readx.sh</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/reddit.apitoll.cloud.html">reddit.apitoll.cloud</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/rentcast.x402.paysponge.com.html">rentcast.x402.paysponge.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">2</td></tr>
+<tr><td class="name"><a href="seller/rewards-144-91-97-140.sslip.io.html">rewards-144-91-97-140.sslip.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/rubric-protocol.com.html">rubric-protocol.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/saylorinnovations.com.html">saylorinnovations.com</a><span class="sub">last 09-30</span></td><td class="num">5</td><td class="num">5</td><td class="num">5</td></tr>
+<tr><td class="name"><a href="seller/scry.solanahub.de.html">scry.solanahub.de</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/scvd.store.html">scvd.store</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/sol.blockrun.ai.html">sol.blockrun.ai</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/stable-financial.vercel.app.html">stable-financial.vercel.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/stableenrich.dev.html">stableenrich.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/stabletravel.dev.html">stabletravel.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/stockwaves.net.html">stockwaves.net</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/store.agentexchange.work.html">store.agentexchange.work</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/svm402.com.html">svm402.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/tariffmonkee.com.html">tariffmonkee.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/terminal.themonexus.com.html">terminal.themonexus.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/tick.twzrd.xyz.html">tick.twzrd.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/tokensafe-production.up.railway.app.html">tokensafe-production.up.railway.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/toolrail.dev.html">toolrail.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/toolvend.dev.html">toolvend.dev</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/underground.substratesymposium.com.html">underground.substratesymposium.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/voidfeed.ai.html">voidfeed.ai</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/wallet-intelligence-three.vercel.app.html">wallet-intelligence-three.vercel.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/werner.ddns.net.html">werner.ddns.net</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/whaletape.xyz.html">whaletape.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/www.fomoscan.dev.html">www.fomoscan.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/www.getbags.app.html">www.getbags.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/www.x402financialdata.com.html">www.x402financialdata.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402-accelerometer-feed.fly.dev.html">x402-accelerometer-feed.fly.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/x402-api.vybenetwork.xyz.html">x402-api.vybenetwork.xyz</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402-crypto-data.vercel.app.html">x402-crypto-data.vercel.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402-doctor.onrender.com.html">x402-doctor.onrender.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402-service-production-e242.up.railway.app.html">x402-service-production-e242.up.railway.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/x402-stall-l3bb.onrender.com.html">x402-stall-l3bb.onrender.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/x402.911fund.io.html">x402.911fund.io</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402.ochinimus.app.html">x402.ochinimus.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402.orthogonal.com.html">x402.orthogonal.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/x402.sniperx.fun.html">x402.sniperx.fun</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402.spendthebits.com.html">x402.spendthebits.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/x402engine.app.html">x402engine.app</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/x402tap.com.html">x402tap.com</a><span class="sub">last 10-01</span></td><td class="num">6</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td class="name"><a href="seller/yieldsignal.vercel.app.html">yieldsignal.vercel.app</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+</tbody>
+</table>
+
+<h2 id="tempo">Tempo: 73 sellers</h2>
+<table class="board chain">
+<caption>Sorted by name. tried = vet402 sent a payment; settled = the payment settled on chain; came back = settled, then an answer.</caption>
+<thead><tr><th class="name" scope="col">seller</th><th class="num" scope="col">tried</th><th class="num" scope="col">settled</th><th class="num" scope="col">came back</th></tr></thead>
+<tbody>
+<tr><td class="name"><a href="seller/alphavantage.mpp.paywithlocus.com.html">alphavantage.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/api.apex-db.org.html">api.apex-db.org</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/api.exa.ai.html">api.exa.ai</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/api.recallradar.dev.html">api.recallradar.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/api.rxatlas.dev.html">api.rxatlas.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/apollo.mpp.paywithlocus.com.html">apollo.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/aviationstack.mpp.tempo.xyz.html">aviationstack.mpp.tempo.xyz</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/brave.mpp.paywithlocus.com.html">brave.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/builtwith.mpp.paywithlocus.com.html">builtwith.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/clado.mpp.paywithlocus.com.html">clado.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/coingecko.mpp.paywithlocus.com.html">coingecko.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/deepgram.mpp.paywithlocus.com.html">deepgram.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/deepl.mpp.paywithlocus.com.html">deepl.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/deepseek.mpp.paywithlocus.com.html">deepseek.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/diffbot-kg.mpp.paywithlocus.com.html">diffbot-kg.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/diffbot-nl.mpp.paywithlocus.com.html">diffbot-nl.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/diffbot.mpp.paywithlocus.com.html">diffbot.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/edgar-search.mpp.paywithlocus.com.html">edgar-search.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/edgar.mpp.paywithlocus.com.html">edgar.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/goflightlabs.mpp.tempo.xyz.html">goflightlabs.mpp.tempo.xyz</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/graph.codex.io.html">graph.codex.io</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/grok.mpp.paywithlocus.com.html">grok.mpp.paywithlocus.com</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/groq.mpp.paywithlocus.com.html">groq.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/hunter.mpp.paywithlocus.com.html">hunter.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/ipinfo.mpp.paywithlocus.com.html">ipinfo.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/judge0.mpp.paywithlocus.com.html">judge0.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/kicksdb.mpp.tempo.xyz.html">kicksdb.mpp.tempo.xyz</a><span class="sub">last 09-29</span></td><td class="num">2</td><td class="num">2</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mapbox.mpp.paywithlocus.com.html">mapbox.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mathpix.mpp.paywithlocus.com.html">mathpix.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mistral.mpp.paywithlocus.com.html">mistral.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/modal.mpp.tempo.xyz.html">modal.mpp.tempo.xyz</a><span class="sub">last 09-30</span></td><td class="num">2</td><td class="num">2</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-agentphone.html">mpp.orthogonal.com#orth-agentphone</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-andi.html">mpp.orthogonal.com#orth-andi</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-aviato.html">mpp.orthogonal.com#orth-aviato</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-baseten.html">mpp.orthogonal.com#orth-baseten</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-brand-dev.html">mpp.orthogonal.com#orth-brand-dev</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-captaindata.html">mpp.orthogonal.com#orth-captaindata</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-company-enrich.html">mpp.orthogonal.com#orth-company-enrich</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-context-dev.html">mpp.orthogonal.com#orth-context-dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-coresignal.html">mpp.orthogonal.com#orth-coresignal</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-didit.html">mpp.orthogonal.com#orth-didit</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-edges.html">mpp.orthogonal.com#orth-edges</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-fiber.html">mpp.orthogonal.com#orth-fiber</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-financial-datasets.html">mpp.orthogonal.com#orth-financial-datasets</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-findymail.html">mpp.orthogonal.com#orth-findymail</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-fundable.html">mpp.orthogonal.com#orth-fundable</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-influencers-club.html">mpp.orthogonal.com#orth-influencers-club</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-joinmassive.html">mpp.orthogonal.com#orth-joinmassive</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-leadsforge.html">mpp.orthogonal.com#orth-leadsforge</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-linkup.html">mpp.orthogonal.com#orth-linkup</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-olostep.html">mpp.orthogonal.com#orth-olostep</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-openmart.html">mpp.orthogonal.com#orth-openmart</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-peopledatalabs.html">mpp.orthogonal.com#orth-peopledatalabs</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-predictleads.html">mpp.orthogonal.com#orth-predictleads</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-scrapecreators.html">mpp.orthogonal.com#orth-scrapecreators</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-scrapegraphai.html">mpp.orthogonal.com#orth-scrapegraphai</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-seltz.html">mpp.orthogonal.com#orth-seltz</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-serper.html">mpp.orthogonal.com#orth-serper</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-serper-scrape.html">mpp.orthogonal.com#orth-serper-scrape</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-signalbase.html">mpp.orthogonal.com#orth-signalbase</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-sixtyfour.html">mpp.orthogonal.com#orth-sixtyfour</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">3</td><td class="num">3</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-tako.html">mpp.orthogonal.com#orth-tako</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-tomba.html">mpp.orthogonal.com#orth-tomba</a><span class="sub">last 09-30</span></td><td class="num">3</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/mpp.orthogonal.com_orth-voygr.html">mpp.orthogonal.com#orth-voygr</a><span class="sub">last 10-01</span></td><td class="num">4</td><td class="num">4</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/openweather.mpp.paywithlocus.com.html">openweather.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/perplexity.mpp.paywithlocus.com.html">perplexity.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/rentcast.mpp.paywithlocus.com.html">rentcast.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/replicate.mpp.paywithlocus.com.html">replicate.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/screenshotone.mpp.paywithlocus.com.html">screenshotone.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/serpapi.mpp.tempo.xyz.html">serpapi.mpp.tempo.xyz</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/spyfu.mpp.tempo.xyz.html">spyfu.mpp.tempo.xyz</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/stability-ai.mpp.paywithlocus.com.html">stability-ai.mpp.paywithlocus.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/stableemail.dev.html">stableemail.dev</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+</tbody>
+</table>
+
+<h2 id="base">Base: 8 sellers</h2>
+<table class="board chain">
+<caption>Sorted by name. tried = vet402 sent a payment; settled = the payment settled on chain; came back = settled, then an answer.</caption>
+<thead><tr><th class="name" scope="col">seller</th><th class="num" scope="col">tried</th><th class="num" scope="col">settled</th><th class="num" scope="col">came back</th></tr></thead>
+<tbody>
+<tr><td class="name"><a href="seller/agent402.tools.html">agent402.tools</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/api.hergertsynthora.com.html">api.hergertsynthora.com</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/api.terradeed.co.uk.html">api.terradeed.co.uk</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td class="name"><a href="seller/predict.memoryapi.org.html">predict.memoryapi.org</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/scvd.store.html">scvd.store</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/vealth.net.html">vealth.net</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/www.capminal.ai.html">www.capminal.ai</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td class="name"><a href="seller/x402.agentutility.ai.html">x402.agentutility.ai</a><span class="sub">last 09-28</span></td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+</tbody>
+</table>
+
+<p class="notcounted">Not counted against any seller: <b>51</b> failed purchases on vet402's or the facilitator's side and <b>63</b> with no clear cause, out of 774 tries where vet402 sent a payment (718 settled on chain). They never lower a grade. <a href="method.html#instrument">By rule</a></p>
+<p class="meta warn">payTo changed for 2 sellers between runs or at payment. Shown on their pages; no effect on the grade.</p>
+<h2 id="money">How vet402 pays for this</h2>
+<p>Grades come only from vet402&#39;s own purchases. vet402 also sells paid checks (paid in USDC on Algorand or Base); a paid check is a separate report and never moves a grade. Every purchase file the grades read is in <a href="https://github.com/kzmttkc/vet402-delivery/tree/main/data" rel="noopener noreferrer nofollow">data/</a> with its sha256.</p>
+
+<footer><a href="method.html">How vet402 measures</a><a href="method.html#appeal">Mistakes and corrections</a><a href="method.html#verify">Signed records</a><a href="rank.json">Data (rank.json)</a><a href="https://github.com/kzmttkc/vet402-delivery/tree/main/data" rel="noopener noreferrer nofollow">Inputs (data/)</a></footer>
+
+</main></body></html>

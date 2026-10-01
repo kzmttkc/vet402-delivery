@@ -9,6 +9,7 @@
 import { createInterface } from "node:readline";
 import { checkBeforePaying } from "./check.js";
 import { PublicData } from "./sources.js";
+import { verdictLine } from "./verdict.js";
 import { verifyRecord, type VerifyOptions } from "./verify.js";
 
 export const SERVER_NAME = "vet402-check";
@@ -27,7 +28,9 @@ export const TOOLS = [
       "Algorand, how many settled, how many came back with an answer, the newest purchase with its tx, the failures counted " +
       "against the seller and the ones that are not, the grade as vet402 prints it (measuring while there are too few purchases), " +
       "the signed records published for that seller, and whether the payTo matches one vet402 recorded. If vet402 has no record " +
-      "of the seller, it says so. Facts only; the decision is yours. Reads public files only: no key, no payment.",
+      "of the seller, it says so. The answer starts with a verdict (pay, avoid or unknown) and one sentence of why, from the same " +
+      "numbers: pay when vet402's paid purchases came back with an answer often enough, avoid when they mostly did not (only " +
+      "failures on the seller's side count), unknown when there is too little to tell. Reads public files only: no key, no payment.",
     inputSchema: {
       type: "object",
       properties: {
@@ -89,7 +92,7 @@ async function callTool(name: string, args: Json, opts: Required<Pick<ServerOpti
         extra = ` Newest record ${v.id} verified: ${v.result}.`;
       }
       const out = verified ? { ...result, newestRecordVerified: verified } : result;
-      return text(`${result.summary}${extra}\n\n${JSON.stringify(out, null, 2)}`, out);
+      return text(`${verdictLine(result)}\n${result.summary}${extra}\n\n${JSON.stringify(out, null, 2)}`, out);
     }
     if (name === "verify_record") {
       const record = str("record");

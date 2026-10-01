@@ -9,6 +9,7 @@
  */
 import { type PublicData } from "./sources.js";
 import { PUBLIC_SITE_URL } from "./sources.js";
+import { verdictFor, type Verdict, type VerdictBasis } from "./verdict.js";
 
 export interface CheckInput {
   /** The resource URL about to be paid. */
@@ -45,6 +46,8 @@ export interface SellerFacts {
   delivered: number;
   /** Purchases that count toward the grade: delivered, or failed on the seller's side. */
   counted: number;
+  /** Different UTC days with counted purchases (rank.json's `days`, page-wide). */
+  days: number;
   byChain: Record<string, { tried: number; settled: number; counted: number; delivered: number; lastAt: string | null }>;
   firstAt: string | null;
   lastAt: string | null;
@@ -58,6 +61,11 @@ export interface SellerFacts {
   sameUrlInRecent: { listed: number; tried: number; delivered: number };
   payTos: string[];
   payToChanged: boolean;
+  /**
+   * Robinhood Chain and Arbitrum (data/evm/<lane>.json): purchases whose result is held until the seller is
+   * told (status "withheld"). They are in `tried` only; their result is not published, so it is not here.
+   */
+  held?: number;
 }
 
 export interface RecordRef {
@@ -73,6 +81,12 @@ export interface RecordRef {
 }
 
 export interface CheckResult {
+  /** pay, avoid or unknown, from verdict.ts (the one place the rule lives). */
+  verdict: Verdict;
+  /** One English sentence; its numbers are the fields of `basis`. */
+  why: string;
+  /** The seller figures the verdict rests on; null when vet402 has no record. */
+  basis: VerdictBasis | null;
   kind: "vet402-check-before-paying";
   version: 0;
   asked: { url: string; host: string; chain: string | null; payTo: string | null };
@@ -92,12 +106,14 @@ export interface CheckResult {
 export function normalizeChain(chain: string): string {
   const c = chain.trim();
   const lower = c.toLowerCase();
-  if (["solana", "tempo", "base", "algorand"].includes(lower)) return lower;
+  if (["solana", "tempo", "base", "algorand", "arbitrum", "robinhood"].includes(lower)) return lower;
   if (c === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") return "solana";
   if (lower === "eip155:4217") return "tempo";
   if (lower === "eip155:8453") return "base";
+  if (lower === "eip155:42161") return "arbitrum";
+  if (lower === "eip155:4663") return "robinhood";
   if (/^algorand:/i.test(c)) return "algorand";
-  throw new Error(`${chain}: unknown chain; use solana, tempo, base, algorand or their CAIP-2 id`);
+  throw new Error(`${chain}: unknown chain; use solana, tempo, base, algorand, arbitrum, robinhood or their CAIP-2 id`);
 }
 
 export const NETWORK_OF: Record<string, string> = {
@@ -113,6 +129,8 @@ export function explorerFor(chain: string, tx: string | null): string | null {
   if (chain === "tempo") return `https://explore.tempo.xyz/tx/${t}`;
   if (chain === "base") return `https://basescan.org/tx/${t}`;
   if (chain === "algorand") return `https://allo.info/tx/${t}`;
+  if (chain === "arbitrum") return `https://arbiscan.io/tx/${t}`;
+  if (chain === "robinhood") return `https://robinhoodchain.blockscout.com/tx/${t}`;
   return null;
 }
 
@@ -215,6 +233,89 @@ export function readRecordsIndex(raw: unknown): IndexView {
     days.set(d.day as string, { root: str(d.root) ?? "", anchor: a });
   }
   return { entries, days };
+}
+
+// ---- Robinhood Chain and Arbitrum: data/evm/<lane>.json (one purchase per payTo, one run) ----
+
+interface LaneRowView {
+  status: string;
+  resource: string;
+  host: string;
+  payTo: string;
+  tx: string | null;
+  purchases: number;
+}
+
+interface LaneView {
+  lane: "arbitrum" | "robinhood";
+  label: string;
+  generatedAt: string;
+  rows: LaneRowView[];
+}
+
+const LANE_LABEL = { arbitrum: "Arbitrum One", robinhood: "Robinhood Chain" } as const;
+/** The statuses in which vet402 sent a payment (the lane pages count these as "bought by vet402"). */
+const LANE_BOUGHT = new Set(["delivered", "settled_no_answer", "not_settled", "unconfirmed", "withheld"]);
+
+export function readLanes(raw: unknown[]): LaneView[] {
+  const out: LaneView[] = [];
+  for (const l of raw) {
+    if (!isObj(l) || l.kind !== "vet402-evm-lane" || (l.lane !== "arbitrum" && l.lane !== "robinhood")) continue;
+    const rows: LaneRowView[] = [];
+    for (const r of arr(l.rows)) {
+      if (!isObj(r) || !LANE_BOUGHT.has(str(r.status) ?? "") || !str(r.resource)) continue;
+      let host: string;
+      try {
+        host = new URL(r.resource as string).hostname.toLowerCase();
+      } catch {
+        continue;
+      }
+      rows.push({ status: r.status as string, resource: r.resource as string, host, payTo: str(r.payTo) ?? "", tx: str(r.settlementTx), purchases: Math.max(1, num(r.purchases)) });
+    }
+    out.push({ lane: l.lane, label: LANE_LABEL[l.lane], generatedAt: str(l.generatedAt) ?? "", rows });
+  }
+  return out;
+}
+
+/** One lane's purchases from the URL's host, as SellerFacts. Exact-URL rows first when there are any. */
+function laneFacts(l: LaneView, u: URL): SellerFacts | null {
+  const host = u.hostname.toLowerCase();
+  const rows = l.rows.filter((r) => r.host === host);
+  if (!rows.length) return null;
+  const n = (st: string) => rows.filter((r) => r.status === st).reduce((k, r) => k + r.purchases, 0);
+  const delivered = n("delivered");
+  const noAnswer = n("settled_no_answer");
+  const held = n("withheld");
+  const unclear = n("not_settled") + n("unconfirmed");
+  const tried = delivered + noAnswer + held + unclear;
+  const at = l.generatedAt || null;
+  const shown = rows.filter((r) => r.status !== "withheld");
+  const lastRow = shown.find((r) => sameUrl(r.resource, u.href)) ?? shown[0] ?? null;
+  const same = shown.filter((r) => sameUrl(r.resource, u.href));
+  return {
+    key: host,
+    page: l.lane,
+    pageLabel: l.label,
+    sellerPage: `${PUBLIC_SITE_URL}/${l.lane}.html`,
+    grade: "measuring",
+    rank: null,
+    tried,
+    settled: delivered + noAnswer,
+    delivered,
+    counted: delivered + noAnswer,
+    days: delivered + noAnswer > 0 ? 1 : 0,
+    byChain: { [l.lane]: { tried, settled: delivered + noAnswer, counted: delivered + noAnswer, delivered, lastAt: at } },
+    firstAt: at,
+    lastAt: at,
+    sellerSideFailures: noAnswer ? { settled_no_answer: noAnswer } : {},
+    notCountedAgainstSeller: { vet402OrFacilitator: 0, causeUnknown: unclear, byRule: unclear ? { not_settled: unclear } : {} },
+    last: lastRow ? { at: at ?? "", chain: l.lane, url: lastRow.resource, category: lastRow.status, httpStatus: null, tx: lastRow.tx, explorer: explorerFor(l.lane, lastRow.tx) } : null,
+    lastSellerSideFailure: null,
+    sameUrlInRecent: { listed: shown.length, tried: same.length, delivered: same.filter((r) => r.status === "delivered").length },
+    payTos: [...new Set(rows.map((r) => r.payTo).filter(Boolean))],
+    payToChanged: false,
+    ...(held ? { held } : {}),
+  };
 }
 
 // ---- the lookup ----
@@ -321,6 +422,7 @@ function sellerFacts(rank: RankView, group: RankView["groups"][number], s: Obj, 
     settled: num(s.settled),
     delivered: num(s.delivered),
     counted: num(s.counted),
+    days: arr(s.days).length,
     byChain,
     firstAt: str(s.firstAt),
     lastAt: str(s.lastAt),
@@ -361,12 +463,16 @@ function sellerLine(f: SellerFacts, chain: string | null): string {
   return (
     `${head}. Failures counted against the seller: ${countsText(f.sellerSideFailures)}. ` +
     `Not counted against the seller: ${nc.vet402OrFacilitator + nc.causeUnknown} (vet402 or facilitator ${nc.vet402OrFacilitator}, cause unknown ${nc.causeUnknown}). ` +
-    `Grade: ${f.grade}${f.rank !== null ? `, rank ${f.rank}` : ""}.${last}`
+    `Grade: ${f.grade}${f.rank !== null ? `, rank ${f.rank}` : ""}.${last}` +
+    (f.held ? ` Results of ${f.held} more purchase${f.held === 1 ? "" : "s"} are held until the seller is told.` : "")
   );
 }
 
-/** The lookup itself, over data already read. Pure. */
-export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, sources: string[] = []): CheckResult {
+/**
+ * The lookup itself, over data already read. Pure. `lanesRaw`: data/evm/arbitrum.json and robinhood.json
+ * (Arbitrum and Robinhood Chain), optional.
+ */
+export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, sources: string[] = [], lanesRaw: unknown[] = []): CheckResult {
   const u = parseUrl(input.url);
   const host = u.hostname.toLowerCase();
   const chain = input.chain ? normalizeChain(input.chain) : null;
@@ -383,6 +489,16 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
     if (!pairs.length) for (const { s } of all) if (isObj(s.chains)) for (const c of Object.keys(s.chains)) onOtherChains.add(c);
   }
   const sellers = pairs.map(({ group, s }) => sellerFacts(rank, group, s, u));
+  for (const l of readLanes(lanesRaw)) {
+    const f = laneFacts(l, u);
+    if (!f) continue;
+    if (chain && chain !== l.lane) {
+      onOtherChains.add(l.lane);
+      continue;
+    }
+    sellers.push(f);
+  }
+  if (sellers.length) onOtherChains.clear();
   const keys = new Set(sellers.map((f) => f.key));
 
   // Records: the sellers found, or the host when rank.json has none on that chain.
@@ -431,10 +547,15 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
     summary = [...lines, recLine, ptLine].filter(Boolean).join(" ");
   }
 
+  const asked = { url: u.href, host, chain, payTo };
+  const v = verdictFor({ found, sellers, asked, payTo: payToFact });
   return {
+    verdict: v.verdict,
+    why: v.why,
+    basis: v.basis,
     kind: "vet402-check-before-paying",
     version: 0,
-    asked: { url: u.href, host, chain, payTo },
+    asked,
     found,
     summary,
     sellers,
@@ -448,6 +569,6 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
 
 /** Read the public data (or the sources `data` names) and look the URL up. Read-only. */
 export async function checkBeforePaying(input: CheckInput, data: PublicData): Promise<CheckResult> {
-  const [rankRaw, indexRaw] = await Promise.all([data.rank(), data.recordsIndex()]);
-  return lookup(rankRaw, indexRaw, input, [data.sources.rank, data.sources.recordsIndex]);
+  const [rankRaw, indexRaw, lanesRaw] = await Promise.all([data.rank(), data.recordsIndex(), data.lanes()]);
+  return lookup(rankRaw, indexRaw, input, [data.sources.rank, data.sources.recordsIndex, ...data.sources.lanes], lanesRaw);
 }

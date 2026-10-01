@@ -104,14 +104,14 @@ test("site: a seller name with <script> is shown as text on every page", () => {
     att({ host: `m.example${evil}`, at: DAY1 }),
   ]);
   const pages = renderPublicSite(r);
-  assert.equal(pages.size, 5 + siteSlugs(r).size);
+  assert.equal(pages.size, 7 + siteSlugs(r).size);
   for (const [path, html] of pages) {
-    assert.match(path, /^(index|algorand|robinhood|arbitrum|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, path);
+    assert.match(path, /^(index|sellers|use|algorand|robinhood|arbitrum|method)\.html$|^seller\/[a-z0-9._-]+\.html$/, path);
     assert.ok(!html.includes("<script"), `${path}: no script tag survives`);
     assert.ok(!html.includes('example"><'), `${path}: no attribute breakout`);
     assert.ok(html.includes("script-src 'none'"), `${path}: CSP forbids scripts`);
   }
-  const index = pages.get("index.html")!;
+  const index = pages.get("sellers.html")!;
   assert.ok(index.includes("x.example&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"), "escaped name is visible");
   const sellerPage = [...pages].find(([p, h]) => p.startsWith("seller/") && h.includes("&lt;script&gt;alert(1)&lt;/script&gt;</span>"));
   assert.ok(sellerPage, "runner text is shown escaped on the seller page");
@@ -123,7 +123,7 @@ test("site: rank numbers only for sellers with enough counted purchases on enoug
     ...series("oneday.example", 20, [DAY2]), // enough purchases, one day
     ...series("few.example", MIN_COUNTED - 1), // two days, too few
   ]);
-  const index = renderPublicSite(r).get("index.html")!;
+  const index = renderPublicSite(r).get("sellers.html")!;
   const graded = index.slice(0, index.indexOf('<h2 id="solana">'));
   const row = (html: string, host: string) => html.split("<tr>").find((x) => x.includes(`>${host}</a>`));
   assert.match(row(graded, "good.example")!, /^<td class="rk">1<\/td>/);
@@ -131,14 +131,14 @@ test("site: rank numbers only for sellers with enough counted purchases on enoug
   assert.equal(row(graded, "few.example"), undefined, "too few: not in the graded table");
   const solana = index.slice(index.indexOf('<h2 id="solana">'));
   for (const h of ["good.example", "oneday.example", "few.example"]) assert.ok(row(solana, h), `${h} is listed, unfolded, in the Solana table`);
-  assert.ok(!index.includes("<details>"), "nothing on the first page is folded");
+  assert.ok(!index.includes("<details>"), "nothing on the Sellers page is folded");
   assert.ok(index.includes(escapeHtml(PUBLIC_LEAD)));
   assert.ok(index.includes("Not counted against any seller: <b>"), "not-counted failures are always shown");
 
   // The same rule on the published report, page by page.
   const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
   const algo = readFileSync(join(ROOT, "site", "algorand.html"), "utf8");
-  const main = readFileSync(join(ROOT, "site", "index.html"), "utf8");
+  const main = readFileSync(join(ROOT, "site", "sellers.html"), "utf8");
   for (const g of pub.groups) {
     for (const s of g.ranking) {
       if (s.rank !== null) assert.ok(s.counted >= MIN_COUNTED && s.days.length >= MIN_DAYS, s.key);
@@ -170,7 +170,7 @@ test("method v3: each page is graded from its own chains only, on synthetic data
   assert.deepEqual([m.tried, m.grade, m.rank, Object.keys(m.chains)], [1, "measuring", null, ["solana"]]);
   assert.deepEqual([a.tried, a.grade, a.rank, Object.keys(a.chains)], [40, "A", 1, ["algorand"]]);
   const pages = renderPublicSite(r);
-  assert.ok(!pages.get("index.html")!.includes('class="g gA"'), "the Algorand grade does not appear on the first page");
+  assert.ok(!pages.get("sellers.html")!.includes('class="g gA"'), "the Algorand grade does not appear on the Sellers page");
   assert.ok(pages.get("algorand.html")!.includes('<td class="rk">1</td><td class="gr"><span class="g gA"'), "it does on the Algorand page");
   const seller = pages.get("seller/both.example.html")!;
   assert.ok(seller.indexOf('<h2 id="main">') < seller.indexOf('<h2 id="algorand">'), "the seller page shows both parts, each on its own");
@@ -195,11 +195,11 @@ test("site/ and README: the money and delivered wording (method v3), and no old 
   const texts = [...pages, join(ROOT, "README.md"), join(ROOT, "src", "rank", "README.md")].map((p) => [p, readFileSync(p, "utf8")] as const);
   const old = [/takes no money/i, /no money from sellers/i, /once each/i, /listing promised, with/i, /paid tries/i, /\barrives? 90%/i];
   for (const [p, t] of texts) for (const re of old) assert.ok(!re.test(t), `${p.slice(ROOT.length + 1)}: ${re.source}`);
-  for (const f of ["index.html", "algorand.html", "method.html"]) {
+  for (const f of ["sellers.html", "algorand.html", "method.html"]) {
     const html = readFileSync(join(ROOT, "site", f), "utf8");
     assert.ok(html.includes(escapeHtml(MONEY_LINE)), `${f}: money line`);
   }
-  for (const f of ["index.html", "algorand.html"]) assert.ok(readFileSync(join(ROOT, "site", f), "utf8").includes(escapeHtml(DELIVERED_LINE)), `${f}: delivered line`);
+  for (const f of ["sellers.html", "algorand.html", "method.html"]) assert.ok(readFileSync(join(ROOT, "site", f), "utf8").includes(escapeHtml(DELIVERED_LINE)), `${f}: delivered line`);
   for (const f of ["README.md", join("src", "rank", "README.md")]) assert.ok(readFileSync(join(ROOT, f), "utf8").includes(MONEY_LINE), `${f}: money line`);
 });
 
@@ -222,8 +222,8 @@ test("site/: Algorand 'settled' is a settlement receipt, not 'on chain'; the Tem
   );
   const tempo = pub.chains.find((c) => c.chain === "tempo")!;
   assert.ok(tempo.bodyUnchecked > 0 && tempo.bodyUnchecked < tempo.tried, "only part of Tempo has no body test");
-  const main = readFileSync(join(ROOT, "site", "index.html"), "utf8");
-  assert.ok(main.includes(`for ${tempo.bodyUnchecked} of these ${tempo.tried} the runner kept no body`), "first page says how many");
+  const main = readFileSync(join(ROOT, "site", "sellers.html"), "utf8");
+  assert.ok(main.includes(`for ${tempo.bodyUnchecked} of these ${tempo.tried} the runner kept no body`), "the Sellers page says how many");
   assert.ok(method.includes(`<td>${tempo.tried - tempo.bodyUnchecked} of ${tempo.tried}</td></tr>`), "method table: body test count");
 });
 

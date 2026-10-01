@@ -1,0 +1,1139 @@
+{
+  "kind": "vet402-seller-rank",
+  "date": "2026-10-01",
+  "generatedAt": "2026-10-01T02:58:08.917Z",
+  "method": {
+    "version": "v3",
+    "faultRules": [
+      {
+        "id": "paid_then_402_placeholder",
+        "fault": "unknown",
+        "when": "vet402's payment settled, then the seller answered 402, and the request vet402 sent carried a placeholder from the catalog in place of a value (such as \"string\"). The 402 may come from that input, so it is not counted against the seller."
+      },
+      {
+        "id": "settled_not_delivered",
+        "fault": "seller",
+        "when": "Paid on chain, answered 402, delivered nothing: vet402's payment settled on chain (a facilitator error such as \"already in ledger\" included), then the seller answered 402. The buyer paid and received nothing."
+      },
+      {
+        "id": "paid_then_4xx_vet402_input",
+        "fault": "vet402_or_facilitator",
+        "when": "vet402's payment settled, then the seller answered 400, 404 or 422, and the request vet402 sent was wrong: a placeholder from the catalog in place of a value (such as \"string\"), a parameter the catalog marks required left out, or no input while the seller's answer says the input was wrong."
+      },
+      {
+        "id": "paid_then_4xx",
+        "fault": "unknown",
+        "when": "vet402's payment settled, then the seller answered 4xx other than 402 (400, 401, 404, 422, 429 …). vet402 built the request from the seller's listing, so a fault on vet402's side is not ruled out. Shown as a count, as in the signed records (UNCLEAR)."
+      },
+      {
+        "id": "paid_not_delivered",
+        "fault": "seller",
+        "when": "vet402's payment settled, then the seller answered 5xx, nothing, another non-2xx that is not a 4xx, or 2xx with an empty body."
+      },
+      {
+        "id": "rate_limited_429",
+        "fault": "vet402_or_facilitator",
+        "when": "HTTP 429. vet402 bought many items from one seller within minutes; one ordinary purchase would not hit the limit."
+      },
+      {
+        "id": "subcent_quota",
+        "fault": "vet402_or_facilitator",
+        "when": "subcent_quota_exceeded: vet402's many sub-cent purchases used up the per-payer quota."
+      },
+      {
+        "id": "payment_tx_rejected",
+        "fault": "vet402_or_facilitator",
+        "when": "The payment transaction vet402 built was rejected before settling: simulation failed, BlockhashNotFound, already in ledger, validity window passed, facilitator unavailable."
+      },
+      {
+        "id": "server_error_5xx",
+        "fault": "seller",
+        "when": "The seller's server answered 5xx and no settlement happened."
+      },
+      {
+        "id": "timeout",
+        "fault": "unknown",
+        "when": "vet402's request timed out. A slow seller and a short vet402 timeout look the same."
+      },
+      {
+        "id": "request_rejected_4xx",
+        "fault": "unknown",
+        "when": "The seller answered 4xx (400, 401, 404, 422 …) before any payment settled. vet402 made the input, so the cause cannot be told apart."
+      },
+      {
+        "id": "payment_not_accepted_402",
+        "fault": "unknown",
+        "when": "The seller answered 402 again after vet402 paid, with no reason that points to either side."
+      },
+      {
+        "id": "answer_without_settlement",
+        "fault": "unknown",
+        "when": "The seller answered 2xx but no settlement of vet402's payment could be found."
+      },
+      {
+        "id": "unclassified",
+        "fault": "unknown",
+        "when": "None of the above. Counted here so a new failure mode is visible and never lowers a grade."
+      }
+    ],
+    "grades": "A: lower bound ≥ 0.9. B: lower bound ≥ 0.75. C: lower bound ≥ 0.5. D: upper bound < 0.5. Otherwise undecided. Even 10 deliveries out of 10 have a lower bound of 0.72 (grade C); an A needs about 35 out of 35.",
+    "minCounted": 10,
+    "minDays": 2
+  },
+  "groups": [
+    {
+      "id": "main",
+      "label": "Solana, Tempo and Base",
+      "chains": [
+        "solana",
+        "tempo",
+        "base"
+      ],
+      "page": "index.html",
+      "ranking": [
+        {
+          "key": "agents.datamancer.io",
+          "host": "agents.datamancer.io",
+          "service": null,
+          "services": [],
+          "chains": {
+            "solana": {
+              "tried": 6,
+              "settled": 6,
+              "counted": 2,
+              "delivered": 2,
+              "lastAt": "2026-10-01T01:24:35.291Z"
+            }
+          },
+          "tried": 6,
+          "counted": 2,
+          "settled": 6,
+          "delivered": 2,
+          "settledRate": 1,
+          "deliveredRate": 1,
+          "wilsonLower": 0.3423719528896193,
+          "wilsonUpper": 1,
+          "days": [
+            "2026-09-30",
+            "2026-10-01"
+          ],
+          "grade": "measuring",
+          "qualified": false,
+          "excluded": {
+            "vet402_or_facilitator": 0,
+            "unknown": 4
+          },
+          "failuresByRule": {
+            "paid_then_4xx": 4
+          },
+          "declared": {
+            "checked": 0,
+            "matched": 0
+          },
+          "notTried": {
+            "vet402_skipped": 2
+          },
+          "failures": {
+            "settled_error_status": 4
+          },
+          "lastMeasuredAt": "2026-10-01T01:24:35.291Z",
+          "last": {
+            "at": "2026-10-01T01:24:35.291Z",
+            "chain": "solana",
+            "category": "delivered",
+            "rawReason": "sent/http 200",
+            "url": "https://agents.datamancer.io/api/v1/paid/vin",
+            "tx": "kpfUvsPAK7wLoHTCttNpqrpCRrQ8RQKn8XCRWk1ynYJ2RwMQyvWqqgVTN4dvnmsbZVnnAeLGriNqEnBFi4hQ9Ma"
+          },
+          "exampleDeliveredTx": {
+            "chain": "solana",
+            "tx": "kpfUvsPAK7wLoHTCttNpqrpCRrQ8RQKn8XCRWk1ynYJ2RwMQyvWqqgVTN4dvnmsbZVnnAeLGriNqEnBFi4hQ9Ma",
+            "url": "https://agents.datamancer.io/api/v1/paid/vin"
+          },
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
+          "recent": [
+            {
+              "at": "2026-10-01T01:24:35.291Z",
+              "chain": "solana",
+              "url": "https://agents.datamancer.io/api/v1/paid/vin",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "kpfUvsPAK7wLoHTCttNpqrpCRrQ8RQKn8XCRWk1ynYJ2RwMQyvWqqgVTN4dvnmsbZVnnAeLGriNqEnBFi4hQ9Ma"
+            },
+            {
+              "at": "2026-09-30T14:08:10.209Z",
+              "chain": "solana",
+              "url": "https://agents.datamancer.io/api/v1/paid/vin",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "7HLEiB28DyRuzWgAgVfYTnwQw7tn4DUnJoAUgj24Yx2kuPNmkDUxgBPTmFWASysVZcvfsiCuJvdzcvihwmWy7xk"
+            },
+            {
+              "at": "2026-09-30T02:20:03.048Z",
+              "chain": "solana",
+              "url": "https://agents.datamancer.io/api/v1/paid/vin",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
+              "httpStatus": 404,
+              "declaredMatch": null,
+              "tx": "sATaEUTwLfdCQXjRMgBPNfXW2zWZ93B43SQoTRvMPggZehAZFDAtcLsW4DPVSkuSmGftUXntiq4wYzkFnDtXsLS"
+            },
+            {
+              "at": "2026-09-29T10:09:37.970Z",
+              "chain": "solana",
+              "url": "https://agents.datamancer.io/api/v1/paid/vin",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
+              "httpStatus": 404,
+              "declaredMatch": null,
+              "tx": "jjSnHJVG2hbPE2NCDaRkx77Rd7mqBGyXCerK5VPMTFWHLMoL4vTKyP3en6YNre5X8smqsa524NddQhsgSdxqr57"
+            },
+            {
+              "at": "2026-09-29T08:17:57.631Z",
+              "chain": "solana",
+              "url": "https://agents.datamancer.io/api/v1/paid/vin",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
+              "httpStatus": 404,
+              "declaredMatch": null,
+              "tx": "31Fw66Fcz5pPP4E5WTg6WVoSG5GDevU3f85MMWAGwPKnHeuisiqK1sqaPNbxEyeTUutTMCfxC7czbSVSJMRPTCCB"
+            },
+            {
+              "at": "2026-09-28T07:48:03.707Z",
+              "chain": "solana",
+              "url": "https://agents.datamancer.io/api/v1/paid/vin",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "paid_then_4xx",
+              "httpStatus": 404,
+              "declaredMatch": null,
+              "tx": "ASpnMrvWWjgchviww6TyLo6J7aovDqN9f1f6JMV5yBv1rwEKNKDqGioimbXMBacZdzbVHs7jhiuCmAtAvJDZ94M"
+            }
+          ],
+          "paidButNotDelivered": 4,
+          "payTos": [
+            "8TDTVWxNCgaZ7H7jnEk5jTaXWjg6fDwCWQMs9u2v7HWh"
+          ],
+          "rebuy": {
+            "days": [
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-01"
+            ],
+            "purchases": {
+              "solana": 5
+            }
+          },
+          "payToChanged": false,
+          "payToChanges": [],
+          "firstAt": "2026-09-28T07:48:03.707Z",
+          "lastAt": "2026-10-01T01:24:35.291Z",
+          "rank": null
+        },
+        {
+          "key": "api.exa.ai",
+          "host": "api.exa.ai",
+          "service": null,
+          "services": [
+            "exa"
+          ],
+          "chains": {
+            "tempo": {
+              "tried": 4,
+              "settled": 4,
+              "counted": 4,
+              "delivered": 4,
+              "lastAt": "2026-10-01T01:33:59.939Z"
+            }
+          },
+          "tried": 4,
+          "counted": 4,
+          "settled": 4,
+          "delivered": 4,
+          "settledRate": 1,
+          "deliveredRate": 1,
+          "wilsonLower": 0.5100999795960008,
+          "wilsonUpper": 1,
+          "days": [
+            "2026-09-28",
+            "2026-09-29",
+            "2026-09-30",
+            "2026-10-01"
+          ],
+          "grade": "measuring",
+          "qualified": false,
+          "excluded": {
+            "vet402_or_facilitator": 0,
+            "unknown": 0
+          },
+          "failuresByRule": {},
+          "declared": {
+            "checked": 0,
+            "matched": 0
+          },
+          "notTried": {},
+          "failures": {},
+          "lastMeasuredAt": "2026-10-01T01:33:59.939Z",
+          "last": {
+            "at": "2026-10-01T01:33:59.939Z",
+            "chain": "tempo",
+            "category": "delivered",
+            "rawReason": "sent/http 200",
+            "url": "https://api.exa.ai/search",
+            "tx": "0x846db8d8d354792bc61d5df2590a3b4697d0a5a0eac6daac573779c8a6e534f3"
+          },
+          "exampleDeliveredTx": {
+            "chain": "tempo",
+            "tx": "0x846db8d8d354792bc61d5df2590a3b4697d0a5a0eac6daac573779c8a6e534f3",
+            "url": "https://api.exa.ai/search"
+          },
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
+          "recent": [
+            {
+              "at": "2026-10-01T01:33:59.939Z",
+              "chain": "tempo",
+              "url": "https://api.exa.ai/search",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "0x846db8d8d354792bc61d5df2590a3b4697d0a5a0eac6daac573779c8a6e534f3"
+            },
+            {
+              "at": "2026-09-30T02:29:52.252Z",
+              "chain": "tempo",
+              "url": "https://api.exa.ai/search",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "0x140176a76fdd97c02c084481e1df0e77cf989d2a205070981e47f1780e67e630"
+            },
+            {
+              "at": "2026-09-29T08:27:35.648Z",
+              "chain": "tempo",
+              "url": "https://api.exa.ai/search",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "0xee895e77222d3cfa5beef62814905b207c86756ba69ffdfce4676c43569833bc"
+            },
+            {
+              "at": "2026-09-28T08:04:34.750Z",
+              "chain": "tempo",
+              "url": "https://api.exa.ai/search",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "0x629286a60cae358381a93eb29bcab9c61d5a210217293611f0c851dd9bc30860"
+            }
+          ],
+          "paidButNotDelivered": 0,
+          "payTos": [
+            "0xb98ef29eb2be19ae646a8fc0248255b90a332dbc"
+          ],
+          "rebuy": {
+            "days": [
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-01"
+            ],
+            "purchases": {
+              "tempo": 3
+            }
+          },
+          "payToChanged": false,
+          "payToChanges": [],
+          "firstAt": "2026-09-28T08:04:34.750Z",
+          "lastAt": "2026-10-01T01:33:59.939Z",
+          "rank": null
+        },
+        {
+          "key": "api.xona-agent.com",
+          "host": "api.xona-agent.com",
+          "service": null,
+          "services": [],
+          "chains": {
+            "solana": {
+              "tried": 6,
+              "settled": 6,
+              "counted": 6,
+              "delivered": 0,
+              "lastAt": "2026-10-01T01:25:07.337Z"
+            }
+          },
+          "tried": 6,
+          "counted": 6,
+          "settled": 6,
+          "delivered": 0,
+          "settledRate": 1,
+          "deliveredRate": 0,
+          "wilsonLower": 0,
+          "wilsonUpper": 0.3903430336530645,
+          "days": [
+            "2026-09-28",
+            "2026-09-29",
+            "2026-09-30",
+            "2026-10-01"
+          ],
+          "grade": "measuring",
+          "qualified": false,
+          "excluded": {
+            "vet402_or_facilitator": 0,
+            "unknown": 0
+          },
+          "failuresByRule": {
+            "paid_not_delivered": 6
+          },
+          "declared": {
+            "checked": 0,
+            "matched": 0
+          },
+          "notTried": {
+            "vet402_skipped": 2
+          },
+          "failures": {
+            "settled_error_status": 6
+          },
+          "lastMeasuredAt": "2026-10-01T01:25:07.337Z",
+          "last": {
+            "at": "2026-10-01T01:25:07.337Z",
+            "chain": "solana",
+            "category": "settled_error_status",
+            "rawReason": "sent/http 500",
+            "url": "https://api.xona-agent.com/token/pumpfun-trending",
+            "tx": "32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9"
+          },
+          "exampleDeliveredTx": null,
+          "exampleFailedTx": {
+            "chain": "solana",
+            "tx": "32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9",
+            "url": "https://api.xona-agent.com/token/pumpfun-trending",
+            "category": "settled_error_status"
+          },
+          "lastFailure": {
+            "at": "2026-10-01T01:25:07.337Z",
+            "chain": "solana",
+            "url": "https://api.xona-agent.com/token/pumpfun-trending",
+            "category": "settled_error_status",
+            "fault": "seller",
+            "rule": "paid_not_delivered",
+            "httpStatus": 500,
+            "rawReason": "sent/http 500",
+            "detail": "{\"message\":\"Request failed with status code 404\",\"data\":[]}",
+            "tx": "32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9"
+          },
+          "sellerFailures": [
+            {
+              "at": "2026-10-01T01:25:07.337Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "category": "settled_error_status",
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "rawReason": "sent/http 500",
+              "detail": "{\"message\":\"Request failed with status code 404\",\"data\":[]}",
+              "tx": "32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9"
+            },
+            {
+              "at": "2026-09-30T14:08:46.208Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "category": "settled_error_status",
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "rawReason": "sent/http 500",
+              "detail": "{\"message\":\"Request failed with status code 404\",\"data\":[]}",
+              "tx": "e4G1Mcd4BmtGK7oCfKj1ji3WTN4Ra8Wv9DTwNP36NxR12j1UFE9xJm2hJPFWAh38gewBMHjHnSoKohLTag9NFxo"
+            },
+            {
+              "at": "2026-09-30T02:20:28.238Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "category": "settled_error_status",
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "rawReason": "sent/http 500",
+              "detail": "{\"message\":\"Request failed with status code 404\",\"data\":[]}",
+              "tx": "5Lyk1CXRhjUZgidBjwE4T9VD2AnUNHJz3AKLwX46kmRhwpJGzmHd2943sx7RW4MTQrmSgLC3Ed5H6Xjy5LR4wJFH"
+            },
+            {
+              "at": "2026-09-29T10:10:06.071Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "category": "settled_error_status",
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "rawReason": "sent/http 500",
+              "detail": "{\"message\":\"Request failed with status code 404\",\"data\":[]}",
+              "tx": "5toRBhGfh5FxhEgQWhjvLFovoMEn6Xcat4BGqcBhmzJ2PFt2ioYDDP1qoZu2pNxFrkZnrzcNw8kbX3z2A2fHjt4U"
+            },
+            {
+              "at": "2026-09-29T08:18:22.097Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "category": "settled_error_status",
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "rawReason": "sent/http 500",
+              "detail": "{\"message\":\"Request failed with status code 404\",\"data\":[]}",
+              "tx": "3eXQ7ZxCLBDtH1X64Ag9ARg7iJCx6vDjW654n9CpxGkP5P3PVaogNUckC6Cwg5g2XozovkzGpFfdSvfFYSU6FYj5"
+            },
+            {
+              "at": "2026-09-28T08:28:56.730Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "category": "settled_error_status",
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "rawReason": "http_error/server_error_paid",
+              "detail": "status 500",
+              "tx": "snofPqfZEQ4NyfDepxepVUoYbfBujeq5C6uuK2xQFE38EYzk6yKkvEwvZKUa3cBjniN8QXQAdRZwjWWuQ9m4f8a"
+            }
+          ],
+          "recent": [
+            {
+              "at": "2026-10-01T01:25:07.337Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "delivered": false,
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "declaredMatch": null,
+              "tx": "32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9"
+            },
+            {
+              "at": "2026-09-30T14:08:46.208Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "delivered": false,
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "declaredMatch": null,
+              "tx": "e4G1Mcd4BmtGK7oCfKj1ji3WTN4Ra8Wv9DTwNP36NxR12j1UFE9xJm2hJPFWAh38gewBMHjHnSoKohLTag9NFxo"
+            },
+            {
+              "at": "2026-09-30T02:20:28.238Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "delivered": false,
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "declaredMatch": null,
+              "tx": "5Lyk1CXRhjUZgidBjwE4T9VD2AnUNHJz3AKLwX46kmRhwpJGzmHd2943sx7RW4MTQrmSgLC3Ed5H6Xjy5LR4wJFH"
+            },
+            {
+              "at": "2026-09-29T10:10:06.071Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "delivered": false,
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "declaredMatch": null,
+              "tx": "5toRBhGfh5FxhEgQWhjvLFovoMEn6Xcat4BGqcBhmzJ2PFt2ioYDDP1qoZu2pNxFrkZnrzcNw8kbX3z2A2fHjt4U"
+            },
+            {
+              "at": "2026-09-29T08:18:22.097Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "delivered": false,
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "declaredMatch": null,
+              "tx": "3eXQ7ZxCLBDtH1X64Ag9ARg7iJCx6vDjW654n9CpxGkP5P3PVaogNUckC6Cwg5g2XozovkzGpFfdSvfFYSU6FYj5"
+            },
+            {
+              "at": "2026-09-28T08:28:56.730Z",
+              "chain": "solana",
+              "url": "https://api.xona-agent.com/token/pumpfun-trending",
+              "delivered": false,
+              "fault": "seller",
+              "rule": "paid_not_delivered",
+              "httpStatus": 500,
+              "declaredMatch": null,
+              "tx": "snofPqfZEQ4NyfDepxepVUoYbfBujeq5C6uuK2xQFE38EYzk6yKkvEwvZKUa3cBjniN8QXQAdRZwjWWuQ9m4f8a"
+            }
+          ],
+          "paidButNotDelivered": 6,
+          "payTos": [
+            "9VaDVp1Wb78G4Wm6VuTiMrpESjrUymXefQTHcJGRSTEA"
+          ],
+          "rebuy": {
+            "days": [
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-01"
+            ],
+            "purchases": {
+              "solana": 5
+            }
+          },
+          "payToChanged": false,
+          "payToChanges": [],
+          "firstAt": "2026-09-28T08:28:56.730Z",
+          "lastAt": "2026-10-01T01:25:07.337Z",
+          "rank": null
+        },
+        {
+          "key": "brasil-dados-api.onrender.com",
+          "host": "brasil-dados-api.onrender.com",
+          "service": null,
+          "services": [],
+          "chains": {
+            "solana": {
+              "tried": 6,
+              "settled": 6,
+              "counted": 6,
+              "delivered": 6,
+              "lastAt": "2026-10-01T01:29:25.647Z"
+            }
+          },
+          "tried": 6,
+          "counted": 6,
+          "settled": 6,
+          "delivered": 6,
+          "settledRate": 1,
+          "deliveredRate": 1,
+          "wilsonLower": 0.6096569663469354,
+          "wilsonUpper": 1,
+          "days": [
+            "2026-09-28",
+            "2026-09-29",
+            "2026-09-30",
+            "2026-10-01"
+          ],
+          "grade": "measuring",
+          "qualified": false,
+          "excluded": {
+            "vet402_or_facilitator": 0,
+            "unknown": 0
+          },
+          "failuresByRule": {},
+          "declared": {
+            "checked": 1,
+            "matched": 1
+          },
+          "notTried": {
+            "vet402_skipped": 2
+          },
+          "failures": {},
+          "lastMeasuredAt": "2026-10-01T01:29:25.647Z",
+          "last": {
+            "at": "2026-10-01T01:29:25.647Z",
+            "chain": "solana",
+            "category": "delivered",
+            "rawReason": "sent/http 200",
+            "url": "https://brasil-dados-api.onrender.com/cambio",
+            "tx": "3XccdqHJFn7kjmsmoco1VgH7eZeUNJ7wkjwYWjRFWA33vVYNzSxdoxf7wD3HdDyn41SKsYKAvBpwMjjqh2z8r1To"
+          },
+          "exampleDeliveredTx": {
+            "chain": "solana",
+            "tx": "3XccdqHJFn7kjmsmoco1VgH7eZeUNJ7wkjwYWjRFWA33vVYNzSxdoxf7wD3HdDyn41SKsYKAvBpwMjjqh2z8r1To",
+            "url": "https://brasil-dados-api.onrender.com/cambio"
+          },
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
+          "recent": [
+            {
+              "at": "2026-10-01T01:29:25.647Z",
+              "chain": "solana",
+              "url": "https://brasil-dados-api.onrender.com/cambio",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "3XccdqHJFn7kjmsmoco1VgH7eZeUNJ7wkjwYWjRFWA33vVYNzSxdoxf7wD3HdDyn41SKsYKAvBpwMjjqh2z8r1To"
+            },
+            {
+              "at": "2026-09-30T14:12:47.278Z",
+              "chain": "solana",
+              "url": "https://brasil-dados-api.onrender.com/cambio",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "3JtDUMpCQNZuF1TJPn8ENub4CkhmZMLzMM66TNvykh9VvvaziMfA7g3ZGBAPpmhaD9PQSi5YzLnuonwizcWQgcvv"
+            },
+            {
+              "at": "2026-09-30T02:24:20.835Z",
+              "chain": "solana",
+              "url": "https://brasil-dados-api.onrender.com/cambio",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "5qQuH9MqMBbKbcFcRjAVw3seAiqUrb8sfkqxsWnzc6mYPjdA11UQ1Fw3ac5Jv1sc6m98d5Mza5c4Edy39qbqXKob"
+            },
+            {
+              "at": "2026-09-29T10:19:43.052Z",
+              "chain": "solana",
+              "url": "https://brasil-dados-api.onrender.com/cambio",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "4oARRfneAyaGAxiqzeWqcjBRdoxKdyNqaEDBufuXan67dHN9u4Z462fyTbEeM7SdorzbX2n2oA2g5J1MMxtxaHCL"
+            },
+            {
+              "at": "2026-09-29T08:23:34.171Z",
+              "chain": "solana",
+              "url": "https://brasil-dados-api.onrender.com/cambio",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "5sV93LS19r1dwaSpZ94BjqkU6cBTT6vJPCLkBs2tDQ26VisiiEfJXuZHF7jVMpeQ7uJhUBGZGJpdFEVXVh3JEbJE"
+            },
+            {
+              "at": "2026-09-28T07:36:23.118Z",
+              "chain": "solana",
+              "url": "https://brasil-dados-api.onrender.com/cambio",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": true,
+              "tx": "iNHoPBPWqB1bdnhFUKwX8QVuAYARTcEdHMd1XuPteEESDZQgBad33Cb9gTS1od1XGKhApFf3BxiFXW6VoPELCeE"
+            }
+          ],
+          "paidButNotDelivered": 0,
+          "payTos": [
+            "yUdt7ThMbP5mvtLtURiwK3wgnhexuFtbKC9LEgb1Q8e"
+          ],
+          "rebuy": {
+            "days": [
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-01"
+            ],
+            "purchases": {
+              "solana": 5
+            }
+          },
+          "payToChanged": false,
+          "payToChanges": [],
+          "firstAt": "2026-09-28T07:36:23.118Z",
+          "lastAt": "2026-10-01T01:29:25.647Z",
+          "rank": null
+        },
+        {
+          "key": "scvd.store",
+          "host": "scvd.store",
+          "service": null,
+          "services": [],
+          "chains": {
+            "solana": {
+              "tried": 6,
+              "settled": 6,
+              "counted": 6,
+              "delivered": 6,
+              "lastAt": "2026-10-01T01:26:33.775Z"
+            },
+            "base": {
+              "tried": 1,
+              "settled": 1,
+              "counted": 1,
+              "delivered": 1,
+              "lastAt": "2026-09-28T08:16:56.042Z"
+            }
+          },
+          "tried": 7,
+          "counted": 7,
+          "settled": 7,
+          "delivered": 7,
+          "settledRate": 1,
+          "deliveredRate": 1,
+          "wilsonLower": 0.6456611570247934,
+          "wilsonUpper": 1,
+          "days": [
+            "2026-09-28",
+            "2026-09-29",
+            "2026-09-30",
+            "2026-10-01"
+          ],
+          "grade": "measuring",
+          "qualified": false,
+          "excluded": {
+            "vet402_or_facilitator": 0,
+            "unknown": 0
+          },
+          "failuresByRule": {},
+          "declared": {
+            "checked": 1,
+            "matched": 1
+          },
+          "notTried": {
+            "vet402_skipped": 2
+          },
+          "failures": {},
+          "lastMeasuredAt": "2026-10-01T01:26:33.775Z",
+          "last": {
+            "at": "2026-10-01T01:26:33.775Z",
+            "chain": "solana",
+            "category": "delivered",
+            "rawReason": "sent/http 200",
+            "url": "https://scvd.store/api/buy/spot_check",
+            "tx": "2LD1vYZLXyUPx5Kk6qecb6jYEJTRKGVjMR1CBZCddvGvRpgshCymiArLUFnciz8UG3rsc8yVR81Aw5euEpiPeR3f"
+          },
+          "exampleDeliveredTx": {
+            "chain": "solana",
+            "tx": "2LD1vYZLXyUPx5Kk6qecb6jYEJTRKGVjMR1CBZCddvGvRpgshCymiArLUFnciz8UG3rsc8yVR81Aw5euEpiPeR3f",
+            "url": "https://scvd.store/api/buy/spot_check"
+          },
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
+          "recent": [
+            {
+              "at": "2026-10-01T01:26:33.775Z",
+              "chain": "solana",
+              "url": "https://scvd.store/api/buy/spot_check",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "2LD1vYZLXyUPx5Kk6qecb6jYEJTRKGVjMR1CBZCddvGvRpgshCymiArLUFnciz8UG3rsc8yVR81Aw5euEpiPeR3f"
+            },
+            {
+              "at": "2026-09-30T14:10:08.133Z",
+              "chain": "solana",
+              "url": "https://scvd.store/api/buy/spot_check",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "xb31YVEi5anVPGroxSvvSGTzsy6P81UnC3xXmmXKZrSBkx111AJV4Yz4icpDNx5V8B5wg1XTCWFrGWpb1eQvr6d"
+            },
+            {
+              "at": "2026-09-30T02:21:44.976Z",
+              "chain": "solana",
+              "url": "https://scvd.store/api/buy/spot_check",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "5WVLJf4zT6wGWhg9arBPj6s1g7EtuB42khY99iK9xdPEg7M5TYr6w9dhnkzzcJLYKDTWfAJHcY48DB19bHjgkfwF"
+            },
+            {
+              "at": "2026-09-29T10:15:31.098Z",
+              "chain": "solana",
+              "url": "https://scvd.store/api/buy/spot_check",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "3ha5hgzM73do7DLAJw8Ba62moGGEEWsnUsD5QPDxpG2Z9midd2X36AsE3N6ostk3B613vX5ZfcLrMe8yvNrdyaqV"
+            },
+            {
+              "at": "2026-09-29T08:20:47.506Z",
+              "chain": "solana",
+              "url": "https://scvd.store/api/buy/spot_check",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "4mAaREiEbJpvqthFbWgYQXMC2ccXNuBn9qoMUqieqyp71rYsJ9HGNGXfkm2QjEJy6JALNcthp9xFQQM5AxZwn5pb"
+            },
+            {
+              "at": "2026-09-28T08:16:56.042Z",
+              "chain": "base",
+              "url": "https://scvd.store/api/buy/small_blessing",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "0x675435c97721f8a00db42af85fedb829ccaf374b3f9a919db08e488166a2cbdf"
+            },
+            {
+              "at": "2026-09-28T07:28:26.946Z",
+              "chain": "solana",
+              "url": "https://scvd.store/api/buy/spot_check",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": true,
+              "tx": "KjPkCav9DyrX81yt9FUGDriv5GoCJdvSSZFkhL9sGRNH324FKWXp2N5Di6FeTqMdRUBVkR9i3njL12itx8utn4h"
+            }
+          ],
+          "paidButNotDelivered": 0,
+          "payTos": [
+            "0xdd350976b8cffc65938c0464d39a2c78be079bd0",
+            "DGxcPrAHL9YM3hW7iXuHFJmr87Zr6AMA4jCYHBpuvMgE"
+          ],
+          "rebuy": {
+            "days": [
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-01"
+            ],
+            "purchases": {
+              "solana": 5
+            }
+          },
+          "payToChanged": false,
+          "payToChanges": [],
+          "firstAt": "2026-09-28T07:28:26.946Z",
+          "lastAt": "2026-10-01T01:26:33.775Z",
+          "rank": null
+        }
+      ]
+    },
+    {
+      "id": "algorand",
+      "label": "Algorand",
+      "chains": [
+        "algorand"
+      ],
+      "page": "algorand.html",
+      "ranking": [
+        {
+          "key": "algorandtracker.com",
+          "host": "algorandtracker.com",
+          "service": null,
+          "services": [],
+          "chains": {
+            "algorand": {
+              "tried": 310,
+              "settled": 248,
+              "counted": 248,
+              "delivered": 248,
+              "lastAt": "2026-09-28T01:59:44.539Z"
+            }
+          },
+          "tried": 310,
+          "counted": 248,
+          "settled": 248,
+          "delivered": 248,
+          "settledRate": 0.8,
+          "deliveredRate": 1,
+          "wilsonLower": 0.9847459673064339,
+          "wilsonUpper": 1,
+          "days": [
+            "2026-09-27",
+            "2026-09-28"
+          ],
+          "grade": "A",
+          "qualified": true,
+          "excluded": {
+            "vet402_or_facilitator": 0,
+            "unknown": 62
+          },
+          "failuresByRule": {
+            "request_rejected_4xx": 62
+          },
+          "declared": {
+            "checked": 124,
+            "matched": 116
+          },
+          "notTried": {},
+          "failures": {
+            "not_settled": 62
+          },
+          "lastMeasuredAt": "2026-09-28T01:59:44.539Z",
+          "last": {
+            "at": "2026-09-28T01:59:44.539Z",
+            "chain": "algorand",
+            "category": "delivered",
+            "rawReason": "delivered",
+            "url": "https://algorandtracker.com/x402/wallet-assets/N2C374IRX7HEX2YEQWJBTRSVRHRUV4ZSF76S54WV4COTHRUNYRCI47R3WU",
+            "tx": "GPN4FHAOCMADN6KM3WHD6N2IHBKUX47RCFSJCEMCGBYUTHRYTRWA"
+          },
+          "exampleDeliveredTx": {
+            "chain": "algorand",
+            "tx": "GPN4FHAOCMADN6KM3WHD6N2IHBKUX47RCFSJCEMCGBYUTHRYTRWA",
+            "url": "https://algorandtracker.com/x402/wallet-assets/N2C374IRX7HEX2YEQWJBTRSVRHRUV4ZSF76S54WV4COTHRUNYRCI47R3WU"
+          },
+          "exampleFailedTx": null,
+          "lastFailure": null,
+          "sellerFailures": [],
+          "recent": [
+            {
+              "at": "2026-09-28T01:59:44.539Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/wallet-assets/N2C374IRX7HEX2YEQWJBTRSVRHRUV4ZSF76S54WV4COTHRUNYRCI47R3WU",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "GPN4FHAOCMADN6KM3WHD6N2IHBKUX47RCFSJCEMCGBYUTHRYTRWA"
+            },
+            {
+              "at": "2026-09-28T01:59:36.045Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/tinyman/wallet-stake-history",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "request_rejected_4xx",
+              "httpStatus": 400,
+              "declaredMatch": null,
+              "tx": null
+            },
+            {
+              "at": "2026-09-28T01:59:33.468Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/rwa/exodus/wallet-history",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "request_rejected_4xx",
+              "httpStatus": 400,
+              "declaredMatch": null,
+              "tx": null
+            },
+            {
+              "at": "2026-09-28T01:59:30.729Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/rwa/exodus/daily-history",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "7BXRTOR36S52UET37TGHV2XY5C74O7D2S6XIG7PGKVFBUD7V2DYA"
+            },
+            {
+              "at": "2026-09-28T01:59:25.192Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/hay/wallet-stake-history",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "request_rejected_4xx",
+              "httpStatus": 400,
+              "declaredMatch": null,
+              "tx": null
+            },
+            {
+              "at": "2026-09-28T01:59:22.629Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/gora/wallet-stake-history",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "request_rejected_4xx",
+              "httpStatus": 400,
+              "declaredMatch": null,
+              "tx": null
+            },
+            {
+              "at": "2026-09-28T01:59:19.872Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/gora/validator-stake-history",
+              "delivered": false,
+              "fault": "unknown",
+              "rule": "request_rejected_4xx",
+              "httpStatus": 400,
+              "declaredMatch": null,
+              "tx": null
+            },
+            {
+              "at": "2026-09-28T01:59:17.278Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/asa/700965019/supply-distribution-history",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "KB5KAIFVVHX32NNWSTIKYZ5MH35CTUJ23LZLYFT4JCI6ZKPSHN5Q"
+            },
+            {
+              "at": "2026-09-28T01:59:08.958Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/asa/393537671/supply-distribution-history",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "VOAPKQMLL7WU4LJCSK2OZSTO4KKCITDWXLP2ZY5J43UVEHZUUIZA"
+            },
+            {
+              "at": "2026-09-28T01:59:00.672Z",
+              "chain": "algorand",
+              "url": "https://algorandtracker.com/x402/asa/3203964481/supply-distribution-history",
+              "delivered": true,
+              "fault": null,
+              "rule": null,
+              "httpStatus": 200,
+              "declaredMatch": null,
+              "tx": "LX56GTDVULKCVCINVRKBHBO24DE4DFB4B2NCDQU37SBISJXHP7VA"
+            }
+          ],
+          "paidButNotDelivered": 0,
+          "payTos": [
+            "VTOEM6527WMLHWPTKRBQNQLO5XWGFJC5Z6T7E25TFBKMWP5NFPDP73ZD4U"
+          ],
+          "rebuy": {
+            "days": [],
+            "purchases": {}
+          },
+          "payToChanged": false,
+          "payToChanges": [],
+          "firstAt": "2026-09-27T04:42:05.293Z",
+          "lastAt": "2026-09-28T01:59:44.539Z",
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "robinhood",
+      "label": "Robinhood Chain",
+      "chains": [
+        "robinhood"
+      ],
+      "page": "robinhood.html",
+      "ranking": []
+    },
+    {
+      "id": "arbitrum",
+      "label": "Arbitrum One",
+      "chains": [
+        "arbitrum"
+      ],
+      "page": "arbitrum.html",
+      "ranking": []
+    }
+  ]
+}

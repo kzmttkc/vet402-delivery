@@ -13,6 +13,11 @@
  * Whether to go on is the caller's: to stop, throw from `onCheck` (the error reaches the caller of the
  * wrapped fetch and the payment is never created). Returning goes on.
  *
+ * Or let the hook stop it: `{ block: "avoid" }` throws a CheckBlockedError, after `onCheck` (when given)
+ * has seen the event, whenever any check for the 402 has the verdict "avoid" (verdict.ts, the same
+ * function the CLI, the MCP tool and /v1/check read). Any, because the hook cannot know which of the
+ * offered chains the client will pay on. "unknown", and a record that cannot be read, go on.
+ *
  * A request that already carries a payment (X-PAYMENT, PAYMENT-SIGNATURE, or Authorization: Payment)
  * is the client's own retry and passes straight through, so one payment is looked up once.
  */
@@ -45,7 +50,9 @@ export interface CheckEvent {
 
 export interface CheckHookOptions {
   /** Called with the facts before the client signs. Throw to stop the payment. */
-  onCheck: (event: CheckEvent) => void | Promise<void>;
+  onCheck?: (event: CheckEvent) => void | Promise<void>;
+  /** "avoid": stop before the client signs when the verdict for the seller is "avoid". */
+  block?: "avoid";
   /** The public data to read (shared, cached). Default: a new PublicData over the public sources. */
   data?: PublicData;
 }
@@ -128,8 +135,23 @@ export async function readOffers(response: Response): Promise<Offer[]> {
   return offers;
 }
 
+/** Thrown by the hook with `block: "avoid"`: the payment was never created. */
+export class CheckBlockedError extends Error {
+  readonly url: string;
+  readonly check: CheckResult;
+  constructor(url: string, check: CheckResult) {
+    const page = check.sellers.find((f) => f.key === check.basis?.seller)?.sellerPage;
+    super(`Stopped before paying: vet402's verdict for this seller is "avoid". ${check.why}${page ? ` Details: ${page}` : ""}`);
+    this.name = "CheckBlockedError";
+    this.url = url;
+    this.check = check;
+  }
+}
+
 /** Wrap a fetch so each 402 is looked up in vet402's public record before the payment is created. */
 export function wrapFetchWithCheck(innerFetch: WrappedFetch, options: CheckHookOptions): WrappedFetch {
+  if (!options.onCheck && !options.block) throw new Error("wrapFetchWithCheck: give onCheck, block: \"avoid\", or both");
+  if (options.block !== undefined && options.block !== "avoid") throw new Error(`wrapFetchWithCheck: block must be "avoid", not ${JSON.stringify(options.block)}`);
   const data = options.data ?? new PublicData();
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const response = await innerFetch(input, init);
@@ -145,7 +167,11 @@ export function wrapFetchWithCheck(innerFetch: WrappedFetch, options: CheckHookO
     } catch (e) {
       event.error = e instanceof Error ? e.message : String(e);
     }
-    await options.onCheck(event);
+    if (options.onCheck) await options.onCheck(event);
+    if (options.block === "avoid") {
+      const hit = event.checks.find((c) => c.verdict === "avoid");
+      if (hit) throw new CheckBlockedError(url, hit);
+    }
     return response;
   };
 }

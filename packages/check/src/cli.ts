@@ -10,6 +10,7 @@
  */
 import { checkBeforePaying, type CheckResult, type SellerFacts } from "./check.js";
 import { serveStdio } from "./mcp.js";
+import { verdictLine } from "./verdict.js";
 import { PublicData } from "./sources.js";
 import { formatVerify, verifyRecord } from "./verify.js";
 
@@ -55,7 +56,7 @@ function sellerText(f: SellerFacts): string[] {
 }
 
 export function formatCheck(r: CheckResult): string {
-  const out = [r.summary, ""];
+  const out = [verdictLine(r), "", r.summary, ""];
   if (r.found) {
     for (const f of r.sellers) out.push(...sellerText(f));
     if (r.records.published) {
