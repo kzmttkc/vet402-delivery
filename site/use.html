@@ -84,10 +84,110 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <p class="meta">Every check below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment. Proxy buy is the one way here that costs money.</p>
 </header>
 
+<style>.v{display:inline-block;min-width:4.6em;padding:0 .4em;border-radius:5px;text-align:center;font-weight:700;border:2px solid var(--gU);color:var(--fg)}.v-avoid{border-color:var(--gD)}.v-pay{border-color:var(--gA)}.v-unknown{border-style:dashed;color:var(--dim)}</style>
+<h2 id="verdict">What the verdict means</h2>
+<ul>
+<li><span class="v v-pay">pay</span> Most of vet402's paid calls to this seller were answered: the 95% interval of answered / counted is at or above 0.5 (the line for grade C), over 2 or more days.</li>
+<li><span class="v v-avoid">avoid</span> vet402 paid, and most paid calls were not answered: the interval's upper bound is below 0.5 (the line for grade D), over 2 or more days.</li>
+<li><span class="v v-unknown">unknown</span> Too little data, or vet402 never bought from this seller. With 1 to 3 counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
+</ul>
+<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. A result held until the seller is told is never used: unknown. <a href="https://github.com/kzmttkc/vet402-delivery/blob/main/packages/check/src/verdict.ts" rel="noopener noreferrer nofollow">The rule in code</a></p>
+<p class="meta">As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown: vet402 bought from them in one run, on one day, which is too little to say pay or avoid.</p>
+
 <h2 id="http">HTTP: GET /v1/check</h2>
 <p>Any language, or a browser. Optional <code>chain</code> (solana, tempo, base, algorand, arbitrum, robinhood or a CAIP-2 id) and <code>payTo</code> (the recipient in the 402 you hold). CORS is open.</p>
 <pre class="cmd">curl 'https://vet402-delivery.vercel.app/v1/check?url=https://api.xona-agent.com/token/pumpfun-trending'</pre>
 <p class="meta">The JSON starts with <code>verdict</code> and <code>why</code>; then <code>tried</code>, <code>settled</code>, <code>counted</code>, <code>answered</code>, <code>days</code>, the newest purchase and its tx, the newest signed records, and <code>asOf</code>. <code>&amp;format=html</code> gives a page instead.</p>
+<p>The answer for that URL, built by the same code from the same data as the live endpoint (rank.json of 2026-10-01):</p>
+<pre class="cmd">{
+  &quot;verdict&quot;: &quot;avoid&quot;,
+  &quot;why&quot;: &quot;vet402 paid this seller 6 times on Solana over 4 days; 0 of the 6 that count came back with an answer (the newest failed one answered HTTP 500).&quot;,
+  &quot;url&quot;: &quot;https://api.xona-agent.com/token/pumpfun-trending&quot;,
+  &quot;chain&quot;: null,
+  &quot;payTo&quot;: null,
+  &quot;seller&quot;: &quot;api.xona-agent.com&quot;,
+  &quot;chains&quot;: [
+    &quot;solana&quot;
+  ],
+  &quot;tried&quot;: 6,
+  &quot;settled&quot;: 6,
+  &quot;counted&quot;: 6,
+  &quot;answered&quot;: 0,
+  &quot;notCounted&quot;: 0,
+  &quot;days&quot;: 4,
+  &quot;held&quot;: 0,
+  &quot;interval&quot;: {
+    &quot;lower&quot;: 0,
+    &quot;upper&quot;: 0.39
+  },
+  &quot;newest&quot;: {
+    &quot;at&quot;: &quot;2026-10-01T01:25:07.337Z&quot;,
+    &quot;chain&quot;: &quot;solana&quot;,
+    &quot;result&quot;: &quot;settled_error_status&quot;,
+    &quot;httpStatus&quot;: 500,
+    &quot;tx&quot;: &quot;32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9&quot;,
+    &quot;explorer&quot;: &quot;https://solscan.io/tx/32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9&quot;
+  },
+  &quot;sellerPage&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/seller/api.xona-agent.com.html&quot;,
+  &quot;records&quot;: {
+    &quot;published&quot;: 5,
+    &quot;byVerdict&quot;: {
+      &quot;NOT_DELIVERED&quot;: 5
+    },
+    &quot;newest&quot;: [
+      {
+        &quot;id&quot;: &quot;obs_2026-09-30_000552&quot;,
+        &quot;day&quot;: &quot;2026-09-30&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-30_000552.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-30_000552.html&quot;,
+        &quot;anchorTx&quot;: &quot;39kjZkahMrBuEV7nYAVwAEZbSVnbHD7xb6Pb3Ciw5qTPRKLSQB5PebArxwJZpmF8KnyCRE7sC1amBiPBAheZ1Sbn&quot;
+      },
+      {
+        &quot;id&quot;: &quot;obs_2026-09-30_000426&quot;,
+        &quot;day&quot;: &quot;2026-09-30&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-30_000426.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-30_000426.html&quot;,
+        &quot;anchorTx&quot;: &quot;39kjZkahMrBuEV7nYAVwAEZbSVnbHD7xb6Pb3Ciw5qTPRKLSQB5PebArxwJZpmF8KnyCRE7sC1amBiPBAheZ1Sbn&quot;
+      },
+      {
+        &quot;id&quot;: &quot;obs_2026-09-29_000336&quot;,
+        &quot;day&quot;: &quot;2026-09-29&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-29_000336.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-29_000336.html&quot;,
+        &quot;anchorTx&quot;: &quot;67ZnFvRzuCz2kDu8GLHyeQhsS3zJUybrCvoaCnfrBeN1MBjhXRJaZXX3DWpVpvCej7rqu2TjJ3erg8YJaEsdztb2&quot;
+      },
+      {
+        &quot;id&quot;: &quot;obs_2026-09-29_000210&quot;,
+        &quot;day&quot;: &quot;2026-09-29&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-29_000210.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-29_000210.html&quot;,
+        &quot;anchorTx&quot;: &quot;67ZnFvRzuCz2kDu8GLHyeQhsS3zJUybrCvoaCnfrBeN1MBjhXRJaZXX3DWpVpvCej7rqu2TjJ3erg8YJaEsdztb2&quot;
+      },
+      {
+        &quot;id&quot;: &quot;obs_2026-09-28_000164&quot;,
+        &quot;day&quot;: &quot;2026-09-28&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000164.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-09-28_000164.html&quot;,
+        &quot;anchorTx&quot;: &quot;JqhzBqMSuL9ZrZz511fCgqcvU7Sjzhs7ccdbpqtdgUUUV7G1iBAuc4my5hReEkbyr6qk9vB3uMqB13cbpVzNeb2&quot;
+      }
+    ]
+  },
+  &quot;payToRecorded&quot;: null,
+  &quot;asOf&quot;: {
+    &quot;rankDate&quot;: &quot;2026-10-01&quot;,
+    &quot;rankGeneratedAt&quot;: &quot;2026-10-01T02:58:08.917Z&quot;,
+    &quot;recordsPublished&quot;: 520
+  },
+  &quot;summary&quot;: &quot;api.xona-agent.com (Solana, Tempo and Base page): vet402 tried 6 purchases on solana from 2026-09-28 to 2026-10-01; 6 settled, 0 came back with an answer. Failures counted against the seller: paid_not_delivered 6. Not counted against the seller: 0 (vet402 or facilitator 0, cause unknown 0). Grade: measuring. Newest purchase: 2026-10-01T01:25:07.337Z on solana, settled_error_status (HTTP 500), tx 32uvUhNqBaYCkrXnJFK1XkRAuoCTXXBpHZgffDFT8WdAkQfMeoGLhVeBm6ksjvfFBJn4UVtJnTnDQ529YWar7bg9. Signed records published: 5 (NOT_DELIVERED 5), 5 for this exact URL; newest obs_2026-09-30_000552, its day&#39;s Merkle root is in Solana memo tx 39kjZkahMrBuEV7nYAVwAEZbSVnbHD7xb6Pb3Ciw5qTPRKLSQB5PebArxwJZpmF8KnyCRE7sC1amBiPBAheZ1Sbn.&quot;,
+  &quot;notes&quot;: [],
+  &quot;rule&quot;: &quot;pay: the 95% interval of answered / counted is at or above 0.5 (grade C&#39;s line), on 2+ days. avoid: its upper bound is below 0.5 (grade D&#39;s line), on 2+ days. Otherwise unknown. Counted = paid calls: purchases whose payment settled, answered or failed on the seller&#39;s side; a seller&#39;s 5xx with no settled payment, failures on vet402&#39;s or the facilitator&#39;s side, and failures of unknown cause are left out. No settled payment: unknown.&quot;,
+  &quot;method&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/method.html&quot;
+}</pre>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/blob/main/packages/check/src/http.ts" rel="noopener noreferrer nofollow">Spec: packages/check/src/http.ts</a></p>
 
 <h2 id="hook">At the payment: the x402 fetch hook</h2>
@@ -99,20 +199,22 @@ import { wrapFetchWithCheck } from "vet402-solana/check";
 
 const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
 <p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
+<p>Any chain: the hook reads the network and payTo of every way to pay a 402 offers (x402 <code>accepts</code>, from the body or the <code>PAYMENT-REQUIRED</code> header, and an MPP <code>WWW-Authenticate: Payment</code> challenge), so it works under any x402 client that pays through <code>fetch</code>. Solana, Base, Tempo, Algorand, Arbitrum and Robinhood Chain are looked up per chain; any other network by URL and payTo. The package is named <code>vet402-solana</code> after the repository's first chain; the hook is not Solana-only.</p>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#at-the-payment-the-x402-fetch-hook" rel="noopener noreferrer nofollow">Spec: the fetch hook (packages/check README)</a></p>
 
 <h2 id="buy">Let vet402 buy it for you: GET /v1/buy</h2>
+<p><b>Solana only for now.</b> Tempo is switched off on the live deployment, so where a line below names Tempo or USDC.e, it does not apply yet. The lines below are the README's own words.</p>
 <p>An agent asks vet402 to buy a seller&#39;s answer for it. vet402 pays the seller from its own wallet only after the agent&#39;s payment has settled, and returns the seller&#39;s answer together with both transactions and a public record of the purchase.</p>
 <p>Status on 2026-10-01: it runs at https://vet402-delivery.vercel.app/v1/buy, for Solana only (Tempo is switched off on that deployment, so no Tempo price is offered and a Tempo payment is refused).</p>
 <pre class="cmd">curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=&lt;seller endpoint&gt;'   # free: shows the price, charges nothing</pre>
 <ul>
-<li><b>Price:</b> Price: the seller&#39;s price plus 0.005 (USDC on Solana, USDC.e on Tempo).</li>
-<li><b>Who:</b> Who vet402 buys from: only a seller host and payTo pair that vet402 already paid with a settled payment and that delivered at least once, read from &#96;data/&#96;</li>
+<li>Price: the seller&#39;s price plus 0.005 (USDC on Solana, USDC.e on Tempo).</li>
+<li>Who vet402 buys from: only a seller host and payTo pair that vet402 already paid with a settled payment and that delivered at least once, read from <code>data/</code></li>
 <li><b>Refund:</b> If the agent&#39;s payment settles and vet402 then does not pay the seller, vet402 refunds the full payment (seller price + fee) to the owner of the account whose balance paid (not a delegate that only signed), on the same chain in the same token.</li>
 <li><b>No refund:</b> If vet402 paid the seller (its payment to the seller settled) and the seller did not deliver, there is no refund. The purchase is recorded against the seller, with vet402&#39;s payment to it.</li>
 <li><b>Large answers:</b> an answer above 1,000,000 bytes is not forwarded, and since the seller was paid there is no refund</li>
-<li><b>After a paid request:</b> 200: the seller&#39;s answer byte for byte (content type kept), with &#96;x-vet402-customer-tx&#96;, &#96;x-vet402-seller-status&#96;, &#96;x-vet402-record&#96; and &#96;x-vet402-seller-settled&#96;</li>
-<li><b>The record:</b> &#96;GET /v1/buy/records/&lt;id&gt;&#96; returns the record: the seller endpoint without its query string, seller payTo and price, fee, total, both transactions, the seller&#39;s HTTP status, the sha256 and size of the answer, the outcome and the refund.</li>
+<li><b>After a paid request:</b> 200: the seller&#39;s answer byte for byte (content type kept), with <code>x-vet402-customer-tx</code>, <code>x-vet402-seller-status</code>, <code>x-vet402-record</code> and <code>x-vet402-seller-settled</code></li>
+<li><b>The record:</b> <code>GET /v1/buy/records/&lt;id&gt;</code> returns the record: the seller endpoint without its query string, seller payTo and price, fee, total, both transactions, the seller&#39;s HTTP status, the sha256 and size of the answer, the outcome and the refund.</li>
 </ul>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery#proxy-buy-solana-tempo" rel="noopener noreferrer nofollow">Spec: Proxy buy (README), with every refund rule and the order of a paid request</a></p>
 

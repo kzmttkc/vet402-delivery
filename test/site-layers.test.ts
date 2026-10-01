@@ -12,7 +12,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadLanePublic } from "../src/evm/site.js";
-import { BUY_README_LINES, escapeHtml, PUBLIC_LEAD, publicPage, renderPublicSite, SITE_NAV, siteSlugs, TOP_HEADING } from "../src/rank/html.js";
+import { BUY_README_LINES, escapeHtml, laneVerdictLine, mdInline, MIN_VERDICT_COUNTED, PUBLIC_LEAD, publicPage, renderPublicSite, SITE_NAV, siteSlugs, TOP_HEADING, USE_EXAMPLE_URL, VERDICT_LINE } from "../src/rank/html.js";
+import { handleCheck } from "../packages/check/src/http.js";
 import { buildReport, DELIVERED_LINE, MONEY_LINE, REBUY_PLAN, type RankReport } from "../src/rank/report.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
 import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
@@ -22,17 +23,17 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
 const lanes = loadLanePublic(join(ROOT, "data"));
 const loaded = await loadPublishedRecords(join(ROOT, "data", "records"));
-const pages = renderPublicSite(pub, { records: recordsBySeller(loaded), lanes });
+const recordsIndex = JSON.parse(readFileSync(join(ROOT, "data", "records", "index.json"), "utf8")) as unknown;
+const pages = renderPublicSite(pub, { records: recordsBySeller(loaded), lanes, recordsIndex });
 // The records pages too (scripts/build-site.ts adds them the same way).
 const slugs = siteSlugs(pub);
 for (const [rel, html] of renderRecordsSite(loaded, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);
 const site = (rel: string) => readFileSync(join(ROOT, "site", rel), "utf8");
 
-/** The words a reader sees in <main>: tags, styles and the example answers taken out. */
-function visibleWords(html: string, { examples = false } = {}): string[] {
+/** Every word a reader sees in <main> except the site navigation: headings, labels, the button and the examples included. */
+function visibleWords(html: string): string[] {
   let main = html.slice(html.indexOf("<main>"), html.indexOf("</main>"));
-  main = main.replace(/<style>[\s\S]*?<\/style>/g, " ");
-  if (!examples) main = main.replace(/<ul class="plain examples"[\s\S]*?<\/ul>/, " ");
+  main = main.replace(/<style>[\s\S]*?<\/style>/g, " ").replace(/<nav class="tabs site"[\s\S]*?<\/nav>/, " ");
   const text = main
     .replace(/<[^>]+>/g, " ")
     .replace(/&amp;/g, "&")
@@ -43,24 +44,40 @@ function visibleWords(html: string, { examples = false } = {}): string[] {
   return text.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w));
 }
 
-test("Check page: 120 words or fewer, the example answers apart; heading, field, three numbers, two ways to use it", () => {
+test("Check page: 120 visible words or fewer (all but the navigation), in plain fixed terms", () => {
   const top = site("index.html");
   assert.equal(top, pages.get("index.html"));
   const words = visibleWords(top);
   assert.ok(words.length <= 120, `${words.length} words: ${words.join(" ")}`);
-  const examples = visibleWords(top, { examples: true }).length - words.length;
-  assert.ok(examples > 0 && examples <= 70, `example answers: ${examples} words`);
+  const text = words.join(" ");
   assert.ok(top.includes(`<h1>${escapeHtml(TOP_HEADING)}</h1>`));
-  assert.ok(top.includes("x402 lets an AI agent pay for an API call before it sees the answer."));
-  assert.match(top, /on Solana, Base, Tempo, Arbitrum One, Robinhood Chain and Algorand, and shows what came back\./, "every chain, none first in the numbers");
-  assert.equal((top.match(/<span class="big">/g) ?? []).length, 3, "three numbers");
-  assert.ok(top.includes('<h2 id="use">Use it every time your agent pays</h2>'));
+  assert.ok(text.includes("x402 lets an AI agent pay for an API call before it sees the answer."));
+  assert.match(text, /on Solana, Base, Tempo, Arbitrum One, Robinhood Chain and Algorand, and shows what came back\. Free, no key\./, "every chain, then Free, no key.");
+  assert.ok(text.includes(VERDICT_LINE), "the three verdicts defined in one line");
+  for (const banned of ["Answer:", "came back with an answer", "that count"]) assert.ok(!text.includes(banned), `not on the Check page: ${banned}`);
+  assert.ok(!top.includes('<span class="big">'), "the numbers are one line, not cards");
+  assert.ok(top.includes('<h2 id="use">Check every payment</h2>'));
   assert.ok(top.includes('<pre class="cmd">wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client)</pre>'));
+  assert.ok(top.includes('<p>On avoid, your agent never signs. <a href="use.html">More ways →</a></p>'));
+  assert.ok(!top.includes("/v1/buy") && !top.includes("curl "), "curl and proxy buy are on use.html only");
   assert.ok(!top.includes("<table"), "no seller table on the Check page");
   assert.ok(!top.includes("<details>"), "nothing folded");
-  // The field comes before everything but the heading and the lead (first screen).
-  assert.ok(top.indexOf('id="check-url"') < top.indexOf('<div class="stats">'));
+  assert.ok(top.indexOf('id="check-url"') < top.indexOf('class="plain examples"'));
 });
+
+test("Check page: the verdict labels differ by word and by frame style, not by colour alone", () => {
+  const top = site("index.html");
+  for (const v of ["avoid", "pay"]) assert.ok(top.includes(`<span class="v v-${v}">${v}</span>`), v);
+  for (const rule of [".v-avoid{border-color:var(--gD)}", ".v-pay{border-color:var(--gA)}", ".v-unknown{border-style:dashed;color:var(--dim)}"]) assert.ok(top.includes(rule), rule);
+});
+
+/** Hosts with a settled payment on any page, counted once (the Check page's seller count). */
+function sellersWithSettled(): number {
+  const hosts = new Set<string>();
+  for (const g of pub.groups) if (g.id === "main" || g.id === "algorand") for (const s of g.ranking) if (s.settled > 0) hosts.add(s.host.toLowerCase());
+  for (const l of [lanes.arbitrum, lanes.robinhood]) for (const r of l?.rows ?? []) if ((r.status === "delivered" || r.status === "settled_no_answer") && r.resource) hosts.add(new URL(r.resource).hostname.toLowerCase());
+  return hosts.size;
+}
 
 test("Check page numbers add up every page (main and Algorand from rank.json, Arbitrum and Robinhood Chain from data/evm), and the Method page says so", () => {
   const main = pub.groups.find((g) => g.id === "main")!.totals;
@@ -71,17 +88,15 @@ test("Check page numbers add up every page (main and Algorand from rank.json, Ar
   const delivered = main.delivered + algo.delivered + n("delivered");
   const nothing = main.settledNotDelivered + algo.settledNotDelivered + n("settled_no_answer");
   const top = site("index.html");
-  assert.ok(top.includes(`<span class="big">${settled}</span><br>payments settled, to `));
-  assert.ok(top.includes(`<span class="big">${delivered}</span><br>came back with an answer`));
-  assert.ok(top.includes(`<span class="big">${nothing}</span><br>settled, and nothing usable came back`));
-  assert.ok(!/purchases tried|\btried\b/.test(visibleWords(top).join(" ")), "no count of tries on the Check page");
-  assert.ok(delivered + nothing <= settled, "the three numbers start from settled payments");
+  assert.ok(top.includes(`<p>${settled} paid calls to ${sellersWithSettled()} sellers. ${nothing} returned nothing usable. As of ${pub.date}. <a href="method.html#totals">Sources</a></p>`));
+  assert.ok(!/\btried\b/.test(visibleWords(top).join(" ")), "no count of tries on the Check page");
+  assert.ok(delivered + nothing <= settled, "the numbers start from settled payments");
   const method = site("method.html");
   assert.ok(method.includes('<h2 id="totals">The numbers on the Check page</h2>'));
   assert.ok(method.includes(`Solana, Tempo and Base: ${main.settled} settled, ${main.delivered} came back, ${main.settledNotDelivered} settled with nothing usable back, out of ${main.tried} tried`));
   assert.ok(method.includes(`Algorand: ${algo.settled} settled`));
   assert.ok(method.includes("On Algorand, settled means the facilitator returned a settlement receipt with a tx id; vet402 has not read those payments back on chain."));
-  assert.ok(method.includes("a result held until the seller is told is counted as tried only, and in none of the three numbers"));
+  assert.ok(method.includes("a result held until the seller is told is counted as tried only, and in none of the Check page's numbers"));
 });
 
 test("everything the first page used to say is on the second layer (Sellers or Method), unfolded", () => {
@@ -117,7 +132,7 @@ test("everything the first page used to say is on the second layer (Sellers or M
   const use = site("use.html");
   for (const id of ["http", "hook", "mcp", "cli", "verify", "program"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
   for (const id of ["buy"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
-  assert.equal((use.match(/<pre class="cmd">/g) ?? []).length, 7, "a minimal example for each");
+  assert.equal((use.match(/<pre class="cmd">/g) ?? []).length, 8, "a minimal example for each, and the live answer");
   assert.equal((use.match(/>Spec: /g) ?? []).length, 7, "a spec link for each");
 });
 
@@ -128,13 +143,38 @@ test("Use it, proxy buy: every line is word for word in the README's Proxy buy s
   const buy = use.slice(use.indexOf('<h2 id="buy">'), use.indexOf('<h2 id="mcp">'));
   for (const line of BUY_README_LINES) {
     assert.ok(section.includes(line), `not in the README's Proxy buy section: ${line}`);
-    assert.ok(buy.includes(escapeHtml(line).replace(/`([^`]+)`/g, "<code>$1</code>")), `not on use.html: ${line}`);
+    assert.ok(buy.includes(mdInline(line)), `not on use.html: ${line}`);
   }
   for (const fact of ["plus 0.005", "already paid with a settled payment and that delivered at least once", "vet402 refunds the full payment", "there is no refund. The purchase is recorded against the seller", "1,000,000 bytes is not forwarded", "both transactions", "/v1/buy/records/"])
     assert.ok(buy.includes(escapeHtml(fact)), fact);
   assert.ok(buy.includes(`curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=&lt;seller endpoint&gt;'   # free: shows the price, charges nothing`));
   assert.ok(readme.includes("curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=<seller endpoint>'   # free: shows the price, charges nothing"));
-  assert.ok(site("index.html").includes('<p><a href="use.html#buy">Or let vet402 buy it for you →</a></p>'));
+  assert.ok(!use.includes("&#96;"), "no backtick shown as a character");
+  assert.ok(!/<b>(\w[\w ]*):<\/b> \1/i.test(buy), "no label said twice");
+  assert.ok(buy.indexOf("<b>Solana only for now.</b>") < buy.indexOf("Price: the seller"), "Tempo is off: said before the price line");
+});
+
+test("Use it: the verdict first, the live answer built from the data, the hook's chains, Arbitrum and Robinhood Chain measured", async () => {
+  const use = site("use.html");
+  assert.ok(use.indexOf('<h2 id="verdict">What the verdict means</h2>') < use.indexOf('<h2 id="http">'), "the verdict before every way in");
+  assert.equal(MIN_VERDICT_COUNTED, 4);
+  assert.ok(use.includes(`With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown`));
+  // The JSON shown is what api/check.ts answers for the same files.
+  const lanesRaw = ["arbitrum", "robinhood"].map((l) => JSON.parse(readFileSync(join(ROOT, "data", "evm", `${l}.json`), "utf8")));
+  const res = await handleCheck(new Request(`https://h.example/v1/check?url=${encodeURIComponent(USE_EXAMPLE_URL)}`), () => ({ rank: pub, recordsIndex, lanes: lanesRaw }));
+  const live = (await res.json()) as unknown;
+  assert.ok(use.includes(`<pre class="cmd">${escapeHtml(JSON.stringify(live, null, 2))}</pre>`), "the answer on use.html is the endpoint's, byte for byte");
+  assert.ok(use.includes("so it works under any x402 client that pays through <code>fetch</code>"));
+  assert.ok(use.includes("the hook is not Solana-only"));
+  const line = laneVerdictLine(pub, recordsIndex, lanes);
+  assert.match(line, /^As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown:/);
+  assert.ok(use.includes(escapeHtml(line)));
+});
+
+test("Sellers page: a grade and the Check page's verdict are said to be different things", () => {
+  const sellers = site("sellers.html");
+  assert.ok(sellers.includes(`A grade is not the verdict on the Check page. A grade (A to D) orders sellers and needs ${pub.method.minCounted} counted purchases on ${pub.method.minDays} days; the verdict (pay, avoid, unknown) answers one question before paying, and can be given from ${MIN_VERDICT_COUNTED} counted purchases on ${pub.method.minDays} days.`));
+  assert.ok(!sellers.includes("not a verdict"));
 });
 
 test("the same four-place navigation on every page the site builds, in the same order", () => {

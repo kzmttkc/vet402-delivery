@@ -12,10 +12,11 @@ import { chainName } from "../receipt/html.js";
 import { FAULT_LABEL, ruleById } from "./classify.js";
 import type { Comparison, CompareRow } from "./compare.js";
 import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY_PLAN, rebuyFacts, rebuySeller, type GroupId, type GroupReport, type RankReport } from "./report.js";
-import type { ChainFigures, Grade, RankedSeller } from "./score.js";
+import { D_UPPER, GRADE_LOWER, MIN_DAYS, wilsonLower, wilsonUpper, type ChainFigures, type Grade, type RankedSeller } from "./score.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
 import { renderArbitrumPage, renderRobinhoodPage, type LanePublic } from "../evm/site.js";
 import { lookup } from "../../packages/check/src/check.js";
+import { checkBody } from "../../packages/check/src/body.js";
 
 export function escapeHtml(v: unknown): string {
   return String(v)
@@ -462,13 +463,20 @@ ${publicTable("Rank number kept; no grade yet.", undecided, slugs)}`);
 }
 
 /** The first page's heading and its explanation for someone who has not heard of x402. */
-export const TOP_HEADING = "Check an x402 API before your agent pays it.";
+export const TOP_HEADING = "Check an x402 API before your agent pays.";
 
-/** "... vet402 pays first, with its own money, on <the chains it bought on>, and shows what came back." */
+/** "... vet402 pays first, with its own money, on <the chains it bought on>, and shows what came back. Free, no key." */
 export function topLead(chains: readonly string[]): string {
   const on = chains.length ? `, on ${chains.length > 1 ? `${chains.slice(0, -1).join(", ")} and ${chains[chains.length - 1]}` : chains[0]}` : "";
-  return `x402 lets an AI agent pay for an API call before it sees the answer. If the API is broken, the money is gone. vet402 pays first, with its own money${on}, and shows what came back.`;
+  return `x402 lets an AI agent pay for an API call before it sees the answer. A broken API keeps the money. vet402 pays first, with its own money${on}, and shows what came back. Free, no key.`;
 }
+
+/**
+ * The verdict in one line, in the words the first page uses ("paid calls answered"). Same rule as
+ * packages/check/src/verdict.ts: pay = most paid calls answered, avoid = most did not, unknown = too
+ * little data, or vet402 never bought from the seller.
+ */
+export const VERDICT_LINE = "pay: most paid calls answered. avoid: most did not. unknown: little or no data.";
 
 type Lanes = { robinhood?: LanePublic; arbitrum?: LanePublic };
 
@@ -545,15 +553,24 @@ export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; s
 const PKG_README = `${PUBLIC_REPO_URL}/tree/main/packages/check`;
 const CHECK_SETUP_URL = `${PKG_README}#at-the-payment-the-x402-fetch-hook`;
 
+/** The verdict as a label that does not rest on colour alone: the word, and a border of its own style. */
+export function verdictBadge(v: string): string {
+  return `<span class="v v-${escapeHtml(v)}">${escapeHtml(v)}</span>`;
+}
+
+/** Styles for the verdict labels; avoid: solid reddish frame, pay: solid green, unknown: dashed grey. */
+export const VERDICT_CSS =
+  ".v{display:inline-block;min-width:4.6em;padding:0 .4em;border-radius:5px;text-align:center;font-weight:700;border:2px solid var(--gU);color:var(--fg)}.v-avoid{border-color:var(--gD)}.v-pay{border-color:var(--gA)}.v-unknown{border-style:dashed;color:var(--dim)}";
+
 /** The first page's form: the URL field only; the heading above it says what it is for. No script. */
 function topCheckForm(): string {
   return `<form id="check" class="checkbox" method="get" action="${escapeHtml(CHECK_ENDPOINT)}" aria-label="Check a seller before you pay">
-<style>.checkbox{display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 6px}.checkbox label{flex-basis:100%;font-weight:600}.checkbox input[type=url]{flex:1 1 220px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}.checkbox p{flex-basis:100%;margin:0}.examples{margin:0 0 14px}.examples li{padding:6px 0}.examples b{display:inline-block;min-width:3.6em}</style>
+<style>.checkbox{display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 6px}.checkbox label{flex-basis:100%;font-weight:600}.checkbox input[type=url]{flex:1 1 220px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}.checkbox p{flex-basis:100%;margin:0}.examples{margin:0 0 14px}.examples li{padding:6px 0}${VERDICT_CSS}</style>
 <label for="check-url">API URL to check</label>
 <input id="check-url" name="url" type="url" required maxlength="2048" placeholder="https://api.example.com/paid/endpoint" autocomplete="off" spellcheck="false">
 <input type="hidden" name="format" value="html">
 <button type="submit">Check</button>
-<p class="meta">Answer: pay, avoid or unknown.</p>
+<p class="meta">${escapeHtml(VERDICT_LINE)}</p>
 </form>`;
 }
 
@@ -561,47 +578,46 @@ function topCheckForm(): string {
 export const TOP_EXAMPLES = ["https://api.xona-agent.com/token/pumpfun-trending", "https://brasil-dados-api.onrender.com/cambio"] as const;
 const NO_RECORDS = { kind: "vet402-observation-records", records: [], days: [] };
 
+/** "0 of 6 paid calls answered.": answered out of settled, from the figures the verdict rests on. */
+export function paidCallsLine(c: { basis: { answered: number; settled: number } | null }): string {
+  return c.basis ? `${c.basis.answered} of ${c.basis.settled} paid calls answered.` : "Never bought.";
+}
+
 /** Each example links to the check itself (the answer page fills the field and shows the verdict). */
 function topExamples(r: RankReport, lanes: Lanes): string {
   const items = TOP_EXAMPLES.map((url) => {
     const c = lookup(r, NO_RECORDS, { url }, [], [lanes.arbitrum, lanes.robinhood].filter(Boolean));
     const href = `${CHECK_ENDPOINT}?url=${encodeURIComponent(url)}&format=html`;
-    return `<li><a href="${escapeHtml(href)}"><b>${escapeHtml(c.verdict)}</b> <span class="mono">${escapeHtml(url)}</span></a><br><span class="meta">${escapeHtml(c.why)}</span></li>`;
+    return `<li>${verdictBadge(c.verdict)} <a class="mono" href="${escapeHtml(href)}">${escapeHtml(url.replace(/^https:\/\//, ""))}</a> ${escapeHtml(paidCallsLine(c))}</li>`;
   });
-  return `<ul class="plain examples" aria-label="Two answers from vet402's data">${items.join("\n")}</ul>`;
+  return `<ul class="plain examples" aria-label="Two verdicts from vet402's data">${items.join("\n")}</ul>`;
 }
 
-/** Three numbers over every page, all from settled payments: settled, came back, settled with nothing usable back. */
-function topStats(t: ReturnType<typeof siteTotals>): string {
-  return `<div class="stats">
-  <div><span class="big">${t.settled}</span><br>payments settled, to ${plural(t.sellers, "seller")}</div>
-  <div><span class="big">${t.delivered}</span><br>came back with an answer</div>
-  <div><span class="big">${t.settledNothing}</span><br>settled, and nothing usable came back</div>
-</div>`;
+/** The numbers in one line, from settled payments only, with the date of the data. */
+function topNumbers(t: ReturnType<typeof siteTotals>, asOf: string): string {
+  return `<p>${t.settled} paid calls to ${plural(t.sellers, "seller")}. ${t.settledNothing} returned nothing usable. As of ${escapeHtml(asOf)}. <a href="method.html#totals">Sources</a></p>`;
 }
 
 /** Where the first page's three numbers come from, page by page, with each page's period. */
 function totalsSources(t: ReturnType<typeof siteTotals>): string {
   const each = t.parts.map((p) => `${p.label}: ${p.settled} settled, ${p.delivered} came back, ${p.settledNothing} settled with nothing usable back, out of ${p.tried} tried (${p.period})`).join("; ");
-  return `<p>The three numbers on the Check page add up every page, and all three start from a payment that settled: ${t.settled} settled, ${t.delivered} came back with an answer, ${t.settledNothing} settled with nothing usable back. By page: ${escapeHtml(each || "no purchases yet")}. In all, vet402 tried ${t.tried} purchases; the tries whose payment never settled are counted on each page and in section 6, not on the Check page. Sellers are hosts with a settled payment, counted once across pages.</p>
+  return `<p>The numbers on the Check page add up every page, and all start from a payment that settled ("paid calls"): ${t.settled} settled, ${t.delivered} came back with an answer, ${t.settledNothing} settled with nothing usable back. By page: ${escapeHtml(each || "no purchases yet")}. In all, vet402 tried ${t.tried} purchases; the tries whose payment never settled are counted on each page and in section 6, not on the Check page. Sellers are hosts with a settled payment, counted once across pages.</p>
 <p><b>Settled is not the same on every chain.</b> On Solana, Tempo, Base, Robinhood Chain and Arbitrum, vet402 read its payment back on chain. On Algorand, settled means the facilitator returned a settlement receipt with a tx id; vet402 has not read those payments back on chain. The Check page adds both kinds into one number.</p>
-<p class="meta">On Robinhood Chain and Arbitrum, a result held until the seller is told is counted as tried only, and in none of the three numbers.</p>`;
+<p class="meta">On Robinhood Chain and Arbitrum, a result held until the seller is told is counted as tried only, and in none of the Check page's numbers.</p>`;
 }
 
-/** "Use it every time your agent pays": the hook in one line, and the endpoint for any other language. */
+/** "Check every payment": the hook in one line; every other way is on use.html. */
 function useEveryTime(): string {
-  return `<h2 id="use">Use it every time your agent pays</h2>
+  return `<h2 id="use">Check every payment</h2>
 <pre class="cmd">wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client)</pre>
-<p class="meta">Stops before signing on avoid. <a href="${escapeHtml(CHECK_SETUP_URL)}" rel="noopener noreferrer nofollow">Setup</a></p>
-<pre class="cmd">curl '${escapeHtml(CHECK_ENDPOINT)}?url=https://api.example.com/x'</pre>
-<p class="meta">Same answer, as JSON.</p>
-<p><a href="use.html#buy">Or let vet402 buy it for you →</a></p>`;
+<p>On avoid, your agent never signs. <a href="use.html">More ways →</a></p>`;
 }
 
 /**
  * The first page (index.html): only what a first-time visitor needs. What this is, the check with two real
- * answers, three numbers, and how to use it on every payment. A test keeps it at 120 words or fewer, the
- * two example answers apart. Everything else is one click away: Sellers, Use it, Method.
+ * verdicts, the numbers in one line, and how to check every payment. A test keeps every visible word but
+ * the navigation (labels, button and examples included) at 120 or fewer. Everything else is one click
+ * away: Sellers, Use it, Method.
  */
 function renderTopIndex(r: RankReport, lanes: Lanes = {}): string {
   const all = siteTotals(r, lanes);
@@ -613,7 +629,7 @@ ${siteNav("check")}
 </header>
 ${topCheckForm()}
 ${topExamples(r, lanes)}
-${topStats(all)}
+${topNumbers(all, r.date)}
 ${useEveryTime()}
 `;
   return publicPage("vet402: check an x402 API before paying", PUBLIC_LEAD, body);
@@ -648,7 +664,7 @@ function renderSellersMain(r: RankReport, g: GroupReport, slugs: Map<string, str
   const maxDays = Math.max(0, ...g.ranking.map((s) => s.days.length));
   const gradeState = ranked.length
     ? `${publicLegend()}\n${gradedTables(r, g, slugs, "h3")}`
-    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. ${escapeHtml(REBUY_PLAN)} ${escapeHtml(rebuyFacts(g.ranking, r.date))} One or two purchases are a start, not a verdict.</p>`;
+    : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. ${escapeHtml(REBUY_PLAN)} ${escapeHtml(rebuyFacts(g.ranking, r.date))} One or two purchases are a start, not a grade.</p>`;
   const byChain = g.chains
     .map((c) => ({ c, rows: g.ranking.filter((s) => (s.chains[c]?.tried ?? 0) > 0).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) }))
     .filter((x) => x.rows.length > 0);
@@ -666,6 +682,7 @@ ${purchaseStats(t, g.id)}
 <p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
 <p class="meta">${escapeHtml(perChain)}</p>
 ${gradeState}
+<p class="meta">A grade is not the verdict on the Check page. A grade (A to D) orders sellers and needs ${r.method.minCounted} counted purchases on ${r.method.minDays} days; the verdict (pay, avoid, unknown) answers one question before paying, and can be given from ${MIN_VERDICT_COUNTED} counted purchases on ${r.method.minDays} days. <a href="use.html#verdict">What the verdict means</a></p>
 <p class="meta">Jump to: ${jump}</p>
 
 ${byChain.map((x) => `<h2 id="${x.c}">${CHAIN_LABEL[x.c]}: ${plural(x.rows.length, "seller")}</h2>\n${chainTable(x.c, x.rows, slugs)}`).join("\n\n")}
@@ -680,6 +697,14 @@ ${publicFooter()}
 }
 
 const GH = (path: string) => `${PUBLIC_REPO_URL}/blob/main/${path}`;
+const GRADE_LOWER_C = GRADE_LOWER.C;
+const D_UPPER_LINE = D_UPPER;
+const MIN_DAYS_VERDICT = MIN_DAYS;
+/** The fewest counted purchases whose interval can clear 0.5 either way (n of n, or 0 of n). */
+export const MIN_VERDICT_COUNTED = (() => {
+  for (let n = 1; n < 100; n++) if (wilsonLower(n, n) >= GRADE_LOWER.C && wilsonUpper(0, n) < D_UPPER) return n;
+  return 100;
+})();
 
 /** Proxy buy, live on Vercel (Solana only as of 2026-10-01). */
 export const BUY_ENDPOINT = "https://vet402-delivery.vercel.app/v1/buy";
@@ -700,17 +725,58 @@ export const BUY_README_LINES = [
   "`GET /v1/buy/records/<id>` returns the record: the seller endpoint without its query string, seller payTo and price, fee, total, both transactions, the seller's HTTP status, the sha256 and size of the answer, the outcome and the refund.",
 ] as const;
 
-/** The label in front of each of BUY_README_LINES from the third on. */
-const BUY_LABELS = ["Price", "Who", "Refund", "No refund", "Large answers", "After a paid request", "The record"];
+/** The label in front of each of BUY_README_LINES from the third on (none where the line starts with its own). */
+const BUY_LABELS: (string | null)[] = [null, null, "Refund", "No refund", "Large answers", "After a paid request", "The record"];
 
-/** Escape, then turn `code` spans into <code>. */
-function mdInline(md: string): string {
-  return escapeHtml(md).replace(/`([^`]+)`/g, "<code>$1</code>");
+/** Markdown code spans become <code>; everything else is escaped. */
+export function mdInline(md: string): string {
+  return md
+    .split("`")
+    .map((part, i) => (i % 2 ? `<code>${escapeHtml(part)}</code>` : escapeHtml(part)))
+    .join("");
 }
 
 /** The Use it page (use.html), for developers: each way in, with a minimal example and the full spec. */
-function renderUsePage(): string {
+/** The URL whose /v1/check answer use.html shows in full. */
+export const USE_EXAMPLE_URL = TOP_EXAMPLES[0];
+
+/**
+ * Robinhood Chain and Arbitrum, measured on the data the page is built from: how many of the sellers vet402
+ * bought from there get each verdict (they were bought in one run, so today all are unknown).
+ */
+export function laneVerdictLine(r: RankReport, recordsIndex: unknown, lanes: Lanes): string {
+  const parts: string[] = [];
+  let date = "";
+  const raw = [lanes.arbitrum, lanes.robinhood].filter(Boolean);
+  for (const l of raw) {
+    const hosts = new Set<string>();
+    for (const row of l!.rows) {
+      if (!row.resource || !["delivered", "settled_no_answer", "not_settled", "unconfirmed", "withheld"].includes(row.status)) continue;
+      try {
+        hosts.add(new URL(row.resource).hostname.toLowerCase());
+      } catch {
+        // not a URL: not looked up
+      }
+    }
+    if (!hosts.size) continue;
+    const counts: Record<string, number> = {};
+    for (const h of hosts) {
+      const v = lookup(r, recordsIndex, { url: `https://${h}/`, chain: l!.lane }, [], raw).verdict;
+      counts[v] = (counts[v] ?? 0) + 1;
+    }
+    const label = CHAIN_LABEL[l!.lane];
+    parts.push(counts.unknown === hosts.size ? `all ${plural(hosts.size, `${label} seller`)} are unknown` : `${label}: ${Object.entries(counts).map(([v, n]) => `${n} ${v}`).join(", ")} of ${hosts.size}`);
+    date = l!.generatedAt.slice(0, 10) > date ? l!.generatedAt.slice(0, 10) : date;
+  }
+  if (!parts.length) return "";
+  return `As of the ${date} run, ${parts.join(" and ")}: vet402 bought from them in one run, on one day, which is too little to say pay or avoid.`;
+}
+
+function renderUsePage(r: RankReport, lanes: Lanes, recordsIndex: unknown): string {
   const spec = (href: string, label: string) => `<p class="meta"><a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${escapeHtml(label)}</a></p>`;
+  const laneArr = [lanes.arbitrum, lanes.robinhood].filter(Boolean);
+  const example = checkBody(lookup(r, recordsIndex, { url: USE_EXAMPLE_URL }, [], laneArr));
+  const laneLine = laneVerdictLine(r, recordsIndex, lanes);
   const body = `
 ${siteNav("use")}
 <header>
@@ -719,10 +785,22 @@ ${siteNav("use")}
 <p class="meta">Every check below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment. Proxy buy is the one way here that costs money.</p>
 </header>
 
+<style>${VERDICT_CSS}</style>
+<h2 id="verdict">What the verdict means</h2>
+<ul>
+<li>${verdictBadge("pay")} Most of vet402's paid calls to this seller were answered: the 95% interval of answered / counted is at or above ${GRADE_LOWER_C} (the line for grade C), over ${MIN_DAYS_VERDICT} or more days.</li>
+<li>${verdictBadge("avoid")} vet402 paid, and most paid calls were not answered: the interval's upper bound is below ${D_UPPER_LINE} (the line for grade D), over ${MIN_DAYS_VERDICT} or more days.</li>
+<li>${verdictBadge("unknown")} Too little data, or vet402 never bought from this seller. With 1 to ${MIN_VERDICT_COUNTED - 1} counted calls the verdict is always unknown, and so it is for calls all made on one day.</li>
+</ul>
+<p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. A result held until the seller is told is never used: unknown. <a href="${escapeHtml(GH("packages/check/src/verdict.ts"))}" rel="noopener noreferrer nofollow">The rule in code</a></p>
+${laneLine ? `<p class="meta">${escapeHtml(laneLine)}</p>` : ""}
+
 <h2 id="http">HTTP: GET /v1/check</h2>
 <p>Any language, or a browser. Optional <code>chain</code> (solana, tempo, base, algorand, arbitrum, robinhood or a CAIP-2 id) and <code>payTo</code> (the recipient in the 402 you hold). CORS is open.</p>
 <pre class="cmd">curl '${escapeHtml(CHECK_ENDPOINT)}?url=https://api.xona-agent.com/token/pumpfun-trending'</pre>
 <p class="meta">The JSON starts with <code>verdict</code> and <code>why</code>; then <code>tried</code>, <code>settled</code>, <code>counted</code>, <code>answered</code>, <code>days</code>, the newest purchase and its tx, the newest signed records, and <code>asOf</code>. <code>&amp;format=html</code> gives a page instead.</p>
+<p>The answer for that URL, built by the same code from the same data as the live endpoint (rank.json of ${escapeHtml(r.date)}):</p>
+<pre class="cmd">${escapeHtml(JSON.stringify(example, null, 2))}</pre>
 ${spec(GH("packages/check/src/http.ts"), "Spec: packages/check/src/http.ts")}
 
 <h2 id="hook">At the payment: the x402 fetch hook</h2>
@@ -734,13 +812,15 @@ import { wrapFetchWithCheck } from "vet402-solana/check";
 
 const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
 <p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
+<p>Any chain: the hook reads the network and payTo of every way to pay a 402 offers (x402 <code>accepts</code>, from the body or the <code>PAYMENT-REQUIRED</code> header, and an MPP <code>WWW-Authenticate: Payment</code> challenge), so it works under any x402 client that pays through <code>fetch</code>. Solana, Base, Tempo, Algorand, Arbitrum and Robinhood Chain are looked up per chain; any other network by URL and payTo. The package is named <code>vet402-solana</code> after the repository's first chain; the hook is not Solana-only.</p>
 ${spec(CHECK_SETUP_URL, "Spec: the fetch hook (packages/check README)")}
 
 <h2 id="buy">Let vet402 buy it for you: GET /v1/buy</h2>
+<p><b>Solana only for now.</b> Tempo is switched off on the live deployment, so where a line below names Tempo or USDC.e, it does not apply yet. The lines below are the README's own words.</p>
 ${BUY_README_LINES.slice(0, 2).map((l) => `<p>${mdInline(l)}</p>`).join("\n")}
 <pre class="cmd">curl -i '${escapeHtml(BUY_ENDPOINT)}?url=&lt;seller endpoint&gt;'   # free: shows the price, charges nothing</pre>
 <ul>
-${BUY_README_LINES.slice(2).map((l, i) => `<li><b>${BUY_LABELS[i]}:</b> ${mdInline(l)}</li>`).join("\n")}
+${BUY_README_LINES.slice(2).map((l, i) => `<li>${BUY_LABELS[i] ? `<b>${BUY_LABELS[i]}:</b> ` : ""}${mdInline(l)}</li>`).join("\n")}
 </ul>
 ${spec(`${PUBLIC_REPO_URL}#proxy-buy-solana-tempo`, "Spec: Proxy buy (README), with every refund rule and the order of a paid request")}
 
@@ -1053,13 +1133,18 @@ export function siteSlugs(r: RankReport): Map<string, string> {
  */
 export function renderPublicSite(
   r: RankReport,
-  opts: { records?: ReadonlyMap<string, readonly SellerRecordLink[]>; lanes?: { robinhood?: LanePublic; arbitrum?: LanePublic } } = {},
+  opts: {
+    records?: ReadonlyMap<string, readonly SellerRecordLink[]>;
+    lanes?: { robinhood?: LanePublic; arbitrum?: LanePublic };
+    /** data/records/index.json as published, for the /v1/check answer shown on use.html. */
+    recordsIndex?: unknown;
+  } = {},
 ): Map<string, string> {
   const slugs = siteSlugs(r);
   const out = new Map<string, string>();
   out.set("index.html", renderTopIndex(r, opts.lanes));
   out.set("sellers.html", renderSellersMain(r, groupById(r, "main"), slugs));
-  out.set("use.html", renderUsePage());
+  out.set("use.html", renderUsePage(r, opts.lanes ?? {}, opts.recordsIndex ?? NO_RECORDS));
   out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs));
   out.set("robinhood.html", renderRobinhoodPage(r, groupById(r, "robinhood"), opts.lanes?.robinhood));
   out.set("arbitrum.html", renderArbitrumPage(r, groupById(r, "arbitrum"), opts.lanes?.arbitrum));

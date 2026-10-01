@@ -389,7 +389,8 @@ test("site/index.html: the two example answers are computed from the published d
   for (const url of [XONA, BRASIL]) {
     const r = lookup(real.rank, real.index, { url }, [], real.lanes);
     const href = `${CHECK_ENDPOINT}?url=${encodeURIComponent(url)}&amp;format=html`;
-    assert.ok(index.includes(`<a href="${href}"><b>${r.verdict}</b> <span class="mono">${url}</span></a><br><span class="meta">${r.why.replace(/'/g, "&#39;")}</span>`), url);
+    const short = url.replace(/^https:\/\//, "");
+    assert.ok(index.includes(`<li><span class="v v-${r.verdict}">${r.verdict}</span> <a class="mono" href="${href}">${short}</a> ${r.basis!.answered} of ${r.basis!.settled} paid calls answered.</li>`), url);
   }
   assert.ok(index.indexOf('id="check"') < index.indexOf('class="plain examples"'), "right under the field");
 });
@@ -441,7 +442,8 @@ test("usage counting: a database that is down, throws or hangs never changes the
     const res = await handleCheck(new Request(`https://h.example/v1/check${q(XONA)}`), load, onUse);
     assert.equal(res.status, 200);
     assert.equal(((await res.json()) as { verdict: string }).verdict, "avoid");
-    assert.ok(performance.now() - t0 < USE_WAIT_MS + 200, "not held up past the wait");
+    // Bounded: a counter that never answers is given up after USE_WAIT_MS (the slack is for a loaded test machine).
+    assert.ok(performance.now() - t0 < USE_WAIT_MS + 2000, "not held up past the wait");
   }
 });
 

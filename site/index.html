@@ -79,29 +79,22 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 
 <nav class="tabs site" aria-label="Site"><a href="index.html" aria-current="page">Check</a><a href="sellers.html">Sellers</a><a href="use.html">Use it</a><a href="method.html">Method</a></nav>
 <header>
-<h1>Check an x402 API before your agent pays it.</h1>
-<p class="lead">x402 lets an AI agent pay for an API call before it sees the answer. If the API is broken, the money is gone. vet402 pays first, with its own money, on Solana, Base, Tempo, Arbitrum One, Robinhood Chain and Algorand, and shows what came back.</p>
+<h1>Check an x402 API before your agent pays.</h1>
+<p class="lead">x402 lets an AI agent pay for an API call before it sees the answer. A broken API keeps the money. vet402 pays first, with its own money, on Solana, Base, Tempo, Arbitrum One, Robinhood Chain and Algorand, and shows what came back. Free, no key.</p>
 </header>
 <form id="check" class="checkbox" method="get" action="https://vet402-delivery.vercel.app/v1/check" aria-label="Check a seller before you pay">
-<style>.checkbox{display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 6px}.checkbox label{flex-basis:100%;font-weight:600}.checkbox input[type=url]{flex:1 1 220px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}.checkbox p{flex-basis:100%;margin:0}.examples{margin:0 0 14px}.examples li{padding:6px 0}.examples b{display:inline-block;min-width:3.6em}</style>
+<style>.checkbox{display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 6px}.checkbox label{flex-basis:100%;font-weight:600}.checkbox input[type=url]{flex:1 1 220px;min-width:0;font:inherit;padding:8px;border:1px solid var(--dim);border-radius:6px;background:var(--bg);color:var(--fg)}.checkbox button{font:inherit;font-weight:600;padding:8px 16px;border:1px solid var(--fg);border-radius:6px;background:var(--fg);color:var(--bg);cursor:pointer}.checkbox p{flex-basis:100%;margin:0}.examples{margin:0 0 14px}.examples li{padding:6px 0}.v{display:inline-block;min-width:4.6em;padding:0 .4em;border-radius:5px;text-align:center;font-weight:700;border:2px solid var(--gU);color:var(--fg)}.v-avoid{border-color:var(--gD)}.v-pay{border-color:var(--gA)}.v-unknown{border-style:dashed;color:var(--dim)}</style>
 <label for="check-url">API URL to check</label>
 <input id="check-url" name="url" type="url" required maxlength="2048" placeholder="https://api.example.com/paid/endpoint" autocomplete="off" spellcheck="false">
 <input type="hidden" name="format" value="html">
 <button type="submit">Check</button>
-<p class="meta">Answer: pay, avoid or unknown.</p>
+<p class="meta">pay: most paid calls answered. avoid: most did not. unknown: little or no data.</p>
 </form>
-<ul class="plain examples" aria-label="Two answers from vet402's data"><li><a href="https://vet402-delivery.vercel.app/v1/check?url=https%3A%2F%2Fapi.xona-agent.com%2Ftoken%2Fpumpfun-trending&amp;format=html"><b>avoid</b> <span class="mono">https://api.xona-agent.com/token/pumpfun-trending</span></a><br><span class="meta">vet402 paid this seller 6 times on Solana over 4 days; 0 of the 6 that count came back with an answer (the newest failed one answered HTTP 500).</span></li>
-<li><a href="https://vet402-delivery.vercel.app/v1/check?url=https%3A%2F%2Fbrasil-dados-api.onrender.com%2Fcambio&amp;format=html"><b>pay</b> <span class="mono">https://brasil-dados-api.onrender.com/cambio</span></a><br><span class="meta">vet402 paid this seller 6 times on Solana over 4 days; 6 of the 6 that count came back with an answer.</span></li></ul>
-<div class="stats">
-  <div><span class="big">1931</span><br>payments settled, to 241 sellers</div>
-  <div><span class="big">1835</span><br>came back with an answer</div>
-  <div><span class="big">96</span><br>settled, and nothing usable came back</div>
-</div>
-<h2 id="use">Use it every time your agent pays</h2>
+<ul class="plain examples" aria-label="Two verdicts from vet402's data"><li><span class="v v-avoid">avoid</span> <a class="mono" href="https://vet402-delivery.vercel.app/v1/check?url=https%3A%2F%2Fapi.xona-agent.com%2Ftoken%2Fpumpfun-trending&amp;format=html">api.xona-agent.com/token/pumpfun-trending</a> 0 of 6 paid calls answered.</li>
+<li><span class="v v-pay">pay</span> <a class="mono" href="https://vet402-delivery.vercel.app/v1/check?url=https%3A%2F%2Fbrasil-dados-api.onrender.com%2Fcambio&amp;format=html">brasil-dados-api.onrender.com/cambio</a> 6 of 6 paid calls answered.</li></ul>
+<p>1931 paid calls to 241 sellers. 96 returned nothing usable. As of 2026-10-01. <a href="method.html#totals">Sources</a></p>
+<h2 id="use">Check every payment</h2>
 <pre class="cmd">wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client)</pre>
-<p class="meta">Stops before signing on avoid. <a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#at-the-payment-the-x402-fetch-hook" rel="noopener noreferrer nofollow">Setup</a></p>
-<pre class="cmd">curl 'https://vet402-delivery.vercel.app/v1/check?url=https://api.example.com/x'</pre>
-<p class="meta">Same answer, as JSON.</p>
-<p><a href="use.html#buy">Or let vet402 buy it for you →</a></p>
+<p>On avoid, your agent never signs. <a href="use.html">More ways →</a></p>
 
 </main></body></html>
