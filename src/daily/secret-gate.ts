@@ -19,7 +19,9 @@
  *  - any random-looking run of 24 characters or more, unless it is a public id in its exact format (a 32-byte
  *    base58 address, a 64-byte base58 signature, hex of a hash or address, an Algorand address with a valid
  *    checksum or transaction id, an IPFS id, a payment challenge id) or the same value is an address or
- *    transaction elsewhere in the same file. Words, slugs and UUID-like ids are not random-looking.
+ *    transaction elsewhere in the same file. Words, slugs and UUID-like ids are not random-looking. A public
+ *    image URL (https, a plain path ending in an image file or under /images/, or cut at the end of a body
+ *    under a field named for an image) is one public value; its query and fragment are still read.
  * Anything else that is public by design is allowed by exact sha256 only, each with a reason, in
  * scripts/daily/secret-allow.json.
  */
@@ -684,6 +686,58 @@ const PATH_ID = /\/(?:tx|txs|transaction|transactions|address|addresses|account|
 
 const ownMarker = (v: string) => v === SELLER_TOKEN_REDACTION || v.startsWith(SELLER_TOKEN_REDACTION);
 
+/**
+ * A public image URL as a seller's answer gives it (a token's image_uri, a logo): https, a host name, then path
+ * steps of plain characters only (letters, digits, . _ ~ -), the last one an image file (.png .jpg .jpeg .webp
+ * .gif .svg) or any step under /images/. Slashes may be JSON-escaped, once or more (\/, \\\/). Judged by the
+ * value's shape, not the field it stands in.
+ */
+const URL_SLASH = String.raw`\\{0,7}\/`;
+const IMAGE_URL = new RegExp(String.raw`https:${URL_SLASH}${URL_SLASH}[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d{1,5})?((?:${URL_SLASH}[A-Za-z0-9._~-]+)+)`, "g");
+const IMAGE_FILE = /\.(?:png|jpe?g|webp|gif|svg)$/i;
+/** A path step that signs the URL (Cloudinary's s--xxxxxxxx--): the URL is not taken as plain public. */
+const SIGNED_STEP = /^s--[A-Za-z0-9_-]{8,}--$/;
+
+/** Whether the URL path ending at `end` in `v` is a public image path (see IMAGE_URL). */
+function publicImagePath(v: string, path: string, end: number): boolean {
+  // The path must end here: a step that goes on with other characters (a Telegram bot token holds a colon,
+  // a signed path holds = or %) is not a plain path, and a trailing slash names no file.
+  const next = v[end];
+  if (next !== undefined && (/[%:@=;!$*+/]/.test(next) || /^\\+\//.test(v.slice(end, end + 9)))) return false;
+  const steps = path.split(/\\*\//).filter(Boolean);
+  if (steps.some((s) => SIGNED_STEP.test(s))) return false;
+  const images = steps.findIndex((s) => s.toLowerCase() === "images");
+  return IMAGE_FILE.test(steps[steps.length - 1]!) || (images >= 0 && images < steps.length - 1);
+}
+
+/**
+ * The string with each public image URL blanked out (same length), so the random-looking file names in it are
+ * not judged as random runs: the URL is one public value. Only the scheme, host and path are blanked. A query
+ * or a fragment (?token=, ?sig=, X-Amz-Signature=, #access_token=, or any random value after ?) is not part of
+ * it and is judged as before, as is everything the checks before this one look at (the runner's key, JWTs,
+ * vendor key prefixes, private keys, user:password, values under secret names).
+ */
+export function blankPublicImageUrls(v: string): string {
+  return v.replace(IMAGE_URL, (m: string, path: string, offset: number) =>
+    publicImagePath(v, path, offset + m.length) || cutImageUrl(v, path, offset, m.length) ? " ".repeat(m.length) : m,
+  );
+}
+
+/** A JSON field named for an image ("image_uri":", "logoURI":", "icon_url":"), right before a value. */
+const IMAGE_FIELD_BEFORE = /(?:image|img|logo|icon|avatar|thumb|picture|photo|banner)[A-Za-z0-9_]*\\*["']\s*:\s*\\*["']$/i;
+
+/**
+ * A response body is kept to its first 300 characters, so an image URL at its end is often cut before its file
+ * extension (2 of the 6 image_uri values in data/ from 2026-09-28 to 2026-10-01 were). Such a URL is taken as
+ * public only when all of these hold: it runs to the very end of the text (no closing quote, so it was cut), it
+ * is the value of a field named for an image, and its path steps are plain (see publicImagePath).
+ */
+function cutImageUrl(v: string, path: string, offset: number, length: number): boolean {
+  if (offset + length !== v.length) return false;
+  if (!IMAGE_FIELD_BEFORE.test(v.slice(Math.max(0, offset - 80), offset))) return false;
+  return !path.split(/\\*\//).some((s) => SIGNED_STEP.test(s));
+}
+
 /** The runner's own key material in the encodings it could leak in. */
 export function ownKeyNeedles(keysDir: string): string[] {
   const out: string[] = [];
@@ -823,6 +877,8 @@ export function scanText(text: string, file: string, path: string, key: string |
 
     // A listed public address (PUBLIC_STREET_ADDRESSES) is words and numbers, not a random run, in any encoding.
     v = blankPublicAddresses(v);
+    // A public image URL (https, a plain path to an image file or under /images/) is one public value, not runs.
+    v = blankPublicImageUrls(v);
     // base64 runs: judged whole, since their slashes and plus signs split them into short pieces below.
     for (const m of v.matchAll(B64_RUN)) {
       const t = m[0];

@@ -175,6 +175,101 @@ test("gate: the nine market-data values that stopped the 2026-09-30 production p
   assert.deepEqual(scan(text), []);
 });
 
+test("gate: a public image URL passes by rule (the 2026-10-01 api.cookin.fun image_uri values), with no allow entry", () => {
+  // the first 300 characters of rows[83] and rows[271] of data/remeasure/solana-2026-10-01.json, as published
+  const row83 =
+    '{"data":[{"name":"ICEPATRICK","description":null,"mint":"HSeQk9uf1PFB2Ghz7x5GpA7CuH2YrLvNF9FZFRP5ei5y","symbol":"ICEPATRICK","mcap":8148,"deployed_at":"2026-10-01T01:23:20.669800Z","launchpad":"pumpfun","image_uri":"https://metadata.j7tracker.io/images/6AY5H115fg","website":null,"twitter":"https://x';
+  const row271 =
+    '{"data":[{"name":"I Am Jane Doe","description":null,"mint":"FEVYjz1uqrGxF5gUfbAb7hHUTGFv7hycLWywsanJtLhm","symbol":"Jane","mcap":49364,"deployed_at":"2026-10-01T13:20:53.510321Z","launchpad":"pumpfun","image_uri":"https://axiomtrading-v2.axiom-cdn.io/A4VEVJchzfEvYzzCEuSGJLSwe1wcBjwNxHADhVGtxz6T.webp';
+  // io/images/6AY5H115fg, io/A4VE...6T and A4VE...6T: allowed by hand on 2026-10-01 (the entries stay)
+  const allowedByHand = ["9bb03c48056f56e5", "df176e971a7aaa55", "b74365b4f21c6ca0"];
+  for (const body of [row83, row271]) {
+    assert.equal(body.length, 300);
+    const raw = blockingFindings(scanFileText(JSON.stringify({ rows: [{ detail: body }] }), "data/x.json"), []);
+    assert.deepEqual(raw.map((f) => `${f.kind} ${f.shape}`), []);
+    assert.deepEqual(raw.filter((f) => allowedByHand.includes(f.sha256.slice(0, 16))), []);
+  }
+  // a new random file name every day: passes in any of the image forms, without an allow entry
+  const r = seeded(20261001);
+  const none = (text: string, opts = {}) => blockingFindings(scanFileText(text, "data/x.json", opts), []);
+  for (let i = 0; i < 40; i++) {
+    const id = base58(bytes(r, 32));
+    const forms = [
+      `https://axiomtrading-v2.axiom-cdn.io/${id}.webp`, `https://cdn.example.io/token/${id}.png`, `https://cdn.example.io/a/${alnum(r, 30)}.JPG`,
+      `https://cdn.example.io/${alnum(r, 30)}.jpeg`, `https://img.example.io:8443/${alnum(r, 30)}.gif`, `https://cdn.example.io/${b64url(r, 30)}.svg`,
+      `https://metadata.j7tracker.io/images/${alnum(r, 30)}`, `https://cdn.example.io/images/${alnum(r, 20)}/${alnum(r, 30)}`,
+    ];
+    for (const u of forms) {
+      assert.deepEqual(none(withDetail(`{"image_uri":"${u}","website":null}`)).map((f) => f.shape), [], u);
+      // under a name that says nothing, inside prose, and with JSON-escaped slashes in a line that is not JSON
+      assert.deepEqual(none(withDetail(`{"x":"see ${u} here"}`)).map((f) => f.shape), [], u);
+      assert.deepEqual(none(`{"logo":"${u.replace(/\//g, "\\/")}"}`, "data/x.txt").map((f) => f.shape), [], u);
+      assert.deepEqual(none(`{"detail":"{\\"logo\\":\\"${u.replace(/\//g, "\\\\\\/")}\\"}"`, "data/x.txt").map((f) => f.shape), [], u);
+    }
+  }
+});
+
+test("gate: an image URL with a query, a fragment, a secret in its path, or not an image still stops", () => {
+  const r = seeded(20261002);
+  const stops = (text: string, opts = {}) => blockingFindings(scanFileText(text, "data/x.json", opts), []).map((f) => f.kind);
+  for (let i = 0; i < 30; i++) {
+    const id = base58(bytes(r, 32));
+    const img = `https://axiomtrading-v2.axiom-cdn.io/${id}.webp`;
+    const cases: [string, Finding["kind"]][] = [
+      // signed URLs: the query or the fragment holds the secret
+      [`${img}?token=${alnum(r, 20)}`, "url-query-secret"],
+      [`${img}?sig=${b64url(r, 40)}&exp=1`, "url-query-secret"],
+      [`https://bucket.s3.amazonaws.com/images/${id}.png?X-Amz-Credential=AKIA${alnum(r, 16).toUpperCase()}&X-Amz-Signature=${hex(r, 64)}`, "url-query-secret"],
+      [`${img}?v=${alnum(r, 30)}`, "opaque-40"],
+      [`${img}#access_token=${alnum(r, 30)}`, "url-query-secret"],
+      // not an image path: no extension, another extension, plain http, a trailing slash
+      [`https://axiomtrading-v2.axiom-cdn.io/${id}`, "opaque-40"],
+      [`https://cdn.example.io/${id}.json`, "opaque-40"],
+      [`http://axiomtrading-v2.axiom-cdn.io/${id}.webp`, "opaque-40"],
+      [`https://cdn.example.io/media/${alnum(r, 30)}/`, "opaque-40"],
+      [`https://cdn.example.io/${alnum(r, 30)}/images`, "opaque-40"],
+      // a path step that is not plain, or that signs the URL
+      [`https://api.telegram.org/file/bot${String(100000000 + i)}:${alnum(r, 35)}/photos/file_1.jpg`, "opaque-40"],
+      [`https://res.cloudinary.com/demo/image/upload/s--${alnum(r, 8)}--/${alnum(r, 30)}.png`, "opaque-40"],
+      // the checks before the image rule still see the path
+      [`https://cdn.example.io/eyJhbGciOiJIUzI1NiJ9.${b64url(r, 40)}.png`, "jwt"],
+      [`https://cdn.example.io/sk_live_${alnum(r, 24)}.png`, "vendor-key"],
+      [`https://admin:${alnum(r, 16)}@cdn.example.io/${id}.png`, "url-query-secret"],
+    ];
+    for (const [u, kind] of cases) assert.ok(stops(withDetail(`{"image_uri":"${u}"}`)).includes(kind), `${u}: ${JSON.stringify(stops(withDetail(`{"image_uri":"${u}"}`)))}`);
+    // a value under a secret name stops even when it is an image URL
+    assert.ok(stops(withDetail(`{"session":"${img}"}`)).includes("secret-field"));
+  }
+  // the runner's own key in an image URL path stops
+  const key = base58(bytes(r, 64));
+  assert.ok(stops(withDetail(`{"image":"https://cdn.example.io/${key}.png"}`), { ownKeys: [key] }).includes("own-key"));
+});
+
+test("gate: an image URL cut at the end of a 300-character body passes only under a field named for an image", () => {
+  // rows[271] of 2026-10-01 ended exactly at .webp; a longer token name the next day cuts the same URL earlier
+  const head = '{"data":[{"name":"I Am Jane Doe","description":null,"mint":"FEVYjz1uqrGxF5gUfbAb7hHUTGFv7hycLWywsanJtLhm","symbol":"Jane","mcap":49364,"deployed_at":"2026-10-01T13:20:53.510321Z","launchpad":"pumpfun",';
+  const url = "https://axiomtrading-v2.axiom-cdn.io/A4VEVJchzfEvYzzCEuSGJLSwe1wcBjwNxHADhVGtxz6T.webp";
+  const none = (body: string) => blockingFindings(scanFileText(withDetail(body), "data/x.json"), []);
+  for (let cut = "https://axiomtrading-v2.axiom-cdn.io/".length; cut <= url.length; cut++) {
+    assert.deepEqual(none(`${head}"image_uri":"${url.slice(0, cut)}`).map((f) => f.shape), [], url.slice(0, cut));
+    assert.deepEqual(none(`${head}"logoURI":"${url.slice(0, cut)}`).map((f) => f.shape), [], url.slice(0, cut));
+  }
+  const r = seeded(20261003);
+  for (let i = 0; i < 30; i++) {
+    const cutId = alnum(r, 20 + (i % 20));
+    assert.deepEqual(none(`${head}"image_uri":"https://cdn.example.io/a/${cutId}`).map((f) => f.shape), [], cutId);
+    const stops = (body: string) => none(body).map((f) => f.kind);
+    // not under an image field, or not at the end (the URL was not cut), or a step that is not plain
+    assert.ok(stops(`${head}"website":"https://cdn.example.io/a/${cutId}`).includes("opaque-40"));
+    assert.ok(stops(`${head}"image_uri":"https://cdn.example.io/a/${cutId}","website":null`).includes("opaque-40"));
+    assert.ok(stops(`${head}"image_uri":"https://api.telegram.org/file/bot123456789:${cutId}`).includes("opaque-40"));
+    assert.ok(stops(`${head}"image_uri":"https://res.cloudinary.com/demo/image/upload/s--${alnum(r, 8)}--/${cutId}`).includes("opaque-40"));
+    // a query cut at the end is still read
+    assert.ok(stops(`${head}"image_uri":"https://cdn.example.io/a/b.png?token=${cutId}`).includes("url-query-secret"));
+    assert.ok(stops(`${head}"image_uri":"https://cdn.example.io/a/b?v=${cutId}`).includes("opaque-40"));
+  }
+});
+
 test("gate: a crypto asset named token passes only in its public shape; credential tokens always stop", () => {
   const pass = [
     { token_amount: "835335.7825230001" }, { base_token_price_quote_token: "2668.701" }, { token_name: "American Inu" },
