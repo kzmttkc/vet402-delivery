@@ -349,8 +349,9 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
 
 function rebuyOf(rows: readonly Attempt[]): SellerStats["rebuy"] {
   // Only a payment that settled on chain, with its tx: a sent credential that did not settle (on 2026-09-29 a
-  // seller answered "No payment was charged"), a refusal, or an outcome not on record (unknown) buys nothing.
-  const paid = rows.filter((r) => r.source.startsWith("remeasure/") && r.settled === true && r.tx !== null);
+  // seller answered "No payment was charged") or a refusal buys nothing. An outcome not on record (unknown) counts
+  // only when the post-run chain check found its payment (paidOnChain, 2026-10-01: a 90 s timeout on Tempo).
+  const paid = rows.filter((r) => r.source.startsWith("remeasure/") && r.tx !== null && (r.settled === true || r.paidOnChain === true));
   const purchases: Partial<Record<Chain, number>> = {};
   for (const r of paid) purchases[r.chain] = (purchases[r.chain] ?? 0) + 1;
   return { days: [...new Set(paid.map((r) => r.at.slice(0, 10)))].sort(), purchases };

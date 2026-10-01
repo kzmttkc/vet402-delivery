@@ -651,3 +651,17 @@ test("tempo W1: a missing index next to existing day ledgers is refused before t
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("tempo 2026-10-01: an unknown outcome the chain check found paid counts as a rebuy purchase, never as the seller's failure", () => {
+  const SELLER_T = "0xbb06ad903e615cc1a50421b60d70e47b11a5677f";
+  const base = { at: "2026-10-01T01:34:09.506Z", chain: "tempo" as const, host: "mpp.t.example", service: "s", url: "https://mpp.t.example/s", requestUrl: "https://mpp.t.example/s", payTo: null, expectedPayTo: SELLER_T, priceUsdc: "0.100000", slot: 0, httpStatus: null, bodyBytes: null, answer: null, delivered: null };
+  const found = { ...base, key: `2026-10-01|${SELLER_T}|0`, outcome: "unknown", reason: "unknown", detail: "The operation was aborted due to timeout; settled on chain (found by the post-run chain check)", settled: true, tx: "0x5a8d" } as unknown as RemeasureRow;
+  const lost = { ...base, key: `2026-10-01|${SELLER_T}|1`, outcome: "unknown", reason: "unknown", detail: "The operation was aborted due to timeout", settled: null, tx: null } as unknown as RemeasureRow;
+  const [a, b] = normalizeRemeasure(fileOf("tempo", [found, lost], "2026-10-01"), "remeasure/tempo-2026-10-01");
+  assert.deepEqual([a!.category, a!.settled, a!.paidOnChain, a!.tx], ["unconfirmed_server_error", null, true, "0x5a8d"]);
+  assert.deepEqual([b!.category, b!.settled, "paidOnChain" in b!], ["unconfirmed_server_error", null, false]);
+  const s = aggregate([a!, b!])[0]!;
+  assert.deepEqual(s.rebuy, { days: ["2026-10-01"], purchases: { tempo: 1 } });
+  assert.equal(s.paidButNotDelivered, 0);
+  assert.equal(s.lastFailure, null);
+});

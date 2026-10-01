@@ -65,6 +65,7 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
   let settled: boolean | null = null;
   let rawReason: string;
   let bodyChecked = true;
+  let paidOnChain = false;
   if (r.outcome === "sent") {
     settled = r.settled;
     rawReason = `sent/http ${r.httpStatus ?? "?"}`;
@@ -88,6 +89,9 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
     // no status here, so these land on the "can't tell" side and never lower a grade.
     rawReason = r.outcome;
     category = "unconfirmed_server_error";
+    // The post-run chain check sets settled and tx together (markSettled in ./chaincheck.ts) when it finds the payment.
+    // That makes it a purchase for the rebuy count, but `settled` stays null here: the answer was lost on vet402's side.
+    if (r.settled === true && r.tx) paidOnChain = true;
   } else if (r.outcome === "refused" || r.outcome === "not_sent") {
     rawReason = r.reason;
     category = refusalCategory(r.reason, where);
@@ -115,6 +119,7 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
     declaredMatch: category === "delivered" ? (r.answer?.declaredMatch ?? null) : null,
     bodyChecked,
     feedbackTx: null,
+    ...(paidOnChain ? { paidOnChain: true as const } : {}),
     // Rows without `input` (before 2026-10-01) get it from the census plan in scripts/rank.ts (annotateTempoInput).
     ...(r.chain === "tempo" && r.input ? { inputProblem: inputProblem(r.input, r.answer) } : {}),
   };

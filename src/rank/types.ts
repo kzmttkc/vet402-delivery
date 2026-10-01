@@ -56,6 +56,12 @@ export interface Attempt {
   tried: boolean;
   /** true = settlement confirmed, false = confirmed not settled, null = unknown. */
   settled: boolean | null;
+  /**
+   * A remeasure row whose answer was never recorded (outcome unknown), but whose payment the post-run chain check
+   * found on chain. `settled` stays null so no fault rule reads it as the seller's (the run timed out on vet402's
+   * side); only the rebuy count reads this. Absent everywhere else.
+   */
+  paidOnChain?: true;
   delivered: boolean;
   category: ReasonCategory;
   /** The runner's own reason string, verbatim. */
