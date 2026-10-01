@@ -96,6 +96,8 @@ The CPI example (`programs/delivery-gate-example`) is for local tests and devnet
 
 ## Escrow example
 
+Not audited. It is an example for devnet and local tests: not for real funds, and not to be deployed on mainnet.
+
 `programs/delivery-escrow-example` is a second caller, one that moves tokens: the buyer deposits the price of one purchase, and the deposit goes to the seller only when the purchase's signed record is DELIVERED, or back to the buyer when it is NOT_DELIVERED.
 
 | Instruction | Who | What |
@@ -104,7 +106,7 @@ The CPI example (`programs/delivery-gate-example`) is for local tests and devnet
 | `settle(day, fields, proof)` | anyone | the record must name the escrow's network, payTo and transaction, and its `amount` must equal the deposit; then `verify_cpi`. DELIVERED moves the vault to the seller's token account, NOT_DELIVERED to the buyer's. MISMATCH and UNCLEAR settle nothing. The vault and the escrow close, their rent back to the buyer |
 | `reclaim()` | the buyer, after the deadline | takes the vault back, so a purchase with no usable record never locks the tokens |
 
-The escrow compares only keccak256 words, so every string field can travel hashed: the settle transaction of the 2026-09-28 to 2026-09-30 records is at most 1,103 bytes (limit 1,232). Settling moves the vault's whole balance, so tokens sent to the vault cannot keep it from closing, and lamports sent to the vault's address first do not block a deposit. The example does not compare the record's `asset` with the deposited mint; a real escrow should.
+The escrow compares only keccak256 words, so every string field can travel hashed: the settle transaction of the 2026-09-28 to 2026-09-30 records is at most 1,103 bytes (limit 1,232). Settling moves the vault's whole balance, so tokens sent to the vault cannot keep it from closing, and lamports sent to the vault's address first do not block a deposit. The example does not compare the record's `asset` with the deposited mint; a real escrow should. It sets no lowest deadline: a seller should check that the deadline falls after the end of the purchase's UTC day plus the time it takes to post that day's root (during the next UTC day), or the buyer can reclaim before the record can be checked.
 
 `npm run program:test` also runs `tests/escrow.test.ts` on its own local validator: one DELIVERED record of each day pays the seller; every published Solana NOT_DELIVERED record returns the deposit and cannot pay the seller; a tampered verdict or proof, another purchase's record and another amount are refused; an UNCLEAR record settles nothing and the buyer reclaims after the deadline.
 

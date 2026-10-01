@@ -61,7 +61,7 @@ function chainRow(c: ChainRefund): string {
 }
 
 function sellersLine(r: WouldRefundReport): string {
-  const told = r.chains.flatMap((c) => c.toldSellers.map((s) => ({ ...s, chain: c.chain })));
+  const told = r.chains.filter((c) => c.signedRecords).flatMap((c) => c.toldSellers.map((s) => ({ ...s, chain: c.chain })));
   const named = told.map((s) => `<code>${escapeHtml(s.seller)}</code> (${escapeHtml(CHAIN_LABEL[s.chain] ?? s.chain)}, ${s.purchases} purchases, ${escapeHtml(usd(s.amountUsd))} USD)`);
   const untold = r.totals.notToldSellers;
   return `<p>These purchases come from ${r.totals.sellers} sellers. ${named.length ? `Sellers vet402 has told about its records: ${named.join("; ")}.` : "vet402 has told none of them yet."} ${untold} ${untold === 1 ? "seller has" : "sellers have"} not been told yet: ${untold === 1 ? "it is" : "they are"} in the counts and amounts above, not by name.</p>`;
@@ -89,18 +89,25 @@ ${rows.join("\n")}
 export function renderEscrowPage(r: WouldRefundReport, devnet: DevnetRun | null): string {
   const t = r.totals;
   const withheld = r.withheldLanes.filter((l) => l.withheldPurchases > 0);
+  const signedChains = r.chains.filter((c) => c.signedRecords);
+  const unsignedChains = r.chains.filter((c) => !c.signedRecords);
   const body = `${siteNav(null)}
 <style>.wrap{overflow-x:auto;margin:8px 0}.wrap table{border-collapse:collapse;min-width:600px;font-size:.92rem}.wrap th,.wrap td{padding:6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:baseline}.wrap thead th{border-bottom:1px solid var(--fg)}</style>
 <h1>What an escrow would have returned</h1>
 <p class="lead">vet402 signs a record of each purchase it pays for on Solana, Tempo and Base. On Solana, a program can check that record and read its verdict. An escrow can then pay the seller only when the record says DELIVERED, and give the money back when it says NOT_DELIVERED. This page shows how much such an escrow would have given back in vet402's own purchases, and an example escrow doing it on devnet.</p>
+<p>No escrow was used for these purchases: no money was actually returned. The numbers are what an escrow would have done.</p>
 <h2 id="numbers">In vet402's own purchases</h2>
 <p class="big">${t.wouldRefund.purchases} purchases, ${escapeHtml(usd(t.wouldRefund.amountUsd))} USD</p>
-<p>would have gone back to the buyer: the payment settled, nothing usable came back, and the failure is on the seller's side. That is out of ${t.settled} purchases whose payment settled, up to ${escapeHtml(r.dataDate)} (UTC).</p>
+<p>would have gone back to the buyer on Solana, Tempo and Base, the chains where vet402 signs a record of each purchase: the payment settled, nothing usable came back, and the failure is on the seller's side. That is out of ${t.settled} purchases whose payment settled on these chains, up to ${escapeHtml(r.dataDate)} (UTC).</p>
 <div class="wrap"><table><thead><tr><th>Chain</th><th>Payment settled</th><th>Came back with an answer</th><th>Escrow would return</th><th>Not counted: vet402 sent a wrong request</th><th>Not counted: can't tell whose side</th></tr></thead><tbody>
-${r.chains.map(chainRow).join("\n")}
+${signedChains.map(chainRow).join("\n")}
 </tbody></table></div>
 ${sellersLine(r)}
-${withheld.length ? `<p>${withheld.map((l) => `${escapeHtml(CHAIN_LABEL[l.lane] ?? l.lane)}: ${l.withheldPurchases} purchases with a negative result for sellers not yet told`).join(". ")}. Their results are not published, so whether the payment settled is not public either; they are not in the numbers above.</p>` : ""}
+${unsignedChains.length ? `<p>Same rule, no signed record: vet402 does not sign records of these purchases, so no escrow could be settled with one. Not in the totals above.</p>
+<div class="wrap"><table><thead><tr><th>Chain</th><th>Payment settled</th><th>Came back with an answer</th><th>Same rule</th><th>Not counted: vet402 sent a wrong request</th><th>Not counted: can't tell whose side</th></tr></thead><tbody>
+${unsignedChains.map(chainRow).join("\n")}
+</tbody></table></div>` : ""}
+${withheld.length ? `<p>${withheld.map((l) => `${escapeHtml(CHAIN_LABEL[l.lane] ?? l.lane)}: ${l.withheldPurchases} purchases whose results are not published yet`).join(". ")}. They are not in the numbers above.</p>` : ""}
 <p class="meta">The amounts are small because each is the listed price of one API call. The count is the point: how often a paid call brought back nothing.</p>
 <h3 id="definition">What is counted</h3>
 <ul>
@@ -119,12 +126,13 @@ ${devnetSection(devnet)}
 <li>The records here are of purchases vet402 paid straight to the seller. The devnet escrow is tied to such a record to show the mechanism; the seller had already been paid on mainnet. For a purchase paid through an escrow, the record would have to name the escrow deposit as its payment, and the seller would have to accept being paid that way.</li>
 <li>A record says what vet402 saw, no more. Corrections made after a record was signed are not in the root, so the escrow does not see them.</li>
 <li>The example does not compare the record's asset with the deposited token. A real escrow should.</li>
-<li>The example escrow runs on devnet and in tests only. It is not deployed on mainnet.</li>
+<li>The example does not set a lowest deadline. A seller should check the deadline before serving: it must fall after the end of the purchase's UTC day plus the time vet402 takes to post that day's root (during the next UTC day). Otherwise the buyer can reclaim before the record can be checked.</li>
+<li>The example escrow has not been audited. It runs on devnet and in tests only, is not for real funds, and is not deployed on mainnet.</li>
 </ul>
 ${publicFooter()}`;
   return publicPage(
     "What an escrow would have returned · vet402",
-    `${t.wouldRefund.purchases} of vet402's paid purchases (${usd(t.wouldRefund.amountUsd)} USD) settled with nothing usable back on the seller's side; an escrow keyed on the signed record would have returned them.`,
+    `On Solana, Tempo and Base, ${t.wouldRefund.purchases} of vet402's paid purchases (${usd(t.wouldRefund.amountUsd)} USD) settled with nothing usable back on the seller's side; an escrow keyed on the signed record would have returned them. No escrow was used.`,
     body,
   );
 }

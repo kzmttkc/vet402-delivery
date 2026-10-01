@@ -61,7 +61,7 @@ if (records) {
 }
 // escrow.html and escrow.json: what an escrow keyed on the signed records would have returned (from data/), and
 // the example escrow's devnet run (solana-program/escrow-devnet.json, when it has been run).
-const escrowReport = wouldRefundFromData(join(ROOT, "data"));
+const escrowReport = wouldRefundFromData(join(ROOT, "data"), recordsDir);
 const devnetFile = join(ROOT, "solana-program", "escrow-devnet.json");
 const devnet = existsSync(devnetFile) ? (JSON.parse(readFileSync(devnetFile, "utf8")) as DevnetRun) : null;
 pages.set("escrow.html", renderEscrowPage(escrowReport, devnet));

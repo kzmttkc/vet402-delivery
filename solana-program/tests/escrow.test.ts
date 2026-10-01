@@ -49,6 +49,7 @@ const bin = (name: string) => (process.env.SOLANA_BIN ? join(process.env.SOLANA_
 // Anchor custom errors start at 6000, in declaration order.
 const X = { ZeroAmount: 6000, DeadlinePassed: 6001, PayToNotSeller: 6002, NotTokenAccount: 6003, OtherPurchase: 6004, OtherAmount: 6005, VerdictSettlesNothing: 6006, WrongDestination: 6007, DeadlineNotReached: 6008 };
 const ROOTS_NOT_IN_ROOT = 6009;
+const ANCHOR_CONSTRAINT_HAS_ONE = 2001;
 
 const DAYS = ["2026-09-28", "2026-09-29", "2026-09-30"] as const;
 function readDay(day: string): Observation[] {
@@ -269,7 +270,7 @@ describe("delivery-escrow-example", () => {
     const lateTokens = await ensureAta(late.address);
     assert.equal((await sendIxs(rpc, cranker, [await mintToIx({ mint, to: lateTokens, authority: cranker, amount: 5_000_000n })])).err, null);
     const p = purchaseOf(base);
-    const deadline = (await chainTime()) + 4n;
+    const deadline = (await chainTime()) + 20n; // room for the steps before the early reclaim when both validator tests run at once
     assert.equal((await deposit(p, { by: late, tokens: lateTokens, deadline })).err, null);
     for (const destination of [lateTokens, await ensureAta(p.payTo)]) {
       const s = await simulateIxs(rpc, cranker.address, [await settleWithRecordIx({ program: ESCROW, rootsProgram: ROOTS, buyer: late.address, destination, record: rec })]);
@@ -277,10 +278,13 @@ describe("delivery-escrow-example", () => {
     }
     const early = await sendIxs(rpc, late, [await reclaimIx({ program: ESCROW, buyer: late.address, transaction: p.transaction, destination: lateTokens })]);
     assert.equal(customError(early.err), X.DeadlineNotReached);
-    // Only the buyer can reclaim.
-    const stranger = await sendIxs(rpc, cranker, [await reclaimIx({ program: ESCROW, buyer: cranker.address, transaction: p.transaction, destination: lateTokens })]);
-    assert.notEqual(stranger.err, null);
     while ((await chainTime()) < deadline + 1n) await new Promise((r) => setTimeout(r, 1000));
+    // After the deadline, the same escrow signed by someone other than its buyer: refused (has_one = buyer).
+    const real = await reclaimIx({ program: ESCROW, buyer: late.address, transaction: p.transaction, destination: lateTokens });
+    const asStranger = { ...real, accounts: real.accounts!.map((m, i) => (i === 3 ? { ...m, address: cranker.address } : m)) };
+    assert.equal(real.accounts![0]!.address, asStranger.accounts[0]!.address, "the real escrow");
+    const stranger = await sendIxs(rpc, cranker, [asStranger]);
+    assert.equal(customError(stranger.err), ANCHOR_CONSTRAINT_HAS_ONE);
     const r = await sendIxs(rpc, late, [await reclaimIx({ program: ESCROW, buyer: late.address, transaction: p.transaction, destination: lateTokens })]);
     assert.equal(r.err, null, r.logs.join("\n"));
     assert.equal(await tokenBalance(lateTokens), 5_000_000n);

@@ -15,7 +15,7 @@ import type { RankReport } from "../src/rank/report.js";
 import { sellerKeys } from "../src/rank/score.js";
 import { notifiedSellers, type NotifiedFile } from "../src/receipt/publish.js";
 import { renderEscrowPage, usd, type DevnetRun } from "../src/escrow/page.js";
-import { loadAttemptsFromData, microsToUsd, REFUND_RULES, usdToMicros, VET402_INPUT_RULES, wouldRefund, wouldRefundFromData } from "../src/escrow/would-refund.js";
+import { loadAttemptsFromData, microsToUsd, REFUND_RULES, SIGNED_RECORD_CHAINS, usdToMicros, VET402_INPUT_RULES, wouldRefund, wouldRefundFromData } from "../src/escrow/would-refund.js";
 import type { Attempt } from "../src/rank/types.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,11 +33,18 @@ test("the totals equal the ranking's (site/rank.json) for the same data", () => 
   assert.equal(report.dataDate, rank.date);
   const byRule = rank.totals.failuresByRule;
   const sum = (ids: readonly string[]) => ids.reduce((n, id) => n + (byRule[id] ?? 0), 0);
-  assert.equal(report.totals.wouldRefund.purchases, sum(REFUND_RULES));
-  assert.equal(report.totals.vet402Input.purchases, sum(VET402_INPUT_RULES));
-  assert.equal(report.totals.cantTell.purchases, sum(["paid_then_4xx", "paid_then_402_placeholder"]));
-  assert.equal(report.totals.settled, rank.totals.settled);
-  assert.equal(report.totals.wouldRefund.purchases + report.totals.vet402Input.purchases + report.totals.cantTell.purchases, rank.totals.settledNotDelivered);
+  // Headline totals (chains with signed records) plus the same rule on Algorand = the ranking's totals.
+  const both = <K extends "wouldRefund" | "vet402Input" | "cantTell">(k: K) => report.totals[k].purchases + report.withoutSignedRecords[k].purchases;
+  assert.equal(both("wouldRefund"), sum(REFUND_RULES));
+  assert.equal(both("vet402Input"), sum(VET402_INPUT_RULES));
+  assert.equal(both("cantTell"), sum(["paid_then_4xx", "paid_then_402_placeholder"]));
+  assert.equal(report.totals.settled + report.withoutSignedRecords.settled, rank.totals.settled);
+  assert.equal(both("wouldRefund") + both("vet402Input") + both("cantTell"), rank.totals.settledNotDelivered);
+  // Algorand has no signed record: never in the headline totals.
+  for (const c of report.chains) assert.equal(c.signedRecords, SIGNED_RECORD_CHAINS.has(c.chain), c.chain);
+  assert.equal(report.chains.find((c) => c.chain === "algorand")?.signedRecords, false);
+  const signedSum = report.chains.filter((c) => c.signedRecords).reduce((n, c) => n + c.wouldRefund.purchases, 0);
+  assert.equal(report.totals.wouldRefund.purchases, signedSum);
   for (const c of report.chains) {
     const r = rank.chains.find((x) => x.chain === c.chain)!;
     assert.equal(c.settled, r.settled, c.chain);
@@ -59,7 +66,7 @@ test("only told sellers are named; the rest are counted", () => {
   for (const a of attempts) {
     if (a.tried && a.settled === true && !a.delivered && !told.has(keys.get(a)!)) untold.add(a.host);
   }
-  assert.ok(untold.size > 0);
+  // Once every seller has been told, there is nobody left to hide (and the check below has nothing to do).
   const html = readFileSync(join(ROOT, "site", "escrow.html"), "utf8");
   const json = readFileSync(join(ROOT, "site", "escrow.json"), "utf8");
   for (const h of untold) {
@@ -96,6 +103,8 @@ test("site/escrow.html and site/escrow.json are what build-site makes now, and t
   const devnet = existsSync(devnetFile) ? (JSON.parse(readFileSync(devnetFile, "utf8")) as DevnetRun) : null;
   const html = renderEscrowPage(report, devnet);
   assert.equal(readFileSync(join(ROOT, "site", "escrow.html"), "utf8"), html, "site/escrow.html is up to date");
+  assert.ok(html.includes("No escrow was used for these purchases: no money was actually returned."));
+  assert.ok(!/negative result/i.test(html), "results not yet published are not called negative");
   assert.equal(readFileSync(join(ROOT, "site", "escrow.json"), "utf8"), JSON.stringify(report, null, 2) + "\n", "site/escrow.json is up to date");
   const words = html.replace(/<style>[\s\S]*?<\/style>/g, "").replace(/<[^>]+>/g, " ");
   assert.ok(!/\b(we|us|our|ours|ourselves)\b/i.test(words), "no we/us/our");

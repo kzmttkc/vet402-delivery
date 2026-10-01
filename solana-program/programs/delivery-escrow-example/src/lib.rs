@@ -10,6 +10,12 @@
 //! must equal the deposit. `payTo` must be a Solana address: it is the only key a release can pay.
 //! The example does not compare the record's `asset` with the deposited mint; a real caller should.
 //! Only the classic SPL Token program is accepted.
+//!
+//! There is no lowest deadline. A seller should check it before serving: it must fall after the end of the
+//! purchase's UTC day plus the time it takes to post that day's root (during the next UTC day), or the buyer
+//! can reclaim before the record can be checked.
+//!
+//! Not audited. An example for devnet and local tests: not for real funds, not to be deployed on mainnet.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::Instruction;
