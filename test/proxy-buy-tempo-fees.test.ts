@@ -186,8 +186,13 @@ test("tempo fees: a reverted seller payment whose fee cannot be recorded -> no r
   r.store.addFee = async () => {
     throw new Error("db write failed");
   };
-  // the request ends in an error (api/buy.ts answers 500 internal_error); the purchase stays open for the reconciler
-  await assert.rejects(r.buy.handle(tPaid(await agentPaysTempo(r))), /db write failed/);
+  // the request answers 502 with the record and the refund promise (not a bare 500); the purchase stays open for the reconciler
+  const res = await r.buy.handle(tPaid(await agentPaysTempo(r)));
+  assert.equal(res.status, 502);
+  const body = (await res.json()) as { error: string; record: string; refund: string };
+  assert.equal(body.error, "seller_payment_failed_on_chain");
+  assert.equal(body.refund, "pending_reconcile");
+  assert.ok(body.record.length > 0);
   assert.equal((await r.sql.query<J>(`select state from pb_purchase`)).rows[0]!.state, "in_progress");
   assert.equal(r.chain.sent.filter((s) => s.from === tProxy.address.toLowerCase()).length, 1, "only the reverted seller payment; no refund yet");
   r.store.addFee = addFee;
