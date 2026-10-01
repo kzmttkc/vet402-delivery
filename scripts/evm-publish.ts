@@ -10,7 +10,7 @@
  *                                                                   checkout, data/ in the publish worktree)
  *   npx tsx scripts/build-site.ts --out site
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { buildLanePublic, withholdUnnotified } from "../src/evm/site.js";
 import { uncheckedPurchases } from "../src/evm/chaincheck.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
@@ -58,4 +58,10 @@ const out = withholdUnnotified(buildLanePublic(lane, dry, paid), notified);
 mkdirSync(`${dataDir}/evm`, { recursive: true });
 writeFileSync(`${dataDir}/evm/${lane}.json`, JSON.stringify(out, null, 2) + "\n");
 console.log(`${dataDir}/evm/${lane}.json: ${out.source}, ${out.payTosInCatalogs} payTos in catalogs, ${out.payTosOffered} offered, ${out.rows.length} rows${out.stock ? `, ${out.stock.length} stock references` : ""}`);
-if (loaded.problems.length) process.exitCode = 3;
+// The daily run (scripts/daily/run.sh) says this sentence when the exit code is 3: the facts, from this run.
+const alertFile = `results/evm/${lane}-publish-alert.txt`;
+if (loaded.problems.length) {
+  const where = [...new Set(loaded.problems.map((p) => `${p.file}:${p.line}`))].join(", ");
+  writeFileSync(alertFile, `wrote ${dataDir}/evm/${lane}.json with ${lost} purchase(s) withheld: unreadable line(s) in ${where}\n`);
+  process.exitCode = 3;
+} else if (existsSync(alertFile)) rmSync(alertFile);

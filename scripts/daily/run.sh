@@ -643,7 +643,8 @@ evm_page_lanes() {
 # evm_pages <lanes>: every records run, with or without evm-roots-enabled. First each purchase is read against its
 # chain (scripts/evm-chaincheck.ts, read-only: eth_getLogs and eth_getBlockByNumber; results/evm/*-chaincheck.jsonl
 # in the checkout, which git ignores); the Arbitrum page also needs its Base side. Then the lane page is made into
-# the publish worktree (scripts/evm-publish.ts). Exit 3 of the chain check: a transfer without a purchase, or a
+# the publish worktree (scripts/evm-publish.ts); its exit 3: the page is written but some line of the lane's records
+# did not parse (those purchases are withheld), said as it is. Exit 3 of the chain check: a transfer without a purchase, or a
 # purchase ambiguous or still pending (its file is written). Every failure is alerted and the run goes on; a page
 # that cannot be made stays as on main.
 evm_pages() {
@@ -658,8 +659,14 @@ evm_pages() {
         continues "EVM chain check" "evm-chaincheck --lane $l exited $rc (an RPC error?): the $lane page is made from the previous chain check, if any"
       fi
     done
-    run "data/evm/$lane.json" in_repo "$TSX" scripts/evm-publish.ts --lane "$lane" --data "$PUB/data" ||
+    rc=0
+    run "data/evm/$lane.json" in_repo "$TSX" scripts/evm-publish.ts --lane "$lane" --data "$PUB/data" || rc=$?
+    if [ "$rc" -eq 3 ]; then
+      # The page is written; some line of the lane's records did not parse (its purchases are withheld). No HALT.
+      notice "EVM lane page: $(cat "$REPO/results/evm/$lane-publish-alert.txt" 2>/dev/null || echo "wrote data/evm/$lane.json with unreadable line(s) in the lane's records (see log)")"
+    elif [ "$rc" -ne 0 ]; then
       continues "EVM lane page" "evm-publish --lane $lane failed: data/evm/$lane.json stays as on main, and data/evm/roots/$lane.json shows nothing it withholds"
+    fi
   done
 }
 

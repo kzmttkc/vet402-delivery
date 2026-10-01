@@ -23,7 +23,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { CDP_DISCOVERY, MEASURE_MAX_PER_SELLER, MEASURE_SPACING_MS, OWN_HOSTS, PAYAI_DISCOVERY, atomicToUsdc } from "../src/constants.js";
 import { fetchCatalog, type Listing } from "../src/discovery.js";
 import { Budget } from "../src/guard.js";
-import { EVM_CHAINS, LANES, fundingProblem, payGateProblem, type EvmChainSpec, type LaneId, type LaneSpec } from "../src/evm/chains.js";
+import { EVM_CHAINS, LANES, RUN_LANES, fundingProblem, payGateProblem, type EvmChainSpec, type LaneId, type LaneSpec } from "../src/evm/chains.js";
 import { buyOneOnChain, eqAddr, probe402, type ChainBuyEntry, type ChainBuyRecord, type TypedDataSigner } from "../src/evm/evm-buy.js";
 import { readUsdcTransfer } from "../src/evm/erc8004.js";
 import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
@@ -31,7 +31,7 @@ import { DEXTER_DISCOVERY, STOCK_SELLER, confirmLive, groupByPayTo, laneEntries,
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
-import { loadLaneRecords } from "../src/evm/lane-records.js";
+import { loadLaneRecordsChecked, payStopForUnreadableLines } from "../src/evm/lane-records.js";
 import { CHAINLINK_DIRECTORY, STOCK_REFS, checkAgainstDirectory, compareStockAnswer, readStockReference, type StockReference } from "../src/robinhood/stock-check.js";
 
 const argv = process.argv.slice(2);
@@ -48,6 +48,19 @@ if (pay) {
   if (problem) throw new Error(`${problem} (set only after the independent review)`);
 }
 const catalogsDir = arg("--catalogs");
+
+// The records this run reads (what not to buy again, and rule 0's material) must be whole before anything else:
+// a paying run with an unreadable line stops here, before the key, the catalogs or any purchase.
+const recordLanes = RUN_LANES[laneArg];
+const recordsRead = loadLaneRecordsChecked(recordLanes);
+if (recordsRead.problems.length) {
+  const stop = payStopForUnreadableLines(recordsRead.problems)!;
+  if (pay) {
+    console.error(stop);
+    process.exit(4);
+  }
+  console.error(stop.replace("--pay stops before any purchase", "a paying run would stop here (dry run goes on)"));
+}
 
 const payer: Address = readPublicAddress();
 const clients = new Map<string, PublicClient>();
@@ -257,7 +270,7 @@ function choiceSummary(ch: LiveChoice[]) {
  * required input stays stopped instead of being bought again with the same request.
  */
 function lastPaid(laneIds: LaneId[]): Map<string, LastPaid> {
-  return lastPaidByListing(loadLaneRecords(laneIds, "results/evm", ["purchases"]));
+  return lastPaidByListing(recordsRead.rows.filter((r) => laneIds.includes(r.lane as LaneId)));
 }
 
 // ---------- main ----------

@@ -882,6 +882,12 @@ appendFileSync(process.env.FAKE_CALLS!, "evm-publish " + a.join(" ") + "\\n");
 if (process.env.FAKE_EVM_PUBLISH_FAIL === v("--lane")) process.exit(1);
 mkdirSync(v("--data") + "/evm", { recursive: true });
 writeFileSync(v("--data") + "/evm/" + v("--lane") + ".json", JSON.stringify({ page: v("--lane"), v: process.env.FAKE_EVM_PAGE ?? "1" }) + "\\n");
+// FAKE_EVM_PUBLISH_WITHHELD=<lane>: the page is written, an unreadable line withheld a purchase (exit 3).
+if (process.env.FAKE_EVM_PUBLISH_WITHHELD === v("--lane")) {
+  mkdirSync("results/evm", { recursive: true });
+  writeFileSync("results/evm/" + v("--lane") + "-publish-alert.txt", "wrote " + v("--data") + "/evm/" + v("--lane") + ".json with 1 purchase(s) withheld: unreadable line(s) in results/evm/declared-inputs.jsonl:3\\n");
+  process.exit(3);
+}
 `,
   // The chain check: writes results/evm/<lane>-chaincheck.jsonl in the checkout (FAKE_EVM_CC_FAIL=<lane>:<exit code>).
   "evm-chaincheck.ts": `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -1681,6 +1687,18 @@ test("records: a lane page that cannot be made (evm-publish fails) does not stop
   assert.ok(ev.indexOf("evm-roots-publish") > ev.findIndex((l) => l.startsWith("evm-publish --lane arbitrum")), "the roots file after the lane pages");
   assert.match(git(sb.origin, "log", "-1", "--format=%s", "main"), /^records: 2026-09-30 delivery records and each day's root, anchored on Solana; EVM daily roots /);
   assert.ok(git(sb.origin, "show", "--name-only", "--format=", "main").split("\n").includes("data/records/2026-09-30/index.json"), "the Solana records are on main");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: evm-publish exit 3 (page written, a purchase withheld for an unreadable line) is said as it is, apart from a failure, and does not HALT", () => {
+  const sb = evmBox();
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z"), ...EVM_DAYS, FAKE_EVM_PUBLISH_WITHHELD: "arbitrum" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /EVM lane page: wrote .*\/data\/evm\/arbitrum\.json with 1 purchase\(s\) withheld: unreadable line\(s\) in results\/evm\/declared-inputs\.jsonl:3/);
+  assert.doesNotMatch(alerts(sb), /EVM lane page failed/, "not called a failure");
+  assert.doesNotMatch(alerts(sb), /evm-publish --lane arbitrum failed/, "not the failure sentence");
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
   rmSync(sb.dir, { recursive: true });
 });
 

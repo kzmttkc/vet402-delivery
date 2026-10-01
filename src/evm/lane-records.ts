@@ -98,6 +98,15 @@ export function loadLaneRecordsChecked(laneIds: readonly string[], dir = "result
   return { rows, problems: [...reads.flatMap((r) => r.problems), ...decl.problems] };
 }
 
+/**
+ * A paying run must not buy on records it could not read whole: the last answers (what not to buy again) and rule
+ * 0's material come from these files. Returns why it stops (ALERT lines with file and line), or null.
+ */
+export function payStopForUnreadableLines(problems: readonly LineProblem[]): string | null {
+  if (!problems.length) return null;
+  return problems.map((p) => `ALERT ${p.file}:${p.line}: not JSON (${p.error})`).join("\n") + `\nALERT ${problems.length} unreadable line(s) in the lane's records: --pay stops before any purchase`;
+}
+
 /** loadLaneRecordsChecked, with every line that did not parse said on stderr. */
 export function loadLaneRecords(laneIds: readonly string[], dir = "results/evm", kinds: readonly string[] = ["purchases", "reverify", "chaincheck"]): LaneRecord[] {
   const { rows, problems } = loadLaneRecordsChecked(laneIds, dir, kinds);

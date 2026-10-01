@@ -5,10 +5,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyDeclaredPatches, loadLaneRecords, loadLaneRecordsChecked, readDeclaredPatches, readJsonl, type DeclaredPatch } from "../src/evm/lane-records.js";
+import { applyDeclaredPatches, loadLaneRecords, loadLaneRecordsChecked, payStopForUnreadableLines, readDeclaredPatches, readJsonl, type DeclaredPatch } from "../src/evm/lane-records.js";
+import { spawnSync } from "node:child_process";
 import { buildLanePublic as buildLanePublic2 } from "../src/evm/site.js";
 import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
@@ -256,7 +257,7 @@ test("follow-up 1: a filled request that still got 400/404/422 is not bought aga
   assert.equal(g2[0]!.options.length, 0);
   assert.match(g2[0]!.inputSkipped![0]!.why, /input_unchanged_after_input_error/);
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /return lastPaidByListing\(loadLaneRecords\(laneIds, "results\/evm", \["purchases"\]\)\);/);
+  assert.match(lane, /return lastPaidByListing\(recordsRead\.rows\.filter/);
   const input = readFileSync(new URL("../src/evm/lane-input.ts", import.meta.url), "utf8");
   assert.match(input, /const k = r\.listingResource \?\? r\.resource;/);
   const buy = readFileSync(new URL("../src/evm/evm-buy.ts", import.meta.url), "utf8");
@@ -350,7 +351,7 @@ test("review of a44d5aa [mid]: vet402's own wrong request stops for good; a sell
   assert.equal(repairLaneRequest(listing, req, "2026-10-15", retried, t0 + 14 * 86_400_000).ok, true);
   // The lane script decides inputError from the record with the same reading as the pages.
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /return lastPaidByListing\(loadLaneRecords\(laneIds, "results\/evm", \["purchases"\]\)\);/);
+  assert.match(lane, /return lastPaidByListing\(recordsRead\.rows\.filter/);
 });
 
 test("review of a44d5aa [low]: a named tx carrying nonces goes only to the record whose nonce it carries; none matching makes all ambiguous", () => {
@@ -821,7 +822,7 @@ test("rule 0's material is tracked (results/evm/declared-inputs.jsonl): names an
 
 test("the lane's next plan reads the same material: on 2026-10-08 the-undesirables stays stopped (the same empty GET is not bought again)", () => {
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /return lastPaidByListing\(loadLaneRecords\(laneIds, "results\/evm", \["purchases"\]\)\);/);
+  assert.match(lane, /return lastPaidByListing\(recordsRead\.rows\.filter/);
   const last = lastPaidByListing(applyDeclaredPatches([und0930], TRACKED)).get(und0930.resource)!;
   assert.equal(last.inputError, true);
   const oct8 = Date.parse("2026-10-08T03:00:00Z");
@@ -925,7 +926,7 @@ test("a line that does not parse is skipped and reported with its file and line;
     rmSync(dir, { recursive: true });
   }
   const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
-  assert.match(pub, /if \(loaded\.problems\.length\) process\.exitCode = 3;/);
+  assert.match(pub, /process\.exitCode = 3;/);
   assert.match(pub, /console\.error\(`ALERT \$\{p\.file\}:\$\{p\.line\}: not JSON, skipped/);
 });
 
@@ -945,4 +946,69 @@ test("the tracked file wins over a local one; a local patch is used only for pur
   } finally {
     rmSync(dir, { recursive: true });
   }
+});
+
+
+// ---------- review of 1a7c199 ----------
+
+test("'x is missing' is a missing input only with quotes or after an input word; the seller's missing data is not", () => {
+  for (const [t, d] of [["Data for this wallet is missing", ["wallet"]], ["Price history for the symbol is missing", ["symbol"]], ["Indexed history for this chain is missing", ["chain"]]] as [string, string[]][]) {
+    assert.equal(answer400(t, d), null, t);
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: d };
+    assert.equal(classifyRecord(rec).cause, "seller_config", t);
+    assert.equal(lastPaidByListing([rec]).get(bazaar.resource)!.inputError, false, `${t}: never stopped for good`);
+  }
+  for (const t of ["required parameter 'wallet' is missing", '"wallet" is missing', "parameter wallet is missing"]) {
+    assert.deepEqual(namesInSentence(t), ["wallet"], t);
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+  }
+});
+
+/** PayAI data.intel.rallylive.ca/mcp/tools/weather_now_toronto (2026-10-02): an MCP tool description as inputSchema. */
+const MCP_LISTING = { resource: "https://data.intel.rallylive.ca/mcp/tools/weather_now_toronto", inputSchema: { type: "mcp", example: { query: "now" }, toolName: "weather_now_toronto", transport: "streamable-http", description: "Current weather in Toronto right now.", inputSchema: { type: "object", required: ["query"], properties: { query: { type: "string", description: "Ignored (fixed city); send 'now'" } } } } };
+
+test("an MCP tool description and a nested http description are read as descriptions: type, toolName, description, example, method are never names", () => {
+  const d = declarationFrom(MCP_LISTING, "catalog");
+  assert.deepEqual(d.declared, ["query"]);
+  assert.deepEqual(d.required, ["query"]);
+  const nested = { resource: "https://s.test/x", extensions: { bazaar: { info: { input: { type: "http", method: "GET", queryParams: { type: "http", method: "GET", queryParams: { city: "Paris" } } } } } } };
+  assert.deepEqual(declarationFrom(nested, "catalog").declared, ["city"]);
+  // A JSON-RPC body whose parameter is named method stays a map (no type http/mcp).
+  assert.deepEqual(declarationFrom({ resource: "https://s.test/rpc", extensions: { bazaar: { info: { input: { type: "http", method: "POST", body: { id: 1, method: "eth_blockNumber", params: [], jsonrpc: "2.0" } } } } } }, "catalog").declared.sort(), ["id", "jsonrpc", "method", "params"]);
+});
+
+test("--pay stops before any purchase when a line of the lane's records does not parse (exit 4, ALERT with file and line); nothing is read or bought", () => {
+  assert.match(payStopForUnreadableLines([{ file: "results/evm/robinhood-purchases.jsonl", line: 2, error: "x" }])!, /^ALERT results\/evm\/robinhood-purchases\.jsonl:2: not JSON/);
+  assert.equal(payStopForUnreadableLines([]), null);
+  // The real script, in a copy of results with one broken line. The key directory is empty: if the stop did not
+  // happen first, the script could not even read the payer's address, let alone sign (no money can move here).
+  const dir = mkdtempSync(join(tmpdir(), "vet402-pay-stop-"));
+  const keys = mkdtempSync(join(tmpdir(), "vet402-no-keys-"));
+  try {
+    mkdirSync(join(dir, "results", "evm"), { recursive: true });
+    writeFileSync(join(dir, "results", "evm", "robinhood-purchases.jsonl"), JSON.stringify(und0930) + "\n{broken\n");
+    const script = new URL("../scripts/evm-lane.ts", import.meta.url).pathname;
+    const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+    const r = spawnSync(tsx, [script, "--lane", "robinhood", "--pay"], { cwd: dir, encoding: "utf8", env: { ...process.env, VET402_EVM_PAY: "robinhood", EVM_KEY_DIR: keys }, timeout: 60_000 });
+    assert.equal(r.status, 4, r.stderr);
+    assert.match(r.stderr, /ALERT results\/evm\/robinhood-purchases\.jsonl:2: not JSON/);
+    assert.match(r.stderr, /--pay stops before any purchase/);
+    assert.doesNotMatch(r.stderr + r.stdout, /\[pay\]|evm\.pub|catalog /, "stopped before the key, the catalogs and the preflight");
+  } finally {
+    rmSync(dir, { recursive: true });
+    rmSync(keys, { recursive: true });
+  }
+  // The stop is before the payer's address, the catalogs and every purchase in the script; a dry run goes on with a warning.
+  const src = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.ok(src.indexOf("process.exit(4)") < src.indexOf("const payer: Address = readPublicAddress();"));
+  assert.ok(src.indexOf("process.exit(4)") < src.indexOf("await catalogs()"));
+  assert.match(src, /a paying run would stop here \(dry run goes on\)/);
+});
+
+test("evm-publish exit 3: the daily run says what happened (wrote the page, N withheld, which lines), and does not HALT", () => {
+  const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
+  assert.match(pub, /wrote \$\{dataDir\}\/evm\/\$\{lane\}\.json with \$\{lost\} purchase\(s\) withheld: unreadable line\(s\) in \$\{where\}/);
+  const sh = readFileSync(new URL("../scripts/daily/run.sh", import.meta.url), "utf8");
+  assert.match(sh, /if \[ "\$rc" -eq 3 \]; then\n\s+# The page is written; some line of the lane's records did not parse/);
+  assert.match(sh, /notice "EVM lane page: \$\(cat "\$REPO\/results\/evm\/\$lane-publish-alert\.txt"/);
 });

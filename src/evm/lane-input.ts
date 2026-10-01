@@ -254,6 +254,10 @@ function partNames(part: unknown): { declared: string[]; required: string[] } {
   return { declared: Object.keys(part), required: [] };
 }
 
+/** An input description (http or MCP), not parameters: type "http" or "mcp" with a request or tool key. */
+const isDescriptor = (v: unknown): boolean =>
+  isObjD(v) && (v.type === "http" || v.type === "mcp") && ["inputSchema", "toolName", "method", "queryParams", "bodyFields"].some((k) => k in v);
+
 /** A property of an input schema that is itself a part (holds the body's or the query's parameters). */
 const isPartSchema = (v: unknown) => isObjD(v) && (isObjD(v.properties) || v.type === "object");
 
@@ -279,11 +283,19 @@ export function declarationFrom(doc: unknown, label: string): InputDeclaration {
     if (n.required.length) requiredFrom.add(`${label}:${where}`);
     from.add(`${label}:${where}`);
   };
-  const input = (x: unknown, where: string) => {
-    if (!isObjD(x)) return;
-    take(x.queryParams, `${where}.queryParams`);
-    if (isObjD(x.body)) take(x.body, `${where}.body`);
-    take(x.bodyFields, `${where}.bodyFields`);
+  const input = (x: unknown, where: string, depth = 0): void => {
+    if (!isObjD(x) || depth > 3) return;
+    // An MCP tool description: its parameters are its inputSchema's (type, toolName, description, example and
+    // transport describe the tool, they are not parameters).
+    if (x.type === "mcp") {
+      if (isObjD(x.inputSchema)) take(x.inputSchema, `${where}.inputSchema`);
+      return;
+    }
+    // A part that is itself an input description ({"type":"http","method":"GET",...}): read as one, not as a map.
+    const part = (v: unknown, w: string) => (isDescriptor(v) ? input(v, w, depth + 1) : take(v, w));
+    part(x.queryParams, `${where}.queryParams`);
+    if (isObjD(x.body)) part(x.body, `${where}.body`);
+    part(x.bodyFields, `${where}.bodyFields`);
     // A flat schema: the input object itself lists the parameters. Its parts (queryParams, a body that holds
     // parameters) are read as parts; the request's own keys (type, method, ...) are never parameters.
     if (isObjD(x.properties) || Array.isArray(x.required)) {
@@ -305,8 +317,8 @@ export function declarationFrom(doc: unknown, label: string): InputDeclaration {
     }
     if (isObjD(doc.inputSchema)) {
       const is = doc.inputSchema;
-      // An input-level descriptor ({"type":"http","method":"GET",...}) is read like info.input; else it is a part.
-      if (is.type === "http" || "method" in is || "queryParams" in is || "bodyFields" in is || ("body" in is && isObjD(is.body))) input(is, "inputSchema");
+      // An input-level descriptor ({"type":"http","method":"GET",...} or an MCP tool) is read like info.input; else a part.
+      if (isDescriptor(is) || is.type === "http" || "method" in is || "queryParams" in is || "bodyFields" in is || ("body" in is && isObjD(is.body))) input(is, "inputSchema");
       else take(is, "inputSchema");
     }
     if (isObjD(doc.metadata)) input(doc.metadata.input, "metadata.input");
@@ -452,8 +464,10 @@ export function namesInSentence(piece: string): string[] {
   // "required field(s): x, y" / "required property 'x'"
   // Longer words first and a word boundary after them: "parameter" is never read as "param" + "eter".
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(push);
-  // "'x' is missing", "parameter x is missing"
-  for (const q of piece.matchAll(new RegExp(String.raw`(?:\b(?:parameter|param|property|field|argument|key)s?\b\s+)?${Q}(${ID})${Q}\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
+  // "'x' is missing", "\"x\" is missing", "parameter x is missing": a quoted name, or one right after an input word.
+  // "Data for this wallet is missing" names no missing input: the seller's data is missing.
+  for (const q of piece.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`\b(?:parameter|param|property|field|argument)s?\s+(${ID})\s+(?:is|are)\s+missing\b`, "gi"))) push(q[1]);
   // "x cannot be empty", "x must not be empty", "x must be provided"
   for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:cannot be empty|must not be empty|must be provided)`, "gi"))) push(q[1]);
   return [...new Set(out)];
