@@ -424,6 +424,11 @@ export interface MissingName {
   header: boolean;
   path: string[];
   source: string;
+  /**
+   * The unquoted subject of "x is required to ...": often a pronoun or a general word ("It", "Each", "Account",
+   * "Request"), not a parameter. Counted only when the listing declares it or it is an allowed word.
+   */
+  soft?: boolean;
 }
 
 /**
@@ -537,6 +542,16 @@ export function strongNamesInSentence(piece: string): string[] {
  * strong ones (strongNamesInSentence) and the weaker ones ("Missing required fields: a, b", "missing x", "parameter x
  * is missing", "x cannot be empty"). namesInAnswer decides, with the content words, whether the sentence counts.
  */
+/**
+ * Pure. The unquoted subjects of "x is required to ..." in a sentence ("It is required to be a 0x address" gives It):
+ * they are names only when declared or allowed (laneInputProblem), never a seller-side name by themselves.
+ */
+export function softNamesInSentence(piece: string): string[] {
+  const out: string[] = [];
+  for (const q of piece.matchAll(new RegExp(String.raw`(?<![\w"'\x60\\])(${ID})\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required\s+to\b`, "gi"))) out.push(q[1]!);
+  return out;
+}
+
 export function namesInSentence(piece: string): string[] {
   const out: string[] = [];
   const push = (n: string | undefined) => {
@@ -639,7 +654,13 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // are not ALL_CAPS setting names. A quoted name keeps its case (\"DATABASE_URL\" is required).
     const shouting = /[A-Z]/.test(piece) && !/[a-z]/.test(piece);
     const quoted = (n: string) => new RegExp(String.raw`["'\x60]${n.replace(/[$.]/g, "\\$&")}["'\x60]`).test(piece);
-    for (const n of namesInSentence(piece)) names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text" });
+    const soft = new Set(softNamesInSentence(piece).map((x) => x.toLowerCase()));
+    // A name the sentence also gives in another form (quoted, "required field: x") is not soft.
+    const firm = new Set(strongNamesInSentence(piece.replace(new RegExp(String.raw`(${ID})(\s+(?:(?:parameter|param|property|field|argument|value)s?\b\s+)?(?:is|are)\s+(?:a\s+)?required)\s+to\b`, "gi"), "$1$2_to")).map((x) => x.toLowerCase()));
+    for (const n of namesInSentence(piece)) {
+      const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase());
+      names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text", ...(isSoft ? { soft: true } : {}) });
+    }
   }
   return { names, tainted };
 }
@@ -665,7 +686,11 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   const declaredCanon = new Set(declared.map(canon));
   // A JSON Schema word in an answer ("type", "items") is a missing name only when the listing declares it.
   const { names: all, tainted } = namesInAnswer(text);
-  const names = all.filter((n) => !SCHEMA_KEYWORDS.has(n.name) || declaredCanon.has(canon(n.name)));
+  // The unquoted subject of "x is required to ..." counts only when declared, or, on a listing that declares nothing,
+  // when it is an allowed word (as rule (b) of missingNameSide). "It is required to be a 0x address" gives no name.
+  const allowedOrDeclared = (n: MissingName) =>
+    declaredCanon.has(canon(n.name)) || (declared.length === 0 && (ALLOWED.has(canon(n.name)) || ALLOWED.has(singular(canon(n.name)))));
+  const names = all.filter((n) => (!SCHEMA_KEYWORDS.has(n.name) || declaredCanon.has(canon(n.name))) && (!n.soft || allowedOrDeclared(n)));
   if (tainted || names.length === 0) return null;
   if (!names.every((n) => missingNameSide(n, declared) === "input")) return null;
   return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(names.map((n) => n.name))].join(", ")}` };

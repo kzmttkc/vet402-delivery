@@ -15,7 +15,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, readRanges, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { INPUT_4XX_RETRY_MS, SCHEMA_KEYWORDS, declarationFrom, namesInSentence, softNamesInSentence, strongNamesInSentence, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -1306,4 +1306,47 @@ test("every sentence the reviews asked to be vet402's is vet402's with x declare
   assert.equal(answer400('"DB_HOST" is required to connect', ["wallet"]), null);
   assert.equal(answer400("headers must have required property 'authorization'"), null);
   assert.equal(answer400("secret_token is required to sign", ["wallet"]), null);
+});
+
+
+// ---------- review of 7ef6664: the subject of "x is required to ..." is a name only when declared, allowed or quoted ----------
+
+const settledAs = (t: string, declared?: string[]) => {
+  const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, ...(declared ? { declaredParams: declared } : {}) };
+  const cause = classifyRecord(rec);
+  const status = statusOf({ ...rec, cause } as never);
+  return { cause, status, negative: isNegative(status, cause) };
+};
+
+test("a pronoun or a general word before 'is required to' is no name: the answer stays vet402's, settled and never negative", () => {
+  const cases: [string, string[] | undefined][] = [
+    ['{"error":"wallet is required","detail":"It is required to have a 0x prefix"}', ["wallet"]],
+    ["wallet is required. It is required to have 42 characters.", ["wallet"]],
+    ["wallet is required. It is required to be a 0x address.", ["wallet"]],
+    ["Missing required parameter: wallet. Account is required to hold at least 1 USDC.", ["wallet"]],
+    ['{"errors":["symbol is required","Exchange is required to have a listing for the ticker"]}', ["symbol"]],
+    ["address is required. Request is required to contain a JSON body.", ["address"]],
+    ["wallet is required. It is required to have a 0x prefix", undefined],
+    ...["It", "They", "Each", "One", "Body", "Value", "Field", "Parameter", "Input", "Everything", "Both", "Account", "Exchange", "Request"].map((x): [string, string[]] => [`wallet is required. ${x} is required to have a 0x prefix`, ["wallet"]]),
+  ];
+  for (const [t, d] of cases) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", t);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  // A declared or quoted subject still counts: "wallet is required to be a 0x address", "'address' is required to ...".
+  assert.equal(answer400("wallet is required to be a 0x address", ["wallet"])?.kind, "missing_input");
+  assert.equal(answer400("'address' is required to access this resource", ["address"])?.kind, "missing_input");
+  assert.deepEqual(softNamesInSentence("It is required to be a 0x address"), ["It"]);
+  assert.deepEqual(softNamesInSentence("'wallet' is required to proceed"), [], "a quoted subject is a firm name");
+});
+
+test("watch: the seller's sentences, settled, are settled_no_answer and negative", () => {
+  for (const [t, d] of [['"DB_HOST" is required to connect', ["wallet"]], ["secret_token is required to sign", ["wallet"]], ["headers must have required property 'authorization'", ["wallet"]], ["upstream data missing", ["wallet"]], ['{"fieldErrors":{"STRIPE_SECRET_KEY":["Required"]}}', ["wallet"]]] as [string, string[]][]) {
+    const got = settledAs(t, d);
+    assert.equal(got.cause.cause, "seller_config", t);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
 });
