@@ -1130,7 +1130,8 @@ test("Rails, marshmallow, webargs, DRF, and '<input word> for x', 'x is required
   ] as [string, string[]][]) {
     assert.equal(answer400(t, d)?.kind, "missing_input", t);
   }
-  for (const t of ["Data for 'wallet' is missing", "The wallet is required to have at least one transaction", "The wallet is required to contain funds", "The pool is required to hold liquidity"]) {
+  // ("contain funds" alone is a doubtful phrase since d02bbaa's review: vet402's; "contain at least ... funds" is the seller's.)
+  for (const t of ["Data for 'wallet' is missing", "The wallet is required to have at least one transaction", "The wallet is required to contain at least 10 funds", "The pool is required to hold liquidity"]) {
     assert.equal(answer400(t, ["wallet", "pool"]), null, t);
   }
   // A field message whose key is the request itself, or a message with no key, names nothing.
@@ -1183,7 +1184,7 @@ test("'x is required to <verb>' is the seller's only for a condition on content;
       assert.notEqual(status, "settled_no_answer");
     }
   }
-  for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake", "wallet is required to hold USDC", "wallet is required to have a balance", "wallet is required to contain funds", "wallet is required to be registered", "wallet is required to be verified", "wallet is required to be eligible", "wallet is required to be funded", "wallet is required to be active"]) {
+  for (const t of ["The wallet is required to own at least one NFT", "The address is required to be on the allowlist", "wallet is required to be whitelisted", "The wallet is required to stake", "wallet is required to hold USDC"]) {
     assert.equal(answer400(t, ["wallet", "address"]), null, t);
   }
 });
@@ -1194,4 +1195,27 @@ test("a sentence all in capitals is read without case; a quoted ALL_CAPS name st
   assert.equal(answer400("MISSING REQUIRED FIELD: WALLET", ["wallet"])?.kind, "missing_input");
   assert.equal(answer400('"DB_HOST" IS REQUIRED'), null);
   assert.equal(answer400("Missing required field: DB_HOST"), null, "mixed case: an ALL_CAPS name is a setting name, as before");
+});
+
+
+// ---------- review of d02bbaa: a doubtful phrase falls on vet402's side ----------
+
+test("'x is required to <phrase>' is the seller's only for the listed content conditions; every doubtful phrase is vet402's, and settled it is never a failure", () => {
+  const vet = ["have access to this endpoint", "have been provided", "have a valid format", "have 0x prefix", "contain 42 characters", "be verified before calling", "be registered as a query parameter", "be active", "be eligible",
+    "check the balance", "access this resource", "get a quote", "query balances", "fetch data", "look up the price", "use this endpoint", "perform a search", "scrape", "complete the request"];
+  for (const phrase of vet) {
+    const t = `wallet is required to ${phrase}`;
+    for (const declared of [undefined, ["wallet"]]) {
+      assert.equal(answer400(t, declared)?.kind, "missing_input", `${t} (declared ${declared ?? "none"})`);
+      const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, ...(declared ? { declaredParams: declared } : {}) };
+      const cause = classifyRecord(rec);
+      assert.equal(statusOf({ ...rec, cause } as never), "settled_vet402_input", t);
+    }
+  }
+  const seller = ["own at least one NFT", "be on the allowlist", "be whitelisted", "stake", "hold", "have at least one transaction", "have a sufficient balance", "contain at least 1 token"];
+  for (const phrase of seller) {
+    const t = `wallet is required to ${phrase}`;
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    assert.equal(answer400(t), null, `${t} (no declarations)`);
+  }
 });
