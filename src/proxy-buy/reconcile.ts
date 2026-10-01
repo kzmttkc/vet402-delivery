@@ -181,11 +181,6 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
   await store.pruneCounters(new Date(ctx.now().getTime() - 2 * 86_400_000)).catch(() => undefined);
   /** Everything looked at this run (purchase ids, `wallet:<chain>`): its ALERTs are kept, the ones gone are resolved. */
   const looked = new Map<string, string>();
-  if (ctx.walletCheck !== false) {
-    out.push(...(await walletAlerts(ctx)));
-    if (ctx.solana) looked.set("wallet:solana", "solana");
-    if (ctx.tempo) looked.set("wallet:tempo", "tempo");
-  }
   const rows = await store.stale(ctx.now(), ctx.staleMs, ctx.limit ?? 50, ctx.onlyChain);
   let exhausted = false;
   for (const row of rows) {
@@ -257,6 +252,13 @@ export async function reconcile(ctx: ReconcileContext): Promise<ReconcileAction[
       await store.sellerSeen(row.id, rec, more);
       note(`seller payment seen: ${f.fate}`);
     }
+  }
+  // The wallet is checked last: a seller payment seen above may lower the floor first. Checked before, a landed fee
+  // above its reserve raised one false chain_spend_exceeds_ledger ALERT per run (2026-10-02, handoff item 3a).
+  if (ctx.walletCheck !== false) {
+    out.push(...(await walletAlerts(ctx)));
+    if (ctx.solana) looked.set("wallet:solana", "solana");
+    if (ctx.tempo) looked.set("wallet:tempo", "tempo");
   }
   if (ctx.recordAlerts !== false) await keepAlerts(ctx, out, looked).catch(() => undefined);
   // A full run (the cron's, the script's; not a request's short turn): the runner on the operator's machine reports

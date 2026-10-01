@@ -277,7 +277,26 @@ export async function payTempo(ctx: TempoContext, target: string, offer: TempoOf
       if (!sellerFacts!.sponsored) feeUncounted = TEMPO_REFUND_FEE_BOUND_ATOMIC;
     }
   };
-  if (f.fate === "failed" && sellerFacts) await countSellerFee(f.tx, !delivered);
+  if (f.fate === "failed" && sellerFacts) {
+    try {
+      await countSellerFee(f.tx, !delivered);
+    } catch {
+      // The fee of vet402's failed payment to the seller could not be written. The purchase stays in_progress and the
+      // reconciler records the fee before it refunds, so the customer gets the record and the refund promise now
+      // instead of a bare 500 (2026-10-02, handoff from the hackathon review, item 3c).
+      return {
+        kind: "json",
+        status: 502,
+        body: {
+          error: "seller_payment_failed_on_chain",
+          reason: "vet402's payment to the seller failed on chain and its fee could not be recorded yet",
+          record: ctx.recordUrl(id),
+          refund: "pending_reconcile",
+        },
+        headers: paidHeaders,
+      };
+    }
+  }
   if (f.fate === "landed" && (await store.bindTx("tempo", f.tx, id, "seller", ctx.now()))) {
     sellerSettled = true;
     sellerTx = f.tx;
