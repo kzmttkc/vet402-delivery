@@ -49,6 +49,8 @@ import {
   keyProblem,
   signerPlan,
   TEMPO_ACCESS_KEY_ID,
+  TEMPO_ACCESS_KEYS,
+  isListedAccessKey,
   type KeyState,
 } from "../src/tempo/access-key.js";
 import { loadSigner } from "../src/tempo/chain.js";
@@ -481,7 +483,7 @@ test("check at preparePayment: a check that cannot be read is reported, and the 
 
 // ---------- the access key ----------
 
-test("access key: authorizeKey calldata carries one USDC.e limit of 1.00 per day, expiry 2026-10-09 end of day UTC, transfer/transferWithMemo only", () => {
+test("access key: authorizeKey calldata carries one USDC.e limit of 1.00 per day, expiry 2026-12-31 end of day UTC (the newest key), transfer/transferWithMemo only", () => {
   const data = authorizeKeyData(TEMPO_ACCESS_KEY_ID);
   assert.equal(data.slice(0, 10), "0x980a6025");
   const fn = (Abis.accountKeychain as unknown as readonly { name?: string; inputs?: { type: string }[] }[]).filter((f) => f.name === "authorizeKey" && f.inputs?.length === 3 && f.inputs[2]!.type === "tuple");
@@ -490,7 +492,17 @@ test("access key: authorizeKey calldata carries one USDC.e limit of 1.00 per day
   assert.equal(keyId.toLowerCase(), TEMPO_ACCESS_KEY_ID.toLowerCase());
   assert.equal(sigType, 0);
   assert.equal(cfg.expiry, ACCESS_KEY_EXPIRY);
-  assert.equal(new Date(Number(cfg.expiry) * 1000).toISOString(), "2026-10-09T23:59:59.000Z");
+  assert.equal(new Date(Number(cfg.expiry) * 1000).toISOString(), "2026-12-31T23:59:59.000Z");
+  // The key list: the 2026-09-30 key stays listed until its expiry (no gap while the env file still names it); the new one is the one authorized.
+  assert.deepEqual(TEMPO_ACCESS_KEYS.map((k) => [k.id, new Date(Number(k.expiry) * 1000).toISOString(), k.file]), [
+    ["0x1e9AadDc86f9132DFBA8B4287978aDE1ceC93c4b", "2026-10-09T23:59:59.000Z", "tempo-access.json"],
+    ["0xf480276572D3f8b1c67Cb2469c7bF1a83c3b464d", "2026-12-31T23:59:59.000Z", "tempo-access-2026-12.json"],
+  ]);
+  assert.equal(TEMPO_ACCESS_KEY_ID, TEMPO_ACCESS_KEYS[1]!.id);
+  assert.equal(ACCESS_KEY_EXPIRY, TEMPO_ACCESS_KEYS[1]!.expiry);
+  // Both may sign (the chain's state decides whether one still can); any other key may not.
+  assert.ok(isListedAccessKey("0x1e9aaddc86f9132dfba8b4287978ade1cec93c4b") && isListedAccessKey("0xF480276572D3F8B1C67CB2469C7BF1A83C3B464D"));
+  assert.ok(!isListedAccessKey("0x1111111111111111111111111111111111111111"));
   assert.equal(cfg.enforceLimits, true);
   assert.deepEqual(cfg.limits.map((l) => [l.token.toLowerCase(), l.amount, l.period]), [[USDC_E, 1_000_000n, 86_400n]]);
   assert.equal(cfg.allowAnyCalls, false);
@@ -540,10 +552,11 @@ test("signer plan (the daily dry run): a root key needs no read; an access key i
   const accessFile = join(dir, "tempo-access.json");
   writeFileSync(accessFile, JSON.stringify(f));
   const reads: string[] = [];
+  const OCT9 = BigInt(Date.parse("2026-10-09T23:59:59Z") / 1000); // a key with the first key's expiry
   const reader = (over: Partial<{ expiry: bigint; isRevoked: boolean }> = {}) => ({
     readContract: async (a: { functionName: string }) => {
       reads.push(a.functionName);
-      if (a.functionName === "getKey") return { signatureType: 0, keyId, expiry: over.expiry ?? ACCESS_KEY_EXPIRY, enforceLimits: true, isRevoked: over.isRevoked ?? false };
+      if (a.functionName === "getKey") return { signatureType: 0, keyId, expiry: over.expiry ?? OCT9, enforceLimits: true, isRevoked: over.isRevoked ?? false };
       if (a.functionName === "getAllowedCalls") return onChainScope([{ target: USDC_E, selectors: ["0xa9059cbb", "0x95777d59"] }]);
       return [0n, 1790800000n]; // the day's limit used up: the plan does not look at the amount (signature time does)
     },
@@ -565,8 +578,8 @@ test("signer plan (the daily dry run): a root key needs no read; an access key i
   assert.match((await signerPlan(accessFile, reader(), at("2026-10-10T01:17:00Z"), { keyId })).problem!, /expires at/);
   assert.match((await signerPlan(accessFile, reader({ isRevoked: true }), at("2026-10-01T01:17:00Z"), { keyId })).problem!, /revoked/);
   assert.match((await signerPlan(accessFile, reader({ expiry: 0n }), at("2026-10-01T01:17:00Z"), { keyId })).problem!, /not authorized/);
-  // the file's key is not the registered one (the default TEMPO_ACCESS_KEY_ID), or the file is missing
-  assert.match((await signerPlan(accessFile, reader(), at("2026-10-01T01:17:00Z"))).problem!, /is not the registered key/);
+  // the file's key is not one of TEMPO_ACCESS_KEYS (the default), or the file is missing
+  assert.match((await signerPlan(accessFile, reader(), at("2026-10-01T01:17:00Z"))).problem!, /is not a registered key/);
   assert.match((await signerPlan(join(dir, "missing.json"), reader(), at("2026-10-01T01:17:00Z"))).problem!, /unreadable key file/);
   rmSync(dir, { recursive: true });
 });
@@ -600,12 +613,12 @@ test("access key signer: a key the chain does not allow signs nothing; a key oth
   const wide = accessSigner(f, transport, { keyId, read: fakeKeyReader(keyId, 1_000_000n, onChainScope([{ target: USDC_E, selectors: ["0xa9059cbb"] }], false)), now: () => new Date("2026-10-01T01:17:00Z") });
   await assert.rejects(wide.credentialFor(challenge402(), "abc", SELLER), /not scoped/);
   assert.deepEqual(seen, [], "no RPC for signing");
-  assert.throws(() => accessSigner(f, transport), /is not the registered key/);
+  assert.throws(() => accessSigner(f, transport), /is not a registered key/);
   assert.throws(() => accessSigner({ ...f, account: "0x1111111111111111111111111111111111111111" }, transport, { keyId }), /another account/);
   // loadSigner routes an access key file to the access signer (and so refuses a key other than the registered one).
   const dir = mkdtempSync(join(tmpdir(), "vet402-ak-"));
   writeFileSync(join(dir, "k.json"), JSON.stringify(f));
-  assert.throws(() => loadSigner(join(dir, "k.json")), /is not the registered key/);
+  assert.throws(() => loadSigner(join(dir, "k.json")), /is not a registered key/);
   rmSync(dir, { recursive: true });
 });
 
