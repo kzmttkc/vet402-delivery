@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { configFromEnv } from "../src/proxy-buy/config.js";
 import { redact } from "../src/proxy-buy/reasons.js";
 import { buildProxyBuy } from "../src/proxy-buy/wire.js";
+import { countBuyQuote } from "../src/usage/count.js";
 
 let app: ReturnType<typeof buildProxyBuy> | null = null;
 
@@ -20,6 +21,7 @@ function instance(): ReturnType<typeof buildProxyBuy> {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  countBuyQuote(request); // free quotes only (no payment header); not awaited, never throws (src/usage/count.ts)
   try {
     return await (await instance()).buy.handle(request);
   } catch (e) {

@@ -7,6 +7,7 @@
  */
 import { esc, chainName, formatAmount, formatUtc, renderObservationPage, shortHash } from "./html.js";
 import type { LoadedRecords } from "./publish.js";
+import { siteNav } from "../rank/html.js";
 
 /** Where GitHub Pages serves the site. */
 export const PUBLIC_SITE_URL = "https://kzmttkc.github.io/vet402-delivery";
@@ -63,13 +64,14 @@ export function renderRecordsSite(loaded: LoadedRecords, opts: RecordsSiteOption
     const slug = opts.sellerSlug(r.entry.seller);
     const d = dayLines.get(r.entry.day);
     const dayRoot = d ? { day: d.day, programRoot: d.programRoot, tempoAnchor: d.tempoAnchor } : undefined;
-    const nav = [
+    // The site's four places (records are part of Method), then this record's own links.
+    const nav = `${siteNav("method", "../")}${[
       `<a href="index.html#${esc(anchorId(r.entry.seller))}">All records</a>`,
       slug ? `<a href="../seller/${esc(slug)}.html">This seller in the ranking</a>` : "",
-      `<a href="../index.html">Ranking</a>`,
+      `<a href="../sellers.html">Ranking</a>`,
     ]
       .filter(Boolean)
-      .join(" · ");
+      .join(" · ")}`;
     out.set(
       `records/${r.entry.id}.html`,
       renderObservationPage(r.obs, { jsonHref: `${r.entry.id}.json`, verifyCommand: verifyCommandFor(r.entry.id), site: { nav, keyHref: OBSERVER_KEYS_URL }, dayRoot }),
@@ -115,7 +117,8 @@ ${rows}
   const exampleId = bySequence[0]?.entry.id ?? EXAMPLE_PLACEHOLDER;
   const firstDay = [...loaded.records.map((r) => r.entry.day)].sort()[0] ?? null;
   const body = `
-<nav><a href="../index.html">Ranking</a> · <a href="../method.html">How vet402 measures</a></nav>
+${siteNav("method", "../")}
+<nav><a href="../sellers.html">Ranking</a> · <a href="../method.html#verify">How to verify a record</a></nav>
 <header>
 <h1>vet402 delivery records</h1>
 <p class="lead">One signed record per purchase vet402 made with its own money: what it paid, on which chain, and what came back.</p>
@@ -138,7 +141,7 @@ ${rows}
 <h2>By seller</h2>
 ${list}
 
-<footer><a href="../index.html">Ranking</a><a href="../method.html">How vet402 measures</a><a href="${esc(PUBLIC_REPO_URL)}/tree/main/data/records" rel="noopener noreferrer nofollow">Records (data/records/)</a></footer>
+<footer><a href="../sellers.html">Ranking</a><a href="../method.html">How vet402 measures</a><a href="${esc(PUBLIC_REPO_URL)}/tree/main/data/records" rel="noopener noreferrer nofollow">Records (data/records/)</a></footer>
 `;
   out.set("records/index.html", opts.page("vet402 delivery records", "Signed records of purchases vet402 made with its own money, grouped by seller.", body));
   return out;

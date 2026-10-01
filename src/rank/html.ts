@@ -479,34 +479,38 @@ const TOP_CHAIN_ORDER: Chain[] = ["solana", "base", "tempo", "arbitrum", "robinh
 interface TotalsPart {
   label: string;
   tried: number;
+  settled: number;
   delivered: number;
   settledNothing: number;
   period: string;
 }
 
 /**
- * The first page's three numbers, over every page: Solana, Tempo and Base (rank.json "main"), Algorand
- * (rank.json "algorand"), Robinhood Chain and Arbitrum (data/evm/<lane>.json, counted the way their own
- * pages count: bought = delivered + settled_no_answer + not_settled + withheld). A withheld row is
- * counted as tried only, never as "nothing usable came back": its result is not published yet.
+ * The first page's three numbers, over every page, all starting from a payment that settled: Solana, Tempo
+ * and Base (rank.json "main"), Algorand (rank.json "algorand", where settled is the facilitator's receipt),
+ * Robinhood Chain and Arbitrum (data/evm/<lane>.json: settled = delivered + settled_no_answer). A withheld
+ * row is left out of all three: its result is not published yet. Tries that never settled are not shown
+ * on the first page (they are on the Method page), so the numbers do not read as "and the rest?".
+ * Sellers: hosts with at least one settled payment, counted once across pages.
  */
-export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; delivered: number; settledNothing: number; sellers: number; chains: string[]; parts: TotalsPart[] } {
+export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; settled: number; delivered: number; settledNothing: number; sellers: number; chains: string[]; parts: TotalsPart[] } {
   const parts: TotalsPart[] = [];
   const hosts = new Set<string>();
   const chains = new Set<Chain>();
   for (const id of ["main", "algorand"] as const) {
     const g = r.groups.find((x) => x.id === id);
     if (!g || g.totals.tried === 0) continue;
-    for (const s of g.ranking) if (s.tried > 0) hosts.add(s.host.toLowerCase());
+    for (const s of g.ranking) if (s.settled > 0) hosts.add(s.host.toLowerCase());
     for (const c of g.chains) if (g.ranking.some((s) => (s.chains[c]?.tried ?? 0) > 0)) chains.add(c);
-    parts.push({ label: g.label, tried: g.totals.tried, delivered: g.totals.delivered, settledNothing: g.totals.settledNotDelivered, period: `${day(g.totals.firstPurchaseAt)} to ${day(g.totals.lastPurchaseAt)}` });
+    parts.push({ label: g.label, tried: g.totals.tried, settled: g.totals.settled, delivered: g.totals.delivered, settledNothing: g.totals.settledNotDelivered, period: `${day(g.totals.firstPurchaseAt)} to ${day(g.totals.lastPurchaseAt)}` });
   }
   for (const lane of ["arbitrum", "robinhood"] as const) {
     const l = lanes[lane];
     if (!l) continue;
     const boughtRows = l.rows.filter((x) => x.status === "delivered" || x.status === "settled_no_answer" || x.status === "not_settled" || x.status === "withheld");
     if (!boughtRows.length) continue;
-    for (const x of boughtRows) {
+    const settledRows = boughtRows.filter((x) => x.status === "delivered" || x.status === "settled_no_answer");
+    for (const x of settledRows) {
       let h: string | null = null;
       try {
         h = x.resource ? new URL(x.resource).hostname.toLowerCase() : null;
@@ -519,6 +523,7 @@ export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; d
     parts.push({
       label: CHAIN_LABEL[lane],
       tried: boughtRows.length,
+      settled: settledRows.length,
       delivered: boughtRows.filter((x) => x.status === "delivered").length,
       settledNothing: boughtRows.filter((x) => x.status === "settled_no_answer").length,
       period: `run of ${l.generatedAt.slice(0, 10)}`,
@@ -527,6 +532,7 @@ export function siteTotals(r: RankReport, lanes: Lanes = {}): { tried: number; d
   const sum = (f: (p: TotalsPart) => number) => parts.reduce((n, p) => n + f(p), 0);
   return {
     tried: sum((p) => p.tried),
+    settled: sum((p) => p.settled),
     delivered: sum((p) => p.delivered),
     settledNothing: sum((p) => p.settledNothing),
     sellers: hosts.size,
@@ -565,10 +571,10 @@ function topExamples(r: RankReport, lanes: Lanes): string {
   return `<ul class="plain examples" aria-label="Two answers from vet402's data">${items.join("\n")}</ul>`;
 }
 
-/** Three numbers over every page: tried, came back with an answer, settled with nothing usable back. */
+/** Three numbers over every page, all from settled payments: settled, came back, settled with nothing usable back. */
 function topStats(t: ReturnType<typeof siteTotals>): string {
   return `<div class="stats">
-  <div><span class="big">${t.tried}</span><br>purchases tried, from ${plural(t.sellers, "seller")}</div>
+  <div><span class="big">${t.settled}</span><br>payments settled, to ${plural(t.sellers, "seller")}</div>
   <div><span class="big">${t.delivered}</span><br>came back with an answer</div>
   <div><span class="big">${t.settledNothing}</span><br>settled, and nothing usable came back</div>
 </div>`;
@@ -576,17 +582,20 @@ function topStats(t: ReturnType<typeof siteTotals>): string {
 
 /** Where the first page's three numbers come from, page by page, with each page's period. */
 function totalsSources(t: ReturnType<typeof siteTotals>): string {
-  const each = t.parts.map((p) => `${p.label}: ${p.tried} tried, ${p.delivered} came back, ${p.settledNothing} settled with nothing usable back (${p.period})`).join("; ");
-  return `<p>The three numbers on the Check page add up every page. ${escapeHtml(each || "No purchases yet")}. Sellers are counted once per host across pages. "Settled" means read back on chain on Solana, Tempo, Base, Robinhood Chain and Arbitrum, and a facilitator's settlement receipt on Algorand. On Robinhood Chain and Arbitrum, results held until the seller is told count as tried only.</p>`;
+  const each = t.parts.map((p) => `${p.label}: ${p.settled} settled, ${p.delivered} came back, ${p.settledNothing} settled with nothing usable back, out of ${p.tried} tried (${p.period})`).join("; ");
+  return `<p>The three numbers on the Check page add up every page, and all three start from a payment that settled: ${t.settled} settled, ${t.delivered} came back with an answer, ${t.settledNothing} settled with nothing usable back. By page: ${escapeHtml(each || "no purchases yet")}. In all, vet402 tried ${t.tried} purchases; the tries whose payment never settled are counted on each page and in section 6, not on the Check page. Sellers are hosts with a settled payment, counted once across pages.</p>
+<p><b>Settled is not the same on every chain.</b> On Solana, Tempo, Base, Robinhood Chain and Arbitrum, vet402 read its payment back on chain. On Algorand, settled means the facilitator returned a settlement receipt with a tx id; vet402 has not read those payments back on chain. The Check page adds both kinds into one number.</p>
+<p class="meta">On Robinhood Chain and Arbitrum, a result held until the seller is told is counted as tried only, and in none of the three numbers.</p>`;
 }
 
 /** "Use it every time your agent pays": the hook in one line, and the endpoint for any other language. */
 function useEveryTime(): string {
   return `<h2 id="use">Use it every time your agent pays</h2>
 <pre class="cmd">wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client)</pre>
-<p class="meta">Stops before signing when the answer is avoid. <a href="${escapeHtml(CHECK_SETUP_URL)}" rel="noopener noreferrer nofollow">Setup</a></p>
+<p class="meta">Stops before signing on avoid. <a href="${escapeHtml(CHECK_SETUP_URL)}" rel="noopener noreferrer nofollow">Setup</a></p>
 <pre class="cmd">curl '${escapeHtml(CHECK_ENDPOINT)}?url=https://api.example.com/x'</pre>
-<p class="meta">Same answer as JSON. <a href="use.html">All options</a></p>`;
+<p class="meta">Same answer, as JSON.</p>
+<p><a href="use.html#buy">Or let vet402 buy it for you →</a></p>`;
 }
 
 /**
@@ -613,7 +622,7 @@ ${useEveryTime()}
 /** The first lines of each second-layer page: what the page tells. */
 export const SELLERS_INTRO =
   "Every seller vet402 bought from on Solana, Tempo and Base, and what came back after each payment. Algorand, Robinhood Chain and Arbitrum have their own tabs.";
-export const USE_INTRO = "Every way to ask vet402 before an agent pays: a minimal example for each, and a link to the full spec.";
+export const USE_INTRO = "Every way to ask vet402 before an agent pays, and how to let vet402 buy for it: a minimal example for each, and a link to the full spec.";
 export const METHOD_INTRO = "How vet402 buys, what it counts against a seller and what it does not, how grades are given, and how to check a signed record without trusting vet402.";
 
 /** For sellers, at the top of the Sellers page: how to read a row, fix one, and when a failure is published. */
@@ -672,6 +681,33 @@ ${publicFooter()}
 
 const GH = (path: string) => `${PUBLIC_REPO_URL}/blob/main/${path}`;
 
+/** Proxy buy, live on Vercel (Solana only as of 2026-10-01). */
+export const BUY_ENDPOINT = "https://vet402-delivery.vercel.app/v1/buy";
+
+/**
+ * The Use it page's proxy buy section, each line word for word from the README's "Proxy buy" section (the
+ * README is the source; a test fails when a line is no longer in it). Markdown code spans become <code>.
+ */
+export const BUY_README_LINES = [
+  "An agent asks vet402 to buy a seller's answer for it. vet402 pays the seller from its own wallet only after the agent's payment has settled, and returns the seller's answer together with both transactions and a public record of the purchase.",
+  "Status on 2026-10-01: it runs at https://vet402-delivery.vercel.app/v1/buy, for Solana only (Tempo is switched off on that deployment, so no Tempo price is offered and a Tempo payment is refused).",
+  "Price: the seller's price plus 0.005 (USDC on Solana, USDC.e on Tempo).",
+  "Who vet402 buys from: only a seller host and payTo pair that vet402 already paid with a settled payment and that delivered at least once, read from `data/`",
+  "If the agent's payment settles and vet402 then does not pay the seller, vet402 refunds the full payment (seller price + fee) to the owner of the account whose balance paid (not a delegate that only signed), on the same chain in the same token.",
+  "If vet402 paid the seller (its payment to the seller settled) and the seller did not deliver, there is no refund. The purchase is recorded against the seller, with vet402's payment to it.",
+  "an answer above 1,000,000 bytes is not forwarded, and since the seller was paid there is no refund",
+  "200: the seller's answer byte for byte (content type kept), with `x-vet402-customer-tx`, `x-vet402-seller-status`, `x-vet402-record` and `x-vet402-seller-settled`",
+  "`GET /v1/buy/records/<id>` returns the record: the seller endpoint without its query string, seller payTo and price, fee, total, both transactions, the seller's HTTP status, the sha256 and size of the answer, the outcome and the refund.",
+] as const;
+
+/** The label in front of each of BUY_README_LINES from the third on. */
+const BUY_LABELS = ["Price", "Who", "Refund", "No refund", "Large answers", "After a paid request", "The record"];
+
+/** Escape, then turn `code` spans into <code>. */
+function mdInline(md: string): string {
+  return escapeHtml(md).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
 /** The Use it page (use.html), for developers: each way in, with a minimal example and the full spec. */
 function renderUsePage(): string {
   const spec = (href: string, label: string) => `<p class="meta"><a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${escapeHtml(label)}</a></p>`;
@@ -680,7 +716,7 @@ ${siteNav("use")}
 <header>
 <h1>Use vet402 in your agent</h1>
 <p class="lead">${escapeHtml(USE_INTRO)}</p>
-<p class="meta">Every way below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment.</p>
+<p class="meta">Every check below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment. Proxy buy is the one way here that costs money.</p>
 </header>
 
 <h2 id="http">HTTP: GET /v1/check</h2>
@@ -699,6 +735,14 @@ import { wrapFetchWithCheck } from "vet402-solana/check";
 const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
 <p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
 ${spec(CHECK_SETUP_URL, "Spec: the fetch hook (packages/check README)")}
+
+<h2 id="buy">Let vet402 buy it for you: GET /v1/buy</h2>
+${BUY_README_LINES.slice(0, 2).map((l) => `<p>${mdInline(l)}</p>`).join("\n")}
+<pre class="cmd">curl -i '${escapeHtml(BUY_ENDPOINT)}?url=&lt;seller endpoint&gt;'   # free: shows the price, charges nothing</pre>
+<ul>
+${BUY_README_LINES.slice(2).map((l, i) => `<li><b>${BUY_LABELS[i]}:</b> ${mdInline(l)}</li>`).join("\n")}
+</ul>
+${spec(`${PUBLIC_REPO_URL}#proxy-buy-solana-tempo`, "Spec: Proxy buy (README), with every refund rule and the order of a paid request")}
 
 <h2 id="mcp">MCP server</h2>
 <p>Two read-only tools for an agent: <code>check_before_paying</code> and <code>verify_record</code>.</p>

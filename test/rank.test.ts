@@ -529,7 +529,8 @@ test("index: purchase numbers first; graded rows carry grade, count and date; me
     inputs: [],
   });
   const top = renderSite(report).get("index.html")!;
-  assert.ok(top.includes('<span class="big">41</span><br>purchases tried, from 2 sellers'), "tried and sellers at the top of the Check page");
+  assert.ok(top.includes('<span class="big">41</span><br>payments settled, to 2 sellers'), "settled and sellers at the top of the Check page");
+  assert.ok(!top.includes("purchases tried"), "no count of tries on the Check page");
   assert.ok(!top.includes("<table"), "the Check page holds no table");
   const html = renderSite(report).get("sellers.html")!;
   assert.ok(html.includes('<span class="big">41</span><br>purchases tried, from 2 sellers'), "and of the Sellers page");

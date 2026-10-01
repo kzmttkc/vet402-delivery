@@ -219,6 +219,8 @@ ${site ? SITE_CSP : ""}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
 main{max-width:560px;margin:0 auto;padding:16px}
 header.top{font-size:14px;color:var(--muted);margin:4px 0 12px}
+header.top nav.site{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 8px;font-size:15px}
+header.top nav.site a[aria-current="page"]{color:var(--fg);font-weight:700;text-decoration:none;border-bottom:2px solid var(--fg)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 12px}
 .verdict{font-size:28px;font-weight:700;letter-spacing:.02em;margin:0 0 6px;display:flex;gap:10px;align-items:baseline}
 .v-delivered .verdict{color:var(--delivered)}.v-mismatch .verdict{color:var(--mismatch)}.v-not .verdict{color:var(--not)}.v-unclear .verdict{color:var(--unclear)}

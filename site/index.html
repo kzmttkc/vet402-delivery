@@ -93,14 +93,15 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <ul class="plain examples" aria-label="Two answers from vet402's data"><li><a href="https://vet402-delivery.vercel.app/v1/check?url=https%3A%2F%2Fapi.xona-agent.com%2Ftoken%2Fpumpfun-trending&amp;format=html"><b>avoid</b> <span class="mono">https://api.xona-agent.com/token/pumpfun-trending</span></a><br><span class="meta">vet402 paid this seller 6 times on Solana over 4 days; 0 of the 6 that count came back with an answer (the newest failed one answered HTTP 500).</span></li>
 <li><a href="https://vet402-delivery.vercel.app/v1/check?url=https%3A%2F%2Fbrasil-dados-api.onrender.com%2Fcambio&amp;format=html"><b>pay</b> <span class="mono">https://brasil-dados-api.onrender.com/cambio</span></a><br><span class="meta">vet402 paid this seller 6 times on Solana over 4 days; 6 of the 6 that count came back with an answer.</span></li></ul>
 <div class="stats">
-  <div><span class="big">3214</span><br>purchases tried, from 316 sellers</div>
+  <div><span class="big">1931</span><br>payments settled, to 241 sellers</div>
   <div><span class="big">1835</span><br>came back with an answer</div>
   <div><span class="big">96</span><br>settled, and nothing usable came back</div>
 </div>
 <h2 id="use">Use it every time your agent pays</h2>
 <pre class="cmd">wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client)</pre>
-<p class="meta">Stops before signing when the answer is avoid. <a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#at-the-payment-the-x402-fetch-hook" rel="noopener noreferrer nofollow">Setup</a></p>
+<p class="meta">Stops before signing on avoid. <a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#at-the-payment-the-x402-fetch-hook" rel="noopener noreferrer nofollow">Setup</a></p>
 <pre class="cmd">curl 'https://vet402-delivery.vercel.app/v1/check?url=https://api.example.com/x'</pre>
-<p class="meta">Same answer as JSON. <a href="use.html">All options</a></p>
+<p class="meta">Same answer, as JSON.</p>
+<p><a href="use.html#buy">Or let vet402 buy it for you →</a></p>
 
 </main></body></html>

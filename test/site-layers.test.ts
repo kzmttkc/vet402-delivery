@@ -12,16 +12,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadLanePublic } from "../src/evm/site.js";
-import { escapeHtml, PUBLIC_LEAD, renderPublicSite, SITE_NAV, TOP_HEADING } from "../src/rank/html.js";
+import { BUY_README_LINES, escapeHtml, PUBLIC_LEAD, publicPage, renderPublicSite, SITE_NAV, siteSlugs, TOP_HEADING } from "../src/rank/html.js";
 import { buildReport, DELIVERED_LINE, MONEY_LINE, REBUY_PLAN, type RankReport } from "../src/rank/report.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
-import { recordsBySeller } from "../src/receipt/site.js";
+import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
 import type { Attempt } from "../src/rank/types.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pub = JSON.parse(readFileSync(join(ROOT, "site", "rank.json"), "utf8")) as RankReport;
 const lanes = loadLanePublic(join(ROOT, "data"));
-const pages = renderPublicSite(pub, { records: recordsBySeller(await loadPublishedRecords(join(ROOT, "data", "records"))), lanes });
+const loaded = await loadPublishedRecords(join(ROOT, "data", "records"));
+const pages = renderPublicSite(pub, { records: recordsBySeller(loaded), lanes });
+// The records pages too (scripts/build-site.ts adds them the same way).
+const slugs = siteSlugs(pub);
+for (const [rel, html] of renderRecordsSite(loaded, { sellerSlug: (k) => slugs.get(k) ?? null, page: publicPage })) pages.set(rel, html);
 const site = (rel: string) => readFileSync(join(ROOT, "site", rel), "utf8");
 
 /** The words a reader sees in <main>: tags, styles and the example answers taken out. */
@@ -61,20 +65,23 @@ test("Check page: 120 words or fewer, the example answers apart; heading, field,
 test("Check page numbers add up every page (main and Algorand from rank.json, Arbitrum and Robinhood Chain from data/evm), and the Method page says so", () => {
   const main = pub.groups.find((g) => g.id === "main")!.totals;
   const algo = pub.groups.find((g) => g.id === "algorand")!.totals;
-  const bought = (l: typeof lanes.arbitrum) => (l?.rows ?? []).filter((r) => ["delivered", "settled_no_answer", "not_settled", "withheld"].includes(r.status));
-  const laneRows = [...bought(lanes.arbitrum), ...bought(lanes.robinhood)];
-  const tried = main.tried + algo.tried + laneRows.length;
-  const delivered = main.delivered + algo.delivered + laneRows.filter((r) => r.status === "delivered").length;
-  const nothing = main.settledNotDelivered + algo.settledNotDelivered + laneRows.filter((r) => r.status === "settled_no_answer").length;
+  const laneRows = [...(lanes.arbitrum?.rows ?? []), ...(lanes.robinhood?.rows ?? [])];
+  const n = (st: string) => laneRows.filter((r) => r.status === st).length;
+  const settled = main.settled + algo.settled + n("delivered") + n("settled_no_answer");
+  const delivered = main.delivered + algo.delivered + n("delivered");
+  const nothing = main.settledNotDelivered + algo.settledNotDelivered + n("settled_no_answer");
   const top = site("index.html");
-  assert.ok(top.includes(`<span class="big">${tried}</span><br>purchases tried, from `));
+  assert.ok(top.includes(`<span class="big">${settled}</span><br>payments settled, to `));
   assert.ok(top.includes(`<span class="big">${delivered}</span><br>came back with an answer`));
   assert.ok(top.includes(`<span class="big">${nothing}</span><br>settled, and nothing usable came back`));
+  assert.ok(!/purchases tried|\btried\b/.test(visibleWords(top).join(" ")), "no count of tries on the Check page");
+  assert.ok(delivered + nothing <= settled, "the three numbers start from settled payments");
   const method = site("method.html");
   assert.ok(method.includes('<h2 id="totals">The numbers on the Check page</h2>'));
-  assert.ok(method.includes(`Solana, Tempo and Base: ${main.tried} tried, ${main.delivered} came back, ${main.settledNotDelivered} settled with nothing usable back`));
-  assert.ok(method.includes(`Algorand: ${algo.tried} tried`));
-  assert.ok(method.includes("results held until the seller is told count as tried only"));
+  assert.ok(method.includes(`Solana, Tempo and Base: ${main.settled} settled, ${main.delivered} came back, ${main.settledNotDelivered} settled with nothing usable back, out of ${main.tried} tried`));
+  assert.ok(method.includes(`Algorand: ${algo.settled} settled`));
+  assert.ok(method.includes("On Algorand, settled means the facilitator returned a settlement receipt with a tx id; vet402 has not read those payments back on chain."));
+  assert.ok(method.includes("a result held until the seller is told is counted as tried only, and in none of the three numbers"));
 });
 
 test("everything the first page used to say is on the second layer (Sellers or Method), unfolded", () => {
@@ -109,8 +116,25 @@ test("everything the first page used to say is on the second layer (Sellers or M
   // Use it: each way in, with an example and its spec on GitHub.
   const use = site("use.html");
   for (const id of ["http", "hook", "mcp", "cli", "verify", "program"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
-  assert.equal((use.match(/<pre class="cmd">/g) ?? []).length, 6, "a minimal example for each");
-  assert.equal((use.match(/>Spec: /g) ?? []).length, 6, "a spec link for each");
+  for (const id of ["buy"]) assert.ok(use.includes(`<h2 id="${id}">`), `use.html#${id}`);
+  assert.equal((use.match(/<pre class="cmd">/g) ?? []).length, 7, "a minimal example for each");
+  assert.equal((use.match(/>Spec: /g) ?? []).length, 7, "a spec link for each");
+});
+
+test("Use it, proxy buy: every line is word for word in the README's Proxy buy section (the README is the source), and the Check page links to it", () => {
+  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+  const section = readme.slice(readme.indexOf("## Proxy buy"), readme.indexOf("\n## ", readme.indexOf("## Proxy buy") + 5));
+  const use = site("use.html");
+  const buy = use.slice(use.indexOf('<h2 id="buy">'), use.indexOf('<h2 id="mcp">'));
+  for (const line of BUY_README_LINES) {
+    assert.ok(section.includes(line), `not in the README's Proxy buy section: ${line}`);
+    assert.ok(buy.includes(escapeHtml(line).replace(/`([^`]+)`/g, "<code>$1</code>")), `not on use.html: ${line}`);
+  }
+  for (const fact of ["plus 0.005", "already paid with a settled payment and that delivered at least once", "vet402 refunds the full payment", "there is no refund. The purchase is recorded against the seller", "1,000,000 bytes is not forwarded", "both transactions", "/v1/buy/records/"])
+    assert.ok(buy.includes(escapeHtml(fact)), fact);
+  assert.ok(buy.includes(`curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=&lt;seller endpoint&gt;'   # free: shows the price, charges nothing`));
+  assert.ok(readme.includes("curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=<seller endpoint>'   # free: shows the price, charges nothing"));
+  assert.ok(site("index.html").includes('<p><a href="use.html#buy">Or let vet402 buy it for you →</a></p>'));
 });
 
 test("the same four-place navigation on every page the site builds, in the same order", () => {

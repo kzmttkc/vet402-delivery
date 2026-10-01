@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Every way to ask vet402 before an agent pays: a minimal example for each, and a link to the full spec.">
+<meta name="description" content="Every way to ask vet402 before an agent pays, and how to let vet402 buy for it: a minimal example for each, and a link to the full spec.">
 <title>vet402: use it in your agent</title>
 <style>
 :root{--bg:#fbfbf9;--fg:#1d1d1b;--dim:#62625d;--line:#e2e1dc;--card:#fff;--warn:#9a3b00;--link:#0b5cad;
@@ -80,8 +80,8 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <nav class="tabs site" aria-label="Site"><a href="index.html">Check</a><a href="sellers.html">Sellers</a><a href="use.html" aria-current="page">Use it</a><a href="method.html">Method</a></nav>
 <header>
 <h1>Use vet402 in your agent</h1>
-<p class="lead">Every way to ask vet402 before an agent pays: a minimal example for each, and a link to the full spec.</p>
-<p class="meta">Every way below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment.</p>
+<p class="lead">Every way to ask vet402 before an agent pays, and how to let vet402 buy for it: a minimal example for each, and a link to the full spec.</p>
+<p class="meta">Every check below reads the same public record and gives the same answer: pay, avoid or unknown, with one sentence of why and the numbers behind it. None needs a key or a payment. Proxy buy is the one way here that costs money.</p>
 </header>
 
 <h2 id="http">HTTP: GET /v1/check</h2>
@@ -100,6 +100,21 @@ import { wrapFetchWithCheck } from "vet402-solana/check";
 const fetchWithPay = wrapFetchWithPayment(wrapFetchWithCheck(fetch, { block: "avoid" }), client);</pre>
 <p class="meta">Add <code>onCheck: (e) =&gt; ...</code> to see every answer, or to write your own rule.</p>
 <p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery/tree/main/packages/check#at-the-payment-the-x402-fetch-hook" rel="noopener noreferrer nofollow">Spec: the fetch hook (packages/check README)</a></p>
+
+<h2 id="buy">Let vet402 buy it for you: GET /v1/buy</h2>
+<p>An agent asks vet402 to buy a seller&#39;s answer for it. vet402 pays the seller from its own wallet only after the agent&#39;s payment has settled, and returns the seller&#39;s answer together with both transactions and a public record of the purchase.</p>
+<p>Status on 2026-10-01: it runs at https://vet402-delivery.vercel.app/v1/buy, for Solana only (Tempo is switched off on that deployment, so no Tempo price is offered and a Tempo payment is refused).</p>
+<pre class="cmd">curl -i 'https://vet402-delivery.vercel.app/v1/buy?url=&lt;seller endpoint&gt;'   # free: shows the price, charges nothing</pre>
+<ul>
+<li><b>Price:</b> Price: the seller&#39;s price plus 0.005 (USDC on Solana, USDC.e on Tempo).</li>
+<li><b>Who:</b> Who vet402 buys from: only a seller host and payTo pair that vet402 already paid with a settled payment and that delivered at least once, read from &#96;data/&#96;</li>
+<li><b>Refund:</b> If the agent&#39;s payment settles and vet402 then does not pay the seller, vet402 refunds the full payment (seller price + fee) to the owner of the account whose balance paid (not a delegate that only signed), on the same chain in the same token.</li>
+<li><b>No refund:</b> If vet402 paid the seller (its payment to the seller settled) and the seller did not deliver, there is no refund. The purchase is recorded against the seller, with vet402&#39;s payment to it.</li>
+<li><b>Large answers:</b> an answer above 1,000,000 bytes is not forwarded, and since the seller was paid there is no refund</li>
+<li><b>After a paid request:</b> 200: the seller&#39;s answer byte for byte (content type kept), with &#96;x-vet402-customer-tx&#96;, &#96;x-vet402-seller-status&#96;, &#96;x-vet402-record&#96; and &#96;x-vet402-seller-settled&#96;</li>
+<li><b>The record:</b> &#96;GET /v1/buy/records/&lt;id&gt;&#96; returns the record: the seller endpoint without its query string, seller payTo and price, fee, total, both transactions, the seller&#39;s HTTP status, the sha256 and size of the answer, the outcome and the refund.</li>
+</ul>
+<p class="meta"><a href="https://github.com/kzmttkc/vet402-delivery#proxy-buy-solana-tempo" rel="noopener noreferrer nofollow">Spec: Proxy buy (README), with every refund rule and the order of a paid request</a></p>
 
 <h2 id="mcp">MCP server</h2>
 <p>Two read-only tools for an agent: <code>check_before_paying</code> and <code>verify_record</code>.</p>

@@ -2,12 +2,13 @@
  * How often the free endpoints are called: per UTC day, per endpoint, and how many different callers.
  *
  * Stored in the proxy-buy Postgres (DATABASE_URL), in its own table pc_usage. A caller is an HMAC of its IP
- * with a key that changes every UTC day (HMAC-SHA256 over the day, keyed by VET402_USAGE_SALT, or by
- * VET402_PROXY_ALERTS_SECRET when that is not set): the raw IP is never stored, and the same IP gives
- * unrelated values on different days. Calls whose User-Agent contains "vet402" are vet402's own and are
- * counted apart (own = true).
+ * with a key that changes every UTC day (HMAC-SHA256 over the day, keyed by VET402_USAGE_SALT): the raw IP
+ * is never stored, and the same IP gives unrelated values on different days. Without VET402_USAGE_SALT
+ * nothing is counted. Calls whose User-Agent contains "vet402" are vet402's own and are counted apart
+ * (own = true).
  *
- * Counting is best effort: every error is swallowed, and the caller does not wait long (http.ts USE_WAIT_MS).
+ * Counting is best effort: every error is swallowed. /v1/check waits for it at most http.ts USE_WAIT_MS;
+ * the /v1/buy quote does not wait for it at all (countBuyQuote).
  */
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import pg from "pg";
@@ -47,8 +48,9 @@ export function isOwnCall(req: Request): boolean {
   return /vet402/i.test(req.headers.get("user-agent") ?? "");
 }
 
+/** VET402_USAGE_SALT, or null (then nothing is counted). No other secret stands in for it. */
 export function usageKey(env: NodeJS.ProcessEnv = process.env): string | null {
-  const k = env.VET402_USAGE_SALT || env.VET402_PROXY_ALERTS_SECRET;
+  const k = env.VET402_USAGE_SALT;
   return k && k.length >= 16 ? k : null;
 }
 
@@ -70,6 +72,39 @@ export function usageCounter(endpoint: string, db: () => UsageDb | null, key: st
       [day, endpoint, callerId(callerIp(req), day, key), isOwnCall(req)],
     );
   };
+}
+
+/**
+ * A free /v1/buy quote: a GET that carries no payment (no PAYMENT-SIGNATURE, X-PAYMENT or Authorization:
+ * Payment) and is not a record read (/v1/buy/records/<id> arrives as ?record=).
+ */
+export function isBuyQuote(req: Request): boolean {
+  if (req.method !== "GET") return false;
+  const h = req.headers;
+  if (h.has("payment-signature") || h.has("x-payment") || /^\s*payment\s/i.test(h.get("authorization") ?? "")) return false;
+  try {
+    return !new URL(req.url).searchParams.has("record");
+  } catch {
+    return false;
+  }
+}
+
+let buyQuoteCounter: ((req: Request) => Promise<void>) | null = null;
+
+/**
+ * Count a /v1/buy quote, without waiting and without any way to fail the request: synchronous, returns
+ * nothing, swallows every error. A request that carries a payment is never counted (nor looked at further).
+ */
+export function countBuyQuote(req: Request, counter?: (req: Request) => Promise<void>): void {
+  try {
+    if (!isBuyQuote(req)) return;
+    const c = counter ?? (buyQuoteCounter ??= usageCounter("buy_quote", () => usageDb(), usageKey()));
+    void Promise.resolve()
+      .then(() => c(req))
+      .catch(() => undefined);
+  } catch {
+    // fail open
+  }
 }
 
 let pool: pg.Pool | null = null;
