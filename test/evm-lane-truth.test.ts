@@ -1426,3 +1426,42 @@ test("a declared name written in capitals is vet402's; an undeclared setting nam
   for (const n of ["ACCESSTOKEN", "RPCURL", "DATABASEURL", "SECRETKEY", "AUTHTOKEN", "DBPASSWORD", "APITOKEN"]) assert.ok(sellerSettingName(n), n);
   for (const n of ["NFT", "ID", "ETH", "USDC", "API", "IP", "ENS", "EVM", "JSON", "IT", "ACCOUNT", "REQUEST"]) assert.ok(!sellerSettingName(n), n);
 });
+
+
+// ---------- review of 8b1a0fd ----------
+
+test("joined settings only as whole known words; capitals keep an underscore name's spelling only when it looks like a setting; quoted declared names; allowed words in capitals", () => {
+  const vet: [string, string[] | undefined][] = [
+    // misfire words as subjects: as on main (no name; TICKER is an allowed word, so vet402's without declarations too)
+    ...["MONKEY", "KEYWORD", "TOKENID", "CURL", "URLS", "HURL", "DSNAME", "JWTS", "TICKER", "MARKET"].flatMap((x): [string, string[] | undefined][] => [[`wallet is required. ${x} is required to have a 0x prefix.`, ["wallet"]], [`wallet is required. ${x} is required to have a 0x prefix.`, undefined]]),
+    // underscore names in a sentence all in capitals that are not settings
+    ...["USER_ID", "CHAIN_ID", "ETH_ADDRESS", "TX_HASH"].flatMap((n): [string, string[] | undefined][] => [[`WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`, ["wallet"]], [`WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`, undefined]]),
+    // quoted declared names
+    ["Missing required parameter: 'wallet'", ["wallet"]],
+    ['Missing parameter: "wallet"', ["wallet"]],
+    // allowed words in capitals on a listing that declares nothing
+    ["WALLET is required.", undefined],
+    ["ADDRESS is required to look up the price.", undefined],
+    ['{"error":"SYMBOL is required"}', undefined],
+    ["VALUE is required.", undefined],
+    ["PARAMETER is required.", undefined],
+    ["INPUT is required.", undefined],
+  ];
+  for (const [t, d] of vet) {
+    assert.equal(answer400(t, d)?.kind, "missing_input", `${t} (declared ${d ?? "none"})`);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  const seller: [string, string[] | undefined][] = [
+    ...["ACCESSTOKEN", "RPCURL", "DATABASEURL", "SECRETKEY", "AUTHTOKEN", "DBPASSWORD", "APITOKEN"].flatMap((n): [string, string[] | undefined][] => [[`wallet is required. ${n} is required to sign.`, ["wallet"]], [`wallet is required. ${n} is required to sign.`, undefined]]),
+    ...["NODE_ENV", "AWS_REGION", "INFURA_PROJECT_ID"].flatMap((n): [string, string[] | undefined][] => [[`WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`, ["wallet"]], [`WALLET IS REQUIRED. ${n} IS REQUIRED TO START.`, undefined]]),
+  ];
+  for (const [t, d] of seller) {
+    assert.equal(answer400(t, d), null, `${t} (declared ${d ?? "none"})`);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  for (const n of ["MONKEY", "KEYWORD", "TOKENID", "CURL", "URLS", "HURL", "DSNAME", "JWTS"]) assert.ok(!sellerSettingName(n), n);
+});

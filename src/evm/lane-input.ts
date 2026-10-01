@@ -435,12 +435,18 @@ export interface MissingName {
 /**
  * Pure. Whose is one missing name: "input" only per (a) or (b) above; otherwise "seller".
  */
+/** A setting written as one capitalised word: a known prefix followed by a setting word, nothing else. */
+const JOINED_SETTING = /^(?:ACCESS|RPC|DATABASE|SECRET|AUTH|DB|API)(?:TOKEN|URL|KEY|PASSWORD|SECRET)$/;
+/** In a sentence all in capitals, a name with an underscore keeps its spelling only when it looks like a setting. */
+const CAPS_SETTING_WORD = /(?:TOKEN|URL|SECRET|KEY|PASSWORD|DSN|JWT)/;
+const ENV_PREFIX = /^(?:NODE|AWS|GCP|AZURE|INFURA|ALCHEMY|STRIPE|PG|DB|REDIS|SUPABASE|VERCEL|NEXT_PUBLIC|OPENAI|ANTHROPIC)_/;
+
 /** Words that make a name one of the seller's own settings (split from camelCase and snake_case first). */
 const SETTING_WORDS = new Set(["secret", "secrets", "token", "tokens", "password", "passwords", "passwd", "pwd", "url", "uri", "host", "hostname", "key", "keys", "dsn", "mnemonic", "jwt", "credential", "credentials"]);
 
 /**
  * Pure. A name that is one of the seller's own settings: written like an environment variable with an underscore
- * (DATABASE_URL, DB_HOST), a setting run together in capitals (ACCESSTOKEN, RPCURL, DBPASSWORD), or made of a
+ * (DATABASE_URL, DB_HOST), a known setting run together in capitals (JOINED_SETTING: ACCESSTOKEN, RPCURL), or made of a
  * setting word (secret_token, db_password, rpcUrl, apiKey). An allowed word (token_address) and an abbreviation
  * without an underscore (NFT, ID, ETH, USDC, API, JSON) are not. A name the listing declares is checked against the
  * declaration first (missingNameSide), so a declared ETH_ADDRESS or TOKEN_ID is vet402's.
@@ -450,8 +456,9 @@ export function sellerSettingName(name: string): boolean {
   if (ALLOWED.has(c) || ALLOWED.has(singular(c))) return false;
   // An environment-variable name has an underscore (DATABASE_URL, DB_HOST); NFT, ID, ETH, USDC, API, JSON are not.
   if (/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(name)) return true;
-  // A setting run together in capitals (ACCESSTOKEN, RPCURL, DATABASEURL, SECRETKEY, DBPASSWORD, APITOKEN).
-  if (/^[A-Z][A-Z0-9]*$/.test(name) && /TOKEN|URL|SECRET|KEY|PASSWORD|DSN|JWT/.test(name)) return true;
+  // A setting run together in capitals, as a whole word only: a known prefix and a setting word (ACCESSTOKEN, RPCURL,
+  // DATABASEURL, SECRETKEY, AUTHTOKEN, DBPASSWORD, APITOKEN). MONKEY, KEYWORD, TOKENID, CURL, URLS are not.
+  if (JOINED_SETTING.test(name)) return true;
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
@@ -469,6 +476,8 @@ export function missingNameSide(m: MissingName, declared: readonly string[] = []
   // Then the listing's own declaration, whatever case the answer writes it in (ETH_ADDRESS for eth_address, "WALLET").
   const c = canon(n);
   if (declared.some((d) => canon(d) === c)) return "input";
+  // A listing that declares nothing: an allowed word is vet402's in any case (WALLET, ADDRESS, SYMBOL, VALUE).
+  if (declared.length === 0 && (ALLOWED.has(c) || ALLOWED.has(singular(c)))) return "input";
   // Only a name the listing does not declare is read for the seller's signs: ALL_CAPS, a setting name, auth words.
   if (/^[A-Z][A-Z0-9_]*$/.test(n) && /[A-Z]{2}/.test(n)) return "seller";
   if (sellerSettingName(n)) return "seller";
@@ -562,6 +571,7 @@ export function strongNamesInSentence(piece: string): string[] {
   for (const q of piece.matchAll(new RegExp(String.raw`\brequired\s+(?:parameter|param|property|field|argument|key)s?\b\s*:?\s*${Q}(${ID}(?:\s*,\s*${ID})*)`, "gi"))) q[1]!.split(/\s*,\s*/).forEach(add);
   for (const n of inputForNames(piece)) add(n);
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:parameter|param|property|field|argument|key|value|input)s?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) add(q[1]);
   for (const q of piece.matchAll(new RegExp(String.raw`(?<!\bfor\s{1,3})\\?["'\x60](${ID})\\?["'\x60]\s+(?:is|are)\s+missing\b`, "gi"))) add(q[1]);
   return [...out];
 }
@@ -592,6 +602,8 @@ export function namesInSentence(piece: string): string[] {
   if ((m = new RegExp(String.raw`\bmust have required property\s+${Q}(${ID})`, "i").exec(piece))) push(m[1]);
   // missing "x", missing: 'x'
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
+  // missing parameter: "x", Missing required field 'x'
+  for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:parameter|param|property|field|argument|key|value|input)s?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) push(q[1]);
   // Missing [required] [fields|params|...][:] a, b and c  |  missing <generic>  |  missing x
   for (const q of piece.matchAll(new RegExp(String.raw`\bmissing\s*:?\s*(?:required\s+)?(?:(${ID})\s*:\s*|(${ID})\s+)?(${ID}(?:\s*(?:,|\band\b)\s*${ID})*)?`, "gi"))) {
     const head = q[1] ?? q[2];
@@ -621,6 +633,9 @@ export function namesInSentence(piece: string): string[] {
   for (const q of piece.matchAll(new RegExp(String.raw`\b(?:parameters|params|properties|fields|arguments|keys)\s+(${ID}(?:\s*(?:,|\band\b)\s*${ID})*)\s+(?:is|are)\s+missing\b`, "gi"))) q[1]!.split(/\s*(?:,|\band\b)\s*/).filter(Boolean).forEach(push);
   // "x cannot be empty", "x must not be empty", "x must be provided"
   for (const q of piece.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:cannot be empty|must not be empty|must be provided)`, "gi"))) push(q[1]);
+  // A sentence that names the input in quotes ("Missing required parameter: 'wallet'") gives that name; its input
+  // words (parameter, field, value...) are not names then.
+  if (new RegExp(String.raw`\\?["'\x60]${ID}\\?["'\x60]`).test(piece)) return [...new Set(out.filter((n) => !GENERIC.test(n)))];
   return [...new Set(out)];
 }
 
@@ -689,9 +704,11 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     for (const n of namesInSentence(piece)) {
       // A setting name as the subject (secret_token, DATABASE_URL, db_password) is never soft: it is the seller's.
       // In a sentence written all in capitals the subject is read without case ("IT" is it, not a setting name).
-      // In a sentence written all in capitals the subject is read without case ("IT" is it), except a name with an
-      // underscore, which keeps its spelling for the environment-variable form (NODE_ENV, AWS_REGION).
-      const settingCheck = shouting && !quoted(n) && !n.includes("_") ? n.toLowerCase() : n;
+      // In a sentence written all in capitals the subject is read without case ("IT" is it, USER_ID is user_id), except
+      // a name with an underscore that looks like a setting (a setting word, or an environment prefix: NODE_ENV,
+      // AWS_REGION, INFURA_PROJECT_ID), which keeps its spelling for the environment-variable form.
+      const keepsSpelling = n.includes("_") && (CAPS_SETTING_WORD.test(n) || ENV_PREFIX.test(n));
+      const settingCheck = shouting && !quoted(n) && !keepsSpelling ? n.toLowerCase() : n;
       const isSoft = soft.has(n.toLowerCase()) && !quoted(n) && !firm.has(n.toLowerCase()) && !sellerSettingName(settingCheck);
       names.push({ name: shouting && !quoted(n) ? n.toLowerCase() : n, header: !!f && f[1]!.toLowerCase() === "headers", path: [], source: "text", ...(isSoft ? { soft: true } : {}) });
     }
