@@ -86,7 +86,7 @@ Keys live in `.keys/mainnet/` (git-ignored, mode 600) of the checkout that deplo
 
 ## Upgrade authority
 
-For now the deploy key `DNkH3i35X29YjALuK7ay2qB95fmduHxfQJkCKqA6Jakh` keeps it, so a fix stays possible. It is also the only key that can propose a new posting key. Freezing (`solana program set-upgrade-authority EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3 --final`) happens only on a date announced here beforehand. After it nobody can change the program, the ProgramData rent can no longer be reclaimed, and the posting key can no longer be replaced.
+For now the deploy key `DNkH3i35X29YjALuK7ay2qB95fmduHxfQJkCKqA6Jakh` keeps it, so a fix stays possible. It is also the only key that can propose a new posting key. Freezing (`solana program set-upgrade-authority EvDMa6KWbFGT48L9oce8U9SwxCWaAKR2aZEJNX8JeZC3 --final`) happens only on a date announced here beforehand. After it nobody can change the program, the ProgramData rent can no longer be reclaimed, and no new posting key can be proposed. A proposal still pending at that moment could still be accepted by its key (`accept_authority` does not need the upgrade authority), so the freeze is run only when `npx tsx scripts/roots-mainnet.ts check` prints `pending none`.
 
 ## Posting from the daily anchor
 
