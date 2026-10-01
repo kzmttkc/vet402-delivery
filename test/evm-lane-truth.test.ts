@@ -1246,3 +1246,29 @@ test("'required to' phrases: the seller's only with an asset noun; settled, the 
     assert.equal(isNegative(status, cause), true, t);
   }
 });
+
+
+// ---------- review of 638d1e8: an asset noun counts only where it ends the phrase ----------
+
+test("an asset noun followed by another noun (token address, share link, eth-address) is an input; settled, never a failure; the seller's content stays negative", () => {
+  const vet = ["have at least one token address", "own at least one token parameter", "have at least one share link", "have at least one coin symbol", "have at least one transaction hash", "have at least one ETH address", "have at least one eth-address", "have at least one SOL address", "have at least one fund id", "hold a token address", "contain at least one token address", "own at least one NFT contract address", "have at least one token standard", "own a coin type", "be a SOL-compatible value", "hold liquidity", "hold USDC", "hold"];
+  for (const p of vet) {
+    const t = `wallet is required to ${p}`;
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: ["wallet"] };
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const cause = classifyRecord(rec);
+    const status = statusOf({ ...rec, cause } as never);
+    assert.equal(status, "settled_vet402_input", t);
+    assert.equal(isNegative(status, cause), false, t);
+  }
+  const seller = ["own at least one NFT", "hold 100 USDC", "hold at least 1 token", "stake", "stake 100 tokens", "have at least one transaction", "have a sufficient balance", "contain at least 1 token", "be whitelisted", "be on the allowlist", "hold 5 ETH in the wallet", "have at least one transaction, then retry", "own at least 2 NFTs and 1 token"];
+  for (const p of seller) {
+    const t = `wallet is required to ${p}`;
+    const rec = { ...bazaar, settledOnChain: true, response: resp(400, t), body: t, declaredParams: ["wallet"] };
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const cause = classifyRecord(rec);
+    const status = statusOf({ ...rec, cause } as never);
+    assert.equal(status, "settled_no_answer", t);
+    assert.equal(isNegative(status, cause), true, t);
+  }
+});

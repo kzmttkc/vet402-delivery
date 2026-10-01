@@ -479,8 +479,14 @@ const Q = String.raw`\\?["'\x60]?`;
  */
 const CONTENT_WORDS = /\b(data|history|histories|support|supported|balances?|transactions?|records?|results?|info|information|prices?|quotes?|liquidity|holders?|activity|metadata|stats|statistics|coverage)\b/i;
 
-/** Nouns for what a wallet holds: a "required to" phrase is the seller's condition on content only with one of them. */
-const ASSET = String.raw`(?:tokens?|nfts?|funds?|transactions?|balance|eth|usdc|usdg|sol|coins?|shares?|stake)\b`;
+/**
+ * Nouns for what a wallet holds: a "required to" phrase is the seller's condition on content only with one of them,
+ * and only when the noun ends the phrase: at the end of the sentence, before punctuation, or before a preposition or
+ * conjunction. "token address", "share link", "transaction hash", "eth-address", "SOL-compatible" are other things
+ * (an input), not the asset.
+ */
+const ASSET_END = String.raw`(?=\s*$|[.,;:!?)"']|\s+(?:in|on|of|to|for|from|with|and|or|per|at|before|after|each)\b)`;
+const ASSET = String.raw`(?:tokens?|nfts?|funds?|transactions?|balance|eth|usdc|usdg|sol|coins?|shares?|stake)${ASSET_END}`;
 /** A quantity before an asset noun: a number, one, a, an, optionally after "at least". */
 const QTY = String.raw`(?:at\s+least\s+)?(?:\d[\d,.]*|one|a|an)\s+`;
 /**
