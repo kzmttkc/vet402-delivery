@@ -9,15 +9,18 @@
  * it); a snapshot of the catalog at purchase time (results/evm/<lane>-catalog-snapshot.json, none exists for
  * 2026-09-30); else the catalogs and the seller's 402 read now, labelled with today's date. The names the request
  * carried: the plan's query (results/evm/<lane>-dryrun.json, or -paid-run.json) and the JSON body the lane built
- * from the catalog listing (lane-plan.ts requestOf). Writes results/evm/<lane>-declared.jsonl: one patch per 4xx
- * purchase; scripts/evm-publish.ts fills only fields the record does not have.
+ * from the catalog listing (lane-plan.ts requestOf). Writes the patches into results/evm/declared-inputs.jsonl, a
+ * tracked file (names and sources only, never values), one per 4xx purchase; an entry already there is kept.
+ * src/evm/lane-records.ts applies them, filling only fields the record does not have, for the publish and the
+ * lane's next plan alike.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CDP_DISCOVERY, PAYAI_DISCOVERY } from "../src/constants.js";
 import { fetchCatalog, type Listing } from "../src/discovery.js";
 import { LANES, type LaneId } from "../src/evm/chains.js";
-import { mergeReadings } from "../src/evm/chaincheck.js";
+import { mergeReadings, recordKey } from "../src/evm/chaincheck.js";
+import { DECLARED_INPUTS_FILE, type DeclaredPatch } from "../src/evm/lane-records.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
 import { declarationFrom, INPUT_STATUSES, mergeDeclarations, sentParamNames, type InputDeclaration } from "../src/evm/lane-input.js";
 import { DEXTER_DISCOVERY, requestOf } from "../src/evm/lane-plan.js";
@@ -62,7 +65,12 @@ async function read402(r: ChainBuyRecord, query: Record<string, string> | null, 
     if (res.status !== 402) return [];
     const docs: unknown[] = [];
     const h = res.headers.get("payment-required");
-    if (h) docs.push(JSON.parse(Buffer.from(h, "base64").toString("utf8")));
+    // A header that does not decode does not hide the body's declaration.
+    try {
+      if (h) docs.push(JSON.parse(Buffer.from(h, "base64").toString("utf8")));
+    } catch {
+      /* not JSON */
+    }
     try {
       docs.push(JSON.parse(await res.text()));
     } catch {
@@ -97,4 +105,11 @@ for (const r of rows) {
   out.push(JSON.stringify({ lane: laneId, agentId: r.agentId, at: r.at, resource: r.resource, declaredParams: decl.declared, requiredParams: decl.required, declaredFrom: decl.from, requiredFrom: decl.requiredFrom, sentParams: sent, sentFrom: r.sentParams ? "record" : `plan query (${planFile}) and the body requestOf built from the listing` }));
   console.log(`${r.resource}  status ${r.response?.status}  sent [${sent.join(", ")}]  required [${decl.required.join(", ")}]  required from ${decl.requiredFrom.join("; ") || "-"}`);
 }
-writeFileSync(`results/evm/${laneId}-declared.jsonl`, out.join("\n") + (out.length ? "\n" : ""));
+// Into the tracked file: entries already there are kept (a purchase's declaration is read once); new ones appended.
+const trackedFile = `results/evm/${DECLARED_INPUTS_FILE}`;
+const kept: DeclaredPatch[] = existsSync(trackedFile) ? readFileSync(trackedFile, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as DeclaredPatch) : [];
+const have = new Set(kept.map((p) => recordKey(p)));
+const added = out.map((l) => JSON.parse(l) as DeclaredPatch).filter((p) => !have.has(recordKey(p)));
+const all = [...kept, ...added].sort((a, b) => (recordKey(a) < recordKey(b) ? -1 : 1));
+writeFileSync(trackedFile, all.map((p) => JSON.stringify(p)).join("\n") + (all.length ? "\n" : ""));
+console.log(`${trackedFile}: ${added.length} added, ${kept.length} kept`);

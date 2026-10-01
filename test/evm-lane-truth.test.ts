@@ -5,12 +5,15 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { applyDeclaredPatches, loadLaneRecords, type DeclaredPatch } from "../src/evm/lane-records.js";
 import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { declarationFrom, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { SCHEMA_KEYWORDS, declarationFrom, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -252,7 +255,7 @@ test("follow-up 1: a filled request that still got 400/404/422 is not bought aga
   assert.equal(g2[0]!.options.length, 0);
   assert.match(g2[0]!.inputSkipped![0]!.why, /input_unchanged_after_input_error/);
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /return lastPaidByListing\(rows\)/);
+  assert.match(lane, /return lastPaidByListing\(loadLaneRecords\(laneIds, "results\/evm", \["purchases"\]\)\);/);
   const input = readFileSync(new URL("../src/evm/lane-input.ts", import.meta.url), "utf8");
   assert.match(input, /const k = r\.listingResource \?\? r\.resource;/);
   const buy = readFileSync(new URL("../src/evm/evm-buy.ts", import.meta.url), "utf8");
@@ -346,7 +349,7 @@ test("review of a44d5aa [mid]: vet402's own wrong request stops for good; a sell
   assert.equal(repairLaneRequest(listing, req, "2026-10-15", retried, t0 + 14 * 86_400_000).ok, true);
   // The lane script decides inputError from the record with the same reading as the pages.
   const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
-  assert.match(lane, /return lastPaidByListing\(rows\)/);
+  assert.match(lane, /return lastPaidByListing\(loadLaneRecords\(laneIds, "results\/evm", \["purchases"\]\)\);/);
 });
 
 test("review of a44d5aa [low]: a named tx carrying nonces goes only to the record whose nonce it carries; none matching makes all ambiguous", () => {
@@ -745,8 +748,103 @@ test("rule 0, the record: a purchase keeps the names it sent (never values), wha
   assert.match(buy, /\.\.\.\(e\.requiredFrom\?\.length \? \{ requiredFrom: e\.requiredFrom \} : \{\}\)/);
   const plan = readFileSync(new URL("../src/evm/lane-plan.ts", import.meta.url), "utf8");
   assert.match(plan, /declarationFrom\(d, "402"\)/, "the live 402's declaration is read at plan time");
-  const publish = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
-  assert.match(publish, /if \(r\[k\] === undefined && p\[k\] !== undefined\) r\[k\] = p\[k\];/, "a backfill never overrides the record");
+  const records = readFileSync(new URL("../src/evm/lane-records.ts", import.meta.url), "utf8");
+  assert.match(records, /if \(out\[k\] === undefined && p\[k\] !== undefined\)/, "a backfill never overrides the record");
   assert.deepEqual(sentParamNames({ method: "POST", query: { a: "1" }, body: { chain: "base" } }).sort(), ["a", "chain"]);
   assert.deepEqual(sentParamNames({ method: "GET", query: null, body: { ignored: 1 } }), []);
+});
+
+// ---------- review of 709d71c ----------
+
+/** CDP listing api.loyalspark.online/x402-gateway/recipient-api/offers, as served on 2026-10-02 (input parts only). */
+const LOYALSPARK = { resource: "https://api.loyalspark.online/x402-gateway/recipient-api/offers", extensions: { bazaar: { info: { input: { headers: { "x-api-key": "rwk_..." }, method: "GET", queryParams: { token_address: "0x0000000000000000000000000000000000000001" }, type: "http" } }, schema: { properties: { input: { additionalProperties: false, properties: { headers: { additionalProperties: { type: "string" }, type: "object" }, method: { enum: ["GET", "HEAD", "DELETE"], type: "string" }, queryParams: { additionalProperties: { type: "string" }, type: "object" }, type: { const: "http", type: "string" } }, required: ["type", "method"], type: "object" } } } } } };
+/** CDP listing intel.twzrd.xyz (same shape: an empty example map, and a schema queryParams with additionalProperties). */
+const TWZRD = { resource: "https://intel.twzrd.xyz/v1/intel/quick", extensions: { bazaar: { info: { input: { discoverable: true, method: "GET", pathParams: { solana_address: "Solana wallet address (base58-encoded public key, 43–44 characters)" }, queryParams: {}, type: "http" } }, schema: { properties: { input: { additionalProperties: false, properties: { method: { enum: ["GET", "HEAD", "DELETE"], type: "string" }, queryParams: { additionalProperties: { type: "string" }, type: "object" }, type: { const: "http", type: "string" } }, required: ["type", "method"], type: "object" } } } } } };
+
+test("schema words are never names: additionalProperties, items, format... from a schema-shaped part declare nothing", () => {
+  const schemaOnly = { extensions: { bazaar: { schema: LOYALSPARK.extensions.bazaar.schema } } };
+  assert.deepEqual(declarationFrom(schemaOnly, "catalog").declared, [], "loyalspark: the schema part declares nothing");
+  assert.deepEqual(declarationFrom(TWZRD, "catalog").declared, [], "twzrd: nothing at all");
+  // loyalspark's own example map does name token_address: that one is a real declaration.
+  assert.deepEqual(declarationFrom(LOYALSPARK, "catalog").declared, ["token_address"]);
+  for (const kw of ["additionalProperties", "items", "format", "type", "properties", "required", "$schema", "enum", "default"]) assert.ok(SCHEMA_KEYWORDS.has(kw), kw);
+  assert.deepEqual(declarationFrom({ inputSchema: { type: "object", items: { type: "string" }, format: "uri" } }, "c").declared, []);
+  // Missing "address" on a listing whose only "declaration" was a schema word: the allowed words apply again.
+  assert.equal(answer400('missing "address"', declarationFrom(TWZRD, "catalog").declared)?.kind, "missing_input");
+  // And never a name in an answer either.
+  assert.equal(answer400('"additionalProperties" is required'), null);
+});
+
+test("a parameter named body is a name; a body that holds the parameters is a part", () => {
+  const named = { extensions: { bazaar: { schema: { properties: { input: { type: "object", properties: { type: { type: "string" }, method: { type: "string" }, body: { type: "string", description: "the text" } }, required: ["type", "method", "body"] } } } } } };
+  const d1 = declarationFrom(named, "402");
+  assert.deepEqual(d1.required, ["body"]);
+  const part = { extensions: { bazaar: { schema: { properties: { input: { type: "object", properties: { type: { type: "string" }, method: { type: "string" }, body: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } }, required: ["type", "method", "body"] } } } } } };
+  const d2 = declarationFrom(part, "402");
+  assert.deepEqual(d2.required, ["text"], "body is the part; its required text is the name");
+  assert.ok(!d2.declared.includes("body"));
+});
+
+test("rule 0 comes after the 404 check: a 404 stays the seller's (re-bought every 7 days) even when a required input was not sent", () => {
+  const body = '{"detail":"Not Found"}';
+  const rec = { ...bazaar, response: resp(404, body), body, requiredParams: ["card_name"], sentParams: [] as string[], declaredParams: ["card_name"] };
+  assert.equal(laneInputProblem(rec), null);
+  const last = lastPaidByListing([rec]).get(bazaar.resource)!;
+  assert.equal(last.inputError, false);
+  assert.equal(holdAfter4xx(last, Date.parse(bazaar.at) + SELLER_4XX_RETRY_MS), null);
+  // A slot left in the URL is still vet402's on a 404 (unchanged).
+  assert.equal(laneInputProblem(byHost("socialintel"))?.kind, "path_placeholder");
+});
+
+const TRACKED = readFileSync(new URL("../results/evm/declared-inputs.jsonl", import.meta.url), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as DeclaredPatch);
+const UND_BODY_0930 = '{"detail":[{"type":"missing","loc":["query","card_name"],"msg":"Field required","input":null}]}';
+const und0930 = { ...base({ resource: "https://oracle.the-undesirables.com/api/v1/grade-or-not", payTo: "0x642e8a7C289381f24f0395e0539f0bA41c74Cc1B", amountAtomic: "100000", at: "2026-09-30T12:32:27.708Z", response: resp(422, UND_BODY_0930), body: UND_BODY_0930 }), lane: "robinhood" };
+
+test("rule 0's material is tracked (results/evm/declared-inputs.jsonl): names and sources only, and it reaches the 2026-09-30 records", () => {
+  assert.equal(TRACKED.length, 10);
+  for (const p of TRACKED) for (const v of [...(p.sentParams ?? []), ...(p.requiredParams ?? []), ...(p.declaredParams ?? [])]) assert.match(v, /^[A-Za-z_$][\w$.-]*$/, "names only, never values");
+  const [q] = applyDeclaredPatches([byHost("quickintel")], TRACKED);
+  assert.deepEqual(q!.requiredParams, ["chain", "tokenAddress"]);
+  assert.deepEqual(q!.sentParams, []);
+  assert.equal(classifyRecord(q!).rule, "input:missing_input:settled");
+  const [u] = applyDeclaredPatches([und0930], TRACKED);
+  assert.deepEqual(u!.requiredParams, ["card_name"]);
+  assert.equal(classifyRecord(u!).cause, "vet402");
+  // A record that keeps its own material is never overridden by a patch.
+  const own = { ...byHost("quickintel"), requiredParams: ["x"], sentParams: ["x"] };
+  assert.deepEqual(applyDeclaredPatches([own], TRACKED)[0]!.requiredParams, ["x"]);
+  // The tracked file is not ignored by git.
+  const gi = readFileSync(new URL("../.gitignore", import.meta.url), "utf8");
+  assert.match(gi, /^!results\/evm\/declared-inputs\.jsonl$/m);
+});
+
+test("the lane's next plan reads the same material: on 2026-10-08 the-undesirables stays stopped (the same empty GET is not bought again)", () => {
+  const lane = readFileSync(new URL("../scripts/evm-lane.ts", import.meta.url), "utf8");
+  assert.match(lane, /return lastPaidByListing\(loadLaneRecords\(laneIds, "results\/evm", \["purchases"\]\)\);/);
+  const last = lastPaidByListing(applyDeclaredPatches([und0930], TRACKED)).get(und0930.resource)!;
+  assert.equal(last.inputError, true);
+  const oct8 = Date.parse("2026-10-08T03:00:00Z");
+  assert.equal(holdAfter4xx(last, oct8), "input_unchanged_after_input_error");
+  const dexterListing = { resource: und0930.resource, method: "GET" };
+  const again = repairLaneRequest(dexterListing as never, { resource: und0930.resource, method: "GET", query: null, body: null }, "2026-10-08", last, oct8);
+  assert.deepEqual(again, { ok: false, reason: "input_unchanged_after_input_error", param: null });
+  // Without the material (the raw record, as before this fix) it would have been bought again on 10-08.
+  const raw = lastPaidByListing([und0930]).get(und0930.resource)!;
+  assert.equal(holdAfter4xx(raw, oct8), null);
+  // loadLaneRecords applies the tracked file from a results directory.
+  const dir = mkdtempSync(join(tmpdir(), "vet402-lane-records-"));
+  try {
+    writeFileSync(join(dir, "robinhood-purchases.jsonl"), JSON.stringify(und0930) + "\n");
+    writeFileSync(join(dir, "declared-inputs.jsonl"), TRACKED.map((p) => JSON.stringify(p)).join("\n") + "\n");
+    const rows = loadLaneRecords(["robinhood"], dir, ["purchases"]);
+    assert.deepEqual(rows[0]!.requiredParams, ["card_name"]);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("evm-declare: a 402 header that does not decode does not hide the body's declaration", () => {
+  const src = readFileSync(new URL("../scripts/evm-declare.ts", import.meta.url), "utf8");
+  assert.match(src, /try \{\s*if \(h\) docs\.push\(JSON\.parse\(Buffer\.from\(h, "base64"\)\.toString\("utf8"\)\)\);\s*\} catch/);
+  assert.match(src, /results\/evm\/\$\{DECLARED_INPUTS_FILE\}/, "writes the tracked file");
 });

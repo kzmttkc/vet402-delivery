@@ -31,6 +31,7 @@ import { DEXTER_DISCOVERY, STOCK_SELLER, confirmLive, groupByPayTo, laneEntries,
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
+import { loadLaneRecords } from "../src/evm/lane-records.js";
 import { CHAINLINK_DIRECTORY, STOCK_REFS, checkAgainstDirectory, compareStockAnswer, readStockReference, type StockReference } from "../src/robinhood/stock-check.js";
 
 const argv = process.argv.slice(2);
@@ -250,15 +251,13 @@ function choiceSummary(ch: LiveChoice[]) {
   }));
 }
 
-/** vet402's last paid answer per listing on these lanes (src/evm/lane-input.ts lastPaidByListing). */
+/**
+ * vet402's last paid answer per listing on these lanes (src/evm/lane-input.ts lastPaidByListing), read the way the
+ * pages read it: the records with rule 0's material applied (src/evm/lane-records.ts), so a purchase that lacked a
+ * required input stays stopped instead of being bought again with the same request.
+ */
 function lastPaid(laneIds: LaneId[]): Map<string, LastPaid> {
-  const rows: ChainBuyRecord[] = [];
-  for (const id of laneIds) {
-    const f = `results/evm/${id}-purchases.jsonl`;
-    if (!existsSync(f)) continue;
-    for (const line of readFileSync(f, "utf8").split("\n")) if (line.trim()) rows.push(JSON.parse(line) as ChainBuyRecord);
-  }
-  return lastPaidByListing(rows);
+  return lastPaidByListing(loadLaneRecords(laneIds, "results/evm", ["purchases"]));
 }
 
 // ---------- main ----------

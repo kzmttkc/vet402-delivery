@@ -615,8 +615,11 @@ test("Base receipts are read from mainnet.base.org (publicnode rejects eth_getTr
   const empty = reverifyRecord({ ...r, response: { status: 200, contentType: null, bytes: 0, first300: "" } }, { ok: true, from: PAYER }, PAYER);
   assert.equal(empty.delivered, false);
   assert.equal(classifyRecord(empty).cause, "seller_config", "settled with an empty answer");
+  // The publish reads the re-read settlements through src/evm/lane-records.ts (purchases, reverify, chain check).
   const pub = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
-  assert.match(pub, /-reverify\.jsonl/);
+  assert.match(pub, /loadLaneRecords\(lanes\)/);
+  const rec = readFileSync(new URL("../src/evm/lane-records.ts", import.meta.url), "utf8");
+  assert.match(rec, /\["purchases", "reverify", "chaincheck"\]/);
 });
 
 test("secret gate: the public lane files and pages pass it (a seller URL is never a JSON key; currentMultiplier is allowed by value)", async () => {

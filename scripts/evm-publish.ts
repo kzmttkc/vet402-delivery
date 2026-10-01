@@ -9,7 +9,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildLanePublic, withholdUnnotified } from "../src/evm/site.js";
-import { mergeReadings, uncheckedPurchases } from "../src/evm/chaincheck.js";
+import { uncheckedPurchases } from "../src/evm/chaincheck.js";
+import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
+import { loadLaneRecords } from "../src/evm/lane-records.js";
 import { notifiedSellers, type NotifiedFile } from "../src/receipt/publish.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
 import { compareStockAnswer } from "../src/robinhood/stock-check.js";
@@ -21,24 +23,11 @@ if (lane !== "robinhood" && lane !== "arbitrum") throw new Error("--lane robinho
 const planFile = existsSync(`results/evm/${lane}-paid-run.json`) ? `results/evm/${lane}-paid-run.json` : `results/evm/${lane}-dryrun.json`;
 const dry = JSON.parse(readFileSync(planFile, "utf8")) as Record<string, unknown>;
 console.error(`plan: ${planFile}`);
-// Each lane's purchases, then its re-read settlements (scripts/evm-reverify.ts), then the chain check
-// (scripts/evm-chaincheck.ts). One record per purchase: a later reading of the same purchase replaces the earlier.
+// Each lane's purchases, its re-read settlements (scripts/evm-reverify.ts) and the chain check
+// (scripts/evm-chaincheck.ts), one record per purchase (a later reading replaces the earlier), with rule 0's
+// material (results/evm/declared-inputs.jsonl, tracked) filled where a record lacks it: src/evm/lane-records.ts.
 const lanes = lane === "arbitrum" ? ["arbitrum", "base-compare"] : ["robinhood"];
-const files = lanes.flatMap((l) => [`results/evm/${l}-purchases.jsonl`, `results/evm/${l}-reverify.jsonl`, `results/evm/${l}-chaincheck.jsonl`]);
-const raw = mergeReadings(files.flatMap((f) => (existsSync(f) ? readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : [])));
-// What the listing declared and which names the request carried (scripts/evm-declare.ts), for records that do not
-// keep them (before 2026-10-02): filled only where the record has nothing, so a purchase's own record always wins.
-const DECLARED_FIELDS = ["declaredParams", "requiredParams", "declaredFrom", "requiredFrom", "sentParams"] as const;
-for (const l of lanes) {
-  const f = `results/evm/${l}-declared.jsonl`;
-  if (!existsSync(f)) continue;
-  const patches = new Map(readFileSync(f, "utf8").split("\n").filter((x) => x.trim()).map((x) => JSON.parse(x)).map((p) => [`${p.lane}|${p.agentId}|${p.at}|${p.resource}`, p]));
-  for (const r of raw) {
-    const p = patches.get(`${r.lane}|${r.agentId}|${r.at}|${r.resource}`);
-    if (!p) continue;
-    for (const k of DECLARED_FIELDS) if (r[k] === undefined && p[k] !== undefined) r[k] = p[k];
-  }
-}
+const raw = loadLaneRecords(lanes) as (ChainBuyRecord & { lane: string } & Record<string, any>)[];
 // Settled is the chain's word, not the seller's header: every sent purchase must have been read by the chain check.
 const unchecked = uncheckedPurchases(raw);
 if (unchecked.length) throw new Error(`${unchecked.length} sent purchase(s) without a chain check; run npx tsx scripts/evm-chaincheck.ts --lane <lane> first: ${unchecked.slice(0, 5).join("; ")}`);
