@@ -97,7 +97,7 @@ export function lastPaidByListing(rows: readonly ChainBuyRecord[]): Map<string, 
     const k = r.listingResource ?? r.resource;
     const prev = m.get(k);
     if (prev?.at && Date.parse(prev.at) >= Date.parse(r.at)) continue;
-    m.set(k, { status: r.response?.status ?? null, requestKey: r.requestKey ?? null, at: r.at, inputError: laneInputProblem(r) !== null, declaredCount: r.declaredParams?.length ?? 0 });
+    m.set(k, { status: r.response?.status ?? null, requestKey: r.requestKey ?? null, at: r.at, inputError: laneInputProblem(r) !== null, declaredCount: new Set([...(r.declaredParams ?? []), ...(r.requiredParams ?? [])]).size });
   }
   return m;
 }
@@ -200,8 +200,104 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
 
 export type LaneInputProblem = "path_placeholder" | "missing_input";
 
+// ---------- what the listing declares (rule 0) ----------
+
+/** The inputs a listing or a 402 declares: every name, the names it marks required, and where they were read. */
+export interface InputDeclaration {
+  declared: string[];
+  required: string[];
+  from: string[];
+  /** The sources (of `from`) that mark a name required. */
+  requiredFrom: string[];
+}
+
+const isObjD = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/** Keys of an x402 Bazaar input that describe the request itself, not a parameter. */
+const INPUT_META = new Set(["type", "method", "bodyType", "headers", "queryParams", "body", "bodyFields", "pathParams"]);
+
+/** A part (queryParams, body, bodyFields, or a flat input schema): its parameter names and required names. */
+function partNames(part: unknown): { declared: string[]; required: string[] } {
+  if (!isObjD(part)) return { declared: [], required: [] };
+  const req = Array.isArray(part.required) ? part.required.filter((x): x is string => typeof x === "string") : [];
+  if (isObjD(part.properties)) return { declared: Object.keys(part.properties), required: req };
+  // An example map ({"chain":"base"}) names parameters but marks none required.
+  return { declared: Object.keys(part).filter((k) => !INPUT_META.has(k) && k !== "required" && k !== "properties" && k !== "$schema"), required: req };
+}
+
 /**
- * Reading a 4xx answer (review of a70363c: the rule turned around). An answer is vet402's own wrong request only
+ * Pure. What one document declares as the request's inputs. Reads, wherever they are: an x402 Bazaar extension
+ * (extensions.bazaar.info.input and its JSON schema, whose input is either split into queryParams/body or flat),
+ * a listing's inputSchema, accepts[].outputSchema.input, and Dexter's metadata.input.
+ */
+export function declarationFrom(doc: unknown, label: string): InputDeclaration {
+  const declared = new Set<string>();
+  const required = new Set<string>();
+  const from = new Set<string>();
+  const requiredFrom = new Set<string>();
+  const take = (part: unknown, where: string) => {
+    const n = partNames(part);
+    if (!n.declared.length && !n.required.length) return;
+    n.declared.forEach((x) => declared.add(x));
+    const req = n.required.filter((x) => !INPUT_META.has(x));
+    req.forEach((x) => {
+      required.add(x);
+      declared.add(x);
+    });
+    if (req.length) requiredFrom.add(`${label}:${where}`);
+    from.add(`${label}:${where}`);
+  };
+  const input = (x: unknown, where: string) => {
+    if (!isObjD(x)) return;
+    take(x.queryParams, `${where}.queryParams`);
+    take(x.body, `${where}.body`);
+    take(x.bodyFields, `${where}.bodyFields`);
+    // A flat schema: the input object itself lists the parameters.
+    if (isObjD(x.properties) || Array.isArray(x.required)) {
+      const props = isObjD(x.properties) ? x.properties : {};
+      const flat = { properties: Object.fromEntries(Object.entries(props).filter(([k]) => !INPUT_META.has(k))), required: Array.isArray(x.required) ? x.required : [] };
+      take(flat, where);
+      if (isObjD(props.queryParams)) take(props.queryParams, `${where}.properties.queryParams`);
+      if (isObjD(props.body)) take(props.body, `${where}.properties.body`);
+    }
+  };
+  if (isObjD(doc)) {
+    const ext = isObjD(doc.extensions) && isObjD(doc.extensions.bazaar) ? doc.extensions.bazaar : null;
+    if (ext) {
+      if (isObjD(ext.info)) input(ext.info.input, "extensions.bazaar.info.input");
+      const sp = isObjD(ext.schema) && isObjD(ext.schema.properties) ? ext.schema.properties : null;
+      if (sp) input(sp.input, "extensions.bazaar.schema.input");
+    }
+    if (isObjD(doc.inputSchema)) take(doc.inputSchema, "inputSchema");
+    if (isObjD(doc.metadata)) input(doc.metadata.input, "metadata.input");
+    for (const a of Array.isArray(doc.accepts) ? doc.accepts : []) if (isObjD(a) && isObjD(a.outputSchema)) input(a.outputSchema.input, "accepts.outputSchema.input");
+  }
+  return { declared: [...declared], required: [...required], from: [...from], requiredFrom: [...requiredFrom] };
+}
+
+/** Pure. Several declarations as one (a name is required when any source says so). */
+export function mergeDeclarations(ds: readonly InputDeclaration[]): InputDeclaration {
+  const uniq = (xs: string[]) => [...new Set(xs)];
+  return { declared: uniq(ds.flatMap((d) => d.declared)), required: uniq(ds.flatMap((d) => d.required)), from: uniq(ds.flatMap((d) => d.from)), requiredFrom: uniq(ds.flatMap((d) => d.requiredFrom)) };
+}
+
+/** Pure. The parameter names a request carries (query keys, and the keys of a JSON object body). */
+export function sentParamNames(e: { query: Record<string, string> | null; body: unknown; method: string }): string[] {
+  const q = Object.keys(e.query ?? {});
+  const b = e.method === "POST" && isObjD(e.body) ? Object.keys(e.body) : [];
+  return [...new Set([...q, ...b])];
+}
+
+/** Pure. Required inputs the request did not carry (rule 0), or [] when the record does not say what was sent. */
+export function missingRequired(r: Pick<ChainBuyRecord, "requiredParams" | "sentParams">): string[] {
+  if (!r.requiredParams?.length || !r.sentParams) return [];
+  const sent = new Set(r.sentParams.map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  return r.requiredParams.filter((x) => !sent.has(x.toLowerCase().replace(/[^a-z0-9]/g, "")));
+}
+
+/**
+ * Reading a 4xx answer. Rule 0 first: when the request vet402 sent lacks an input the listing declares required
+ * (the record's requiredParams and sentParams, see missingRequired), the 4xx is vet402's whatever the answer says.
+ * Then (review of a70363c: the rule turned around) an answer is vet402's own wrong request only
  * when every name it says is missing is one vet402 should have sent:
  *   (a) a parameter the listing declares (case, snake_case and camelCase are the same name), or
  *   (b) when the listing declares nothing, a word of ALLOWED_NAMES.
@@ -374,9 +470,12 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
  * requested, or an answer whose every missing name is vet402's to send (missingNameSide), with none of the
  * seller's own and no sentence about the seller's side.
  */
-export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response" | "body" | "declaredParams">): { kind: LaneInputProblem; detail: string } | null {
+export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response" | "body" | "declaredParams" | "requiredParams" | "sentParams" | "declaredFrom" | "requiredFrom">): { kind: LaneInputProblem; detail: string } | null {
   const status = r.response?.status ?? null;
   if (status === null || !INPUT_STATUSES.has(status)) return null;
+  // Rule 0: a required input vet402 did not send.
+  const lacking = missingRequired(r);
+  if (lacking.length) return { kind: "missing_input", detail: `vet402 did not send ${lacking.join(", ")}, which the listing declares required (${(r.requiredFrom ?? r.declaredFrom ?? []).join("; ") || "declaration"})` };
   const slot = pathPlaceholderIn(r.resource);
   const text = `${r.body ?? r.response?.first300 ?? ""}`.slice(0, 4000);
   if (slot) return { kind: "path_placeholder", detail: `the URL vet402 sent still had the slot ${slot === "*" ? "*" : `:${slot}`} in its path` };

@@ -10,7 +10,7 @@ import { getAddress, type Hex } from "viem";
 import { chainCheckRecords, mergeReadings, uncheckedPurchases, type EvmOutTx } from "../src/evm/chaincheck.js";
 import { EVM_CHAINS } from "../src/evm/chains.js";
 import type { ChainBuyRecord } from "../src/evm/evm-buy.js";
-import { holdAfter4xx, laneInputProblem, lastPaidByListing, repairLaneRequest, sellerSaidFree, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
+import { declarationFrom, holdAfter4xx, laneInputProblem, lastPaidByListing, mergeDeclarations, missingRequired, repairLaneRequest, sellerSaidFree, sentParamNames, SELLER_4XX_RETRY_MS } from "../src/evm/lane-input.js";
 import { laneRequestKey } from "../src/evm/evm-buy.js";
 import { groupByPayTo } from "../src/evm/lane-plan.js";
 import { classifyRecord } from "../src/evm/settle-cause.js";
@@ -676,4 +676,77 @@ test("turned rule, stopping: vet402's 4xx stops for good only on a listing that 
   assert.equal(holdAfter4xx(a, Date.parse(bazaar.at) + 86_400_000), "unchanged_after_seller_4xx_within_7_days");
   const b = lastPaidByListing([withDecl]).get(bazaar.resource)!;
   assert.equal(holdAfter4xx(b, Date.parse(bazaar.at) + 365 * 86_400_000), "input_unchanged_after_input_error", "declared: stopped until the request changes");
+});
+
+// ---------- rule 0: a required input vet402 did not send (review of b6601a3) ----------
+// The documents below are excerpts of what the catalogs and the sellers' unpaid 402s served on 2026-10-02 (read
+// with scripts/evm-declare.ts; nothing paid), cut to the parts that declare inputs.
+
+/** Dexter catalog, x402.quickintel.io/v1/scan/full: an example body, no "required". */
+const QI_DEXTER = { resource: "https://x402.quickintel.io/v1/scan/full", method: "POST", metadata: { input: { body: { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" }, type: "http", method: "POST", bodyType: "json" } }, accepts: [{ network: "eip155:8453", outputSchema: { input: { body: { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" }, type: "http", method: "POST", bodyType: "json" } } }] };
+/** quickintel's own 402 body: the Bazaar schema marks chain and tokenAddress required. */
+const QI_402 = { x402Version: 2, extensions: { bazaar: { info: { input: { type: "http", method: "POST", bodyType: "json", body: { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" } } }, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: { input: { type: "object", required: ["chain", "tokenAddress"], properties: { chain: { type: "string", description: 'Blockchain network name (e.g., "eth", "bsc", "base", "sol"). See docs for all 63 supported chains.' }, tokenAddress: { type: "string", description: "Token contract address to scan. EVM: 0x-prefixed hex. Solana: base58." } } } } } } } };
+/** Dexter catalog, oracle.the-undesirables.com/api/v1/grade-or-not: declares no input at all. */
+const UND_DEXTER = { resource: "https://oracle.the-undesirables.com/api/v1/grade-or-not", method: "GET", metadata: { description: "Checks whether something should be graded or not.", displayName: "Grade or Not" }, accepts: [{ network: "eip155:4663", outputSchema: null }] };
+/** the-undesirables' own 402 (PAYMENT-REQUIRED header and body alike): queryParams with required ["card_name"]. */
+const UND_402 = { x402Version: 2, extensions: { bazaar: { info: { input: { type: "http", queryParams: { card_name: "Base Set Charizard Holo", predicted_grade: 8.5 }, method: "GET" } }, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: { input: { type: "object", properties: { type: { type: "string", const: "http" }, method: { type: "string", enum: ["GET", "HEAD", "DELETE"] }, queryParams: { type: "object", properties: { card_name: { type: "string", description: "Card name to evaluate" }, raw_price: { type: "number" }, predicted_grade: { type: "number" }, service_tier: { type: "string" } }, required: ["card_name"] } }, required: ["type", "method"], additionalProperties: false } } } } } };
+
+test("rule 0, the catalogs and 402s as served: quickintel requires chain and tokenAddress, the-undesirables requires card_name (in the 402, not the catalog)", () => {
+  const qiCat = declarationFrom(QI_DEXTER, "catalog (dexter)");
+  assert.deepEqual(qiCat.required, [], "the Dexter catalog gives an example body, not a required list");
+  assert.deepEqual(qiCat.declared.sort(), ["chain", "tokenAddress"]);
+  const qi = mergeDeclarations([qiCat, declarationFrom(QI_402, "402")]);
+  assert.deepEqual(qi.required.sort(), ["chain", "tokenAddress"]);
+  assert.deepEqual(qi.requiredFrom, ["402:extensions.bazaar.schema.input"]);
+  const undCat = declarationFrom(UND_DEXTER, "catalog (dexter)");
+  assert.deepEqual(undCat, { declared: [], required: [], from: [], requiredFrom: [] }, "the catalog declares nothing");
+  const und = mergeDeclarations([undCat, declarationFrom(UND_402, "402")]);
+  assert.deepEqual(und.required, ["card_name"], "type and method are the schema's own, not inputs");
+  assert.deepEqual(und.requiredFrom, ["402:extensions.bazaar.schema.input.properties.queryParams"]);
+});
+
+test("rule 0: quickintel (sent {}, lacking chain and tokenAddress) and the-undesirables (no card_name) are vet402's, before the name rule", () => {
+  const qi = mergeDeclarations([declarationFrom(QI_DEXTER, "catalog"), declarationFrom(QI_402, "402")]);
+  const q = { ...byHost("quickintel"), requiredParams: qi.required, declaredParams: qi.declared, requiredFrom: qi.requiredFrom, sentParams: [] as string[] };
+  assert.equal(laneInputProblem(q)?.kind, "missing_input");
+  assert.match(laneInputProblem(q)!.detail, /did not send chain, tokenAddress/);
+  assert.equal(classifyRecord(q).rule, "input:missing_input:settled");
+  const UND_BODY = '{"detail":[{"type":"missing","loc":["query","card_name"],"msg":"Field required","input":null}]}';
+  const und = mergeDeclarations([declarationFrom(UND_DEXTER, "catalog"), declarationFrom(UND_402, "402")]);
+  const u = { ...base({ resource: UND_DEXTER.resource, payTo: "0x642e8a7c289381f24f0395e0539f0ba41c74cc1b", amountAtomic: "100000", at: "2026-09-30T12:32:27Z", response: resp(422, UND_BODY), body: UND_BODY }), requiredParams: und.required, declaredParams: und.declared, sentParams: [] as string[] };
+  assert.equal(laneInputProblem(u)?.kind, "missing_input");
+  assert.equal(classifyRecord(u).cause, "vet402");
+  // Without what was sent, or without a required list, rule 0 says nothing and the name rule decides.
+  assert.deepEqual(missingRequired({ requiredParams: ["card_name"] }), []);
+  assert.equal(laneInputProblem({ ...u, sentParams: undefined, requiredParams: undefined, declaredParams: undefined }), null, "card_name alone is not an allowed name");
+  // Sent everything required: rule 0 does not apply; the seller's own 422 stays the seller's.
+  assert.deepEqual(missingRequired({ requiredParams: ["card_name"], sentParams: ["card_name"] }), []);
+  assert.deepEqual(missingRequired({ requiredParams: ["tokenAddress"], sentParams: ["token_address"] }), [], "snake and camel are one name");
+});
+
+test("rule 0: the stop for good is lifted when vet402 fills the input (the request changes)", () => {
+  const qi = mergeDeclarations([declarationFrom(QI_DEXTER, "catalog"), declarationFrom(QI_402, "402")]);
+  const rec = { ...byHost("quickintel"), requiredParams: qi.required, declaredParams: qi.declared, sentParams: [] as string[] };
+  const last = lastPaidByListing([rec]).get(rec.resource)!;
+  assert.equal(last.inputError, true);
+  assert.ok((last.declaredCount ?? 0) > 0);
+  assert.equal(holdAfter4xx(last, Date.parse(rec.at) + 365 * 86_400_000), "input_unchanged_after_input_error");
+  // The same {} again: not bought. Filled from the listing (chain, tokenAddress): a different request, bought.
+  const same = repairLaneRequest({ resource: QI_DEXTER.resource }, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last);
+  assert.equal(same.ok, false);
+  const filled = repairLaneRequest(QI_DEXTER as never, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last);
+  assert.ok(filled.ok, "filled with chain and tokenAddress: bought");
+  assert.deepEqual(filled.ok && filled.request.body, { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" });
+});
+
+test("rule 0, the record: a purchase keeps the names it sent (never values), what was declared required and where it was read", () => {
+  const buy = readFileSync(new URL("../src/evm/evm-buy.ts", import.meta.url), "utf8");
+  assert.match(buy, /sentParams: \[\.\.\.new Set\(\[\.\.\.Object\.keys\(e\.query \?\? \{\}\)/);
+  assert.match(buy, /\.\.\.\(e\.requiredFrom\?\.length \? \{ requiredFrom: e\.requiredFrom \} : \{\}\)/);
+  const plan = readFileSync(new URL("../src/evm/lane-plan.ts", import.meta.url), "utf8");
+  assert.match(plan, /declarationFrom\(d, "402"\)/, "the live 402's declaration is read at plan time");
+  const publish = readFileSync(new URL("../scripts/evm-publish.ts", import.meta.url), "utf8");
+  assert.match(publish, /if \(r\[k\] === undefined && p\[k\] !== undefined\) r\[k\] = p\[k\];/, "a backfill never overrides the record");
+  assert.deepEqual(sentParamNames({ method: "POST", query: { a: "1" }, body: { chain: "base" } }).sort(), ["a", "chain"]);
+  assert.deepEqual(sentParamNames({ method: "GET", query: null, body: { ignored: 1 } }), []);
 });

@@ -26,6 +26,19 @@ console.error(`plan: ${planFile}`);
 const lanes = lane === "arbitrum" ? ["arbitrum", "base-compare"] : ["robinhood"];
 const files = lanes.flatMap((l) => [`results/evm/${l}-purchases.jsonl`, `results/evm/${l}-reverify.jsonl`, `results/evm/${l}-chaincheck.jsonl`]);
 const raw = mergeReadings(files.flatMap((f) => (existsSync(f) ? readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : [])));
+// What the listing declared and which names the request carried (scripts/evm-declare.ts), for records that do not
+// keep them (before 2026-10-02): filled only where the record has nothing, so a purchase's own record always wins.
+const DECLARED_FIELDS = ["declaredParams", "requiredParams", "declaredFrom", "requiredFrom", "sentParams"] as const;
+for (const l of lanes) {
+  const f = `results/evm/${l}-declared.jsonl`;
+  if (!existsSync(f)) continue;
+  const patches = new Map(readFileSync(f, "utf8").split("\n").filter((x) => x.trim()).map((x) => JSON.parse(x)).map((p) => [`${p.lane}|${p.agentId}|${p.at}|${p.resource}`, p]));
+  for (const r of raw) {
+    const p = patches.get(`${r.lane}|${r.agentId}|${r.at}|${r.resource}`);
+    if (!p) continue;
+    for (const k of DECLARED_FIELDS) if (r[k] === undefined && p[k] !== undefined) r[k] = p[k];
+  }
+}
 // Settled is the chain's word, not the seller's header: every sent purchase must have been read by the chain check.
 const unchecked = uncheckedPurchases(raw);
 if (unchecked.length) throw new Error(`${unchecked.length} sent purchase(s) without a chain check; run npx tsx scripts/evm-chaincheck.ts --lane <lane> first: ${unchecked.slice(0, 5).join("; ")}`);

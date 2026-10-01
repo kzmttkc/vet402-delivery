@@ -12,7 +12,7 @@ import { normalizeAccept } from "../guard.js";
 import { STOCK_REFS } from "../robinhood/stock-check.js";
 import { EVM_CHAINS, chainByCaip2, type EvmChainSpec } from "./chains.js";
 import { checkChainAccept, eqAddr, payToOn, type ChainBuyEntry, type EvmAccept } from "./evm-buy.js";
-import { repairLaneRequest, type LastPaid } from "./lane-input.js";
+import { declarationFrom, mergeDeclarations, repairLaneRequest, type InputDeclaration, type LastPaid } from "./lane-input.js";
 
 export const DEXTER_DISCOVERY = "https://x402.dexter.cash/discovery/resources";
 
@@ -34,6 +34,8 @@ export interface ListingOption {
   /** The UTC date used to fill the request, and the parameters vet402 filled with it. */
   inputDate: string;
   datedParams: string[];
+  /** What the catalog listing declares (the live 402's declaration is added in confirmLive). */
+  declaration: InputDeclaration;
 }
 
 export interface PayToGroup {
@@ -53,7 +55,7 @@ function chainAccepts(l: Listing, spec: EvmChainSpec): EvmAccept[] {
   }).filter((a) => a.network === spec.caip2 && a.scheme === "exact" && eqAddr(a.asset, spec.asset));
 }
 
-function requestOf(l: Listing): { method: "GET" | "POST"; query: Record<string, string> | null; body: unknown; simple: boolean } {
+export function requestOf(l: Listing): { method: "GET" | "POST"; query: Record<string, string> | null; body: unknown; simple: boolean } {
   const input = (l.extensions?.bazaar?.info?.input ?? {}) as { method?: string; queryParams?: Record<string, unknown>; body?: unknown };
   const method = String(input.method ?? l.method ?? "GET").toUpperCase() === "POST" ? "POST" : "GET";
   const query =
@@ -102,7 +104,7 @@ export function groupByPayTo(
         const req = requestOf(l);
         const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastPaid?.get(l.resource) ?? null, opts.nowMs ?? Date.now());
         if (!fix.ok) (g.inputSkipped ??= []).push({ resource: l.resource, why: `input_unfillable: ${fix.reason.replace(/^input_unfillable:/, "")}${fix.param ? ` (${fix.param})` : ""}` });
-        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, inputDate: today, datedParams: fix.datedParams, declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
+        else g.options.push({ payTo, amount: a.amount, ...fix.request, simple: req.simple, listingResource: l.resource, inputDate: today, datedParams: fix.datedParams, declaration: declarationFrom(l, "catalog"), declaredParams: fix.declaredParams, ...(fix.changed ? { filled: fix.filled } : {}) });
       }
       groups.set(payTo.toLowerCase(), g);
     }
@@ -115,7 +117,7 @@ export function groupByPayTo(
   return [...groups.values()].sort((a, b) => a.payTo.toLowerCase().localeCompare(b.payTo.toLowerCase()));
 }
 
-export type Probe = (o: Pick<ListingOption, "resource" | "query" | "method" | "body">) => Promise<{ status: number | null; accepts: EvmAccept[]; raw: string; error?: string }>;
+export type Probe = (o: Pick<ListingOption, "resource" | "query" | "method" | "body">) => Promise<{ status: number | null; accepts: EvmAccept[]; raw: string; error?: string; /** The 402's parsed documents (PAYMENT-REQUIRED header, body). */ docs?: unknown[] }>;
 
 export interface LiveChoice {
   payTo: Address;
@@ -160,7 +162,9 @@ export async function confirmLive(
           c.tried.push({ resource: o.resource, status: 402, why: `${r.refused}: ${r.detail}` });
           continue;
         }
-        c.chosen = { ...o, liveAmount: a!.amount, raw402: p.raw, sameOnPayTo };
+        // What the seller declares in the 402 it serves now (often more than the catalog: a required list).
+        const declaration = mergeDeclarations([o.declaration, ...(p.docs ?? []).map((d) => declarationFrom(d, "402"))]);
+        c.chosen = { ...o, declaration, liveAmount: a!.amount, raw402: p.raw, sameOnPayTo };
         break;
       }
       out[i] = c;
@@ -185,7 +189,10 @@ export function laneEntries(choices: LiveChoice[], spec: EvmChainSpec, sameOn?: 
         listingResource: c.chosen.listingResource,
         inputDate: c.chosen.inputDate,
         ...(c.chosen.datedParams.length ? { datedParams: c.chosen.datedParams } : {}),
-        ...(c.chosen.declaredParams.length ? { declaredParams: c.chosen.declaredParams } : {}),
+        ...(c.chosen.declaredParams.length || c.chosen.declaration.declared.length ? { declaredParams: [...new Set([...c.chosen.declaredParams, ...c.chosen.declaration.declared])] } : {}),
+        ...(c.chosen.declaration.required.length ? { requiredParams: c.chosen.declaration.required } : {}),
+        ...(c.chosen.declaration.from.length ? { declaredFrom: c.chosen.declaration.from } : {}),
+        ...(c.chosen.declaration.requiredFrom.length ? { requiredFrom: c.chosen.declaration.requiredFrom } : {}),
         ...(sameOn ? { sameSellerOn: sameOn.caip2 } : {}),
         lock: { payTo: c.payTo, amount },
       },

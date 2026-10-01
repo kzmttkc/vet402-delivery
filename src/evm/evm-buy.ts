@@ -253,6 +253,10 @@ export interface ChainBuyEntry {
   inputDate?: string;
   /** Parameters vet402 filled with that date (rule table:date); only these are written as <today> in requestKey. */
   datedParams?: string[];
+  /** Inputs the listing or its live 402 marks required at plan time, and where that was read (src/evm/lane-input.ts). */
+  requiredParams?: string[];
+  declaredFrom?: string[];
+  requiredFrom?: string[];
 }
 
 export interface ChainBuyDeps {
@@ -327,6 +331,12 @@ export interface ChainBuyRecord {
   /** The UTC date vet402 used when it filled the request, and the parameters it filled with that date. */
   inputDate?: string;
   datedParams?: string[];
+  /** Inputs the listing declared required at purchase time, and where that declaration was read. */
+  requiredParams?: string[];
+  declaredFrom?: string[];
+  requiredFrom?: string[];
+  /** The parameter names the request carried (query keys, JSON body keys); never the values. */
+  sentParams?: string[];
 }
 
 export interface PaymentResponseHeaderNote {
@@ -438,6 +448,10 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
     ...(e.inputDate ? { inputDate: e.inputDate } : {}),
     ...(e.datedParams?.length ? { datedParams: e.datedParams } : {}),
     ...(e.declaredParams?.length ? { declaredParams: e.declaredParams } : {}),
+    ...(e.requiredParams?.length ? { requiredParams: e.requiredParams } : {}),
+    ...(e.declaredFrom?.length ? { declaredFrom: e.declaredFrom } : {}),
+    ...(e.requiredFrom?.length ? { requiredFrom: e.requiredFrom } : {}),
+    sentParams: [...new Set([...Object.keys(e.query ?? {}), ...(e.method === "POST" && e.body && typeof e.body === "object" && !Array.isArray(e.body) ? Object.keys(e.body as object) : [])])],
   };
   const refuse = (r: EvmRefusal): ChainBuyRecord => ({ ...rec, outcome: "refused", refusal: r });
   const maxPer = deps.maxPerAtomic ?? MAX_PER_PURCHASE_ATOMIC;

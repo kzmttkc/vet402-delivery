@@ -96,6 +96,7 @@ async function catalogs(): Promise<{ items: Listing[]; sources: Record<string, {
 // ---- probe that also keeps the raw 402 (header + body) for the facilitator hint ----
 const probe: Probe = async (o) => {
   let raw = "";
+  const docs: unknown[] = [];
   const capture = (async (u: RequestInfo | URL, init?: RequestInit) => {
     const r = await fetch(u, init);
     if (r.status === 402) {
@@ -106,12 +107,20 @@ const probe: Probe = async (o) => {
       } catch {
         decoded = "";
       }
-      raw = `${decoded}\n${await r.clone().text().catch(() => "")}`.slice(0, 20_000);
+      const bodyText = await r.clone().text().catch(() => "");
+      raw = `${decoded}\n${bodyText}`.slice(0, 20_000);
+      for (const t of [decoded, bodyText]) {
+        try {
+          if (t) docs.push(JSON.parse(t));
+        } catch {
+          /* not JSON */
+        }
+      }
     }
     return r;
   }) as typeof fetch;
   const p = await probe402(o, capture);
-  return { status: p.status, accepts: p.accepts, raw, ...(p.error ? { error: p.error } : {}) };
+  return { status: p.status, accepts: p.accepts, raw, docs, ...(p.error ? { error: p.error } : {}) };
 };
 
 // ---- balances and funding ----
