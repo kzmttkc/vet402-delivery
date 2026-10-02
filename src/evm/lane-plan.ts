@@ -100,7 +100,9 @@ export function groupByPayTo(
       g.listings++;
       if (!g.hosts.includes(host)) g.hosts.push(host);
       if (BigInt(a.amount) > 0n && BigInt(a.amount) <= opts.maxPerAtomic) {
-        // The request is filled the way the Solana and Tempo purchases are; one that cannot be is not bought.
+        // The request is filled the way the Solana and Tempo purchases are. One that cannot be is not bought, with or
+        // without an earlier 4xx (repairLaneRequest: every fillParams failure, sends_message and commits_to_purchase
+        // included); it is kept as an input skip with the reason, and never reaches confirmLive or a purchase.
         const req = requestOf(l);
         const fix = repairLaneRequest(l, { resource: l.resource, method: req.method, query: req.query, body: req.body }, today, opts.lastPaid?.get(l.resource) ?? null, opts.nowMs ?? Date.now());
         if (!fix.ok) (g.inputSkipped ??= []).push({ resource: l.resource, why: `input_unfillable: ${fix.reason.replace(/^input_unfillable:/, "")}${fix.param ? ` (${fix.param})` : ""}` });

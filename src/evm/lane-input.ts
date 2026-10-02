@@ -9,7 +9,10 @@
  *   query / body  src/inputs/fill.ts fillParams against the listing's declared input (src/inputs/spec.ts
  *           fromBazaar): placeholders, required parameters left out, and, when nothing is sent, the seller's
  *           own documented defaults
- * A listing whose path slot cannot be filled is not bought. After a paid 400, 404 or 422 the same request is held
+ * A listing whose request cannot be filled is not bought, whatever came before: a path slot without a value, and
+ * every failure of fillParams (a required input with no value, a placeholder nothing names, and above all an
+ * endpoint that sends a message or commits to a purchase, sends_message / commits_to_purchase). It is planned as an
+ * input skip with the reason, never sent unfilled. After a paid 400, 404 or 422 the same request is held
  * (holdAfter4xx: 30 days when the answer reads as vet402's own wrong request, 7 days otherwise).
  *
  * The hold is not what limits money. A paying lane run (scripts/evm-lane.ts --pay) buys each seller once in its
@@ -26,7 +29,7 @@
  * payment settled). Those answers are vet402's request, not the seller.
  */
 import type { Listing } from "../discovery.js";
-import { fillParams, isPlaceholder, type FilledParam } from "../inputs/fill.js";
+import { commitsToPurchase, fillParams, isPlaceholder, sendsMessage, type FilledParam } from "../inputs/fill.js";
 import { fromBazaar } from "../inputs/spec.js";
 import { laneRequestKey, type ChainBuyRecord } from "./evm-buy.js";
 
@@ -178,6 +181,10 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
 
   // 2. Query or body against the listing's declared input.
   const spec = fromBazaar(l as unknown as Obj, "lane-listing");
+  // An endpoint that sends a message or commits to a purchase is never bought, whatever its body looks like (a body
+  // that is not a JSON object is not given to fillParams below, so the check is made here as well).
+  if (spec && sendsMessage(spec, u.pathname)) return { ok: false, reason: "input_unfillable:sends_message", param: null };
+  if (spec && commitsToPurchase(spec)) return { ok: false, reason: "input_unfillable:commits_to_purchase", param: null };
   const isPost = req.method === "POST";
   const bodyObj = isPost && isObj(req.body) ? (req.body as Obj) : isPost && (req.body === null || req.body === undefined) ? {} : null;
   let body = req.body;
@@ -186,22 +193,22 @@ export function repairLaneRequest(l: Listing, req: LaneRequest, today: string, l
     const sent: Obj = isPost ? { ...sentQuery, ...bodyObj } : sentQuery;
     const spec2 = spec ? { ...spec, params: spec.params.filter((p) => (isPost ? true : p.in === "query")) } : null;
     const r = fillParams(sent, spec2, today, u.pathname);
-    if (!r.ok) {
-      if (hold) return { ok: false, reason: `input_unfillable:${r.reason}`, param: r.param };
-    } else {
-      for (const f of r.filled) {
-        const where = f.param in sentQuery || !isPost ? "query" : spec2?.params.find((p) => p.name === f.param)?.in === "query" ? "query" : "body";
-        if (where === "query") {
-          if (f.param in r.params) query[f.param] = typeof r.params[f.param] === "string" ? (r.params[f.param] as string) : JSON.stringify(r.params[f.param]);
-          else delete query[f.param];
-        } else {
-          const b: Obj = { ...(isObj(body) ? (body as Obj) : {}) };
-          if (f.param in r.params) b[f.param] = r.params[f.param];
-          else delete b[f.param];
-          body = b;
-        }
-        filled.push(f);
+    // A request that cannot be filled is not bought, whether or not an earlier answer was a 4xx: sending it unfilled
+    // pays for an answer to a request vet402 knows is wrong (and, for sends_message / commits_to_purchase, could make
+    // the seller act on vet402's empty request).
+    if (!r.ok) return { ok: false, reason: `input_unfillable:${r.reason}`, param: r.param };
+    for (const f of r.filled) {
+      const where = f.param in sentQuery || !isPost ? "query" : spec2?.params.find((p) => p.name === f.param)?.in === "query" ? "query" : "body";
+      if (where === "query") {
+        if (f.param in r.params) query[f.param] = typeof r.params[f.param] === "string" ? (r.params[f.param] as string) : JSON.stringify(r.params[f.param]);
+        else delete query[f.param];
+      } else {
+        const b: Obj = { ...(isObj(body) ? (body as Obj) : {}) };
+        if (f.param in r.params) b[f.param] = r.params[f.param];
+        else delete b[f.param];
+        body = b;
       }
+      filled.push(f);
     }
   }
   const changed = filled.length > 0;
