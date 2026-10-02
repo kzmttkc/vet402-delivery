@@ -122,7 +122,7 @@ test("index: 2026-09-28 to 2026-09-30 name their observation-roots account, and 
   const named = index.days.filter((d) => d.programRoot).map((d) => d.day);
   // The three backfilled days, then every day the daily records run posts (2026-10-01 on): no day from 2026-09-28 is skipped.
   assert.deepEqual(named.slice(0, 3), ["2026-09-28", "2026-09-29", "2026-09-30"]);
-  assert.deepEqual(named, index.days.map((d) => d.day).filter((d) => d >= "2026-09-28" && d <= named[named.length - 1]));
+  assert.deepEqual(named, index.days.map((d) => d.day).filter((d) => d >= "2026-09-28" && d <= named[named.length - 1]!));
   for (const d of index.days.filter((x) => x.programRoot)) {
     assert.equal(d.programRoot!.account, await dayRootPda(ROOTS_PROGRAM, d.day), d.day);
     assert.equal(d.programRoot!.network, ROOTS_INDEX_NETWORK);
