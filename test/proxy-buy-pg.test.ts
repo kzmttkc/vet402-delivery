@@ -17,7 +17,7 @@ const URL0 = process.env.PROXY_BUY_TEST_PG_URL;
 const skip = !URL0;
 const pool = URL0 ? new pg.Pool({ connectionString: URL0, max: 40 }) : null;
 const sql = pool ? pgSql(pool) : null;
-const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter, pb_alert, pb_state";
+const TABLES = "pb_purchase, pb_customer_tx, pb_day, pb_wallet, pb_refund, pb_chain_tx, pb_counter, pb_alert, pb_state, pb_nd_refund";
 
 async function fresh(): Promise<Store> {
   await pool!.query(`drop table if exists ${TABLES}`);
@@ -337,4 +337,42 @@ test("pg (tempo fees): 10 reconcilers at once see a closed purchase's seller pay
   assert.equal(r.filter(Boolean).length, 1);
   assert.equal((await s.wallet("tempo"))!.floor, 90_000n - 7_999n);
   assert.equal((await pool!.query<{ s: string }>(`select spent::text as s from pb_purchase where id = 'o'`)).rows[0]!.s, "17999");
+});
+
+// ---------- refunds for undelivered answers (Store.ndRefundClaim), real concurrent connections ----------
+
+const ndCaps = { dailyCapAtomic: 2_000_000n, monthlyCapAtomic: 20_000_000n };
+async function inProgress(s: Store, id: string, host: string, agent: string): Promise<void> {
+  await s.claim({ id, chain: "solana", target: `https://${host}/`, sellerHost: host, agent, sellerAmount: 10_000n, feeReserve: 0n, total: 15_000n, facts: {}, now });
+  await pool!.query(`update pb_purchase set state = 'in_progress', day = $2 where id = $1`, [id, day]);
+}
+const ndAsk = (s: Store, id: string, o: { to: string; host: string; payTo: string; caps?: typeof ndCaps }) =>
+  s.ndRefundClaim(id, { chain: "solana", from: ["in_progress", "seller_unsettled"], to: o.to, agent: o.to, sellerHost: o.host, sellerPayTo: o.payTo, amount: 15_000n, maxRefund: 105_000n, basis: "http_500", caps: o.caps ?? ndCaps, lastDeliveredAt: null, record: { id } as never, now });
+
+test("pg (undelivered refunds): 30 decisions on one purchase at once -> one grant, one refund row", { skip }, async () => {
+  const s = await fresh();
+  await inProgress(s, "u1", "h.test", "A");
+  const r = await Promise.all(Array.from({ length: 30 }, () => ndAsk(s, "u1", { to: "A", host: "h.test", payTo: "P" })));
+  assert.equal(r.filter((d) => "granted" in d && d.granted).length, 1);
+  assert.equal((await pool!.query(`select 1 from pb_refund where purchase_id = 'u1'`)).rows.length, 1);
+  assert.equal((await pool!.query(`select 1 from pb_nd_refund where purchase_id = 'u1'`)).rows.length, 1);
+});
+
+test("pg (undelivered refunds): 20 buyers of one seller at once -> one grant, the rest held", { skip }, async () => {
+  const s = await fresh();
+  for (let i = 0; i < 20; i++) await inProgress(s, `h${i}`, "h.test", `B${i}`);
+  const r = await Promise.all(Array.from({ length: 20 }, (_, i) => ndAsk(s, `h${i}`, { to: `B${i}`, host: "h.test", payTo: "P" })));
+  assert.equal(r.filter((d) => "granted" in d && d.granted).length, 1);
+  assert.equal(r.filter((d) => "granted" in d && !d.granted && d.reason === "seller_on_hold").length, 19);
+});
+
+test("pg (undelivered refunds): 20 buyers of 20 sellers at once under a day cap of 3 refunds -> exactly 3 grants", { skip }, async () => {
+  const s = await fresh();
+  for (let i = 0; i < 20; i++) await inProgress(s, `c${i}`, `s${i}.test`, `C${i}`);
+  const caps3 = { dailyCapAtomic: 45_000n, monthlyCapAtomic: 20_000_000n };
+  const r = await Promise.all(Array.from({ length: 20 }, (_, i) => ndAsk(s, `c${i}`, { to: `C${i}`, host: `s${i}.test`, payTo: `P${i}`, caps: caps3 })));
+  assert.equal(r.filter((d) => "granted" in d && d.granted).length, 3);
+  assert.equal(r.filter((d) => "granted" in d && !d.granted && d.reason === "cap_daily").length, 17);
+  const sum = await pool!.query<{ s: string }>(`select coalesce(sum(amount), 0)::text as s from pb_nd_refund where granted`);
+  assert.equal(sum.rows[0]!.s, "45000");
 });

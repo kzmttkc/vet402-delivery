@@ -5,6 +5,7 @@
 import type { ProxyChain } from "./allowlist.js";
 import { TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import type { Fate } from "./fate.js";
+import type { NotDeliveredFault, NotDeliveredRefund } from "./not-delivered.js";
 import { refundAgent, type RefundSender } from "./refund.js";
 import type { DayCaps, PurchaseRecord, PurchaseState, RefundRecord, Store } from "./store.js";
 
@@ -90,15 +91,30 @@ export async function recordTempoFee(store: Store, chain: ProxyChain, id: string
   await store.addFee(id, tx.hash, fee ?? TEMPO_REFUND_FEE_BOUND_ATOMIC);
 }
 
-/** A sent refund closes its purchase: the total, plus (Tempo) the refund's fee and every fee recorded before. */
+/**
+ * A sent refund closes its purchase: the total, plus (Tempo) the refund's fee and every fee recorded before. `spent`:
+ * what the purchase took out of the payer wallet when it is not the total alone (a refund for an undelivered answer:
+ * the seller's price and the refund).
+ */
 export async function closeRefunded(
   c: { store: Store; now: () => Date },
-  o: { id: string; chain: ProxyChain; record: PurchaseRecord; total: bigint; tx: string | null; feePaid: string | null; feeOf?: FeeOf; updatedAt?: string },
+  o: { id: string; chain: ProxyChain; record: PurchaseRecord; total: bigint; spent?: bigint; tx: string | null; feePaid: string | null; feeOf?: FeeOf; updatedAt?: string },
 ): Promise<boolean> {
   if (o.tx) await recordTempoFee(c.store, o.chain, o.id, { hash: o.tx }, { known: o.feePaid !== null && /^\d+$/.test(o.feePaid) ? BigInt(o.feePaid) : null, ...(o.feeOf ? { feeOf: o.feeOf } : {}) });
   else if (o.chain === "tempo") await c.store.addFee(o.id, "refund:unknown", TEMPO_REFUND_FEE_BOUND_ATOMIC);
-  return c.store.finish(o.id, ["refund_pending"], { record: o.record, spent: o.total, ...(o.updatedAt ? { updatedAt: o.updatedAt } : {}), now: c.now() });
+  return c.store.finish(o.id, ["refund_pending"], { record: o.record, spent: o.spent ?? o.total, ...(o.updatedAt ? { updatedAt: o.updatedAt } : {}), now: c.now() });
 }
+
+/** A refund owed for an answer the seller did not deliver after vet402 paid it (not-delivered.ts). */
+export interface NotDeliveredOwed {
+  /** The seller's price: vet402 paid it, so the purchase takes it and the refund out of the payer wallet. */
+  sellerAmount: bigint;
+  /** The seller's failure, e.g. "http_500". */
+  basis: string;
+}
+
+/** What a refund is owed for, as the record says it. */
+export const refundBasis = (nd: NotDeliveredOwed | undefined) => (nd ? `not_delivered: ${nd.basis}` : "seller_not_paid");
 
 /**
  * vet402 did not pay the seller (proven): record that a refund is owed, refund, and close the purchase when
@@ -107,27 +123,152 @@ export async function closeRefunded(
  */
 export async function refundOwed(
   c: Common,
-  o: { id: string; chain: ProxyChain; day: string; from: PurchaseState[]; base: PurchaseRecord; reason: string; to: string | null; total: bigint; send: RefundSender; headers: Record<string, string>; retry?: boolean; feeOf?: FeeOf },
+  o: {
+    id: string;
+    chain: ProxyChain;
+    day: string;
+    from: PurchaseState[];
+    base: PurchaseRecord;
+    reason: string;
+    to: string | null;
+    total: bigint;
+    send: RefundSender;
+    headers: Record<string, string>;
+    retry?: boolean;
+    /** The refund row was taken already (Store.ndRefundClaim). */
+    claimed?: boolean;
+    /** The refund is for an answer the seller did not deliver after vet402 paid it (not for a seller vet402 did not pay). */
+    notDelivered?: NotDeliveredOwed;
+    /** Extra fields of the answer's body (a not-delivered answer keeps the seller's status). */
+    extra?: Record<string, unknown>;
+    feeOf?: FeeOf;
+  },
 ): Promise<PaidAnswer> {
-  const pending: PurchaseRecord = { ...o.base, outcome: "seller_not_paid", reason: o.reason, refund: { status: "pending", to: o.to, amountAtomic: o.total.toString(), tx: null, reason: null } };
+  // `basis` is written for a refund of an undelivered answer only: records of the refund above stay as they were.
+  const basis = o.notDelivered ? { basis: refundBasis(o.notDelivered) } : {};
+  const pending: PurchaseRecord = {
+    ...o.base,
+    outcome: o.notDelivered ? "not_delivered" : "seller_not_paid",
+    reason: o.reason,
+    refund: { status: "pending", to: o.to, amountAtomic: o.total.toString(), tx: null, reason: null, ...basis },
+  };
   if (o.from.length && !(await c.store.move(o.id, o.from, "refund_pending", { record: pending, now: c.now() }))) {
     return { kind: "json", status: 409, body: { error: "purchase_moved", record: c.recordUrl(o.id) }, headers: o.headers };
   }
-  const refund: RefundRecord = await refundAgent(c.store, o.send, { id: o.id, chain: o.chain, day: o.day, to: o.to, amount: o.total, maxRefund: c.maxRefund, now: c.now, ...(o.retry ? { retry: true } : {}) });
+  const refund: RefundRecord = {
+    ...(await refundAgent(c.store, o.send, { id: o.id, chain: o.chain, day: o.day, to: o.to, amount: o.total, maxRefund: c.maxRefund, now: c.now, ...(o.retry ? { retry: true } : {}), ...(o.claimed ? { claimed: true } : {}) })),
+    ...basis,
+  };
   const record: PurchaseRecord = { ...pending, refund };
   // Only a sent refund closes the purchase. A refused, failed, unknown or stuck refund keeps it open (refund_pending):
   // the money is still owed, the reconciler keeps at it, and a stuck one is reported for a human.
   if (refund.status === "sent") {
     const fee = (await c.store.getRefund(o.id).catch(() => null))?.fee_paid ?? null;
-    await closeRefunded(c, { id: o.id, chain: o.chain, record, total: o.total, tx: refund.tx, feePaid: fee === null ? null : String(fee), ...(o.feeOf ? { feeOf: o.feeOf } : {}) });
+    await closeRefunded(c, {
+      id: o.id,
+      chain: o.chain,
+      record,
+      total: o.total,
+      spent: o.total + (o.notDelivered?.sellerAmount ?? 0n),
+      tx: refund.tx,
+      feePaid: fee === null ? null : String(fee),
+      ...(o.feeOf ? { feeOf: o.feeOf } : {}),
+    });
   }
   else await c.store.setRecord(o.id, ["refund_pending"], record);
   return {
     kind: "json",
     status: 502,
-    body: { error: "seller_not_paid", reason: o.reason, refund, record: c.recordUrl(o.id) },
+    body: { error: o.notDelivered ? "not_delivered" : "seller_not_paid", reason: o.reason, ...(o.extra ?? {}), refund, record: c.recordUrl(o.id) },
     headers: { ...o.headers, ...(refund.tx ? { "x-vet402-refund-tx": refund.tx } : {}) },
   };
+}
+
+/**
+ * vet402 paid the seller (its payment found landed on chain) and the answer did not deliver: close the purchase.
+ * With the refund for undelivered answers on (`nd`) and a seller-side failure (`fault`), the refund is decided once
+ * (Store.ndRefundClaim: caps, abuse checks) and, when granted, sent like any refund (refund_pending until sent; the
+ * reconciler retries and reports). Otherwise, as before: closed with no refund (`refund` is "none", or the refusal
+ * when the refund was decided against). `closed`: false when the closing write did not take (the purchase moved, or
+ * the write failed: the reconciler closes it later). null: the refund decision found the purchase moved.
+ */
+export async function closeNotDelivered(
+  c: Common,
+  o: {
+    id: string;
+    chain: ProxyChain;
+    day: string;
+    from: PurchaseState[];
+    updatedAt?: string;
+    /** The not_delivered record (outcome, seller payment and answer filled in). */
+    record: PurchaseRecord;
+    fault: NotDeliveredFault | null;
+    nd: NotDeliveredRefund | undefined;
+    to: string | null;
+    agent: string | null;
+    total: bigint;
+    sellerAmount: bigint;
+    send: RefundSender;
+    headers: Record<string, string>;
+    extra: Record<string, unknown>;
+    feeOf?: FeeOf;
+  },
+): Promise<{ answer: PaidAnswer; closed: boolean } | null> {
+  const pin = o.updatedAt ? { updatedAt: o.updatedAt } : {};
+  const closeNoRefund = async (refund: PurchaseRecord["refund"]): Promise<{ answer: PaidAnswer; closed: boolean }> => {
+    const record: PurchaseRecord = { ...o.record, refund };
+    // A failed closing write must not lose an answer: the reconciler closes the purchase later.
+    const closed = await c.store.finish(o.id, o.from, { record, spent: o.sellerAmount, ...pin, now: c.now() }).catch(() => false);
+    return {
+      closed,
+      answer: {
+        kind: "json",
+        status: 502,
+        body: { error: "not_delivered", ...o.extra, record: c.recordUrl(o.id), refund, note: refund === "none" ? "vet402 paid the seller; no refund" : "vet402 paid the seller; the refund was not made (see refund.reason)" },
+        headers: o.headers,
+      },
+    };
+  };
+  if (!o.nd || !o.fault || !o.fault.refundable) return closeNoRefund("none");
+  const basis = o.fault.basis;
+  const refundTemplate = { to: o.to, amountAtomic: o.total.toString(), tx: null, basis: `not_delivered: ${basis}` };
+  if (!o.to) return closeNoRefund({ status: "refused", ...refundTemplate, reason: "payer_unknown" });
+  const pending: PurchaseRecord = { ...o.record, refund: { status: "pending", ...refundTemplate, reason: null } };
+  const d = await c.store.ndRefundClaim(o.id, {
+    chain: o.chain,
+    from: o.from,
+    ...pin,
+    to: o.to,
+    agent: o.agent,
+    sellerHost: o.record.seller.host,
+    sellerPayTo: o.record.seller.payTo,
+    amount: o.total,
+    maxRefund: c.maxRefund,
+    basis,
+    caps: o.nd,
+    lastDeliveredAt: o.nd.lastDeliveredAt(o.record.seller.host, o.record.seller.payTo),
+    record: pending,
+    now: c.now(),
+  });
+  if ("moved" in d) return null;
+  if (!d.granted) return closeNoRefund({ status: "refused", ...refundTemplate, reason: `${d.reason}: ${d.detail}` });
+  const answer = await refundOwed(c, {
+    id: o.id,
+    chain: o.chain,
+    day: o.day,
+    from: [],
+    base: o.record,
+    reason: o.record.reason ?? `seller answered; ${basis}`,
+    to: o.to,
+    total: o.total,
+    send: o.send,
+    headers: o.headers,
+    claimed: true,
+    notDelivered: { sellerAmount: o.sellerAmount, basis },
+    extra: o.extra,
+    ...(o.feeOf ? { feeOf: o.feeOf } : {}),
+  });
+  return { answer, closed: true };
 }
 
 /** The public target: scheme, host and path only (the query is the agent's input). */

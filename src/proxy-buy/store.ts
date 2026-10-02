@@ -38,6 +38,11 @@ export interface RefundRecord {
   amountAtomic: string;
   tx: string | null;
   reason: string | null;
+  /**
+   * Only on a refund for an answer the seller did not deliver after vet402 paid it: "not_delivered: <the seller's
+   * failure>" (not-delivered.ts). A refund for a seller vet402 did not pay has no basis field (its records are as before).
+   */
+  basis?: string;
 }
 
 export interface PurchaseRecord {
@@ -86,6 +91,9 @@ class Rollback extends Error {
 }
 
 const iso = (d: Date) => d.toISOString();
+
+/** Advisory lock key under which refunds for undelivered answers are decided (one at a time across instances). */
+const ND_REFUND_LOCK = 402_402_403;
 
 export interface PurchaseRow {
   id: string;
@@ -436,6 +444,128 @@ export class Store {
   async getRefund(id: string): Promise<RefundRow | null> {
     const r = await this.sql.query<RefundRow>(`select ${REFUND_ROW} from pb_refund where purchase_id = $1`, [id]);
     return r.rows[0] ?? null;
+  }
+
+  /**
+   * The decision on a refund for an answer the seller did not deliver after vet402 paid it, once per purchase
+   * (pb_nd_refund primary key), in one transaction under one advisory lock, so concurrent decisions (two requests,
+   * a request and a reconciler) see each other's grants:
+   *   (c) the seller's payTo is the paying address (`to`) or the signer (`agent`): no refund;
+   *   (a) this paying address or signer already got such a refund this UTC day: no refund;
+   *   (b) a refund of this kind was granted for this seller (same host or same payTo) and no delivered vet402
+   *       purchase from it is on record after it (`lastDeliveredAt`): no refund;
+   *   the day's and the month's caps (UTC, granted amounts): no refund past them.
+   * Granted: the purchase moves to refund_pending (only from `from`, pinned to `updatedAt` when given) with
+   * `facts.notDelivered`, and its refund row is taken (status pending) with the day's refunded counter, all in the
+   * same transaction. Refused: the decision is kept (with its reason) and the purchase is left as it is.
+   * `moved`: the purchase is not in `from` (another run acted on it); nothing written.
+   */
+  async ndRefundClaim(
+    id: string,
+    o: {
+      chain: ProxyChain;
+      from: PurchaseState[];
+      updatedAt?: string;
+      to: string;
+      agent: string | null;
+      sellerHost: string;
+      sellerPayTo: string;
+      amount: bigint;
+      maxRefund: bigint;
+      basis: string;
+      caps: { dailyCapAtomic: bigint; monthlyCapAtomic: bigint };
+      lastDeliveredAt: string | null;
+      record: PurchaseRecord;
+      now: Date;
+    },
+  ): Promise<{ granted: true } | { granted: false; reason: string; detail: string } | { moved: true }> {
+    const day = utcDay(o.now);
+    const month = day.slice(0, 7);
+    const host = o.sellerHost.toLowerCase();
+    const norm = (a: string | null) => (a === null ? null : o.chain === "tempo" ? a.toLowerCase() : a);
+    const to = norm(o.to)!;
+    const agent = norm(o.agent);
+    const payTo = norm(o.sellerPayTo)!;
+    return this.sql.tx(async (q) => {
+      await q.query("select pg_advisory_xact_lock($1)", [ND_REFUND_LOCK]);
+      const p = await q.query<{ state: string; day: string | null; updated_at: string }>(
+        `select state, to_char(day, 'YYYY-MM-DD') as day, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.FF6"Z"') as updated_at from pb_purchase where id = $1 for update`,
+        [id],
+      );
+      const row = p.rows[0];
+      if (!row || !o.from.includes(row.state as PurchaseState) || (o.updatedAt && row.updated_at !== o.updatedAt)) return { moved: true as const };
+      const had = await q.query<{ granted: boolean; reason: string | null }>(`select granted, reason from pb_nd_refund where purchase_id = $1`, [id]);
+      if (had.rows[0]) return had.rows[0].granted ? { moved: true as const } : { granted: false as const, reason: had.rows[0].reason ?? "refused", detail: "decided before" };
+      const refuse = (reason: string, detail: string) => ({ granted: false as const, reason, detail });
+      let out: { granted: true } | { granted: false; reason: string; detail: string } = { granted: true };
+      if (o.amount <= 0n || o.amount > o.maxRefund) out = refuse("refund_over_cap", `${o.amount} > ${o.maxRefund}`);
+      else if (payTo === to || (agent !== null && payTo === agent)) out = refuse("payto_is_buyer", "the seller's payTo is the address that paid");
+      else {
+        const buyer = await q.query(`select 1 from pb_nd_refund where chain = $1 and day = $2 and granted and (to_addr = $3 or ($4::text is not null and agent = $4::text)) limit 1`, [o.chain, day, to, agent]);
+        if (buyer.rows.length) out = refuse("buyer_daily_limit", `one refund for an undelivered answer per paying address per UTC day (${day})`);
+        else {
+          const held = await q.query<{ at: string | null }>(
+            `select to_char(max(at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') as at from pb_nd_refund where chain = $1 and granted and (seller_host = $2 or seller_pay_to = $3)`,
+            [o.chain, host, payTo],
+          );
+          const heldAt = held.rows[0]?.at ?? null;
+          if (heldAt && !(o.lastDeliveredAt && Date.parse(o.lastDeliveredAt) > Date.parse(heldAt))) {
+            out = refuse("seller_on_hold", `a refund for an undelivered answer from this seller at ${heldAt} is not yet followed by a delivered vet402 purchase`);
+          } else {
+            const sums = await q.query<{ d: string; m: string }>(
+              `select coalesce(sum(amount) filter (where day = $2), 0)::text as d, coalesce(sum(amount) filter (where month = $3), 0)::text as m from pb_nd_refund where chain = $1 and granted and (day = $2 or month = $3)`,
+              [o.chain, day, month],
+            );
+            const d = BigInt(sums.rows[0]?.d ?? "0");
+            const m = BigInt(sums.rows[0]?.m ?? "0");
+            if (d + o.amount > o.caps.dailyCapAtomic) out = refuse("cap_daily", `refunded ${d} on ${day} + ${o.amount} > the day's cap ${o.caps.dailyCapAtomic}`);
+            else if (m + o.amount > o.caps.monthlyCapAtomic) out = refuse("cap_monthly", `refunded ${m} in ${month} + ${o.amount} > the month's cap ${o.caps.monthlyCapAtomic}`);
+          }
+        }
+      }
+      const granted = out.granted;
+      await q.query(
+        `insert into pb_nd_refund (purchase_id, chain, day, month, to_addr, agent, seller_host, seller_pay_to, amount, granted, reason, at) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [id, o.chain, day, month, to, agent, host, payTo, o.amount.toString(), granted, granted ? o.basis : (out as { reason: string }).reason, iso(o.now)],
+      );
+      if (!granted) return out;
+      await q.query(`update pb_purchase set state = 'refund_pending', facts = facts || $2::jsonb, record = $3::jsonb, updated_at = $4 where id = $1`, [
+        id,
+        JSON.stringify({ notDelivered: { basis: o.basis, at: iso(o.now) } }),
+        JSON.stringify(o.record),
+        iso(o.now),
+      ]);
+      const pday = row.day ?? day;
+      const r = await q.query(
+        `insert into pb_refund (purchase_id, chain, day, to_addr, amount, status, updated_at) values ($1, $2, $3, $4, $5, 'pending', $6) on conflict (purchase_id) do nothing returning purchase_id`,
+        [id, o.chain, pday, o.to, o.amount.toString(), iso(o.now)],
+      );
+      // A purchase has one refund row ever: one already there means a refund was taken for it another way.
+      if (r.rows.length !== 1) throw new Error("a refund for this purchase exists");
+      await q.query(`update pb_day set refunded = refunded + $3 where chain = $1 and day = $2`, [o.chain, pday, o.amount.toString()]);
+      return out;
+    });
+  }
+
+  /**
+   * The latest refund for an undelivered answer granted for this seller (same host or same payTo), ISO, or null. A
+   * new purchase from it waits until a delivered vet402 purchase from it is on record after this time.
+   */
+  async ndHoldSince(chain: ProxyChain, host: string, payTo: string): Promise<string | null> {
+    const r = await this.sql.query<{ at: string | null }>(
+      `select to_char(max(at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') as at from pb_nd_refund where chain = $1 and granted and (seller_host = $2 or seller_pay_to = $3)`,
+      [chain, host.toLowerCase(), chain === "tempo" ? payTo.toLowerCase() : payTo],
+    );
+    return r.rows[0]?.at ?? null;
+  }
+
+  /** Test and ops helper: the decisions on refunds for undelivered answers. */
+  async ndRefunds(chain: ProxyChain): Promise<{ purchase_id: string; granted: boolean; reason: string | null; amount: string; day: string; month: string; to_addr: string }[]> {
+    const r = await this.sql.query<{ purchase_id: string; granted: boolean; reason: string | null; amount: string; day: string; month: string; to_addr: string }>(
+      `select purchase_id, granted, reason, amount::text as amount, to_char(day, 'YYYY-MM-DD') as day, month, to_addr from pb_nd_refund where chain = $1 order by at, purchase_id`,
+      [chain],
+    );
+    return r.rows;
   }
 
   /** Purchases in a non-final state not touched for `staleMs`: they need the reconciler. */

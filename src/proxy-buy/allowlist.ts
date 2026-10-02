@@ -21,6 +21,11 @@ export interface AllowEntry {
   delivered: number;
   /** Time of the latest settled purchase (ISO), when the data carries one. */
   lastAt: string | null;
+  /**
+   * Time of the latest settled purchase that came back with an answer (ISO), when the data carries one. A seller held
+   * after a refund for an undelivered answer is bought again only once this is later than that refund.
+   */
+  lastDeliveredAt: string | null;
 }
 
 export interface Allowlist {
@@ -55,11 +60,12 @@ export function makeAllowlist(rows: Seen[]): Allowlist {
     if (r.settled !== true || !r.host || typeof r.payTo !== "string" || r.payTo === "") continue;
     const payTo = normPayTo(r.chain, r.payTo);
     const k = `${r.chain} ${r.host} ${payTo}`;
-    const e = map.get(k) ?? { chain: r.chain, host: r.host, payTo, settled: 0, delivered: 0, lastAt: null };
+    const e = map.get(k) ?? { chain: r.chain, host: r.host, payTo, settled: 0, delivered: 0, lastAt: null, lastDeliveredAt: null };
     e.settled += 1;
     if (r.delivered === true) e.delivered += 1;
     const at = typeof r.at === "string" ? r.at : null;
     if (at && (!e.lastAt || at > e.lastAt)) e.lastAt = at;
+    if (at && r.delivered === true && (!e.lastDeliveredAt || at > e.lastDeliveredAt)) e.lastDeliveredAt = at;
     map.set(k, e);
   }
   const entries = [...map.values()].sort((a, b) => `${a.chain} ${a.host}`.localeCompare(`${b.chain} ${b.host}`));

@@ -7,6 +7,8 @@
  *   - caps: a single conditional UPDATE on the day row / the wallet row (Postgres re-checks the WHERE
  *     clause under the row lock, so concurrent reservations cannot both pass);
  *   - one refund per purchase: pb_refund primary key (purchase id); a new attempt only from status "dead";
+ *   - one decision per purchase on a refund for an undelivered answer, and its caps and abuse checks:
+ *     pb_nd_refund primary key (purchase id), decided under one advisory lock (Store.ndRefundClaim);
  *   - one purchase per seller payment or refund found on chain: pb_chain_tx primary key (chain, tx);
  *   - request limits and daily counters (per-client quotes, refund account creations): pb_counter;
  *   - ALERTs the reconciler said, open until they no longer hold: pb_alert; when it last ran in full: pb_state.
@@ -116,6 +118,23 @@ create table if not exists pb_state (
   at timestamptz not null
 );
 create index if not exists pb_counter_at_idx on pb_counter (at);
+create table if not exists pb_nd_refund (
+  purchase_id text primary key,
+  chain text not null,
+  day date not null,
+  month text not null,
+  to_addr text not null,
+  agent text,
+  seller_host text not null,
+  seller_pay_to text not null,
+  amount bigint not null,
+  granted boolean not null,
+  reason text,
+  at timestamptz not null
+);
+create index if not exists pb_nd_refund_day_idx on pb_nd_refund (chain, day) where granted;
+create index if not exists pb_nd_refund_month_idx on pb_nd_refund (chain, month) where granted;
+create index if not exists pb_nd_refund_seller_idx on pb_nd_refund (chain, seller_host, seller_pay_to) where granted;
 `;
 
 /** node-postgres over a pool (Neon's pooled connection string on Vercel). */

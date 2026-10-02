@@ -296,11 +296,12 @@ export type RefundSender = (to: string, amount: bigint, beforeSend: BeforeSend, 
 export async function refundAgent(
   store: Store,
   send: RefundSender,
-  o: { id: string; chain: ProxyChain; day: string; to: string | null; amount: bigint; maxRefund: bigint; now: () => Date; retry?: boolean },
+  o: { id: string; chain: ProxyChain; day: string; to: string | null; amount: bigint; maxRefund: bigint; now: () => Date; retry?: boolean; claimed?: boolean },
 ): Promise<RefundRecord> {
   const amountAtomic = o.amount.toString();
   if (!o.to) return { status: "refused", to: null, amountAtomic, tx: null, reason: "payer_unknown" };
-  if (!o.retry) {
+  // `claimed`: the refund row was taken already, in the transaction that decided it is owed (Store.ndRefundClaim).
+  if (!o.retry && !o.claimed) {
     const c = await store.refundClaim(o.id, { chain: o.chain, day: o.day, to: o.to, amount: o.amount, maxRefund: o.maxRefund, now: o.now() });
     if (!c.ok) return { status: "refused", to: o.to, amountAtomic, tx: null, reason: c.reason };
   } else {

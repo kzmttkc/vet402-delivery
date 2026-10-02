@@ -80,6 +80,21 @@ export const DEFAULT_FACILITATOR_URL = "https://facilitator.payai.network";
 export const REFUND_POLICY =
   "If your payment settles and vet402 then does not pay the seller, vet402 refunds your full payment to the address that paid, on the same chain in the same token. If vet402 paid the seller and the seller did not deliver, there is no refund; the purchase is recorded against the seller.";
 
+/**
+ * Shown with every Solana price while the refund for an undelivered answer is switched on (SolanaConfig.notDeliveredRefund).
+ * The seller-side failures are those of src/rank/classify.ts (settled_not_delivered, paid_not_delivered), less the
+ * ones that cannot be told apart from a slow seller or vet402's own side (src/proxy-buy/not-delivered.ts).
+ */
+export const REFUND_POLICY_NOT_DELIVERED =
+  "If your payment settles and vet402 then does not pay the seller, vet402 refunds your full payment to the address that paid, on the same chain in the same token. On Solana, if vet402 paid the seller and the seller answered 402 again, 5xx, a 1xx or 3xx status, a 2xx with an empty body, or closed the connection with no answer, vet402 refunds your full payment the same way, within a cap per UTC day and per UTC month, at most one such refund per paying address per UTC day, and never to the seller's own payTo; a seller refunded this way is not bought from again until a later vet402 purchase from it delivers. A 4xx other than 402, or no answer within the wait, is not refunded.";
+
+/**
+ * Ceilings on refunds for an answer the seller did not deliver after vet402 paid it (owner approval 2026-10-02:
+ * 2 USDC a UTC day, 20 USDC a UTC month). The caps themselves come from the environment and may only be lower.
+ */
+export const ND_REFUND_DAILY_CEILING_ATOMIC = 2_000_000n; // 2.00
+export const ND_REFUND_MONTHLY_CEILING_ATOMIC = 20_000_000n; // 20.00
+
 /** Shown with every price: what happens to an answer above PROXY_MAX_FORWARD_BYTES. */
 export const ANSWER_LIMIT_NOTE =
   "An answer above 1,000,000 bytes is not forwarded. vet402 has paid the seller by then, so there is no refund; the record keeps its size and sha256.";

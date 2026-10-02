@@ -22,9 +22,10 @@ import type { PaymentPayload, PaymentRequirements, SettleResponse } from "@x402/
 import { SOLANA_MAINNET, USDC_MINT, atomicToUsdc } from "../constants.js";
 import { Budget } from "../guard.js";
 import { payOne, type PayDeps, type PurchaseRecord as PayRecord } from "../pay.js";
-import { ANSWER_LIMIT_NOTE, OFFER_TTL_SECONDS, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY } from "./constants.js";
+import { ANSWER_LIMIT_NOTE, OFFER_TTL_SECONDS, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY, REFUND_POLICY_NOT_DELIVERED } from "./constants.js";
 import { AGENT_LOOKBACK_SECONDS, decodeSolanaTx, type Fate, type SolanaFateQuery, type SolanaTxFacts } from "./fate.js";
-import { keepExpiry, noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
+import { closeNotDelivered, keepExpiry, noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
+import { fetchFailureKind, notDeliveredFault, type FetchFailure, type NotDeliveredRefund } from "./not-delivered.js";
 import { redact, refusalReason } from "./reasons.js";
 import type { RefundSender } from "./refund.js";
 import { utcDay, type PurchaseRecord } from "./store.js";
@@ -71,6 +72,11 @@ export interface SolanaSide {
   anchor?: (account: string, minContextSlot?: number) => Promise<string | null>;
   /** Send `amount` USDC from the proxy payer to `to` (refund.ts sendSolanaRefund). */
   refund: RefundSender;
+  /**
+   * The refund for an answer the seller did not deliver after vet402 paid it (not-delivered.ts). Absent (the default,
+   * no caps set in the environment): off, and nothing about a purchase changes.
+   */
+  notDeliveredRefund?: NotDeliveredRefund;
 }
 
 export interface SolanaContext extends Common {
@@ -205,6 +211,15 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   if ((await store.blockingFor(now, ctx.staleMs, { agent: authority, host: offer.known.host })) > 0) {
     return noCharge(503, "reconcile_pending", "an earlier purchase from this payer or to this seller is being settled on chain first; nothing was charged, try again later");
   }
+  // A seller refunded for an undelivered answer is not bought from again until a later vet402 purchase from it
+  // delivered (data/, read at deploy: the next daily run that delivers).
+  if (side.notDeliveredRefund) {
+    const held = await store.ndHoldSince("solana", offer.known.host, offer.accept.payTo);
+    const last = offer.known.lastDeliveredAt;
+    if (held && !(last && Date.parse(last) > Date.parse(held))) {
+      return noCharge(403, "seller_on_hold", `vet402 refunded an undelivered answer from this seller at ${held}; it buys from this seller again once a later vet402 purchase from it delivers. Nothing was charged`);
+    }
+  }
   // The agent's transaction needs the facilitator's signature as fee payer: it cannot land before vet402 settles it.
   const agentMinSlot = await slotOrNone(side);
   let handOver: { lastValidBlockHeight?: number; anchor?: string | null };
@@ -244,13 +259,14 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   const day = utcDay(now);
   // The wallet reservation is the most this purchase can take out: a refund of the total (>= the seller price),
-  // and the SOL of its refund (fee and account rent) on top of what every other open purchase keeps.
+  // and the SOL of its refund (fee and account rent) on top of what every other open purchase keeps. With the refund
+  // for undelivered answers on, vet402 may pay the seller and then refund the total: both are reserved.
   const room = await store.admit(id, {
     chain: "solana",
     payer: side.payer,
     day,
     caps: ctx.caps,
-    need: total,
+    need: side.notDeliveredRefund ? total + seller : total,
     balance: bal.usdcAtomic,
     balanceReadAt,
     lamports: { have: bal.lamports, perPurchase: REFUND_SOL_MIN_LAMPORTS },
@@ -329,6 +345,17 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     truncated: boolean;
     sellerTx: (SolanaTxFacts & { minSlot?: number; lastValidBlockHeight?: number; expiredSlot?: number; cursor?: string }) | null;
   } = { body: null, truncated: false, sellerTx: null };
+  // How the last fetch to the seller failed, if it threw (the paid request is the last one payOne makes).
+  let fetchFailure: FetchFailure | null = null;
+  const sellerFetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchFailure = null;
+    try {
+      return await side.pay.fetch(url, init);
+    } catch (e) {
+      fetchFailure = fetchFailureKind(e);
+      throw e;
+    }
+  }) as typeof fetch;
   let rec: PayRecord;
   try {
     rec = await payOne(
@@ -340,6 +367,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
       },
       {
         ...side.pay,
+        fetch: sellerFetch,
         // vet402's signed payment to the seller is written to the database before payOne can send it.
         createPayment: async (pr, accept) => {
           // The x402 SVM client signs with a blockhash the seller names (extra.recentBlockhash), if it names one: the
@@ -386,6 +414,10 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     contentType: rec.response?.contentType ?? null,
   };
   const delivered = rec.delivered === true && bytes !== null && bytes.byteLength > 0 && !got.truncated;
+  // Whose failure an undelivered answer is (kept with the purchase, so the reconciler decides the same way later).
+  const fault = delivered
+    ? null
+    : notDeliveredFault({ status, bodyError: status !== null && /^body:/.test(rec.response?.error ?? ""), truncated: got.truncated, fetchFailure: status === null ? fetchFailure : null });
   // Whether the seller was paid is read from vet402's own signed payment, found on chain by its message. The
   // transaction the seller names (PAYMENT-RESPONSE) is not taken: it can be another, earlier settlement.
   const sellerFacts = got.sellerTx;
@@ -406,7 +438,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   }
   if (sellerSettled !== true && !delivered) {
     const r: PurchaseRecord = { ...base, sellerPayment: { tx: null, settled: null }, answer, outcome: "seller_payment_pending", reason: `seller answered ${status ?? "nothing"}; payment not settled yet` };
-    await store.move(id, ["in_progress"], "seller_unsettled", { record: r, now: ctx.now() });
+    await store.move(id, ["in_progress"], "seller_unsettled", { record: r, ...(fault ? { facts: { answerFault: fault } } : {}), now: ctx.now() });
     return { kind: "json", status: 502, body: { error: "seller_payment_pending", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile", note: "if vet402's payment to the seller never settles, the reconciler refunds you" }, headers: paidHeaders };
   }
   const headers = {
@@ -422,20 +454,34 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     return { kind: "json", status: 502, body: { error: "answer_too_large", record: ctx.recordUrl(id), refund: "none" }, headers };
   }
   const r: PurchaseRecord = { ...base, sellerPayment, answer: { ...answer, delivered }, outcome: delivered ? "delivered" : "not_delivered", reason: delivered ? null : `seller answered ${status ?? "nothing"}; vet402's payment to it settled` };
+  if (!delivered) {
+    // Here vet402's payment to the seller is found landed (sellerSettled is true): the refund for an undelivered
+    // answer, when it is on and the failure is the seller's, is decided now; otherwise closed with no refund.
+    const extra = { sellerStatus: status, sellerAnswer: bytes ? Buffer.from(bytes.subarray(0, 300)).toString("utf8") : null };
+    const a = await closeNotDelivered(ctx, {
+      id,
+      chain: "solana",
+      day,
+      from: ["in_progress"],
+      record: r,
+      fault,
+      nd: side.notDeliveredRefund,
+      to: payerAddr,
+      agent: authority,
+      total,
+      sellerAmount: seller,
+      send: side.refund,
+      headers,
+      extra,
+    });
+    return a?.answer ?? { kind: "json", status: 409, body: { error: "purchase_moved", record: ctx.recordUrl(id) }, headers };
+  }
   // A failed closing write must not lose an answer vet402 paid for: the reconciler closes the purchase later.
   // Delivered while vet402's payment was not yet seen on chain: it may still leave the wallet (seller_open), so
   // it holds back the wallet floor until the reconciler sees it landed or dead.
   await store
     .finish(id, ["in_progress"], { record: r, spent: sellerSettled === false ? 0n : seller, sellerOpen: sellerSettled === null, now: ctx.now() })
     .catch(() => false);
-  if (!delivered) {
-    return {
-      kind: "json",
-      status: 502,
-      body: { error: "not_delivered", sellerStatus: status, sellerAnswer: bytes ? Buffer.from(bytes.subarray(0, 300)).toString("utf8") : null, record: ctx.recordUrl(id), refund: "none", note: "vet402 paid the seller; no refund" },
-      headers,
-    };
-  }
   return {
     kind: "answer",
     status: 200,
@@ -481,8 +527,8 @@ async function slotOrNone(side: SolanaSide): Promise<number | undefined> {
   }
 }
 
-/** The price block shown in the unpaid 402 body. */
-export function solanaPriceInfo(offer: SolanaOffer, feeAtomic: bigint) {
+/** The price block shown in the unpaid 402 body. `notDeliveredRefund`: the refund for undelivered answers is on. */
+export function solanaPriceInfo(offer: SolanaOffer, feeAtomic: bigint, notDeliveredRefund = false) {
   const total = totalAtomic(offer.sellerAtomic, feeAtomic);
   return {
     pay: "x402 exact, USDC on Solana mainnet",
@@ -490,7 +536,7 @@ export function solanaPriceInfo(offer: SolanaOffer, feeAtomic: bigint) {
     fee: atomicToUsdc(feeAtomic),
     total: atomicToUsdc(total),
     sellerPayTo: offer.accept.payTo,
-    refund: REFUND_POLICY,
+    refund: notDeliveredRefund ? REFUND_POLICY_NOT_DELIVERED : REFUND_POLICY,
     largeAnswers: ANSWER_LIMIT_NOTE,
     vet402Record: { settledPurchases: offer.known.settled, delivered: offer.known.delivered, lastAt: offer.known.lastAt },
   };

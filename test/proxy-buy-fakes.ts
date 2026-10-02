@@ -34,7 +34,7 @@ import { checkPaymentTransaction, usdcAta } from "../src/txcheck.js";
 import type { OnChain } from "../src/chain.js";
 import { signerFor } from "../src/tempo/chain.js";
 import { TEMPO_MAINNET_CHAIN_ID, USDC_E } from "../src/tempo/constants.js";
-import { makeAllowlist } from "../src/proxy-buy/allowlist.js";
+import { makeAllowlist, type Allowlist } from "../src/proxy-buy/allowlist.js";
 import { BUY_FEE_ATOMIC } from "../src/proxy-buy/constants.js";
 import { migrate, type Sql } from "../src/proxy-buy/db.js";
 import { decodeSolanaTx, type Fate, type TempoReads } from "../src/proxy-buy/fate.js";
@@ -238,6 +238,8 @@ export async function solRig(
     /** The spacing of request-triggered reconcile turns (default 0: every paid request). */
     reconcileGateMs?: number;
     sleep?: (ms: number) => Promise<void>;
+    /** Another allowlist (default: the shared one above). */
+    allowlist?: Allowlist;
   } = {},
 ): Promise<SolRig> {
   const wrap = o.wrapSeller ?? ((f: typeof fetch) => f);
@@ -313,7 +315,7 @@ export async function solRig(
     enabled: o.enabled ?? true,
     publicOrigin: ORIGIN,
     feeAtomic: BUY_FEE_ATOMIC,
-    allowlist,
+    allowlist: o.allowlist ?? allowlist,
     store,
     caps: { solana: { ...CAPS, ...o.caps } },
     maxRefund: 105_000n,

@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { paymentOf } from "./payment-header.js";
 import { decodePaymentSignatureHeader } from "@x402/core/http";
 import { Credential } from "mppx";
-import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REFUND_POLICY } from "./constants.js";
+import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REFUND_POLICY, REFUND_POLICY_NOT_DELIVERED } from "./constants.js";
 import type { Allowlist } from "./allowlist.js";
 import type { DayCaps, Store } from "./store.js";
 import { quote, type Quote, type QuoteDeps, type Refused } from "./quote.js";
@@ -193,7 +193,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
         const c = { side: o.solana, feeAtomic: o.feeAtomic, resourceUrl: `${o.publicOrigin}${BUY_PATH}` };
         const reqs = await solanaRequirements(c, qq.solana, qq.target);
         headers["PAYMENT-REQUIRED"] = await paymentRequiredHeader(c, reqs, `vet402 buys ${new URL(qq.target).origin} for you: seller price + fee, answer returned as-is`);
-        offers.solana = solanaPriceInfo(qq.solana, o.feeAtomic);
+        offers.solana = solanaPriceInfo(qq.solana, o.feeAtomic, !!o.solana.notDeliveredRefund);
       } catch {
         offers.solana = { refused: "facilitator_unavailable", detail: "the facilitator could not be read" };
       }
@@ -230,7 +230,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
           what: "vet402 pays this seller from its own wallet after your payment settles, and returns the seller's answer with both transactions and a public record",
           fee: atomicToUsdc(o.feeAtomic),
           offers,
-          refund: REFUND_POLICY,
+          refund: o.solana?.notDeliveredRefund && offers.solana && !("refused" in (offers.solana as object)) ? REFUND_POLICY_NOT_DELIVERED : REFUND_POLICY,
           stops: "you are not charged when the seller's price or payTo changes before your payment settles, or when vet402's daily cap or balance would be passed",
         },
       },

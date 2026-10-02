@@ -293,7 +293,18 @@ export async function buildProxyBuy(cfg: ProxyConfig, o: { dataDir: string; sql?
   const store = new Store(sql);
   const own = ownAddresses(cfg.solana, cfg.tempo);
   const realm = new URL(cfg.publicOrigin).host;
+  const allowlist = o.allowlist ?? loadAllowlist(o.dataDir);
   const solana = cfg.solana ? await solanaSide(cfg.solana, own) : undefined;
+  // The refund for undelivered answers: on only with both caps in the environment (config.ts); when a seller last
+  // delivered is read from the same data/ as the allowlist.
+  const ndCaps = cfg.solana?.notDeliveredRefund;
+  if (solana && ndCaps) {
+    solana.notDeliveredRefund = {
+      dailyCapAtomic: ndCaps.dailyCapAtomic,
+      monthlyCapAtomic: ndCaps.monthlyCapAtomic,
+      lastDeliveredAt: (host, payTo) => allowlist.find("solana", host, payTo)?.lastDeliveredAt ?? null,
+    };
+  }
   // Tempo off (the default): nothing Tempo is built, so neither requests nor the reconciler touch it.
   const tempo = cfg.tempo && cfg.tempoEnabled ? tempoSide(cfg.tempo, realm) : undefined;
   const sCaps = dayCaps(cfg, "solana");
@@ -303,7 +314,7 @@ export async function buildProxyBuy(cfg: ProxyConfig, o: { dataDir: string; sql?
     tempoEnabled: cfg.tempoEnabled,
     publicOrigin: cfg.publicOrigin,
     feeAtomic: cfg.feeAtomic,
-    allowlist: o.allowlist ?? loadAllowlist(o.dataDir),
+    allowlist,
     store,
     caps: { ...(sCaps ? { solana: sCaps } : {}), ...(tCaps ? { tempo: tCaps } : {}) },
     maxRefund: cfg.maxPerCallAtomic + cfg.feeAtomic,

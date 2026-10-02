@@ -14,7 +14,8 @@
  */
 import { CAPPED_RECHECK_MS, OPEN_ALERT_MS, RECONCILE_MAX_TX_READS, TEMPO_BASE_FEE_ALERT, TEMPO_REFUND_FEE_BOUND_ATOMIC } from "./constants.js";
 import { tempoTxFate, type Fate, type TempoFateFacts } from "./fate.js";
-import { closeRefunded, recordTempoFee, refundOwed, windowPatch, type Common, type FeeOf } from "./flow.js";
+import { closeNotDelivered, closeRefunded, recordTempoFee, refundOwed, windowPatch, type Common, type FeeOf, type NotDeliveredOwed } from "./flow.js";
+import type { NotDeliveredFault } from "./not-delivered.js";
 import { redact } from "./reasons.js";
 import { ACCOUNT_CREATION_WAIT } from "./refund.js";
 import { REFUND_SOL_MIN_LAMPORTS, type SolanaSide } from "./solana.js";
@@ -145,7 +146,9 @@ async function walletAlerts(ctx: ReconcileContext): Promise<ReconcileAction[]> {
       const w = await ctx.store.wallet("solana");
       const open = await ctx.store.openCount("solana");
       if (w && bal.usdcAtomic < w.floor) say("solana", `ALERT chain_spend_exceeds_ledger: payer balance ${bal.usdcAtomic} < floor ${w.floor}; money left the payer outside proxy buy, every purchase is refused`);
-      if (w && w.floor < ctx.maxRefund) say("solana", `ALERT insufficient_balance: floor ${w.floor} < one purchase's worst case ${ctx.maxRefund}; top up the payer`);
+      // With the refund for undelivered answers on, one purchase may pay the seller and then refund the total.
+      const worst = ctx.solana.notDeliveredRefund ? ctx.maxRefund + (ctx.maxRefund - ctx.feeAtomic) : ctx.maxRefund;
+      if (w && w.floor < worst) say("solana", `ALERT insufficient_balance: floor ${w.floor} < one purchase's worst case ${worst}; top up the payer`);
       const needSol = REFUND_SOL_MIN_LAMPORTS * BigInt(open + 1);
       if (bal.lamports < needSol) say("solana", `ALERT refund_fee_unavailable: payer SOL ${bal.lamports} lamports < ${needSol} for ${open} open purchase(s) and one more`);
     } catch {
@@ -309,6 +312,11 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
   const headers: Record<string, string> = {};
   const feeOf = feeOfRow(ctx, row);
   const fo = feeOf ? { feeOf } : {};
+  // A refund owed for an answer the seller did not deliver after vet402 paid it (Store.ndRefundClaim): the purchase
+  // took the seller's price and takes the refund too.
+  const ndFacts = obj(row.facts.notDelivered);
+  const nd: NotDeliveredOwed | undefined = ndFacts ? { sellerAmount: BigInt(row.seller_amount), basis: str(ndFacts.basis) ?? "unknown" } : undefined;
+  const spentOnRefund = total + (nd?.sellerAmount ?? 0n);
   const refundNote = (r: { body: Record<string, unknown> }) => {
     const rf = (r.body.refund ?? {}) as { status?: string; reason?: string };
     if (rf.status === "failed" && rf.reason === ACCOUNT_CREATION_WAIT) {
@@ -382,6 +390,39 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       };
       // The seller payment's fee at its real amount (recorded with the purchase; a failed write stops here and the next run tries again).
       await recordTempoFee(store, row.chain, row.id, { hash: f.tx, sponsored: seller?.sponsored === true }, fo);
+      // The answer came back and did not deliver (recorded when the request stopped waiting): the refund for an
+      // undelivered answer is decided as the request would have. An answer never recorded (in_progress) is not refunded.
+      // With it off (or on Tempo), the purchase closes exactly as before (below).
+      const fault = (obj(row.facts.answerFault) as NotDeliveredFault | null) ?? null;
+      const ndOn = row.chain === "solana" ? ctx.solana?.notDeliveredRefund : undefined;
+      if (ndOn && base.answer && !base.answer.delivered && row.state === "seller_unsettled") {
+        const done = await closeNotDelivered(ctx, {
+          id: row.id,
+          chain: row.chain,
+          day,
+          from: [row.state],
+          ...pin,
+          record: { ...r, reason: `seller answered ${base.answer.httpStatus ?? "nothing"}; vet402's payment to it settled` },
+          fault,
+          nd: ndOn,
+          to: refundTo,
+          agent: signer,
+          total,
+          sellerAmount: BigInt(row.seller_amount),
+          send: side.refund,
+          headers,
+          extra: { sellerStatus: base.answer.httpStatus },
+          ...fo,
+        });
+        if (!done || !done.closed) return note("skipped: moved by another run");
+        const rf = (done.answer as { body?: Record<string, unknown> }).body?.refund;
+        if (rf && typeof rf === "object") {
+          const st = (rf as { status?: string }).status;
+          if (st === "refused") return note(`closed: seller paid, not delivered, refund refused (${(rf as { reason?: string }).reason ?? ""})`);
+          return note(refundNote(done.answer as { body: Record<string, unknown> }).replace('refund: "sent"', 'closed: seller paid, not delivered, refund: "sent"'));
+        }
+        return note("closed: seller paid, no refund");
+      }
       const okClosed = await store.finish(row.id, [row.state], { record: r, spent: BigInt(row.seller_amount), ...pin, now: ctx.now() });
       return note(okClosed ? "closed: seller paid, no refund" : "skipped: moved by another run");
     }
@@ -396,8 +437,9 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
   if (row.state === "refund_pending") {
     const rf = await store.getRefund(row.id);
     if (rf && rf.status === "stuck") return note(`ALERT refund stuck after ${rf.attempt} attempts: needs a human`);
+    const basis = nd ? { basis: `not_delivered: ${nd.basis}` } : {};
     if (rf && rf.status === "sent") {
-      await closeRefunded(ctx, { id: row.id, chain: row.chain, record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: rf.tx, reason: null } }, total, tx: rf.tx, feePaid: rf.fee_paid, ...fo, ...pin });
+      await closeRefunded(ctx, { id: row.id, chain: row.chain, record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: rf.tx, reason: null, ...basis } }, total, spent: spentOnRefund, tx: rf.tx, feePaid: rf.fee_paid, ...fo, ...pin });
       return note("closed: refund sent");
     }
     if (rf && (rf.status === "sending" || rf.status === "unknown")) {
@@ -406,7 +448,7 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       if (f.fate === "landed") {
         if (!(await store.bindTx(row.chain, f.tx, row.id, "refund", ctx.now()))) return note(`ALERT refund transaction ${f.tx} is bound to another purchase: needs a human`);
         if (!(await store.refundSet(row.id, ["sending", "unknown"], "sent", { tx: rf.tx, now: ctx.now() }))) return note("skipped: refund moved by another run");
-        await closeRefunded(ctx, { id: row.id, chain: row.chain, record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: f.tx, reason: null } }, total, tx: f.tx, feePaid: rf.fee_paid, ...fo, ...pin });
+        await closeRefunded(ctx, { id: row.id, chain: row.chain, record: { ...base, refund: { status: "sent", to: rf.to_addr, amountAtomic: rf.amount, tx: f.tx, reason: null, ...basis } }, total, spent: spentOnRefund, tx: f.tx, feePaid: rf.fee_paid, ...fo, ...pin });
         return note("closed: refund landed");
       }
       // A refund that reverted took its fee all the same; the next attempt pays its own.
@@ -414,7 +456,7 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       // Proven dead: only the run that marks this very transaction dead may send the next attempt.
       if (!(await store.refundSet(row.id, ["sending", "unknown"], "dead", { reason: `refund_${f.fate}`, tx: rf.tx, now: ctx.now() }))) return note("skipped: refund moved by another run");
     }
-    const again = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: [], base, reason: base.reason ?? "seller_not_paid", to: rf?.to_addr ?? refundTo, total, send: side.refund, headers, retry: !!rf, ...fo });
+    const again = await refundOwed(ctx, { id: row.id, chain: row.chain, day, from: [], base, reason: base.reason ?? "seller_not_paid", to: rf?.to_addr ?? refundTo, total, send: side.refund, headers, retry: !!rf, ...(nd ? { notDelivered: nd } : {}), ...fo });
     return note(refundNote(again as { body: Record<string, unknown> }).replace('refund: "sent"', `refund ${rf ? "retried" : "started"}: "sent"`));
   }
   note("skipped");

@@ -12,6 +12,8 @@ import { PAYER_ADDRESS as TEMPO_CENSUS_PAYER, MAX_TOTAL_ATOMIC as TEMPO_LEDGER_C
 import {
   BUY_FEE_ATOMIC,
   DEFAULT_FACILITATOR_URL,
+  ND_REFUND_DAILY_CEILING_ATOMIC,
+  ND_REFUND_MONTHLY_CEILING_ATOMIC,
   PROXY_DAILY_MAX_PURCHASES,
   PROXY_DEFAULT_DAILY_CAP_ATOMIC,
   PROXY_MAX_PER_CALL_ATOMIC,
@@ -27,6 +29,18 @@ export interface SolanaConfig {
   dailyCapAtomic: bigint;
   /** Refunds per UTC day on this chain (default: the daily cap). */
   dailyRefundCapAtomic: bigint;
+  /**
+   * The refund for an answer the seller did not deliver after vet402 paid it: on only when both caps are set
+   * (VET402_PROXY_SOLANA_NOT_DELIVERED_REFUND_DAILY_CAP and _MONTHLY_CAP); null (the default): off, no such refund.
+   */
+  notDeliveredRefund?: NotDeliveredRefundCaps | null;
+}
+
+export interface NotDeliveredRefundCaps {
+  /** Most refunded this way per UTC day, atomic USDC (at most ND_REFUND_DAILY_CEILING_ATOMIC). */
+  dailyCapAtomic: bigint;
+  /** Most refunded this way per UTC month (at most ND_REFUND_MONTHLY_CEILING_ATOMIC). */
+  monthlyCapAtomic: bigint;
 }
 
 export interface TempoConfig {
@@ -69,6 +83,24 @@ function cap(name: string, v: string | undefined, ceiling: bigint): bigint {
   return c;
 }
 
+/**
+ * The refund for an undelivered answer: both caps set, or neither (off). One without the other is refused, so a
+ * half-written setting never switches it on with a cap nobody chose.
+ */
+export function notDeliveredRefundCaps(env: Env): NotDeliveredRefundCaps | null {
+  const D = "VET402_PROXY_SOLANA_NOT_DELIVERED_REFUND_DAILY_CAP";
+  const M = "VET402_PROXY_SOLANA_NOT_DELIVERED_REFUND_MONTHLY_CAP";
+  const d = env[D]?.trim() || "";
+  const m = env[M]?.trim() || "";
+  if (!d && !m) return null;
+  if (!d || !m) throw new Error(`${D} and ${M}: set both to switch the refund for undelivered answers on, or neither`);
+  const daily = usdcToAtomic(D, d);
+  const monthly = usdcToAtomic(M, m);
+  if (daily <= 0n || daily > ND_REFUND_DAILY_CEILING_ATOMIC) throw new Error(`${D}: must be above 0 and at most ${ND_REFUND_DAILY_CEILING_ATOMIC} atomic`);
+  if (monthly <= 0n || monthly > ND_REFUND_MONTHLY_CEILING_ATOMIC) throw new Error(`${M}: must be above 0 and at most ${ND_REFUND_MONTHLY_CEILING_ATOMIC} atomic`);
+  return { dailyCapAtomic: daily, monthlyCapAtomic: monthly };
+}
+
 function solanaKey(raw: string): Uint8Array {
   let arr: unknown;
   try {
@@ -103,6 +135,7 @@ export function configFromEnv(env: Env): ProxyConfig {
       facilitatorUrl: env.VET402_PROXY_FACILITATOR_URL ?? DEFAULT_FACILITATOR_URL,
       dailyCapAtomic: cap("VET402_PROXY_SOLANA_DAILY_CAP", env.VET402_PROXY_SOLANA_DAILY_CAP, PROXY_SOLANA_DAILY_CAP_CEILING_ATOMIC),
       dailyRefundCapAtomic: cap("VET402_PROXY_SOLANA_REFUND_DAILY_CAP", env.VET402_PROXY_SOLANA_REFUND_DAILY_CAP ?? env.VET402_PROXY_SOLANA_DAILY_CAP, PROXY_SOLANA_DAILY_CAP_CEILING_ATOMIC),
+      notDeliveredRefund: notDeliveredRefundCaps(env),
     };
   }
 
@@ -152,7 +185,7 @@ export function describeConfig(c: ProxyConfig): Record<string, unknown> {
     fee: c.feeAtomic.toString(),
     maxPerCall: c.maxPerCallAtomic.toString(),
     dailyMaxPurchases: c.dailyMaxPurchases,
-    solana: c.solana ? { receive: c.solana.receive, payer: c.solana.payer, rpcUrl: redactUrl(c.solana.rpcUrl), facilitator: redactUrl(c.solana.facilitatorUrl), dailyCap: c.solana.dailyCapAtomic.toString(), dailyRefundCap: c.solana.dailyRefundCapAtomic.toString() } : null,
+    solana: c.solana ? { receive: c.solana.receive, payer: c.solana.payer, rpcUrl: redactUrl(c.solana.rpcUrl), facilitator: redactUrl(c.solana.facilitatorUrl), dailyCap: c.solana.dailyCapAtomic.toString(), dailyRefundCap: c.solana.dailyRefundCapAtomic.toString(), notDeliveredRefund: c.solana.notDeliveredRefund ? { dailyCap: c.solana.notDeliveredRefund.dailyCapAtomic.toString(), monthlyCap: c.solana.notDeliveredRefund.monthlyCapAtomic.toString() } : "off" } : null,
     tempo: c.tempo ? { receive: c.tempo.receive, payer: c.tempo.payer, rpcUrl: redactUrl(c.tempo.rpcUrl), dailyCap: c.tempo.dailyCapAtomic.toString(), dailyRefundCap: c.tempo.dailyRefundCapAtomic.toString() } : null,
   };
 }
