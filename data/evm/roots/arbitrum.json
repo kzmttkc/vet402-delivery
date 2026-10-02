@@ -1,0 +1,2428 @@
+{
+  "kind": "vet402-evm-roots",
+  "version": 0,
+  "lane": "arbitrum",
+  "chain": "eip155:42161",
+  "contract": {
+    "address": "0x84DB4733f8F9e6803Af811fD9E438aEBc0b90145",
+    "writer": "0xd326A383a2DEAA47aE3f055a70704175Aa9FF611",
+    "deployTx": "0xb9a0483f76ef2d3c3cb02317ceae84965e07e89020e2385b2594fbc5bd238954"
+  },
+  "leafRule": "digest = keccak256(utf8(the record as canonical JSON)); leaf = keccak256(0x00 || digest); node = keccak256(0x01 || min(a, b) || max(a, b)); an odd node is carried up. Canonical JSON: object keys sorted by UTF-16 code unit (JavaScript's default sort), no whitespace, null kept, strings escaped exactly as JavaScript's JSON.stringify does (only \\\" \\\\ and control characters: \\b \\f \\n \\r \\t, the others as \\u00xx in lowercase hex; non-ASCII characters and / are not escaped; a lone UTF-16 surrogate, which UTF-8 cannot carry, is written as \\udxxx in lowercase hex, as JSON.stringify does since ES2019), integers in plain decimal. DeliveryRoots.verify(dayNumber, digest, proof) on the contract returns true for a record of that day.",
+  "policy": "A leaf holds facts only (payment, settlement read on chain, HTTP status, size and sha256 of the answer); no verdict is in the root. Each time this file is published, every purchase is judged with the rules of that day (verdict). A purchase whose verdict says nothing against the seller is published with its record. Any other result names a seller next to a failure, so its record is published only after vet402 has told that seller (data/records/notified.json); until then only its index is shown. Every purchase is in the root either way.",
+  "days": [
+    {
+      "day": "2026-09-30",
+      "dayNumber": 20726,
+      "root": "0x80201a2f3c1586e73c0bf6231ccd60611baab5f5e9faac134e9455220359d828",
+      "n": 70,
+      "published": 63,
+      "tx": "0xd4f0e2e6aa0f9eaf40c261ac0bb41a900fcccb2281bbcebfa8125105de89eebb",
+      "block": "510821265",
+      "leaves": [
+        {
+          "leafIndex": 0,
+          "digest": "0xa52a60d274b2a767ee5c8f8b0e1f8c6bb7be4261dd916bf9ac9a9f575d466d2b",
+          "proof": [
+            "0xa1758ee9af4866df5467397972c2f0a2436dcc6b78617d56cb11de49486fec2a",
+            "0x2d13853eb454ee8367257f566a762238b24e3ae13eed15fd6d251ae2520df61a",
+            "0x4dc5acd5b439294d7a96bc6b80dd8edeaf5ffff87b1c0a2802bf87a2393862a4",
+            "0x3ad031d86cbb8db97adec98f89ec750220434edcc37c5bd06067201989ea805e",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x0300E73759B357ceeE5A248d1801eCb8abf7A1d4",
+            "at": "2026-09-30T12:38:38.160Z",
+            "method": "GET",
+            "resource": "https://api.nativebtc.org/v1/mempool/stream-ticket",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x0300E73759B357ceeE5A248d1801eCb8abf7A1d4",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xd6469a4fc21db5d0536b6abe526b57386e9fce8e6a3db1489412cf69cc623234",
+            "httpStatus": 200,
+            "responseBytes": 325,
+            "bodyHash": "0x36684ca4b510a6dfd6ee0d2b4dc049b4bbe969eaaeb47d3ab91f6c086d7fb8ec",
+            "salt": "0xa7af0ed3db090741a1c801460e04d0da49109267fe4680353107269215b5295b"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 1,
+          "digest": "0x4e6d04d7b28d7a9aab7bbf2cfe7fb0eb11317874577692d6b524c87af782a8a7",
+          "proof": [
+            "0x7421836aafdaa8b40f015f0448f6465df0105cf3faa4d503a0cbdfa657a71d2d",
+            "0x2d13853eb454ee8367257f566a762238b24e3ae13eed15fd6d251ae2520df61a",
+            "0x4dc5acd5b439294d7a96bc6b80dd8edeaf5ffff87b1c0a2802bf87a2393862a4",
+            "0x3ad031d86cbb8db97adec98f89ec750220434edcc37c5bd06067201989ea805e",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x07cF5359Edb7d8De42973562C54e4c8d583C2396",
+            "at": "2026-09-30T12:38:43.815Z",
+            "method": "GET",
+            "resource": "https://api.syraa.fun/insights/gas-oracle",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x07cF5359Edb7d8De42973562C54e4c8d583C2396",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x99067e63108c72a208ed5bbefa54cacfd34591028f0f9a3f98e87e69668b9567",
+            "httpStatus": 200,
+            "responseBytes": 206,
+            "bodyHash": "0x46c67fa796cc92b828bc67910168123c6b2b76f1ee889ae879f81f6f06f9dae5",
+            "salt": "0xe47b276f1ba7cab3f5f4b330210ac7a9223e7b9ced996065fbdea3924b8e5e1f"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 2,
+          "digest": "0x5b5624eee83bdc597a194fd271967e80cb0a8245fbc37c68ffcd23193c29781c",
+          "proof": [
+            "0x9d8ff8fdcc32bc4645945d72e28b2cbbeb3b1f2b22ef925a144c5252072a95b5",
+            "0x280654d902f6487d529d90af413e801531f9d49262d3f74af33cc10a05a485e1",
+            "0x4dc5acd5b439294d7a96bc6b80dd8edeaf5ffff87b1c0a2802bf87a2393862a4",
+            "0x3ad031d86cbb8db97adec98f89ec750220434edcc37c5bd06067201989ea805e",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x0cCd097f92475d3EAf88e3b73e38a4DD4CB08667",
+            "at": "2026-09-30T12:38:49.868Z",
+            "method": "GET",
+            "resource": "https://api.dexl.io/api/agents",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x0cCd097f92475d3EAf88e3b73e38a4DD4CB08667",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x7a0a1c8f7ee11c4894e108f6a94b8d521b8353b2b98413f6ef338d68b7c2c02f",
+            "httpStatus": 200,
+            "responseBytes": 545,
+            "bodyHash": "0x01854ff1e95ec3c84c3509c4682ff73a8db9e9691c2b76636f9c8bfa213167c7",
+            "salt": "0x50bbd05747116c8cf4e63764e1f7233eef6e25a18627b6e337ef226bba9caca5"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 3,
+          "withheld": true
+        },
+        {
+          "leafIndex": 4,
+          "digest": "0x6f89a24adefad5cd4cfacea73f155289628218eda18b2c73aac15ab359210103",
+          "proof": [
+            "0x0b9fdc240bfeed772b3e8df8314f940bc50f401ccedf252d77897c9cdc7e7c30",
+            "0x57cd7f2a337df6c1358baec37a0afe3300fa46c9d54421a2ac95ccac153a5448",
+            "0x389bdda87d02a0fc7bc2550acfbe703294565347f9d211fb5fd0d466607a7161",
+            "0x3ad031d86cbb8db97adec98f89ec750220434edcc37c5bd06067201989ea805e",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+            "at": "2026-09-30T12:38:59.795Z",
+            "method": "GET",
+            "resource": "https://whaletape.xyz/coverage",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xf1f9d456d63dad61381abe497399dc6aa4f8152998c4e5916acbc42173952c13",
+            "httpStatus": 200,
+            "responseBytes": 205,
+            "bodyHash": "0x8b45c0e65cbd3538742ddbb994b005bb465f36528558e6cfa59284dd86781774",
+            "salt": "0xad36931197b4301b6ddda93084656227172de960520658409d9e4b11a9b4bf89"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 5,
+          "digest": "0x49c477ca39d2067575d773c3e4ef130fbe62595cafda2b2ed36498d908a4a766",
+          "proof": [
+            "0x8ec0806092c0725c58e69c1a5f94d881dc65c9e06946e04a02a4cc17cd32e1e9",
+            "0x57cd7f2a337df6c1358baec37a0afe3300fa46c9d54421a2ac95ccac153a5448",
+            "0x389bdda87d02a0fc7bc2550acfbe703294565347f9d211fb5fd0d466607a7161",
+            "0x3ad031d86cbb8db97adec98f89ec750220434edcc37c5bd06067201989ea805e",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x28410EaC7393dba041cd5a92eEfe7a8E834310bb",
+            "at": "2026-09-30T12:39:06.061Z",
+            "method": "GET",
+            "resource": "https://hotels.use.x402atlas.com/photos",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x28410EaC7393dba041cd5a92eEfe7a8E834310bb",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "20000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xacb2ecc0c6eb305520eca730ffeb0aa14ea1626e34737cf32fb422e6b5bcf616",
+            "httpStatus": 200,
+            "responseBytes": 115241,
+            "bodyHash": "0x1f06a850cc3f1da2945b9f2ae63c4e584fb15b10f8440b53bd2c7a1d9d5f3a32",
+            "salt": "0xf99d0756488210cc73785f5c6d7059cc67dc10882e1ca1cccbd83585c9da95d3"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 6,
+          "digest": "0xce9311826cdde71c09f11b9e6ee7d394a18d78669afcb6c3afd4759ff9619838",
+          "proof": [
+            "0x49809136b81bdcd025a56665d2e86408b24210518ef3ba054fbd91276bbc51be",
+            "0x31a6b497efacbc9e261d654a65cf5f467b187ea403b41fe35e2a2b9ba5c9da9c",
+            "0x389bdda87d02a0fc7bc2550acfbe703294565347f9d211fb5fd0d466607a7161",
+            "0x3ad031d86cbb8db97adec98f89ec750220434edcc37c5bd06067201989ea805e",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x32793F68dC2EA26BBC75eB900DA120069e8B6d02",
+            "at": "2026-09-30T12:39:09.392Z",
+            "method": "GET",
+            "resource": "https://coingecko.use.x402atlas.com/coin",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x32793F68dC2EA26BBC75eB900DA120069e8B6d02",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x8104d136ef48c4b647ecf69c6a3d9d1a1c3fa3c39b5ded92a977dd0c89db961e",
+            "httpStatus": 200,
+            "responseBytes": 1388,
+            "bodyHash": "0x934bac49b2270046f470edf7af1b3bcf52e52c63e22276a8791bcf30db468635",
+            "salt": "0x560c621fd1aa1f9fbf794d981517dc901efcb8a6f538c90fb88d7142a43d5fb7"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 7,
+          "withheld": true
+        },
+        {
+          "leafIndex": 8,
+          "digest": "0x101c88fcbf64d8631b84427681adc62ec1730d19fe2aa4e7e8e127943ac681a5",
+          "proof": [
+            "0x22c22242177568aa898fdafcab1757345b06c7476e80230ec1c1b85048cfb5f5",
+            "0x94410071aa5c56aea7cdea8fd3e4415de1b6c37cf71b401408d36feeaf3fc594",
+            "0x87e9a30e186b17549e4b851cc4940af2bdaafd787b7d96ecdfc577139add14ab",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x3731f5C2c1835E3aCe2AC157c4e31b1cEA0CB0e0",
+            "at": "2026-09-30T12:39:14.933Z",
+            "method": "GET",
+            "resource": "https://email-auth.use.x402atlas.com/check",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x3731f5C2c1835E3aCe2AC157c4e31b1cEA0CB0e0",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xf03a72693dfcd712da92c209e7e91b243be308e0606ea1d73cfe1cb9a7cb78be",
+            "httpStatus": 200,
+            "responseBytes": 1148,
+            "bodyHash": "0x6a1e10a84e2023011f99124f0b45aefe1e14573bc1599e2aad6f9d23e2839913",
+            "salt": "0x6b2cb78f3041f6c922f5a0c8b2d9c91072eb7df92dfbf79082d97daf8239ed6c"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 9,
+          "digest": "0x5ae3046222143a6ee54fedc5911b830ff307d058e3e9cae6ec56e89ccc63afb7",
+          "proof": [
+            "0x646fea314473e1843581905573e292421224fde0329ca5a2a8e52c4cc46d7ece",
+            "0x94410071aa5c56aea7cdea8fd3e4415de1b6c37cf71b401408d36feeaf3fc594",
+            "0x87e9a30e186b17549e4b851cc4940af2bdaafd787b7d96ecdfc577139add14ab",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x383190a4F26F075Fc2c73F6738eAbf4Dc6F33442",
+            "at": "2026-09-30T12:39:20.089Z",
+            "method": "GET",
+            "resource": "https://hyperliquid.use.x402atlas.com/mids",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x383190a4F26F075Fc2c73F6738eAbf4Dc6F33442",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x1801380435159eda7011ec233ff033963a9933fb8f55267b2c25705b8752a62e",
+            "httpStatus": 200,
+            "responseBytes": 19547,
+            "bodyHash": "0x9dffa57fc31117500ccc35061cef323ba52e6554b992aa7878b728dd5f4ef42e",
+            "salt": "0x416cf7b21ca9c76431cfb1e31a522ebaf0cf1ad151eee99a34a752ea9de35f4d"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 10,
+          "withheld": true
+        },
+        {
+          "leafIndex": 11,
+          "digest": "0x9c5072c25518246810c5b3f86e2500e77d641c28075a58a94856774d57d250b9",
+          "proof": [
+            "0x4f207bb37c0c222ca9b3803e142e7b2ef14641652446188951e69f45240c943f",
+            "0xcd3fa0de989b26be1e3f5e4eeecfbeb44299d5f342ae16010982ddc4ea545886",
+            "0x87e9a30e186b17549e4b851cc4940af2bdaafd787b7d96ecdfc577139add14ab",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x3e7c9cA818f713F19e126E3B7B37B47dC1411570",
+            "at": "2026-09-30T12:39:27.741Z",
+            "method": "GET",
+            "resource": "https://x402.openwebninja.com/email-search/search-emails",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x3e7c9cA818f713F19e126E3B7B37B47dC1411570",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "3000",
+            "chainCheck": "no_transfer",
+            "settlementTx": null,
+            "httpStatus": 400,
+            "responseBytes": 153,
+            "bodyHash": "0x28a15330b383abb00520d8c2b6ae0b2d320ab844a820758392d879e76132771c",
+            "salt": "0x75d5c633f664b6d00317b2771c58e121bec1052a0c872600d286859f217b3afd"
+          },
+          "verdict": {
+            "status": "vet402_input",
+            "cause": "vet402",
+            "rule": "input:missing_input"
+          }
+        },
+        {
+          "leafIndex": 12,
+          "digest": "0x5868fd01e8dfc288089abcdc22bbc1b40bec375407d5448b2c1b110623f4a9e0",
+          "proof": [
+            "0x4f9828be9c997718bcd67beebc40c1822ab2e9561582dcae9e93445348b12740",
+            "0xf7c929f23a474a8dc6e614df2656a9d28b47f1c35228ddd74f041bb60a525c55",
+            "0x96d2acdeaa92c5b69b2fdebe2dc1a159cf564cb8289e8c5fd4e1cdad02ffe9cd",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x4395C7e383b7e05665aad7f36ed77c01923Dd965",
+            "at": "2026-09-30T12:39:29.032Z",
+            "method": "POST",
+            "resource": "https://agentbit.app/v1/convert/csv-json",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x4395C7e383b7e05665aad7f36ed77c01923Dd965",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "no_transfer",
+            "settlementTx": null,
+            "httpStatus": 200,
+            "responseBytes": 427,
+            "bodyHash": "0xb294a75e475cb5bec669263b9378c1406a71b1b50c81228a2392ec509b171388",
+            "salt": "0x86b105ce22e513828669a473f14371b852434df4f2e1267e20ec686e882f8ac0"
+          },
+          "verdict": {
+            "status": "free_delivered",
+            "cause": "seller_free",
+            "rule": "seller_said_free:first_call_free=true"
+          }
+        },
+        {
+          "leafIndex": 13,
+          "digest": "0x0e2d4bca5d3fa79474879196a53c5371922f618a2abb6d2cd490dd18958a1259",
+          "proof": [
+            "0x20658f4569a229e72d93659cb3b5cbff424da72fa7bc9f1d4874807761d7ff87",
+            "0xf7c929f23a474a8dc6e614df2656a9d28b47f1c35228ddd74f041bb60a525c55",
+            "0x96d2acdeaa92c5b69b2fdebe2dc1a159cf564cb8289e8c5fd4e1cdad02ffe9cd",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x446e51DeAb3aE656C99E65369e8eF1148d23d7f7",
+            "at": "2026-09-30T12:39:30.238Z",
+            "method": "GET",
+            "resource": "https://dns.use.x402atlas.com/a",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x446e51DeAb3aE656C99E65369e8eF1148d23d7f7",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x5022841a6c5561f50fa8da259391de2b29e9acd3f5b84c416a2336532e1161f5",
+            "httpStatus": 200,
+            "responseBytes": 753,
+            "bodyHash": "0x0ac6e97bc059cad390b70c6ddc15d1ae810106f911e6e336d9b2ec8e0effddd3",
+            "salt": "0x98a9bc277719d6c977683554bf045200f18bda1d893de7052383a049cfb766f1"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 14,
+          "digest": "0x5cc3867f05292390ce891c56441fc5bf9ae4da5d14d62fb03b35bfdf44804398",
+          "proof": [
+            "0xe88e3a8fb690fd47f2bdb410f5c44380c45af8847abaae6d20b869285aeb9224",
+            "0x60aa34d2623a9d49216517f4febf406ea5d79ff70814ab16c4f137d82ab910f7",
+            "0x96d2acdeaa92c5b69b2fdebe2dc1a159cf564cb8289e8c5fd4e1cdad02ffe9cd",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x44818760C35821d793cf69275DdcFc012B3cDa11",
+            "at": "2026-09-30T12:39:35.168Z",
+            "method": "GET",
+            "resource": "https://x402.spendthebits.com/@stbclaudeprod/yield-safety/",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x44818760C35821d793cf69275DdcFc012B3cDa11",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x8270dc61da3e0856b4548dbfa376b9a9bfcfa2ca174c11a697e819cd4b35724b",
+            "httpStatus": 200,
+            "responseBytes": 8093,
+            "bodyHash": "0xef43801a2cddf378b28748d0e3444b6fb6632061387e675ee7d3dc178f61433e",
+            "salt": "0x6bb13b28e5d14e22bfbe1c94bfbd338e061765d68982b0d486e7a9085434e55a"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 15,
+          "digest": "0x555208894015852b23577c657a44151bd3bfeadd68a2d6838a4f614e0f1f2968",
+          "proof": [
+            "0xd2c8be8f6a7c2e2466b4133a7443bdf34caf7f8ad4ee4b392423ca8bf7297ff5",
+            "0x60aa34d2623a9d49216517f4febf406ea5d79ff70814ab16c4f137d82ab910f7",
+            "0x96d2acdeaa92c5b69b2fdebe2dc1a159cf564cb8289e8c5fd4e1cdad02ffe9cd",
+            "0x51e3a0631b06b9b28b29df329225cfbdedf3eeaa3541af627b5016707aae0693",
+            "0x539213dacfee18e755d46e80ef9e3b2a2ed43cd2f6175c553d14a13b707773fe",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x478bCdeA94b9CB5EA14C33e6f0d7E920743d39f2",
+            "at": "2026-09-30T12:39:40.204Z",
+            "method": "GET",
+            "resource": "https://api.eucompliance.tools/x402/price",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x478bCdeA94b9CB5EA14C33e6f0d7E920743d39f2",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x26b7f58281c92a48ca61da2e72daeb70c1e52e9728dbabc709677c1f2886bfad",
+            "httpStatus": 200,
+            "responseBytes": 6085,
+            "bodyHash": "0x789aa64b9a7c7f43c9610e2225846bdefa08d22d466dbcd20eb2f04497f67d79",
+            "salt": "0xacc978ad31bbbd54d7a48dd36664f979abd488a99cab1749e2eae33e273c4d75"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 16,
+          "digest": "0x60680873dda896b226ab6167b4fea6ea43bec914672aaec20dbe4c4bfe297f94",
+          "proof": [
+            "0x0a3081edf5e6e26cbd7bd4e04d801ba3077236cf7c20ae3c525a20c1314f59a7",
+            "0x73a2d1f7651b1b066e4aaf121981fe71371880ee08a8e0a6364bc4c6e993d774",
+            "0x8d2ad4c91ed9b631a610bc17f194a987709a44b384270796dba6fc6adad6c340",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x480CD46E6faDe651a0437DeaddA53D5c8e7D846A",
+            "at": "2026-09-30T12:39:46.760Z",
+            "method": "GET",
+            "resource": "https://api.bitrefill.com/x402/checkout/info",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x480CD46E6faDe651a0437DeaddA53D5c8e7D846A",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xad0483d67382023a8a067f6a29d2b5043aa13ef64ce77efe16b05217c42d3010",
+            "httpStatus": 200,
+            "responseBytes": 1412,
+            "bodyHash": "0x72017bd55c1be53f71b71ff9f329df598efb2956e09d6cbdd85b855c2f8c484c",
+            "salt": "0x8bc5197248f72972c576eda23249723db6db49fba6406c5ad71d01a2cd91e64e"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 17,
+          "digest": "0xb0b59975af26600faddfa24301ca5e983dc57150de8c0373818009c3227a3ade",
+          "proof": [
+            "0x419a832429800bc67e804a1c5e0279dff95856e2b11ff360ecd5a4ed01eda53d",
+            "0x73a2d1f7651b1b066e4aaf121981fe71371880ee08a8e0a6364bc4c6e993d774",
+            "0x8d2ad4c91ed9b631a610bc17f194a987709a44b384270796dba6fc6adad6c340",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x48d5A78d480B4C32dE319C2aEF69e682Dc304615",
+            "at": "2026-09-30T12:39:52.755Z",
+            "method": "GET",
+            "resource": "https://api.marketintelligenceapi.com/api/v1/eu/fx",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x48d5A78d480B4C32dE319C2aEF69e682Dc304615",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x3c90c46799f0ca88780e434ff5dcba3b5d3e9acb45bfae077fee0d9f5bf1fe6d",
+            "httpStatus": 200,
+            "responseBytes": 2984,
+            "bodyHash": "0xbd4d51ffac999cd3c08c769092ccbdf590696d91dde2e114306d83f8c19c099a",
+            "salt": "0xf4fc45d0f970ec1a9cc8a85d77ad1440b82c1371d5bc9cdee80079ea3fe6fc20"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 18,
+          "digest": "0xfb4fcee721cce26c3936b2e4f495882094d44b26bb89b111825b19de0ac68f56",
+          "proof": [
+            "0xf67611e8b44184ffef379d7b9a5073207a40003b06231c09dd3edc1a35b1e7e6",
+            "0x2c5f489a7bc639ad8962a2f2e92f6ab12f87523522edd52cc5df8e5b9ebbf500",
+            "0x8d2ad4c91ed9b631a610bc17f194a987709a44b384270796dba6fc6adad6c340",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x492eC81ECf395FbEa2F19fECe203ee14D0544B71",
+            "at": "2026-09-30T12:40:00.521Z",
+            "method": "GET",
+            "resource": "https://unwrap.use.x402atlas.com/",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x492eC81ECf395FbEa2F19fECe203ee14D0544B71",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "9000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x7381faac8a9b747f4796def85269853ab0f9b4feded0f3d17f954a22e34f20c9",
+            "httpStatus": 200,
+            "responseBytes": 1102,
+            "bodyHash": "0x1163eaf5ac191bb4f45372a73f7bf6daff7c967da3eaf97d4aa7d85e29787e56",
+            "salt": "0x42e2e694a08606414052f92f6581c0f715e18669bda186a8ee37e637e9e06d4a"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 19,
+          "digest": "0x94268d768be58d3b216d86bac2d6c55b82b7e32d4adf6c7b119f2be4faf98155",
+          "proof": [
+            "0xb9bde2c12f5045898ad0c3e2868346fe302e1a4f7446294dea9f8d25a9eec8fc",
+            "0x2c5f489a7bc639ad8962a2f2e92f6ab12f87523522edd52cc5df8e5b9ebbf500",
+            "0x8d2ad4c91ed9b631a610bc17f194a987709a44b384270796dba6fc6adad6c340",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x50ab2018c06c6E4eAA9BA52057Eb55eD284912fc",
+            "at": "2026-09-30T12:40:07.194Z",
+            "method": "GET",
+            "resource": "https://onchainpulse.theaslangroupllc.com/api/facet/honeypot",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x50ab2018c06c6E4eAA9BA52057Eb55eD284912fc",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x29a17d8d6777709f25f3754f1c65bee793e6e4cf4f0721cf95fd8b60e1cdb586",
+            "httpStatus": 200,
+            "responseBytes": 1305,
+            "bodyHash": "0x865550e1c49e52147a0791b2cc1cfce0b6a39b9e30f46faec01e3466f176a06a",
+            "salt": "0xd9a11eaf90a9ad8f08c4319a6759ee60a88ac53e27c589dd1e848cc27e271843"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 20,
+          "digest": "0xa4ac398079068cccf1d7f2a4eccdedb89db252fc2ee78639233029107c41f0e0",
+          "proof": [
+            "0x57b23eb71230a716716beb68014d74f4880e5366ede9431488aad68b5159eca5",
+            "0x48b53eb1c7715a33288ec48044b4f63737b2004de6799db19c535a03d6bb68f9",
+            "0x1f4e928a7bae6874a74586e421047630a456aa77a7c84801310e1656445d1843",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x54d6C2C08e10F1a1d3dA88dF513bbE9BCf1A4aFa",
+            "at": "2026-09-30T12:40:12.787Z",
+            "method": "POST",
+            "resource": "https://api.munition.io/v1/airports/search",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x54d6C2C08e10F1a1d3dA88dF513bbE9BCf1A4aFa",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xd3d2e176fdb262ec6f13ea9b4f85c1729f12b40fab39d18309d1661dc3a2e7a7",
+            "httpStatus": 200,
+            "responseBytes": 3630,
+            "bodyHash": "0x60ec0b56b966bafe3e2470d03cc18c1914a3122f2053383bd8401ee3ef13c055",
+            "salt": "0xe29f77c3a3b038073317dd719be9b9fa071558cdbe36cb84303444325cbc0d83"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 21,
+          "digest": "0x7bd01644d4a405e7a547529f7e681fcf3ba62b237fa541e4de63b90fcb631b74",
+          "proof": [
+            "0x7475b37228d775932ba57ed0f4d498b2d95c7c377b396b0c13290b779c9b6a05",
+            "0x48b53eb1c7715a33288ec48044b4f63737b2004de6799db19c535a03d6bb68f9",
+            "0x1f4e928a7bae6874a74586e421047630a456aa77a7c84801310e1656445d1843",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x59D7C809e709E1B64a26536eCb0757cf8C964618",
+            "at": "2026-09-30T12:40:19.570Z",
+            "method": "GET",
+            "resource": "https://x402.spendthebits.com/@stbclaudeprod/proof/",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x59D7C809e709E1B64a26536eCb0757cf8C964618",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xd89d07bbf73c00d6600d2c7090fd72f0dbdc32ffa176554c0affcfaee38dbff3",
+            "httpStatus": 200,
+            "responseBytes": 69,
+            "bodyHash": "0x9d31de0b2ceba0b1289852d01eddfc3b060104c498a5f72aa29889fd29ce7ca6",
+            "salt": "0xfb2c87a5901f57e5b8dca6bd8dd01d7bf978d9bca3257229dd587c9491c39ad8"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 22,
+          "digest": "0xd478a4c93673d28aeb4462b46eb508fbf501f3242ac1b18b36e9352ff40afbac",
+          "proof": [
+            "0x190d67c09e8c27aea3add5270b7802434ecff20de7a195f129045a385c8fd221",
+            "0x94cf4f3777c4a25438be54dd64081ece764a7f19766c8a47b0ae58bedfbd9ac9",
+            "0x1f4e928a7bae6874a74586e421047630a456aa77a7c84801310e1656445d1843",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x59ea036C64f0F54CDD14a3BE8a1a6586B58DA71c",
+            "at": "2026-09-30T12:40:24.862Z",
+            "method": "GET",
+            "resource": "https://appstore.use.x402atlas.com/product",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x59ea036C64f0F54CDD14a3BE8a1a6586B58DA71c",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "20000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x5aebe58f47e142647dc599b06ca828ea56cf23a0845278ff0aecb1bf3cfbc7df",
+            "httpStatus": 200,
+            "responseBytes": 4039,
+            "bodyHash": "0xbda9419c30e05761f234262126f3d5dea18fad404d2f861bc77675e315f5e62d",
+            "salt": "0xe4671a9fa5805d16e1e70de684246a3c35e95c92ba0e1fb6ca097c0e0a8889d2"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 23,
+          "digest": "0xb107e055968ef30bda6a11c083d6e0f830aea994492f0eae1db8a97ad06a7982",
+          "proof": [
+            "0x17d49f7256ad421fe57e6465a1821933d579613dcd19fba26ecd7fb29ba9efab",
+            "0x94cf4f3777c4a25438be54dd64081ece764a7f19766c8a47b0ae58bedfbd9ac9",
+            "0x1f4e928a7bae6874a74586e421047630a456aa77a7c84801310e1656445d1843",
+            "0x0acbe926855be8fba194938df275e659e4da0e4c881c6858e2586e0e79550b9c",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x5a45010395d62e9C4A8a0931bDe0493AACA4f657",
+            "at": "2026-09-30T12:40:30.371Z",
+            "method": "POST",
+            "resource": "https://imgopt.use.x402atlas.com/optimize",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x5a45010395d62e9C4A8a0931bDe0493AACA4f657",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x34d25c4abd5574fc79f1f8a8a0fffb1c349314924e52b94adacb9503833ddf77",
+            "httpStatus": 200,
+            "responseBytes": 36512,
+            "bodyHash": "0x8d7aebd4131c73647f6ff7305f46fee8d5803ee3b12cf9960d39c020328166fd",
+            "salt": "0xf3874ccfd3e948348c9a068386b83f1248704f0db9425681bf3d646299a97cf9"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 24,
+          "withheld": true
+        },
+        {
+          "leafIndex": 25,
+          "digest": "0xfcaaa5ce6802fb946674f8881e914866fdcdec8cef6e734ee8c4657072750f64",
+          "proof": [
+            "0xa18ae5969636656d66b61357ba03a623933732167b987da276a2084ea32871d2",
+            "0x8b5596db249c6a2099b99587e2e03eaca495976c40bfcae7ed55a181401e18f9",
+            "0xcce0858ce7b42fa40a31fdf8bb3249076f5eaa513db707cdf95db18dcaebbf0f",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x68b7E8Be8f1a62f99e37f1Ac191dd23486e8A2AD",
+            "at": "2026-09-30T12:40:38.116Z",
+            "method": "POST",
+            "resource": "https://ai.stable-jack.com/x402/tools/onchain_user_activity",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x68b7E8Be8f1a62f99e37f1Ac191dd23486e8A2AD",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "50000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x8ed5ddd8191d9e5134f9ec51556f3b860279764c8413a403387dda75e9e77a42",
+            "httpStatus": 200,
+            "responseBytes": 2444,
+            "bodyHash": "0x94d89107cddf26b6009e74d7bd8fa99aa9a362e7f3d9ca6ea0da670a7a84a3ea",
+            "salt": "0x8c351a2c5eedc84f1110b01195fb4b0252fc6ab7a8eccb489e6714d260c15847"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 26,
+          "digest": "0xaae3075e150119a9c863f9fc3cd206ec8274be9409c901398bfc61712fe5e9e3",
+          "proof": [
+            "0x56529819bafb9eee4083547c5d878728bb0d1ef7155eac6170507bc7a9beabab",
+            "0x5b855c875068faf167aad93b49c6e7c34c78cae0da57ef8e5aaffcf17f08f335",
+            "0xcce0858ce7b42fa40a31fdf8bb3249076f5eaa513db707cdf95db18dcaebbf0f",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x6A706D6Fcf192C15fB592d7502258Ed41425DD36",
+            "at": "2026-09-30T12:40:49.113Z",
+            "method": "GET",
+            "resource": "https://wiki.use.x402atlas.com/summary",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x6A706D6Fcf192C15fB592d7502258Ed41425DD36",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xfdff1055e1333d24d02b2dd778c96101971ea9921f9b0a0ccef03d1e6919353b",
+            "httpStatus": 200,
+            "responseBytes": 2284,
+            "bodyHash": "0xe2b6841c8fa1d296fc234bd339086087dc45a85f777bfd15a1266ca4c0da45be",
+            "salt": "0xdcd2303053213a96bb9a91801a2e675ead7574835b866971dbb45da3a11eb2fc"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 27,
+          "digest": "0x20095609832636dd3ec1a7b1c52a0e1eb275626329e985c7d219b7e0520d0f63",
+          "proof": [
+            "0xe94e18bb7c23979d0a0dc5e3f7903fa66c7cadc16d46607d13f50f79feae0d0c",
+            "0x5b855c875068faf167aad93b49c6e7c34c78cae0da57ef8e5aaffcf17f08f335",
+            "0xcce0858ce7b42fa40a31fdf8bb3249076f5eaa513db707cdf95db18dcaebbf0f",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x712c78928080Adb009E31315c0c3c7473dA9648a",
+            "at": "2026-09-30T12:40:54.010Z",
+            "method": "POST",
+            "resource": "https://hosaka-agents.vercel.app/lookup",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x712c78928080Adb009E31315c0c3c7473dA9648a",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xff571e1b27ef71396092834789eb7584068db70328ddb333ce0908b4e78692e9",
+            "httpStatus": 200,
+            "responseBytes": 370,
+            "bodyHash": "0xd762f411734a14d6eb94485c6f05db412239e11d756fb6b72f88e40e1ca82078",
+            "salt": "0x570cd50ae0eff6bfa0caa44ece32f1510a7252fc2355ce27ff7acccc41afca99"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 28,
+          "digest": "0x845d3530056a6174338ca31cdfb08044080ef448995a75671f5eee7a8582af85",
+          "proof": [
+            "0xbfa0efcf2ac4bccd43e2902f78db32476ef34b1a580315a6b5ec27f4da577e63",
+            "0xfaf1d68bdd94fe8da7f0004621fa3033b5709510fb14c3733e298e18b51e0cb6",
+            "0x21e824b9be6749be9bc051beec409beb7d447199809b6a0d06011416b8aaaf49",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x7437a817450BA32d22ebE8D2AC71611666999B8e",
+            "at": "2026-09-30T12:40:59.280Z",
+            "method": "GET",
+            "resource": "https://quokkapix.com/api/agent-unlock/coinbase-x402",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x7437a817450BA32d22ebE8D2AC71611666999B8e",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x4c4f7290baeccd8eda5e97c73736d3ede21ba01c026906613d079d8a7aeb09bd",
+            "httpStatus": 200,
+            "responseBytes": 1132,
+            "bodyHash": "0x51a21fa9860df3c08f0dc11d15626e79ccc0b02c7bb4af9828056dafcfe3355c",
+            "salt": "0xaf48b5fa2b160d2457780584c285a31f3da661a2726850776e95e9bdda10c2e9"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 29,
+          "digest": "0x218614fb590d7ae8d2cada0f4c2b5a7d6ac0c0f93ed3f4f05a62e6b5cb15d4ea",
+          "proof": [
+            "0x4e2ec05c9744d50005232e0244909bb16c89d1938c005d764191c0e526c776fd",
+            "0xfaf1d68bdd94fe8da7f0004621fa3033b5709510fb14c3733e298e18b51e0cb6",
+            "0x21e824b9be6749be9bc051beec409beb7d447199809b6a0d06011416b8aaaf49",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x766B4cc27333955BBb163a61e2B85aFa6e491422",
+            "at": "2026-09-30T12:41:05.668Z",
+            "method": "GET",
+            "resource": "https://agent.apiguru.app/agent/v1/product",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x766B4cc27333955BBb163a61e2B85aFa6e491422",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "2400",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x9bfd113380ad9d577df99fffdbced160aa9b063847fa78328949a6fdf7e1fdff",
+            "httpStatus": 200,
+            "responseBytes": 18956,
+            "bodyHash": "0x821b020f91b10f8684fd70e0fd66912fe072fd186e9239ae4d2d61a11950dc57",
+            "salt": "0x7f7f756f467bdd3fbcc3ac41da91969c8c030b585cb810765d6373e2135b2554"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 30,
+          "digest": "0x009ceed1e2881c02ba72f386068e5943b639d17488e331078805cb9e93fc4596",
+          "proof": [
+            "0x534495cc675d6dd329fd6c618bafd628e5dd61da61e52ed6cdce800d30c877ec",
+            "0x6d1478fc147e482bed852865d65ad3177184b0bfd81165766963555a6903ce7c",
+            "0x21e824b9be6749be9bc051beec409beb7d447199809b6a0d06011416b8aaaf49",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x7a19Cd388C7F69145Fef09b960853E0A429B6f4a",
+            "at": "2026-09-30T12:41:12.291Z",
+            "method": "POST",
+            "resource": "https://402oracle.com/verify/freshness",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x7a19cd388c7f69145fef09b960853e0a429b6f4a",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "20000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xa5003a813682d530b0805475501ce13fa2a32fda15d07dc369aaddddcaff223f",
+            "httpStatus": 200,
+            "responseBytes": 1253,
+            "bodyHash": "0x1ddb5fb68b5962cbcc2dad452ac0f73ad191de50227288aeaa6fe62ca8016fde",
+            "salt": "0x0ab25996f6f4c8caef90b6737e56f04f62e6cea9c90193812b0b1646cfffc49f"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 31,
+          "digest": "0x049a553c3ab109d71fab404c795034358e9cce5c0e1e0867e68fd169228fd6e9",
+          "proof": [
+            "0xf8e3949d62122009b76f6e793daf57d0d578c179ee294f0ba8595d170a2103f5",
+            "0x6d1478fc147e482bed852865d65ad3177184b0bfd81165766963555a6903ce7c",
+            "0x21e824b9be6749be9bc051beec409beb7d447199809b6a0d06011416b8aaaf49",
+            "0xf8cded533a06d9401a41dd930a038b30cc9063de2538740c47589cd78ea6fe2f",
+            "0x3f3dc0886188ed13521e5863d7d81bff259b8088d5cfac2c5917ae662eb294c7",
+            "0xd9fef446ff792778296c350816870f9c1983956c6f281daadcabaec3e1cd8ac4",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x7BEcA68DD9aC733D4de6b16d16B85Dc391c071e2",
+            "at": "2026-09-30T12:41:18.528Z",
+            "method": "POST",
+            "resource": "https://phion.systems/v1/execute",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x7BEcA68DD9aC733D4de6b16d16B85Dc391c071e2",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "no_transfer",
+            "settlementTx": null,
+            "httpStatus": 200,
+            "responseBytes": 1365,
+            "bodyHash": "0xe4671e5dc29771e4f1bbe55058ecccee03df24dd845b18634d2a63db0973daea",
+            "salt": "0xb8fb96f4a835edfc510ec2e4a9bc1c404c89581abf163f31f8e4a6df5e3a7b5d"
+          },
+          "verdict": {
+            "status": "free_delivered",
+            "cause": "seller_free",
+            "rule": "seller_said_free:charged=false"
+          }
+        },
+        {
+          "leafIndex": 32,
+          "digest": "0x0411088d3c3bdbc292606c9daf464e3c897d5977d33615a56255dc647c910fc7",
+          "proof": [
+            "0xf16c3929f662fe33c1c4065ff2e28bbcfe07f322d9336f4a848ea8ecdf35c0ef",
+            "0xc1f1545b893643f081946227e9ba806114c55eda0a578d14175f05fc72e1d9e8",
+            "0x53aedbda75656069d61a7bd69c270b143a65ee6edc202b58c9a59653e662b803",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x7f8043c400799643bcb62B41B84b297a8Ecb7b9c",
+            "at": "2026-09-30T12:41:19.574Z",
+            "method": "GET",
+            "resource": "https://headers.use.x402atlas.com/",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x7f8043c400799643bcb62B41B84b297a8Ecb7b9c",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x955ffd8c8111cfd42dcb517d05463eea971b2cd98cb825bf8b7a6ed12a1bc287",
+            "httpStatus": 200,
+            "responseBytes": 1473,
+            "bodyHash": "0x0cd348f4c247d46ed5d3b8df62037ef9e2070c8f30a2d5818f05a2036950a29a",
+            "salt": "0xc38fd8d950098990ceb496a41886189d8ad13e6d28141b2e770ab85e473096b2"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 33,
+          "digest": "0xd74db425bdb8d5175a93b887c5960611c021ae39587f7a6f3c0ad357054d5226",
+          "proof": [
+            "0x0e993e4de9069d8fefeafdbc4e75e375ade8a84a33c8daf2d4f2f986203c7b33",
+            "0xc1f1545b893643f081946227e9ba806114c55eda0a578d14175f05fc72e1d9e8",
+            "0x53aedbda75656069d61a7bd69c270b143a65ee6edc202b58c9a59653e662b803",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x80aa1fA83F7B771BF2AB815DA9bA1236b1B91E3F",
+            "at": "2026-09-30T12:41:24.760Z",
+            "method": "GET",
+            "resource": "https://www.watchevelive.com/print",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x80aa1fA83F7B771BF2AB815DA9bA1236b1B91E3F",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "50000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x78853dbbd077dc42834fdbcd39a19cf36f7ea05fd4625e92f01af671ebdf201f",
+            "httpStatus": 200,
+            "responseBytes": 1561,
+            "bodyHash": "0xac14f40e29e97dc0ee8002e90aa4c22f00584f4cbba5b92fd86e2d01bba9647e",
+            "salt": "0x104602aa34ca18ad38feabf061780a16f585f82709e62ce6224340b53ffc0c18"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 34,
+          "digest": "0x3d2f7ff2003917b33f683a02ebbf4a16df1122fa988f42f1686756f75155a75d",
+          "proof": [
+            "0xe77ce8c8f757e2084f866c73f95dd414579552d03397575597e2639c4cb4b296",
+            "0x17c6a5228ab6ba46519412106b505aa318ac67b5b0cb00d6ccd3809b2cfcc099",
+            "0x53aedbda75656069d61a7bd69c270b143a65ee6edc202b58c9a59653e662b803",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x82096bF08d81c14C678E915A04Fcf150958eE571",
+            "at": "2026-09-30T12:41:33.670Z",
+            "method": "GET",
+            "resource": "https://perpsignals.use.x402atlas.com/fear-greed",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x82096bF08d81c14C678E915A04Fcf150958eE571",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x4d33ce2a6a2656b492b3ec765237f3e17f72c149bf77a870e56ac2af777c5b78",
+            "httpStatus": 200,
+            "responseBytes": 789,
+            "bodyHash": "0x9a5dd57067ca94dc0b73625b55b432302f34abaa7f3d619722046eef47efaa15",
+            "salt": "0x3b240e2f232210a134a02965b49377ff9c1275e57467ce802e555c05c2a5b1b7"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 35,
+          "digest": "0xded2e59c79ecc83388c73ec1188c79b991085ee87db5182bcf9f0479d5ff59d3",
+          "proof": [
+            "0x13824231962d80f0d7c043b6fad82a3aaa517b674a68e7f783fc1c6e97a2cfc5",
+            "0x17c6a5228ab6ba46519412106b505aa318ac67b5b0cb00d6ccd3809b2cfcc099",
+            "0x53aedbda75656069d61a7bd69c270b143a65ee6edc202b58c9a59653e662b803",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x820D61a720963fab63aB6e0aeF4D1779Eb42F6BB",
+            "at": "2026-09-30T12:41:40.321Z",
+            "method": "POST",
+            "resource": "https://agents.dexl.io/v1/audio/speech",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x820D61a720963fab63aB6e0aeF4D1779Eb42F6BB",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x16c922854b73bbf8f7bdc955b0a3835069bd9baf12ff2bd28abe067d2880f3f8",
+            "httpStatus": 200,
+            "responseBytes": 123141,
+            "bodyHash": "0xdcf6442ba03b7ce0e4706da02f3bc566830167f1ef226b612fa207d55ce23b13",
+            "salt": "0x1fa851d050a3b407f588f2d62d2954743441cf757a0e70650e7fa0a0d9e63658"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 36,
+          "digest": "0x01d9731c4a913d02a664b932cedbe5d67fc0927584a89a9332ebe51083be539d",
+          "proof": [
+            "0x76b6f2f32c8bbbf58e61d13d0384f47b19fb5d037140d8ea2bac84252e920807",
+            "0x4d7b15bab6e0aff8b8cab01bf4b3d7e3065f7416eede7da811efecd163a7029a",
+            "0x7887275a00f668099674ab1ee0e13815fb9487c31b9e03f54a42602af15d0f9c",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x83F15f5bEa445109E255ab82622fbdFECd1E4c9f",
+            "at": "2026-09-30T12:41:50.581Z",
+            "method": "GET",
+            "resource": "https://mcp.barker.money/barker_defi_vaults",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x83f15f5bea445109e255ab82622fbdfecd1e4c9f",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x46791246cf92622621ea5f04e7f339266d7fdd3706e5f18e14bd7c8c4c9f0d6c",
+            "httpStatus": 200,
+            "responseBytes": 23493,
+            "bodyHash": "0x62a45cda6d1a93b737656fe9b5af9bdc248de2997a646da421aa8a39c3304abf",
+            "salt": "0x73c98dde49f222bd4ae2981eb7d2a6fdbf9b49e7ca3e0b9e38d1cfaa32eacfe7"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 37,
+          "digest": "0xd562f4a786e455d29fee0bc7856dc41d3e7dc30a8d00c30ad13ce5c3173b42c1",
+          "proof": [
+            "0xb7cd2ae9ca4f104a2de2d945f268c6b0b600e509395ef600dee91fc3e52d9c5a",
+            "0x4d7b15bab6e0aff8b8cab01bf4b3d7e3065f7416eede7da811efecd163a7029a",
+            "0x7887275a00f668099674ab1ee0e13815fb9487c31b9e03f54a42602af15d0f9c",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x8C128f1Ee62Bb5e47867CfbAe2ad89be325Df1b2",
+            "at": "2026-09-30T12:41:57.063Z",
+            "method": "GET",
+            "resource": "https://agent-arcade.use.x402atlas.com/chess/daily",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x8C128f1Ee62Bb5e47867CfbAe2ad89be325Df1b2",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xfc58787eb707793cb416eb866426777932de759cf082d9777ec70ba5b1812b9c",
+            "httpStatus": 200,
+            "responseBytes": 683,
+            "bodyHash": "0xf53eb936dbea32589820086622512fd7ea1d3048045a27026b7706b2fa9f9cae",
+            "salt": "0x183fb12bc2a08acab9c3a638cbd8138eaffffe637d4a4732e7e035f82c1d99f7"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 38,
+          "digest": "0xf17d0195213e4c19c1ea6ad2e56e4529e90b4a3123c85d3ca34757c0c7d2b26a",
+          "proof": [
+            "0x82a9e64ce7888fcd48385a48cad6bce3bc907e7b5981a206f1bc225633984fdf",
+            "0x16f0fbf42679e61f5f172c5a49701f972d65493599e6e47254b57d6c2facd317",
+            "0x7887275a00f668099674ab1ee0e13815fb9487c31b9e03f54a42602af15d0f9c",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x8d64A4834e262d96d1264e8900b5a4F1405b8982",
+            "at": "2026-09-30T12:42:02.164Z",
+            "method": "GET",
+            "resource": "https://gdelt.use.x402atlas.com/search",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x8d64A4834e262d96d1264e8900b5a4F1405b8982",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x16d5a8a8af8a0f9fdc87ac14f18b360d32af48704b718a081d444f8ae22e4692",
+            "httpStatus": 200,
+            "responseBytes": 18552,
+            "bodyHash": "0xa44cee0be6ab2082508b6816a5a27fe24dddc8b9a46ae4343537ae716bb69cc5",
+            "salt": "0x87135167f9c6e65a09e9ddd8df4fb60b902bad1452a1afbac19cf4e70bf5e54a"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 39,
+          "digest": "0xc0849f6314e7aab3ea971bad6247f465199886ad1d4b9d783aacb059a096bf0a",
+          "proof": [
+            "0x23ed2293f297f5b6cda4838d902f99f724c42c98e52d28ecd133b83d930cc5de",
+            "0x16f0fbf42679e61f5f172c5a49701f972d65493599e6e47254b57d6c2facd317",
+            "0x7887275a00f668099674ab1ee0e13815fb9487c31b9e03f54a42602af15d0f9c",
+            "0x96a1192f657971f842f3ff1a4b7137074adc0c26d54d08246277169158881d92",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x8E57BFDE053dBb6862991759c19affC5F383d5D0",
+            "at": "2026-09-30T12:42:27.895Z",
+            "method": "POST",
+            "resource": "https://gate402.app/v1/proxy",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x8E57BFDE053dBb6862991759c19affC5F383d5D0",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "2000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x9a81c1c9ebc502471ef6ad96435e4161ae27e4165b2dc981c49b53e0029e8c31",
+            "httpStatus": 200,
+            "responseBytes": 1187,
+            "bodyHash": "0xf813cbf78bd33228f8bfd0cb37a056151e034d642abe06209adc335273891ccb",
+            "salt": "0xa694e884f301ef87f307af4db1aa1e7cdb3411d1f80d9230e3cda2b0f3e1f9d0"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 40,
+          "digest": "0xf1ce0c362518b06a0dd215c87b12379e5a6c0d21034a60e7f5e520b2f3a16228",
+          "proof": [
+            "0x98e5e167b3bf49f57390702ea517e581d2f1e801c25544b84c5fda5839afb60f",
+            "0xa42a43ad71cb988c536a019353f7561db6dfdff0e6e5bfc3a7d52949b2f4abfc",
+            "0x1cbd70ee2b520a2c931455a07da0b63171ab3bcea0234728c239b5654035c6b3",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x9AACeabAD8E1858b72fcEA1665381B168841b2fa",
+            "at": "2026-09-30T12:42:35.788Z",
+            "method": "GET",
+            "resource": "https://google-trends.use.x402atlas.com/interest-by-region",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x9AACeabAD8E1858b72fcEA1665381B168841b2fa",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "30000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x5b5465a3890af2fe7769c1011267cc58a14a6c850ee59ad9feaf343e02d43378",
+            "httpStatus": 200,
+            "responseBytes": 1881,
+            "bodyHash": "0xb42c4d303b68a43543148a471bbe65bfd15bcd9dd1074327db12e37bf2716afc",
+            "salt": "0x813648b04478fcd4b4577639f1f39f55fcc99560358a0d006ac669ce396a819e"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 41,
+          "digest": "0x76f1c405e6471a6a517311e6c3fc3638e3db9b64be949664f4cb91c7a702118c",
+          "proof": [
+            "0x8d625b646fe8f83d1f06d3fbc4ac986e66e4323df4d99fe13ed80cbc8f707dbf",
+            "0xa42a43ad71cb988c536a019353f7561db6dfdff0e6e5bfc3a7d52949b2f4abfc",
+            "0x1cbd70ee2b520a2c931455a07da0b63171ab3bcea0234728c239b5654035c6b3",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x9D667BC76F166322df087b3B3927D4d83D44A5d0",
+            "at": "2026-09-30T12:42:43.233Z",
+            "method": "GET",
+            "resource": "https://marketdata.use.x402atlas.com/aggregates",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x9D667BC76F166322df087b3B3927D4d83D44A5d0",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "15000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xf2b8b33ec28196e60708499d3e68fa2856c3f2eb022fd8b6bad6dc3d20bb09cd",
+            "httpStatus": 200,
+            "responseBytes": 2392,
+            "bodyHash": "0xb1fc695d4883cf9cfe4eaf58e16dd183b863e054f040fa9b3f4b4feb37180998",
+            "salt": "0xad3105eeaa24a48044721ff5e890007a9fe003dba9204daaf9efd398f59d8178"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 42,
+          "digest": "0x57c000f1249cc522428cce087a11fee463476d9c733284e5660f5b09a9899902",
+          "proof": [
+            "0x033a38962ca379663f67b8831e989476a02fac7ac58af5441cdb7b1b11b26a0c",
+            "0x3d513ed14dccd7f77ad2bb4956f2159fa988062f0ae71cf003f3cf1cbc856086",
+            "0x1cbd70ee2b520a2c931455a07da0b63171ab3bcea0234728c239b5654035c6b3",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0x9d86e0e74333B297b1D0B6Ba30D2eD1b5F01F296",
+            "at": "2026-09-30T12:42:48.525Z",
+            "method": "POST",
+            "resource": "https://rpc.nodeflare.app/arb/x402",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x9d86e0e74333b297b1d0b6ba30d2ed1b5f01f296",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x8e01ce8d4442aa51e9124138a83abe80fcc0faaa6702cd070fdf84e926f4555c",
+            "httpStatus": 200,
+            "responseBytes": 47,
+            "bodyHash": "0x691c3364445ca3e254b292381e57967a5a790500310790d3efb0cfa21ab0fab9",
+            "salt": "0x0aec61fbac19b82266efaff4897881f88b8883414d0a6f6038c2be3b648ea0a4"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 43,
+          "digest": "0x4846979ea5f2fb0ad1467c740f19c2dfb5a388072cf1feaac4903c5230d3d2ae",
+          "proof": [
+            "0xe87218cdc64b5afce3993c5b092b9cc5489084c797775a1912ba05b99504d6f6",
+            "0x3d513ed14dccd7f77ad2bb4956f2159fa988062f0ae71cf003f3cf1cbc856086",
+            "0x1cbd70ee2b520a2c931455a07da0b63171ab3bcea0234728c239b5654035c6b3",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xA2A8dF0f7CaaBEa4e120a2568118f141569fc8aa",
+            "at": "2026-09-30T12:42:54.005Z",
+            "method": "GET",
+            "resource": "https://saylorinnovations.com/api/art/object/met/436524",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xA2A8dF0f7CaaBEa4e120a2568118f141569fc8aa",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xc1978912555679f50e8cc4a44e2526d1f9082bfd7cdb0cae0271ed8c279fbc75",
+            "httpStatus": 200,
+            "responseBytes": 687,
+            "bodyHash": "0x4ad57c8cc1ec7edd807cbdf0453b6e3ee2cc4c0e3dedb3f9e6091fd8ad39dc3f",
+            "salt": "0xdeb56559dca75a815dfb75af05da68792188e402051b0c12d5da4a2b99b9aef3"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 44,
+          "digest": "0xbac79a9ff116ac35dfdb39c0615b4720245b12a9ba736baf76d891e888da2234",
+          "proof": [
+            "0x8f813ea1471b45921929f0a188b800f7a7c90d369e303fd4338d90d3f42b71a1",
+            "0x64dc82eb4dad1753d3cc225006ef7cc0fe772b36224a573d92d7a8ebabe60d15",
+            "0x1657f6ddfb0b18b6a7f6eead6779d7edac7f80b195d7aed64dbe869cc2dba70b",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xA55B06462A2e48661bAdF22f5841F95aE654b716",
+            "at": "2026-09-30T12:42:57.770Z",
+            "method": "GET",
+            "resource": "https://hyperliquid-predict.use.x402atlas.com/outcomes",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xA55B06462A2e48661bAdF22f5841F95aE654b716",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xc5e0b9946893ec7912f1d8d36db353ab365dfcd1f7f9a0f6d4c54c77bae72cad",
+            "httpStatus": 200,
+            "responseBytes": 72408,
+            "bodyHash": "0x02c0a0551363081df545c4226246c3f7b5d88c325a1269feb22f7a4e781bec6c",
+            "salt": "0xc4b1540c77fc20f5989a086d95f96d7bb61dfbfc386d657fb5c3e1928c8d2126"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 45,
+          "digest": "0xe9d9c1a87ced320fa17e9a1791e126c739311c1aab8f707b29ef25a7c2b1d493",
+          "proof": [
+            "0xe90de97ff311a6f674ce02e9c4214d94d151d16b91b46b3a4a01315205767424",
+            "0x64dc82eb4dad1753d3cc225006ef7cc0fe772b36224a573d92d7a8ebabe60d15",
+            "0x1657f6ddfb0b18b6a7f6eead6779d7edac7f80b195d7aed64dbe869cc2dba70b",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+            "at": "2026-09-30T12:43:00.604Z",
+            "method": "GET",
+            "resource": "https://agent402.tools/api/block-info",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x664af61eb934d54ce7e9b80739e06d2e02310a50173da44b5e4b05d9dfa35800",
+            "httpStatus": 200,
+            "responseBytes": 262,
+            "bodyHash": "0xc51fba421761ab9e754112fd148146447af8af95e1a1e5f0eb50f2f0923e5218",
+            "salt": "0x7f99bb9b213dd05808c11682538f1972431aea2a0ec5d27f14f42a5aef7bea13"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 46,
+          "digest": "0x0764ee725a412046ea68ec3d7df0896cd751dc67d2a8855f49917afdabcf6079",
+          "proof": [
+            "0xd3c8781c5a652169f463bc8ac559f8cbd65c79c59cf1cc9481e79319a0554e65",
+            "0xd50405942c252b12353bbbf435924afd01d90771471389ca22e88440ceb348a3",
+            "0x1657f6ddfb0b18b6a7f6eead6779d7edac7f80b195d7aed64dbe869cc2dba70b",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xAd982CB19aCCa2923Df8F687C0614a7700255a23",
+            "at": "2026-09-30T12:43:05.761Z",
+            "method": "POST",
+            "resource": "https://api.insumermodel.com/v1/attest",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xAd982CB19aCCa2923Df8F687C0614a7700255a23",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "50000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x61a457efcf4d05f36ee110e815ae1954ad501ceeb9f2022961477a23d979868e",
+            "httpStatus": 200,
+            "responseBytes": 5384,
+            "bodyHash": "0xc3adb9f67b5ba92184e8b49c33450ae5d046710941d8c22e128b0be9c38f6668",
+            "salt": "0x5ded31343685bb46c771a33e08cdb029e15f31d541d229a72d4958e25c12844d"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 47,
+          "digest": "0x65eb568fad36d141ffdec1b7c867243c747ba0d196226d655839a90d3b969c27",
+          "proof": [
+            "0x695f3e4d6fb0c5126dfd11efab6acfc18d545656c3eff8ae380f72776ab3ffe6",
+            "0xd50405942c252b12353bbbf435924afd01d90771471389ca22e88440ceb348a3",
+            "0x1657f6ddfb0b18b6a7f6eead6779d7edac7f80b195d7aed64dbe869cc2dba70b",
+            "0xaed01418ff223f3decf87c6774951defb83a27c6351fc704a3f6a55062742dae",
+            "0x13c0497aad49f2eb51208287301cf8ea18a2e6953e234ffe3640d09ff5023f48",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xB1Acd9E0269023546074400A434e703B646AaBBa",
+            "at": "2026-09-30T12:43:13.903Z",
+            "method": "GET",
+            "resource": "https://socialintel.dev/v1/user/:username",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xB1Acd9E0269023546074400A434e703B646AaBBa",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "no_transfer",
+            "settlementTx": null,
+            "httpStatus": 404,
+            "responseBytes": 22,
+            "bodyHash": "0x37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d",
+            "salt": "0x47a08770175280beed610ee2563023b46a6ecdb5ee6b0ff8001f9d622971e4d3"
+          },
+          "verdict": {
+            "status": "vet402_input",
+            "cause": "vet402",
+            "rule": "input:path_placeholder"
+          }
+        },
+        {
+          "leafIndex": 48,
+          "digest": "0x799407c9fb9e8d2945e0188502078e9a5eaf5124d08f4344687fece35505b7b2",
+          "proof": [
+            "0xdfcbe319c1182b15a8c68df650705d599f5723ea03290c1bd497a2214755b363",
+            "0xd4933c70cbd378f6780db61e5ef568f6d2076c85f2a60b2ce32bd84a94226a53",
+            "0xbf00bc54330b6630619ff4754b642167699d6e3714b0a35b621e19ff5d93c6df",
+            "0x25b5199c2b53f94394e6619958fecdd54640cd1b27bd0e6a656405342472cd09",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xb3C2776cE3F99cb3366520c27b4aC5D436942Ab6",
+            "at": "2026-09-30T12:43:16.896Z",
+            "method": "POST",
+            "resource": "https://search.gedx402.com/v1/search",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xb3C2776cE3F99cb3366520c27b4aC5D436942Ab6",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "42000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x2ebfaafb1a3553302090a44b379507d8d82486a94d4094a1f100515310936200",
+            "httpStatus": 200,
+            "responseBytes": 9790,
+            "bodyHash": "0x126e21768ad2b823c935832e387ba26bbcc26b98d4c2291a6f5be3e4dec5da57",
+            "salt": "0x7b585c49d5b823351f85c6fa5375772a14a7b29f7f1c76efafb5ef23fbecffb3"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 49,
+          "digest": "0xede3b59a39876fc87e93818ca359d46c6028186f657fe91ee6e612b085183122",
+          "proof": [
+            "0x5216577882f079a94352dd4c6c488c2b91948731b3c25ad80958e542293b46bb",
+            "0xd4933c70cbd378f6780db61e5ef568f6d2076c85f2a60b2ce32bd84a94226a53",
+            "0xbf00bc54330b6630619ff4754b642167699d6e3714b0a35b621e19ff5d93c6df",
+            "0x25b5199c2b53f94394e6619958fecdd54640cd1b27bd0e6a656405342472cd09",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xb708AF3BcE13517357E498f8fFd277dE93db9ef5",
+            "at": "2026-09-30T12:43:24.093Z",
+            "method": "GET",
+            "resource": "https://xmedia.use.x402atlas.com/tweet",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xb708AF3BcE13517357E498f8fFd277dE93db9ef5",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x0805e39fd215f2e721cccaa25d3d1039a9fb6de2796bcf501d1799d9c8abaa36",
+            "httpStatus": 200,
+            "responseBytes": 279,
+            "bodyHash": "0x8ef3e5aa729bc2fc508416192ab74e63e7351cef0bdf33ff903270e6596a8e39",
+            "salt": "0xe8f8230e93e5ae59e9839968c26af0a4122f10cf19e7695b9686988e7da44202"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 50,
+          "withheld": true
+        },
+        {
+          "leafIndex": 51,
+          "digest": "0x02f11335f82e7c0ddc0c2c0ce6808d58899d6647be9a539a77e7045ed5a81a67",
+          "proof": [
+            "0x0da56972d633522ac05ab08aea90ea505ad36dd529f589b020890e3ae90fb0af",
+            "0x06b185b74cca7e2a2493a402b5550c5c091da8e5fc9c20ca066857df9113472b",
+            "0xbf00bc54330b6630619ff4754b642167699d6e3714b0a35b621e19ff5d93c6df",
+            "0x25b5199c2b53f94394e6619958fecdd54640cd1b27bd0e6a656405342472cd09",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xB810B599bc730Aa85800BABe7f5d160524322C86",
+            "at": "2026-09-30T12:43:31.609Z",
+            "method": "GET",
+            "resource": "https://x402tap.com/api/crypto-price",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xB810B599bc730Aa85800BABe7f5d160524322C86",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xa1821e81748279a5b165ac61915d0b60a100e97aaca63829fde461ee679de665",
+            "httpStatus": 200,
+            "responseBytes": 312,
+            "bodyHash": "0xa045f3bac26de0e82805dd7ba5a84da9c55cf33870f35c5d324be24b3d1fc0e9",
+            "salt": "0x11f6ba2b78849abd364359f5ff3cdc1771e89f77860608130c51206a17aba9d2"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 52,
+          "digest": "0x8b8e6103dc391095dba612cb4e521bce2b2792430320873f692d46ce033e0b8d",
+          "proof": [
+            "0x529d0eb1ae2cb16f935a0d85f618dc298b5ac013219a03b65ed3d0c9d641e0b1",
+            "0xf2cb31b0eb0c8a49d4b018aa7b26ca96a49c8c4f9935548b3f67c407988a6bb1",
+            "0x2313e79e92a7596f662dd38339482c33728e0f569edfa7391224eff87f89b0a9",
+            "0x25b5199c2b53f94394e6619958fecdd54640cd1b27bd0e6a656405342472cd09",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xbA7d7DcA32B3659DbAB451E5b408FF8F23F13442",
+            "at": "2026-09-30T12:43:36.867Z",
+            "method": "GET",
+            "resource": "https://aayatai.com/convert/crypto",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xbA7d7DcA32B3659DbAB451E5b408FF8F23F13442",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x3a683da8a783e62582ddd7b9c1fdeca0a5c78d4bbd5ce287eb574ad30f350d01",
+            "httpStatus": 200,
+            "responseBytes": 387,
+            "bodyHash": "0x9b3dc7fc3f40dea0c12b303e67d442debc6d79d4bf862e8a24b9a19e267aff08",
+            "salt": "0x035af34758d78fcb28ef231e731221fae18c7e1eafc1135250183cfd862660ff"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 53,
+          "digest": "0x598504cc324870cfa568bc4575acc2dc1d4c330b53c91eecbc3f16ce9f49b2c5",
+          "proof": [
+            "0x12abc0582ec9dc12c26bbee3e102e2ef0d7684267b2876c63585d3d7144b29b7",
+            "0xf2cb31b0eb0c8a49d4b018aa7b26ca96a49c8c4f9935548b3f67c407988a6bb1",
+            "0x2313e79e92a7596f662dd38339482c33728e0f569edfa7391224eff87f89b0a9",
+            "0x25b5199c2b53f94394e6619958fecdd54640cd1b27bd0e6a656405342472cd09",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xc210Ea7D5692a6401ADf25BbCB7aCDe9cDB7e9Ff",
+            "at": "2026-09-30T12:43:44.982Z",
+            "method": "GET",
+            "resource": "https://flat-rate-llm.kikoribera03.workers.dev/v1/ai/translate",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xc210Ea7D5692a6401ADf25BbCB7aCDe9cDB7e9Ff",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x5be9d5e535db5dfa34fca34eaf92a34fe8586dd272b0f49ce13f3e138fc17031",
+            "httpStatus": 200,
+            "responseBytes": 562,
+            "bodyHash": "0xa547e5dbb04278f95c7dc8b4d80d9abb571c9a2eb75cf401fb23634472a788ea",
+            "salt": "0x232d80abfdbb2547ed023d2da4f00368bae7678c2acd7b32e1894a5abed06dc2"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 54,
+          "digest": "0xbc49e201a07da4fb5b02c6f3376f4523321799cca2a33477f20f96c686b29ee2",
+          "proof": [
+            "0x5692610a4c7e22044705b44d03223043a4080abc63cf873bd26129a5ea4039ff",
+            "0xcb7bb99ec39e27bb1ce1f786c70d4686cc08583ae1dc1d7c177c502484a662c9",
+            "0x2313e79e92a7596f662dd38339482c33728e0f569edfa7391224eff87f89b0a9",
+            "0x25b5199c2b53f94394e6619958fecdd54640cd1b27bd0e6a656405342472cd09",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xCB8025D951e5E45Be7D288B658EEee6f05713006",
+            "at": "2026-09-30T12:43:51.580Z",
+            "method": "GET",
+            "resource": "https://defillama.use.x402atlas.com/batch-historical",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xCB8025D951e5E45Be7D288B658EEee6f05713006",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x573c34f96ce04b70b4e46922f5fdf861ead5a39b387d479b5d0c8bd5d2394582",
+            "httpStatus": 200,
+            "responseBytes": 966,
+            "bodyHash": "0x6447084994bd9be3c4bb04e4bc8eb363befed9d7051c6e46ea4afc191669c688",
+            "salt": "0x4b6911b4a7a8aa382719d027cdc11498ea66ba46ea2347f45ce7b8a6b2421934"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 55,
+          "withheld": true
+        },
+        {
+          "leafIndex": 56,
+          "withheld": true
+        },
+        {
+          "leafIndex": 57,
+          "digest": "0xe6fb6aca50999081e42a386b6584a417b6392478046489faec99f07a525d217e",
+          "proof": [
+            "0x1e9cf2fd7a9ecbc599e59d4754f29fadee9910840b34264dadc97372ed525f27",
+            "0x49587f0b0f29dc3ada2dd5dac4dd9d75086b54070e350c4741f07c83c4d2b511",
+            "0x3d3ee02e0124c55bdd8744757e97be5d12e279a6bf5caf7e5a8cd289c2ee5d69",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xD7FE185ddaa9664c9211EC1ccDAc073Ef79215bf",
+            "at": "2026-09-30T12:43:59.221Z",
+            "method": "GET",
+            "resource": "https://ssl.use.x402atlas.com/check",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xD7FE185ddaa9664c9211EC1ccDAc073Ef79215bf",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x0f23b2fe5419b140aef2cb3cc0693a1416063f5d19674e39156ab5337cd145ca",
+            "httpStatus": 200,
+            "responseBytes": 1236,
+            "bodyHash": "0xb46ede213257763c867a2e392519b4de76194c2ec62c576a0e58dd91a285c50a",
+            "salt": "0x6ba3fe0adf80a68162289e81860511f7cfab2eb8cad8c98e1b6951c507f2d108"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 58,
+          "digest": "0x9c3f2a0b71cf63094f26f4f5768d3de0e6e6076a3c586a35963e96512d572f84",
+          "proof": [
+            "0xed05acc4989974ff068fe50886f5d36b35b9edb39bd7c9fd879d6ebaf98dad65",
+            "0xe3a2a12660c2d3bbccd6bfac5cff2af7e1b01cd60748ce74230a743cc5244aab",
+            "0x3d3ee02e0124c55bdd8744757e97be5d12e279a6bf5caf7e5a8cd289c2ee5d69",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xd94cE1924DEdd6f3442380A4F075DC3796fB2875",
+            "at": "2026-09-30T12:44:04.627Z",
+            "method": "POST",
+            "resource": "https://ari001.tailb4ac3a.ts.net/v1/context/compact",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xd94ce1924dedd6f3442380a4f075dc3796fb2875",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xf76ef78d2d739aa28c39c4c12535b650c54c2a948c80516c141c20c120aeb949",
+            "httpStatus": 200,
+            "responseBytes": 1149,
+            "bodyHash": "0x0ac9276becd16fdbdd118e1034e3687b8b42d1d3bea61492294394102979e19c",
+            "salt": "0x45a6001b67ff0eec0470407d3aa890b053a50b3e66340e796f06d2446c02ac4b"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 59,
+          "digest": "0x81345aece2b6056ce71f406cb43045daf54da08b679adb4202822083773a1590",
+          "proof": [
+            "0xdd0627499afbec880c81dd8c28f91bc02a9240a2583b3c4c1dd7f1cee169ca94",
+            "0xe3a2a12660c2d3bbccd6bfac5cff2af7e1b01cd60748ce74230a743cc5244aab",
+            "0x3d3ee02e0124c55bdd8744757e97be5d12e279a6bf5caf7e5a8cd289c2ee5d69",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xd993eAfBA87cFfa2ca2CFF5A56EF89034575A7ef",
+            "at": "2026-09-30T12:44:24.724Z",
+            "method": "POST",
+            "resource": "https://api.getplexa.com/v1/quote",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xd993eAfBA87cFfa2ca2CFF5A56EF89034575A7ef",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "20000",
+            "chainCheck": "no_transfer",
+            "settlementTx": null,
+            "httpStatus": 200,
+            "responseBytes": 1479,
+            "bodyHash": "0x06857770d2621607025722727ef1d65316bf5be706b45f3686d8b30fef590e8d",
+            "salt": "0x5fe405cf95fe082d200a7dbeeb0a3e32559ff1149f9faac60f7236dcfd28d8f3"
+          },
+          "verdict": {
+            "status": "free_delivered",
+            "cause": "seller_free",
+            "rule": "seller_said_free:freeTrialApplied=true"
+          }
+        },
+        {
+          "leafIndex": 60,
+          "digest": "0xe2bf217c96b422a222ac00490e5828c999543d38d89b8939dbefb4410a0a81d3",
+          "proof": [
+            "0x5697a6ad3d05036bbf8257837963af9fad073e3dd8a5946ad32a33750f45daf8",
+            "0x7d5e3331a87f7e4251933231c467438f1a9bbde13e8818c54d0e3e961593b7a1",
+            "0x7e7d14eea68fc73bf15827107e8dce84fbd8db06584ea615a6a3de4f79527e06",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xDD350976B8cfFc65938C0464d39A2C78BE079bd0",
+            "at": "2026-09-30T12:44:34.258Z",
+            "method": "GET",
+            "resource": "https://scvd.store/api/buy/spot_check",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xDD350976B8cfFc65938C0464d39A2C78BE079bd0",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x9867435cfb9106d39d0a9a9e405f071235695c518e794547bb79a2810607ea1e",
+            "httpStatus": 200,
+            "responseBytes": 37690,
+            "bodyHash": "0xa979bd4e892501acf84f48ff790ba29f34587c3b92b7d555095f24c37ddc3900",
+            "salt": "0x4b49a77e65784f8ca0018e54c1336ed7902735201cc368a3713d909008a89f03"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 61,
+          "digest": "0xf6e221bb691faf786a501e51662ca339472eaafa8759d5d9b85ebd871134414f",
+          "proof": [
+            "0x91d951b62b85eaa68906f26b16a484ae7e229c6c55f84d9f50306d12670144f3",
+            "0x7d5e3331a87f7e4251933231c467438f1a9bbde13e8818c54d0e3e961593b7a1",
+            "0x7e7d14eea68fc73bf15827107e8dce84fbd8db06584ea615a6a3de4f79527e06",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xDDDD31B7383441bFF24738053169E740BF74eB5E",
+            "at": "2026-09-30T12:44:54.959Z",
+            "method": "GET",
+            "resource": "https://api.x402gle.com/trust/wallet/0x7e571E959cC7C75Ccdd2eAC24f8775ea2eAa2F09",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xDDDD31B7383441bFF24738053169E740BF74eB5E",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "50000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x2f3ff33aa69d684a616daae695921514e6a02de849df6521f40a69632661f6cf",
+            "httpStatus": 200,
+            "responseBytes": 946,
+            "bodyHash": "0x8d2087bbeec0bd8add38acb81d1c1d7d9c44e393118dd73601a2bda8e5a3815a",
+            "salt": "0xfcaa9db6e1261a82f9c3529cfab62e365a9780e1e3429d10b0b2088d0ac1bc50"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 62,
+          "digest": "0xfae1bda95b1da0e433f9d3f503973a015999093a38b779d119b896ea7293564c",
+          "proof": [
+            "0x4064f0179188d18c84c8b3fba86b514013cd55ba4b1cf69be04ecca1c49a5000",
+            "0x4a49c9030ac38c9ebb152338c4b8f986bd2d3ecd8991d3b4ebb75877fbcf0d6e",
+            "0x7e7d14eea68fc73bf15827107e8dce84fbd8db06584ea615a6a3de4f79527e06",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xE79Aa9d55170f7E1AC420266ec93A6c28c436de8",
+            "at": "2026-09-30T12:44:59.229Z",
+            "method": "GET",
+            "resource": "https://hyperliquid-accounts.use.x402atlas.com/fees",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xE79Aa9d55170f7E1AC420266ec93A6c28c436de8",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xdc50c5f4e45ec57443bab924ca560ac551afa1c8ae48aa49efa1778524fa0bd1",
+            "httpStatus": 200,
+            "responseBytes": 3410,
+            "bodyHash": "0x5a2aa04b3cdcefec5923ffde18af1cbf4fe0a26f7059fe7c26b84c5731a3b6bb",
+            "salt": "0xf327e1c713f2ece859060bd818b2062569a4543c23016273efa68e651c19cea5"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 63,
+          "digest": "0x3631e66ff900017db93d952d91300778426f7d656fb6305c7165dbf1708f3df7",
+          "proof": [
+            "0x90ae1af0af99ba1dd9e5a2ab14b02b2a9355c99dbe472d39b3b8bf776c989e63",
+            "0x4a49c9030ac38c9ebb152338c4b8f986bd2d3ecd8991d3b4ebb75877fbcf0d6e",
+            "0x7e7d14eea68fc73bf15827107e8dce84fbd8db06584ea615a6a3de4f79527e06",
+            "0x0aa17ee0061c0c43299329fd48d5b80ee70dd3002a9d7b32c22e10e776ecd498",
+            "0xa7429da9ab60aa9609c49925d70dbdbe800872d49eae8afbfa91c47b1265294f",
+            "0xcab916b162af616459369acdf3b924656ff2c42c44ab6cd5404605d9fa8b8983",
+            "0x424efd56dbdb4ba41fcd589addb9470e6689d820a3bdd3f4ba06b24bec7925c7"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xECa891e34b3E5873181Fb779672564E198C55354",
+            "at": "2026-09-30T12:45:04.842Z",
+            "method": "GET",
+            "resource": "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/count",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xECa891e34b3E5873181Fb779672564E198C55354",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x8e885499269fdcae6501f6a35ff5611526df218548daa88d82e91deccee147d3",
+            "httpStatus": 200,
+            "responseBytes": 1139,
+            "bodyHash": "0xe7ec56862245fd97bc80982ac284ec3695c0907906c150ee5d5616dee1b6ca02",
+            "salt": "0x6b1c40a17cc4cfa4c611a48515d410e7ed972a8edfd22802e299040d9a2f0e99"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 64,
+          "digest": "0x06203ad022c8d4b97e892a4624b0a8d20bde2ce6001efe55d5d555f7b08dd008",
+          "proof": [
+            "0x4bdcce9233038e1cb1ca1d43da5224fc052bdb93ac46adbf989f6b0540818bb0",
+            "0xa33dd076598d18f08b3b717c6d29c083676f074b0c50a1d14ef148e7c5106097",
+            "0xd484cc2c3d805dbeeafe9f91f9fc76520742b80e2c9d0daa5d0d0b266bbb88b9",
+            "0xee7df68dc127e06c985dfe47a8de4ed612933b8b23ae38437d885108521def70"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xF327c8E5116A7414Db63E4f95d47D2A043A0a857",
+            "at": "2026-09-30T12:45:12.617Z",
+            "method": "GET",
+            "resource": "https://x402.spendthebits.com/@stbclaudeprod/reputation/",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xF327c8E5116A7414Db63E4f95d47D2A043A0a857",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "50000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xa43297ee0573c8978b11a880f355038bac95b2730efff6650251ae8ae4d27c98",
+            "httpStatus": 200,
+            "responseBytes": 1579,
+            "bodyHash": "0x60680394cd7c55bf8ec09ff7182512f95ffc341dd8d79d1cb7f5eb1b30ff63e9",
+            "salt": "0x862ceed86d19e2162dfb639b1b00895d6366affe963d6cc2a53d9586d155bc8d"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 65,
+          "digest": "0xc57e43df1d7babc68b7a1f8a11c815370d3742c9973eedb59781f5a79dad3bd9",
+          "proof": [
+            "0xd180d684920ae282f8b1c7203bc899d8bd0d2a93e1fe2c9ecc3a7d79d2087b8a",
+            "0xa33dd076598d18f08b3b717c6d29c083676f074b0c50a1d14ef148e7c5106097",
+            "0xd484cc2c3d805dbeeafe9f91f9fc76520742b80e2c9d0daa5d0d0b266bbb88b9",
+            "0xee7df68dc127e06c985dfe47a8de4ed612933b8b23ae38437d885108521def70"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xF52ceDE1a0f2b95dfa703790005F2542CBA45678",
+            "at": "2026-09-30T12:45:15.936Z",
+            "method": "GET",
+            "resource": "https://x402.spendthebits.com/@stbclaudeprod/address-risk/",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xF52ceDE1a0f2b95dfa703790005F2542CBA45678",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "3000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x135fcfc2a7eeb870563a9e4feb04bb40f196d804c919928867c5c52e10d6b5ce",
+            "httpStatus": 200,
+            "responseBytes": 361,
+            "bodyHash": "0xa8c6880b3e983f91b3400c2fa1573b4ef6ccd60421a7f27058cd43747dc86589",
+            "salt": "0xf54d95a45fe9b4da714fb459e00da6b49ac8f4554153d1130ce50a6e5f0625b6"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 66,
+          "digest": "0xd0c74cc39e0e70678067d5f907b1129588856d9ab1039c05893efa2a3c3d4ab4",
+          "proof": [
+            "0x562ec6d2a2faca8f6ec8db4f53eeb60b8efe13fb150fb24ecff2de9267b09a0e",
+            "0x8dc40d1e8f2e5063a5a35e41b9ab9279e57f1eeace14d2112db2ce724abbe403",
+            "0xd484cc2c3d805dbeeafe9f91f9fc76520742b80e2c9d0daa5d0d0b266bbb88b9",
+            "0xee7df68dc127e06c985dfe47a8de4ed612933b8b23ae38437d885108521def70"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xf567Cfe0FDb87A1D6Ca330e3f30f0D3DA0F7cb98",
+            "at": "2026-09-30T12:45:21.336Z",
+            "method": "GET",
+            "resource": "https://api.402rates.com/v1/ping",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xf567Cfe0FDb87A1D6Ca330e3f30f0D3DA0F7cb98",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x12a618032f379b74a56b5746d4f3bfbb0227bbbfd803a8e735e1a37559eba75c",
+            "httpStatus": 200,
+            "responseBytes": 3526,
+            "bodyHash": "0x16bbc2fc5bee3260d998127a4fac37efe77d71417557c8af0d4b70954ca9b449",
+            "salt": "0x7065c3892ad30957600958b6139e4137974792ba0aaf1b9ff92db09e3036eb8a"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 67,
+          "digest": "0x81b880f3c7f7099a5dbc167f759d74ef34f3f406e3360771f47de9471deaa68f",
+          "proof": [
+            "0x03d4c6ddd1e3cadff475a7c49e4c664a3792f08a9730dd75ab860a2c7ab6eba4",
+            "0x8dc40d1e8f2e5063a5a35e41b9ab9279e57f1eeace14d2112db2ce724abbe403",
+            "0xd484cc2c3d805dbeeafe9f91f9fc76520742b80e2c9d0daa5d0d0b266bbb88b9",
+            "0xee7df68dc127e06c985dfe47a8de4ed612933b8b23ae38437d885108521def70"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xF752eEB75d3Bea24AA867ad93bfd8EF5a2F431B9",
+            "at": "2026-09-30T12:45:28.020Z",
+            "method": "GET",
+            "resource": "https://websearch.use.x402atlas.com/extract",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xF752eEB75d3Bea24AA867ad93bfd8EF5a2F431B9",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "10000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x3d55dca02cd7efbf2373588c72152cd2838f3340ca53696c396b68dff9fd35d0",
+            "httpStatus": 200,
+            "responseBytes": 2160,
+            "bodyHash": "0xfbc90bf2e03d09b3f764ebceec3537395079654841a47c4c03872001bca9689c",
+            "salt": "0x450041f51a8d4b7b2faa8d57f8c59927fca97f53df856522120356d4546dc3aa"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 68,
+          "digest": "0x1be8e8bbbad279cc608fa587affb98ae49850ea8906e146a96b9ff0b136edb61",
+          "proof": [
+            "0x6bed16d3d8e0339274fb178562f836d65cc04e493a9cc5171a57ed0dcee7c42c",
+            "0x96ca411c89127f0dd1227d1e070b807f3d70a13069252f052d909ed6ad24036e",
+            "0xee7df68dc127e06c985dfe47a8de4ed612933b8b23ae38437d885108521def70"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xf8b2dD46542175AD46e14e6133340E652665F2Ee",
+            "at": "2026-09-30T12:45:33.892Z",
+            "method": "GET",
+            "resource": "https://api.carbon-cashmere.de/v1/bittensor-derivatives/alpha-price-history/:netuid",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xf8b2dD46542175AD46e14e6133340E652665F2Ee",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "20000",
+            "chainCheck": "no_transfer",
+            "settlementTx": null,
+            "httpStatus": 422,
+            "responseBytes": 155,
+            "bodyHash": "0xe029802e2d4a9f80709b9877e448e7ce79475600e80db48605836374dc5cd55f",
+            "salt": "0x1a543f61243af3f63d21a4687fcbd7c9a009671b984df0000bfb2905aa453ed4"
+          },
+          "verdict": {
+            "status": "vet402_input",
+            "cause": "vet402",
+            "rule": "input:path_placeholder"
+          }
+        },
+        {
+          "leafIndex": 69,
+          "digest": "0x7e909376218c189b577d8bfa73814b3eca1f2fbf5e779aedae4e0df646adb725",
+          "proof": [
+            "0xe0807a4eb4ee3f62ef34a16722a54db6bf553d6ca68b3caa02bd7f991733415d",
+            "0x96ca411c89127f0dd1227d1e070b807f3d70a13069252f052d909ed6ad24036e",
+            "0xee7df68dc127e06c985dfe47a8de4ed612933b8b23ae38437d885108521def70"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "arbitrum",
+            "chain": "eip155:42161",
+            "agentId": "payto:0xF9dcBFF7EdDd76c58412fd46f4160c96312ce734",
+            "at": "2026-09-30T12:45:36.026Z",
+            "method": "GET",
+            "resource": "https://api.syraa.fun/health",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xF9dcBFF7EdDd76c58412fd46f4160c96312ce734",
+            "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xa8d6ec8f8b25f14c683dc7c8c5211a8849c1fbebe7e796e156cbf0e9ec636ae2",
+            "httpStatus": 200,
+            "responseBytes": 145,
+            "bodyHash": "0x427322050b3409d8aa12b54ab05f2dac204f476cb45b39fc679f65aee45c133c",
+            "salt": "0xba49b841f405e88542d68ad71670c8bea8b9404d9364e6f2a25bc1a8c26e443b"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        }
+      ]
+    }
+  ]
+}

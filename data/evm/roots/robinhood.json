@@ -1,0 +1,386 @@
+{
+  "kind": "vet402-evm-roots",
+  "version": 0,
+  "lane": "robinhood",
+  "chain": "eip155:4663",
+  "contract": {
+    "address": "0x84DB4733f8F9e6803Af811fD9E438aEBc0b90145",
+    "writer": "0xd326A383a2DEAA47aE3f055a70704175Aa9FF611",
+    "deployTx": "0x52c16cbbc5d63a2a8febf481b0c80a745f4940a7b6a151aae649715e1cf06fa3"
+  },
+  "leafRule": "digest = keccak256(utf8(the record as canonical JSON)); leaf = keccak256(0x00 || digest); node = keccak256(0x01 || min(a, b) || max(a, b)); an odd node is carried up. Canonical JSON: object keys sorted by UTF-16 code unit (JavaScript's default sort), no whitespace, null kept, strings escaped exactly as JavaScript's JSON.stringify does (only \\\" \\\\ and control characters: \\b \\f \\n \\r \\t, the others as \\u00xx in lowercase hex; non-ASCII characters and / are not escaped; a lone UTF-16 surrogate, which UTF-8 cannot carry, is written as \\udxxx in lowercase hex, as JSON.stringify does since ES2019), integers in plain decimal. DeliveryRoots.verify(dayNumber, digest, proof) on the contract returns true for a record of that day.",
+  "policy": "A leaf holds facts only (payment, settlement read on chain, HTTP status, size and sha256 of the answer); no verdict is in the root. Each time this file is published, every purchase is judged with the rules of that day (verdict). A purchase whose verdict says nothing against the seller is published with its record. Any other result names a seller next to a failure, so its record is published only after vet402 has told that seller (data/records/notified.json); until then only its index is shown. Every purchase is in the root either way.",
+  "days": [
+    {
+      "day": "2026-09-30",
+      "dayNumber": 20726,
+      "root": "0x4ac0fb9ed25e5ae149d09a17a8c86e805949f8558cf811d6266ec3a3a66452e5",
+      "n": 18,
+      "published": 9,
+      "tx": "0x86e3f916194ae3e6aae9c28d4b0b74c4af388651fccbdb8c96b47f63464cb8b7",
+      "block": "77794270",
+      "leaves": [
+        {
+          "leafIndex": 0,
+          "digest": "0x49ca8c719bce4a70cfd44bae825e3759bb43a2bba0aff56626d5d888ddcb6949",
+          "proof": [
+            "0x7da57a281c975fc9a170f402d6e62f9ba6e40565194804385d51cef514b583d9",
+            "0xe4f69ecd0221ebddc03c6f71e8315347e2a67287713a9b0a4b56957252b1a69e",
+            "0x8bc39c5e9941d3963d077a12ede502cd0a4d51dffc32b86958bc9ca5e6c9fc65",
+            "0x07dceea54652584c4fab101f183f4845347543593ac9daebd958f37974917f2e",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0x0cCd097f92475d3EAf88e3b73e38a4DD4CB08667",
+            "at": "2026-09-30T12:32:00.779Z",
+            "method": "GET",
+            "resource": "https://api.dexl.io/api/agents",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x0cCd097f92475d3EAf88e3b73e38a4DD4CB08667",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x57500ec8fd86daaa5b96ea83f71a2f56643dd3be9ca9aad279dc13becf9a32c7",
+            "httpStatus": 200,
+            "responseBytes": 545,
+            "bodyHash": "0x01854ff1e95ec3c84c3509c4682ff73a8db9e9691c2b76636f9c8bfa213167c7",
+            "salt": "0x7508311b0964c59af4db0d10c00e98dbdf0a0030dce2c526612f7d59237e845e"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 1,
+          "digest": "0x626f6574307cdba84ddb1d892608228c65d408db8ea7abe20d0ebdc7ac097844",
+          "proof": [
+            "0xb9007e6352ce6124dbbdc1a499567441c8b9720b0acb97a5d4d94e1eb65d42ce",
+            "0xe4f69ecd0221ebddc03c6f71e8315347e2a67287713a9b0a4b56957252b1a69e",
+            "0x8bc39c5e9941d3963d077a12ede502cd0a4d51dffc32b86958bc9ca5e6c9fc65",
+            "0x07dceea54652584c4fab101f183f4845347543593ac9daebd958f37974917f2e",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+            "at": "2026-09-30T12:32:06.188Z",
+            "method": "GET",
+            "resource": "https://whaletape.xyz/coverage",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x1c3a7fb9ba50603a0aa379fc3f1da3bb41e3f83e84bd379c1a1addebe561bdbd",
+            "httpStatus": 200,
+            "responseBytes": 205,
+            "bodyHash": "0xea10487c8115b53a0d70311c10c0d4bc037a4f453a81248fd19f069bbe4a9b12",
+            "salt": "0xc31fe0fb6e020f4ab961913c0dcb15b67c1592a311b153f5936626e39446fa0f"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 2,
+          "digest": "0x61500dd0da9c9b473d7891531bd18f31f43c9d7d477e586270817d41f0f42d91",
+          "proof": [
+            "0x4c6501bf449986fe2d967eed4c07b391d4b7960f068b1d0dee36aa4dd8d94d56",
+            "0xda9cbc97045f6e997ac4de63ac73ae5358b44e82c72fd83cfad7dc9c9b8e079a",
+            "0x8bc39c5e9941d3963d077a12ede502cd0a4d51dffc32b86958bc9ca5e6c9fc65",
+            "0x07dceea54652584c4fab101f183f4845347543593ac9daebd958f37974917f2e",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0x25d408eF54e60F3006bD13d5A040d525E2F359c2",
+            "at": "2026-09-30T12:32:12.333Z",
+            "method": "GET",
+            "resource": "https://api.loopholetape.com/v1/base/launches/since",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x25d408eF54e60F3006bD13d5A040d525E2F359c2",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x003aaf5097f46430b1db458e427dfed538fb82212be7e2e8daf76fab5dc79949",
+            "httpStatus": 200,
+            "responseBytes": 98747,
+            "bodyHash": "0x8b31b3cb1e65f6e2787a2cf9a60d890a4eb52c713da9283c111629e3b1d62e1a",
+            "salt": "0x283096321838484d11fd9b357b9584b91080455370987ca202a6dca634a04bdf"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 3,
+          "withheld": true
+        },
+        {
+          "leafIndex": 4,
+          "digest": "0x8a5d10ec611b5e5782f8f7665bff87e222eb36073ef54169a52985e3b72a2969",
+          "proof": [
+            "0x48fdc9ec413e9b7a79817ed85f8ce5c6e94c5a203c913b87e6318ce8d9a5c05d",
+            "0x677a3f0810e158634c1aac3b23f78d05eb60cfd81c53f99ff5f7ec135086cf93",
+            "0x08c9dbeaf535ccd1158b4f0e6cc8e933e6f6c8c94fada89509308af5f1a69a29",
+            "0x07dceea54652584c4fab101f183f4845347543593ac9daebd958f37974917f2e",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0x50ab2018c06c6E4eAA9BA52057Eb55eD284912fc",
+            "at": "2026-09-30T12:32:21.108Z",
+            "method": "GET",
+            "resource": "https://onchainpulse.theaslangroupllc.com/api/facet/honeypot",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x50ab2018c06c6E4eAA9BA52057Eb55eD284912fc",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x99c523d45a5f756f96013fc120f5ed83afdd4846552f4f2d91a6295ccfceaba3",
+            "httpStatus": 200,
+            "responseBytes": 1305,
+            "bodyHash": "0xd908f55ffe8c17aa35878902249e873a2b9b16b0ec0ba570f1858437fdfadc36",
+            "salt": "0x7b530787f2ead4dc6671713e4b7d487ac14c93688a9d7c32eac83339e0f3edd2"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 5,
+          "withheld": true
+        },
+        {
+          "leafIndex": 6,
+          "withheld": true
+        },
+        {
+          "leafIndex": 7,
+          "digest": "0x21605d572b283459f405e62ca9202e9838dcc3daf4d9ab6773dc64dc89c0de2e",
+          "proof": [
+            "0xf4ba68bfc2681ba7b272963a981444fece6032e806492701f000b50f2a438d1c",
+            "0xd12b5df162908362784239556e49ad29512e7150203813bad02bbf98506d003b",
+            "0x08c9dbeaf535ccd1158b4f0e6cc8e933e6f6c8c94fada89509308af5f1a69a29",
+            "0x07dceea54652584c4fab101f183f4845347543593ac9daebd958f37974917f2e",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0x712c78928080Adb009E31315c0c3c7473dA9648a",
+            "at": "2026-09-30T12:32:31.477Z",
+            "method": "POST",
+            "resource": "https://hosaka-agents.vercel.app/lookup",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0x712c78928080Adb009E31315c0c3c7473dA9648a",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "5000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xb80ac2ed05804a10ad0bf88469f08a9fc229f34428237aeeb73e9536529e7933",
+            "httpStatus": 200,
+            "responseBytes": 370,
+            "bodyHash": "0x75f77700b85a4e651ad95c9a22594252834536895869fe56634056036990fc6e",
+            "salt": "0x064a12299f0fb61033839a6aed228f87e597b64d32a97b1d58084967bee7c566"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 8,
+          "digest": "0xaadb84fac9a321eec50056993a46e100ba585aa25b636ac0309d877deb0ac53b",
+          "proof": [
+            "0x7515d089a7620183e309e5158199f08ea1f580924e37e786193c073d8446173b",
+            "0x435f8deb71c51289fa0540da39b6fdbfe80836aaac8bbf1fe42b10ff81bb1ebb",
+            "0x7108c8fb86c82be485799a67fe57f23287560bbea2edf4204476d7cea85e9971",
+            "0xd0ae13a01699118ef5132d292e86acf158eb86f6c6fc71e57499106d83f638dc",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+            "at": "2026-09-30T12:32:34.717Z",
+            "method": "GET",
+            "resource": "https://agent402.tools/api/block-info",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0xec750aafc03b0cfb3d86fdbc4d7c178b285cc024d972f1b04f91d6b931a0fdee",
+            "httpStatus": 200,
+            "responseBytes": 261,
+            "bodyHash": "0x117741464ebbda3b412316588649cd51f7e71263d724116bdd71caa099608100",
+            "salt": "0x9b70b571057cd1501052006401e1298620e82902c0dddfbcbbbb97fa3560d54d"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 9,
+          "digest": "0xbc5c78a6be13dd842f5bfd8f163e079d380733ae5af4bafa29b67ff3bce0ed5e",
+          "proof": [
+            "0xc412df443272e8c11df36bdd89187fe99698281b89063a7a7ab82aabefa656fd",
+            "0x435f8deb71c51289fa0540da39b6fdbfe80836aaac8bbf1fe42b10ff81bb1ebb",
+            "0x7108c8fb86c82be485799a67fe57f23287560bbea2edf4204476d7cea85e9971",
+            "0xd0ae13a01699118ef5132d292e86acf158eb86f6c6fc71e57499106d83f638dc",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0xdAA0fb4fb470AA8fb53A0c301EF9AADC89949F33",
+            "at": "2026-09-30T12:32:40.569Z",
+            "method": "GET",
+            "resource": "https://gateway.spraay.app/api/v1/models",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xdAA0fb4fb470AA8fb53A0c301EF9AADC89949F33",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "1000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x05d5f69ad3c002159632e9a51599ae70eb7fe584e1320a0008fb01b2def90d79",
+            "httpStatus": 200,
+            "responseBytes": 27829,
+            "bodyHash": "0xb041f3656a3b010f834d58cf1d2a98209147a6a273b649ee536ba0895c798d61",
+            "salt": "0x33516b4b9345a9052e90e45402ac698f069798afc77ecc29af5f08d6bec4041f"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 10,
+          "digest": "0xcb295f6c374a8f0278383383098e4c904a1a290b9b92bd79d35724e4717adbc7",
+          "proof": [
+            "0x457f0cb8389327565f3759bab0256f83f8f1972125ffa492ae96e9ed175564e8",
+            "0xeabe3cc64e609f04f6ef1f18378bf6a1d3f26c63029cc2d7bf41732610773d8b",
+            "0x7108c8fb86c82be485799a67fe57f23287560bbea2edf4204476d7cea85e9971",
+            "0xd0ae13a01699118ef5132d292e86acf158eb86f6c6fc71e57499106d83f638dc",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0xDDDD31B7383441bFF24738053169E740BF74eB5E",
+            "at": "2026-09-30T12:32:43.302Z",
+            "method": "GET",
+            "resource": "https://api.x402gle.com/trust/wallet/0x7e571E959cC7C75Ccdd2eAC24f8775ea2eAa2F09",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xDDDD31B7383441bFF24738053169E740BF74eB5E",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "50000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x68052a3e88d6787f828a4025660e4f6f32ed636eb265848aea9a56e465183bf1",
+            "httpStatus": 200,
+            "responseBytes": 946,
+            "bodyHash": "0x8d2087bbeec0bd8add38acb81d1c1d7d9c44e393118dd73601a2bda8e5a3815a",
+            "salt": "0x8dd4a863d8d363767b5b0008a33f7a90e50b83a6f78ddef9be7f521296555573"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 11,
+          "digest": "0xc4c9ad13820b5f0ad993dad10af16e673c5c5dcb950389088fd7a42fa3fbcf8d",
+          "proof": [
+            "0xf2a870e739cabd60c294ba12aea478a8efe06abaa336ac2b5f15148e85d9be2e",
+            "0xeabe3cc64e609f04f6ef1f18378bf6a1d3f26c63029cc2d7bf41732610773d8b",
+            "0x7108c8fb86c82be485799a67fe57f23287560bbea2edf4204476d7cea85e9971",
+            "0xd0ae13a01699118ef5132d292e86acf158eb86f6c6fc71e57499106d83f638dc",
+            "0x2910c178f21bd2a35371f01b49abfc9c493c67cc417656a62bc3b031cd600e1a"
+          ],
+          "record": {
+            "kind": "vet402-evm-purchase",
+            "version": 0,
+            "lane": "robinhood",
+            "chain": "eip155:4663",
+            "agentId": "payto:0xE81C67c086c83997b41673e1e41e481c14D756F6",
+            "at": "2026-09-30T12:32:46.648Z",
+            "method": "POST",
+            "resource": "https://web-production-220a3.up.railway.app/agentic/call/base_deployer",
+            "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+            "payTo": "0xE81C67c086c83997b41673e1e41e481c14D756F6",
+            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "amountAtomic": "20000",
+            "chainCheck": "transfer_found",
+            "settlementTx": "0x741dd6501223dbd9a3b90df389daa4c8fffdf36a08a0989c6958a99aaf077d14",
+            "httpStatus": 200,
+            "responseBytes": 2181,
+            "bodyHash": "0x279afeb43965d4d4b16436e82975148e2bf9ae28ea32e58ca094045050d4dc95",
+            "salt": "0x4f5bbd0e49647ff2a8cd4a77fe2ad393eb1403b20894fbde877aba510a0ef162"
+          },
+          "verdict": {
+            "status": "delivered",
+            "cause": "delivered",
+            "rule": "delivered"
+          }
+        },
+        {
+          "leafIndex": 12,
+          "withheld": true
+        },
+        {
+          "leafIndex": 13,
+          "withheld": true
+        },
+        {
+          "leafIndex": 14,
+          "withheld": true
+        },
+        {
+          "leafIndex": 15,
+          "withheld": true
+        },
+        {
+          "leafIndex": 16,
+          "withheld": true
+        },
+        {
+          "leafIndex": 17,
+          "withheld": true
+        }
+      ]
+    }
+  ]
+}
