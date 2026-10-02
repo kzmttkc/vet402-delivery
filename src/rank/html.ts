@@ -669,7 +669,7 @@ function renderSellersMain(r: RankReport, g: GroupReport, slugs: Map<string, str
   const maxCounted = Math.max(0, ...g.ranking.map((s) => s.counted));
   const maxDays = Math.max(0, ...g.ranking.map((s) => s.days.length));
   const gradeState = ranked.length
-    ? `${publicLegend()}\n${gradedTables(r, g, slugs, "h3")}`
+    ? `<p class="meta">A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; ${plural(ranked.length, "seller")} on this page ${ranked.length === 1 ? "has" : "have"} one. ${escapeHtml(REBUY_PLAN)} ${escapeHtml(rebuyFacts(g.ranking, r.date))}</p>\n${publicLegend()}\n${gradedTables(r, g, slugs, "h3")}`
     : `<p class="meta">No grades on this page yet. A grade needs ${r.method.minCounted} counted purchases on ${r.method.minDays} different days; the most any seller here has is ${maxCounted} counted on ${plural(maxDays, "day")}. ${escapeHtml(REBUY_PLAN)} ${escapeHtml(rebuyFacts(g.ranking, r.date))} One or two purchases are a start, not a grade.</p>`;
   const byChain = g.chains
     .map((c) => ({ c, rows: g.ranking.filter((s) => (s.chains[c]?.tried ?? 0) > 0).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) }))
