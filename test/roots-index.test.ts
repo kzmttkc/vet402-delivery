@@ -120,7 +120,9 @@ function withoutProgramRoots(index: RecordIndex): RecordIndex {
 test("index: 2026-09-28 to 2026-09-30 name their observation-roots account, and each is the day's PDA of the program", async () => {
   const { index } = await loadPublishedRecords(RECORDS);
   const named = index.days.filter((d) => d.programRoot).map((d) => d.day);
-  assert.deepEqual(named, ["2026-09-28", "2026-09-29", "2026-09-30"]);
+  // The three backfilled days, then every day the daily records run posts (2026-10-01 on): no day from 2026-09-28 is skipped.
+  assert.deepEqual(named.slice(0, 3), ["2026-09-28", "2026-09-29", "2026-09-30"]);
+  assert.deepEqual(named, index.days.map((d) => d.day).filter((d) => d >= "2026-09-28" && d <= named[named.length - 1]));
   for (const d of index.days.filter((x) => x.programRoot)) {
     assert.equal(d.programRoot!.account, await dayRootPda(ROOTS_PROGRAM, d.day), d.day);
     assert.equal(d.programRoot!.network, ROOTS_INDEX_NETWORK);
@@ -133,7 +135,8 @@ test("backfill: from the chain state, the index comes out byte for byte as publi
   const index = JSON.parse(text) as RecordIndex;
   const { rpc, calls } = fakeChain(chainOfIndex(index));
   const r = await backfillProgramRoots(rpc, withoutProgramRoots(index));
-  assert.deepEqual(r.filled.map((f) => f.day), ["2026-09-28", "2026-09-29", "2026-09-30"]);
+  assert.deepEqual(r.filled.map((f) => f.day), chainOfIndex(index).map((d) => d.day));
+  assert.deepEqual(r.filled.map((f) => f.day).slice(0, 3), ["2026-09-28", "2026-09-29", "2026-09-30"]);
   assert.equal(`${JSON.stringify(r.index, null, 2)}\n`, text);
   assert.ok(calls.every((c) => ["getGenesisHash", "getAccountInfo", "getSignaturesForAddress", "getTransaction"].includes(c)), calls.join(","));
   // A day already named is not read again.
@@ -270,7 +273,8 @@ test("backfill --check: the entries already in the index are read again; one tha
   const index = JSON.parse(readFileSync(join(RECORDS, "index.json"), "utf8")) as RecordIndex;
   const chain = chainOfIndex(index);
   const ok = await backfillProgramRoots(fakeChain(chain).rpc, index, { check: true });
-  assert.deepEqual(ok.checked, ["2026-09-28", "2026-09-29", "2026-09-30"]);
+  assert.deepEqual(ok.checked, chain.map((d) => d.day));
+  assert.deepEqual(ok.checked.slice(0, 3), ["2026-09-28", "2026-09-29", "2026-09-30"]);
   assert.equal(ok.filled.length, 0);
   assert.equal(`${JSON.stringify(ok.index, null, 2)}\n`, readFileSync(join(RECORDS, "index.json"), "utf8"), "nothing changes");
   // Without --check the named days are not read at all.
