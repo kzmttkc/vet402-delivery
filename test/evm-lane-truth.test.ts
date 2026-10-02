@@ -1642,8 +1642,6 @@ test("a setting name or a header anywhere in the answer still makes it the selle
     "'wallet' is required (location: header)",
     "Missing required header: 'wallet'",
     "'wallet' is required. 'x-token' header is required",
-    "Missing 'wallet' in config",
-    "'wallet' environment variable is required",
   ];
   for (const t of seller) {
     assert.equal(answer400(t, ["wallet"]), null, t);
@@ -1653,6 +1651,12 @@ test("a setting name or a header anywhere in the answer still makes it the selle
   }
   // Review of 49e90ad: inside brackets and after "expected:" no missing name stands; a setting written there is not the
   // seller's (the answer about the declared input stays vet402's, never negative).
+  // Review of 60760cf: "in config" in prose is a seller-side word of the sentence, not a structural place; it never
+  // overrides a declared input.
+  for (const t of ["Missing 'wallet' in config", "'wallet' environment variable is required"]) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    assert.equal(settledAs(t, ["wallet"]).negative, false, t);
+  }
   // Nor after "checked headers": a header the seller checked is not a name given as missing.
   for (const t of [...["'wallet' (and 'DB_HOST')", "'wallet' (also check 'DATABASE_URL')", "'wallet' (expected: 'DATABASE_URL')"].map((x) => `Missing required parameters: ${x}`), "'wallet' is required, checked headers 'x-token'"]) {
     assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
@@ -1841,4 +1845,60 @@ test("'Required headers:' is no missing header, a body that only starts with '['
     assert.equal(got.negative, true, t);
   }
   assert.ok(namesInAnswer("wallet is required. Missing header: x-api-key.").names.some((n) => n.name === "x-api-key" && n.header));
+});
+
+
+// ---------- review of 60760cf: a seller-side word of the sentence never overrides vet402's input ----------
+
+test("server, upstream, response, env, config or database in the sentence decide only an answer that names no input of vet402's", () => {
+  const vet = [
+    '[server] "wallet is required"',
+    "[server] wallet is required",
+    "[server] Missing required parameter 'wallet'",
+    "[upstream] wallet is required",
+    '[upstream] "wallet" is required',
+    "[response] Missing required parameter: wallet",
+    "[env] wallet is required",
+    "[config] 'wallet' is required",
+    "[config] Missing required parameter: wallet",
+    "[database] wallet is required",
+    "[server error] wallet is required",
+    "wallet is required;\nserver",
+    "wallet is required\nupstream",
+    "Missing required parameter: wallet,\nconfig",
+    "wallet is required;\nresponse",
+    "'wallet' is required\nenv",
+    "Missing required parameter: wallet. Missing headers: null",
+    "Missing required parameter: wallet. Missing headers: nil",
+    "Missing required parameter: wallet. Missing headers: no",
+    "Missing required parameter: wallet. Missing headers: nothing",
+  ];
+  for (const t of vet) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", JSON.stringify(t));
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  const seller: [string, string[] | undefined][] = [
+    ["upstream data missing", ["wallet"]],
+    ["upstream data missing", undefined],
+    ["Server misconfigured: missing env value", ["wallet"]],
+    ["Server misconfigured: missing env value", undefined],
+    ['{"error":"Token data missing","query":{"wallet":"0xabc"}}', ["wallet"]],
+    ["upstream response missing fields", ["wallet"]],
+    ["upstream response missing fields", undefined],
+    ["[server] DATABASE_URL is required", ["wallet"]],
+    ["wallet is required;\nDB_HOST is required", ["wallet"]],
+    ["[server] wallet is required. ACCESSTOKEN is required to sign.", ["wallet"]],
+    ["[config] Missing required header: 'wallet'", ["wallet"]],
+    ['{"error":{"config":{"wallet":["This field is required."]}}}', ["wallet"]],
+    ["Missing required parameters: 'wallet', DB_HOST", ["wallet"]],
+    ["wallet is required. 'node_url' environment variable is required", ["wallet"]],
+  ];
+  for (const [t, d] of seller) {
+    assert.equal(answer400(t, d), null, `${t} (declared ${d ?? "none"})`);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
 });

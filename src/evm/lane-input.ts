@@ -920,9 +920,11 @@ export function namesInSentence(text: string): string[] {
  * part) and from each sentence. `tainted`: a sentence that says something is missing also speaks of the seller's
  * own side (SELLER_SIDE) or of payment or authentication (NOT_INPUT).
  */
-export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean; authPieces: number[] } {
+export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean; sellerWords: boolean; authPieces: number[] } {
   const names: MissingName[] = [];
   let tainted = false;
+  /** Some sentence that says something is missing also has a seller-side word (server, upstream, env, config...). */
+  let sellerWords = false;
   /** Sentences whose only sign of the seller's side is a payment or authentication word (NOT_INPUT). */
   const authPieces: number[] = [];
   const j: unknown = jsonPart(text)?.json;
@@ -989,8 +991,11 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // signature") alone counts only when the sentence names no input of vet402's (laneInputProblem).
     // Seller-side words count where a name stands, not in a URL, brackets, an example or "not a 'privateKey'".
     const noUrl = namePlaces(piece);
-    if (SELLER_SIDE.test(noUrl) || (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0)) tainted = true;
-    else if (NOT_INPUT.test(noUrl)) authPieces.push(pi);
+    // Review of 60760cf: a seller-side word in the sentence never overrides a name of vet402's (A); it decides only an
+    // answer that has none (laneInputProblem).
+    if (SELLER_SIDE.test(noUrl)) sellerWords = true;
+    if (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0) tainted = true;
+    else if (!SELLER_SIDE.test(noUrl) && NOT_INPUT.test(noUrl)) authPieces.push(pi);
     const places = namePlaces(raw);
     // A joined setting read from two words ("RPC url" gives RPCURL) is looked for with the space.
     const inPlace = (n: string) =>
@@ -1011,10 +1016,10 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       new RegExp(String.raw`\bheaders?\s+(?:is\s+|are\s+)?missing\b\s*:?\s*${HEADER_LIST}`, "gi"),
     ]) {
       for (const q of raw.matchAll(re)) {
-        if (/^\s*(?:none|n\/a|empty)\b/i.test(raw.slice(q.index! + q[0].length - q[1]!.length))) continue;
+        if (/^\s*(?:none|n\/a|empty|null|nil|no|nothing)\b/i.test(raw.slice(q.index! + q[0].length - q[1]!.length))) continue;
         for (const x of q[1]!.split(/\s*(?:,|\band\b|\bor\b)\s*/)) {
           const n = x.replace(/^\\?["'\x60]|\\?["'\x60]$/g, "").replace(/[.\-:;]+$/, "");
-          if (new RegExp(String.raw`^${ID}$`).test(n) && !STOP.has(n.toLowerCase()) && !/^(?:none|empty|n)$/i.test(n)) headerList.push(n);
+          if (new RegExp(String.raw`^${ID}$`).test(n) && !STOP.has(n.toLowerCase()) && !/^(?:none|empty|n|null|nil|no|nothing)$/i.test(n)) headerList.push(n);
         }
       }
     }
@@ -1063,8 +1068,14 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       names.push({ name: n, header: true, path: [], source: "header", piece: pi, quoted: true, ...(inPlace(n) ? {} : { outOfPlace: true }) });
       read.add(n);
     }
+    // So does a name the sentence gives as an environment variable ("'node_url' environment variable is required").
+    for (const n of envVar) {
+      if (read.has(n)) continue;
+      names.push({ name: n, header: false, path: [], source: "env-var", piece: pi, quoted: quoted(n), envVar: true, ...(inPlace(n) ? {} : { outOfPlace: true }) });
+      read.add(n);
+    }
   }
-  return { names, tainted, authPieces };
+  return { names, tainted, sellerWords, authPieces };
 }
 
 /**
@@ -1087,7 +1098,7 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   const declared = r.declaredParams ?? [];
   const declaredCanon = new Set(declared.map(canon));
   // A JSON Schema word in an answer ("type", "items") is a missing name only when the listing declares it.
-  const { names: all, tainted, authPieces } = namesInAnswer(text);
+  const { names: all, tainted, sellerWords, authPieces } = namesInAnswer(text);
   // The unquoted subject of "x is required to ..." counts only when declared, or, on a listing that declares nothing,
   // when it is an allowed word (as rule (b) of missingNameSide). "It is required to be a 0x address" gives no name.
   const allowedOrDeclared = (n: MissingName) =>
@@ -1100,7 +1111,8 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   const cls = names.map((n) => nameClass(n, declared));
   if (cls.includes("S")) return null;
   const inputs = names.filter((_, i) => cls[i] === "A");
-  if (!inputs.length) return null;
+  // No input of vet402's: the seller's, with or without a seller-side word ("upstream data missing").
+  if (!inputs.length || (sellerWords && !inputs.length)) return null;
   // A sentence whose only seller-side sign is a payment or authentication word, and that names no input of vet402's.
   if (authPieces.some((pi) => !inputs.some((n) => n.piece === pi))) return null;
   return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(inputs.map((n) => n.name))].join(", ")}` };
