@@ -605,7 +605,9 @@ export function answerPieces(text: string): string[] {
       walk(JSON.parse(t), 0);
       return out.flatMap(sentences);
     } catch {
-      // Cut off at 300 characters, or not JSON after all: the quoted strings, without their keys.
+      // Not JSON ("[VALIDATION_ERROR] Missing required parameter: wallet", "[400] wallet is required"): prose.
+      if (!/"\s*:/.test(t)) return sentences(t);
+      // Cut off at 300 characters: the quoted strings, without their keys.
       return [...t.matchAll(/"((?:[^"\\]|\\.)*)"(?!\s*:)/g)].map((m) => m[1]!.replace(/\\"/g, '"')).flatMap(sentences);
     }
   }
@@ -781,14 +783,16 @@ const VALUE_AFTER = String.raw`(?:e\.g\.?|i\.e\.?|for\s+example|such\s+as|one\s+
 /**
  * Pure. A sentence with every place where no missing name stands blanked out: brackets "( )", URLs, the value after
  * "e.g.", "for example", "one of", "default:", "expected:", "code", "error", "status", "reason", "request id",
- * "trace", and "of type 'X'", "not a 'X'". A name read only from such a place is never the seller's setting.
+ * "trace", and "of type 'X'", "not the / your / a / an 'X'" (with the noun after it: "environment variable"). A name read only from such a place is never the seller's setting.
  */
 export function namePlaces(piece: string): string {
   const blank = (x: string) => " ".repeat(x.length);
   let t = piece.replace(/\b(?:https?|ftp):\/\/\S+/gi, blank);
   for (let k = 0; k < 3; k++) t = t.replace(/\([^()]*\)/g, blank);
   t = t.replace(new RegExp(String.raw`\b(?:${VALUE_AFTER}\s*[:=]?\s*)+(?:${QUOTED_LIST}|${ID}(?:\s*(?:,|\bor\b)\s*${ID})*)`, "gi"), blank);
-  t = t.replace(new RegExp(String.raw`\b(?:of\s+type|not\s+an?)\s+${Q}${ID}${Q}`, "gi"), blank);
+  t = t.replace(new RegExp(String.raw`\bof\s+type\s+${Q}${ID}${Q}`, "gi"), blank);
+  // "not the 'X' environment variable", "not your 'X'", "not a 'X'": what the name is not, with the words it names.
+  t = t.replace(new RegExp(String.raw`\bnot\s+(?:the|your|an?)\s+${Q}${ID}${Q}(?:\s+(?:environment\s+variables?|env\s+vars?|headers?|config\w*|settings?|secrets?|variables?|values?|fields?|parameters?|keys?))?`, "gi"), blank);
   return t;
 }
 
@@ -999,10 +1003,19 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s*\(\s*(?:in|location)\s*:\s*${Q}headers?${Q}\s*\)`, "gi"))) headerNames.add(q[1]!);
     const headerSentence = new RegExp(String.raw`\(\s*(?:in|location)\s*:\s*${Q}headers?${Q}\s*\)`, "i").test(raw);
     const headerList: string[] = [];
-    for (const q of raw.matchAll(new RegExp(String.raw`\b(?:missing|required)\s+(?:required\s+)?(?:(?:request|http)\s+)?headers?\b\s*:?\s*(${QUOTED_LIST}|${ID}(?:\s*,\s*${ID})*)`, "gi"))) {
-      for (const x of q[1]!.split(/\s*(?:,|\band\b|\bor\b)\s*/)) {
-        const n = x.replace(/^\\?["'\x60]|\\?["'\x60]$/g, "");
-        if (new RegExp(String.raw`^${ID}$`).test(n) && !STOP.has(n.toLowerCase())) headerList.push(n);
+    // Only a list given as missing headers: "Missing required header(s): ...", "missing header(s): ...", "header(s)
+    // missing: ...". "Required headers: Accept" says what the seller wants sent, not what is missing.
+    const HEADER_LIST = String.raw`(${QUOTED_LIST}|${ID}(?:\s*,\s*${ID})*)`;
+    for (const re of [
+      new RegExp(String.raw`\bmissing\s+(?:required\s+)?(?:(?:request|http)\s+)?headers?\b\s*:?\s*${HEADER_LIST}`, "gi"),
+      new RegExp(String.raw`\bheaders?\s+(?:is\s+|are\s+)?missing\b\s*:?\s*${HEADER_LIST}`, "gi"),
+    ]) {
+      for (const q of raw.matchAll(re)) {
+        if (/^\s*(?:none|n\/a|empty)\b/i.test(raw.slice(q.index! + q[0].length - q[1]!.length))) continue;
+        for (const x of q[1]!.split(/\s*(?:,|\band\b|\bor\b)\s*/)) {
+          const n = x.replace(/^\\?["'\x60]|\\?["'\x60]$/g, "").replace(/[.\-:;]+$/, "");
+          if (new RegExp(String.raw`^${ID}$`).test(n) && !STOP.has(n.toLowerCase()) && !/^(?:none|empty|n)$/i.test(n)) headerList.push(n);
+        }
       }
     }
     headerList.forEach((n) => headerNames.add(n));

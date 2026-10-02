@@ -1799,3 +1799,46 @@ test("error codes, enum values, types, examples and ids in capitals, and values 
   assert.deepEqual(jsonPart('400 Bad Request: {"missing":["wallet"]}'), { prefix: "400 Bad Request: ", json: { missing: ["wallet"] } });
   assert.equal(jsonPart("Missing required parameters: ['wallet']"), null);
 });
+
+
+// ---------- review of 813498e: a header list counts only as missing headers; "[X] ..." is prose; "not the 'X'" ----------
+
+test("'Required headers:' is no missing header, a body that only starts with '[' is prose, and 'not the X environment variable' names nothing missing", () => {
+  const vet = [
+    "wallet is required. Required headers: Accept, Content-Type",
+    "Missing required parameter 'wallet'. Required headers: X-Request-Id",
+    "wallet is required. Required headers: Content-Type: application/json",
+    "Missing required parameter: wallet. Required headers: none",
+    "Required headers: Content-Type. Missing required parameter: wallet",
+    "Missing required parameter 'wallet'. Required headers: 'Content-Type'",
+    "Missing required parameter 'wallet'. Required headers: Content-Type",
+    "Missing required parameter: wallet. Missing headers: none",
+    "Missing required parameter: wallet. Missing headers: n/a",
+    "[VALIDATION_ERROR] Missing required parameter: wallet",
+    "[ERROR] wallet is required",
+    "[400] wallet is required",
+    "Missing required parameter 'wallet', not the 'WALLET_ADDRESS' environment variable",
+    "Missing required parameter 'wallet', not your 'DATABASE_URL'",
+  ];
+  for (const t of vet) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  const seller = [
+    "Missing required header: 'x-api-key'",
+    "Missing required header: 'x-api-key'.",
+    "wallet is required. Missing header: x-api-key.",
+    "wallet is required. missing headers: x-api-key, x-sig",
+    "wallet is required. headers missing: 'x-api-key'",
+    "Missing required header: 'wallet'",
+  ];
+  for (const t of seller) {
+    assert.equal(answer400(t, ["wallet"]), null, t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+  assert.ok(namesInAnswer("wallet is required. Missing header: x-api-key.").names.some((n) => n.name === "x-api-key" && n.header));
+});
