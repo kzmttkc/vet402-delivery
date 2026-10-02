@@ -917,14 +917,17 @@ export function namesInSentence(text: string): string[] {
 
 /**
  * Pure. Every missing name in an answer, from structured JSON (Zod issues and fieldErrors, pydantic loc, Fastify
- * part) and from each sentence. `tainted`: a sentence that says something is missing also speaks of the seller's
- * own side (SELLER_SIDE) or of payment or authentication (NOT_INPUT).
+ * part) and from each sentence.
+ *   tainted     a sentence that says something is missing speaks of the seller's missing content (a content word:
+ *               data, history, price...) and names no input in a form that leaves no doubt
+ *   authPieces  sentences whose only seller-side sign is a payment or authentication word (NOT_INPUT); such a
+ *               sentence counts only when it names no input of vet402's (laneInputProblem)
+ * A seller-side word (server, upstream, env, config, database, response...) decides nothing by itself: an answer
+ * with an input of vet402's (A) and no setting of the seller's (S) is vet402's; one with no A is the seller's anyway.
  */
-export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean; sellerWords: boolean; authPieces: number[] } {
+export function namesInAnswer(text: string): { names: MissingName[]; tainted: boolean; authPieces: number[] } {
   const names: MissingName[] = [];
   let tainted = false;
-  /** Some sentence that says something is missing also has a seller-side word (server, upstream, env, config...). */
-  let sellerWords = false;
   /** Sentences whose only sign of the seller's side is a payment or authentication word (NOT_INPUT). */
   const authPieces: number[] = [];
   const j: unknown = jsonPart(text)?.json;
@@ -986,14 +989,11 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     // A validator's fixed message for one field ("Missing data for required field.") is read with its key above.
     if (VALIDATOR_FIELD_MESSAGE.test(piece.trim())) continue;
     // A content word (data, history, price...) makes the sentence about the seller's missing content, unless the
-    // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence). A seller-side word
-    // (env, config, server, password...) makes it the seller's. A payment or authentication word ("a valid
-    // signature") alone counts only when the sentence names no input of vet402's (laneInputProblem).
-    // Seller-side words count where a name stands, not in a URL, brackets, an example or "not a 'privateKey'".
+    // sentence names the missing input in a form that leaves no doubt (strongNamesInSentence). A payment or
+    // authentication word ("a valid signature"), where a name stands (not in a URL, brackets, an example or "not a
+    // 'privateKey'"), counts only when the sentence names no input of vet402's. A seller-side word (server, env,
+    // config...) is not read here (review of 60760cf: it never overrides vet402's input).
     const noUrl = namePlaces(piece);
-    // Review of 60760cf: a seller-side word in the sentence never overrides a name of vet402's (A); it decides only an
-    // answer that has none (laneInputProblem).
-    if (SELLER_SIDE.test(noUrl)) sellerWords = true;
     if (CONTENT_WORDS.test(piece) && strongNamesInSentence(piece).length === 0) tainted = true;
     else if (!SELLER_SIDE.test(noUrl) && NOT_INPUT.test(noUrl)) authPieces.push(pi);
     const places = namePlaces(raw);
@@ -1029,7 +1029,10 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
     for (const q of raw.matchAll(new RegExp(String.raw`\bheaders?\s*:?\s*\\?["'\x60](${ID})\\?["'\x60]`, "gi"))) proseHeader.add(q[1]!);
     // Rule 6: the name right before "environment variable" / "env var" (S only when vet402 does not send it).
     const envVar = new Set<string>();
-    for (const q of raw.matchAll(new RegExp(String.raw`${Q}(${ID})${Q}\s+(?:environment\s+variable|env\s+var)`, "gi"))) envVar.add(q[1]!);
+    // Quoted ('node_url' environment variable), or without quotes only a name that means a setting (DATABASE_URL env
+    // var); "the env var", "or env var", "your env vars", "this environment variable" name nothing.
+    for (const q of raw.matchAll(new RegExp(String.raw`\\?["'\x60](${ID})\\?["'\x60]\s+(?:environment\s+variable|env\s+var)`, "gi"))) envVar.add(q[1]!);
+    for (const q of raw.matchAll(new RegExp(String.raw`(?<![\w$.\-"'\x60\\])(${ID})\s+(?:environment\s+variable|env\s+var)`, "g"))) if (settingCaps(q[1]!)) envVar.add(q[1]!);
     const f = /\b(querystring|body|params|headers)\s+must have required property/i.exec(piece);
     // A sentence written all in capitals ("WALLET IS REQUIRED TO PROCEED") is read without case: its unquoted names
     // are not ALL_CAPS setting names. A quoted name keeps its case (\"DATABASE_URL\" is required).
@@ -1075,7 +1078,7 @@ export function namesInAnswer(text: string): { names: MissingName[]; tainted: bo
       read.add(n);
     }
   }
-  return { names, tainted, sellerWords, authPieces };
+  return { names, tainted, authPieces };
 }
 
 /**
@@ -1098,7 +1101,7 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   const declared = r.declaredParams ?? [];
   const declaredCanon = new Set(declared.map(canon));
   // A JSON Schema word in an answer ("type", "items") is a missing name only when the listing declares it.
-  const { names: all, tainted, sellerWords, authPieces } = namesInAnswer(text);
+  const { names: all, tainted, authPieces } = namesInAnswer(text);
   // The unquoted subject of "x is required to ..." counts only when declared, or, on a listing that declares nothing,
   // when it is an allowed word (as rule (b) of missingNameSide). "It is required to be a 0x address" gives no name.
   const allowedOrDeclared = (n: MissingName) =>
@@ -1112,7 +1115,7 @@ export function laneInputProblem(r: Pick<ChainBuyRecord, "resource" | "response"
   if (cls.includes("S")) return null;
   const inputs = names.filter((_, i) => cls[i] === "A");
   // No input of vet402's: the seller's, with or without a seller-side word ("upstream data missing").
-  if (!inputs.length || (sellerWords && !inputs.length)) return null;
+  if (!inputs.length) return null;
   // A sentence whose only seller-side sign is a payment or authentication word, and that names no input of vet402's.
   if (authPieces.some((pi) => !inputs.some((n) => n.piece === pi))) return null;
   return { kind: "missing_input", detail: `the seller's ${status} says vet402 did not send ${[...new Set(inputs.map((n) => n.name))].join(", ")}` };

@@ -1902,3 +1902,44 @@ test("server, upstream, response, env, config or database in the sentence decide
     assert.equal(got.negative, true, t);
   }
 });
+
+
+// ---------- review of bef64ea: an environment variable's name is quoted, or means a setting ----------
+
+test("an ordinary word before 'env var' or 'environment variable' is no name; a quoted one or a setting name is", () => {
+  const vet = [
+    '["wallet is required"] or the env var',
+    '["wallet is required"] or env var',
+    '[ERROR] "wallet is required" via query or env var',
+    '[warn] "wallet is required" - pass it in the query, the env var is not read',
+    '["wallet is required"] in query or environment variable',
+    '[Bad Request] "wallet is required" no env var fallback',
+    '[ "Missing required parameter: wallet" ] set it in the query, not as an env var',
+    '["wallet is required"] this env var is ignored',
+    '["wallet is required"] or the server env var',
+    "wallet is required, check your env vars",
+    "wallet is required as a query parameter or an environment variable",
+    "wallet is required, set via query string or environment variable",
+    "Missing required parameter: wallet. This environment variable is required",
+  ];
+  for (const t of vet) {
+    assert.equal(answer400(t, ["wallet"])?.kind, "missing_input", t);
+    const got = settledAs(t, ["wallet"]);
+    assert.equal(got.status, "settled_vet402_input", t);
+    assert.equal(got.negative, false, t);
+  }
+  assert.equal(answer400('["wallet is required"] or the env var')?.kind, "missing_input");
+  assert.equal(settledAs('["wallet is required"] or the env var').negative, false);
+  const seller: [string, string[] | undefined][] = [
+    ["wallet is required. 'node_url' environment variable is required", ["wallet"]],
+    ["DATABASE_URL environment variable is required", ["wallet"]],
+    ["DATABASE_URL environment variable is required", undefined],
+    ["wallet is required. DATABASE_URL env var is missing", ["wallet"]],
+  ];
+  for (const [t, d] of seller) {
+    assert.equal(answer400(t, d), null, `${t} (declared ${d ?? "none"})`);
+    const got = settledAs(t, d);
+    assert.equal(got.status, "settled_no_answer", t);
+    assert.equal(got.negative, true, t);
+  }
+});
