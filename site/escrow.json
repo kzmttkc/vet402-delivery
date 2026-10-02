@@ -1,7 +1,7 @@
 {
   "kind": "vet402-escrow-would-refund",
   "version": 0,
-  "dataDate": "2026-10-01",
+  "dataDate": "2026-10-02",
   "definition": [
     "Counted: a purchase vet402 paid for whose payment settled, where nothing usable came back and the ranking puts the failure on the seller's side (rules settled_not_delivered and paid_not_delivered in src/rank/classify.ts: a 402 again after settling, a 5xx, no answer, another non-2xx that is not a 4xx, or a 2xx with an empty body). It is the same line as the NOT_DELIVERED verdict of the signed records (src/receipt/build.ts). An escrow that releases only on DELIVERED and returns on NOT_DELIVERED would have returned them.",
     "Not counted, shown apart: a settled purchase where the request vet402 sent was wrong (rule paid_then_4xx_vet402_input). That is vet402's mistake, not the seller's.",
@@ -45,15 +45,15 @@
     {
       "chain": "solana",
       "signedRecords": true,
-      "settled": 633,
-      "delivered": 604,
+      "settled": 719,
+      "delivered": 687,
       "wouldRefund": {
-        "purchases": 21,
-        "amountUsd": "0.777300",
+        "purchases": 24,
+        "amountUsd": "0.888300",
         "priceNotRecorded": 0,
         "byRule": {
           "settled_not_delivered": 0,
-          "paid_not_delivered": 21
+          "paid_not_delivered": 24
         }
       },
       "vet402Input": {
@@ -70,13 +70,13 @@
       "toldSellers": [
         {
           "seller": "api.syraa.fun",
-          "purchases": 7,
-          "amountUsd": "0.007300"
+          "purchases": 8,
+          "amountUsd": "0.008300"
         },
         {
           "seller": "api.xona-agent.com",
-          "purchases": 7,
-          "amountUsd": "0.700000"
+          "purchases": 8,
+          "amountUsd": "0.800000"
         }
       ],
       "notToldSellers": 1
@@ -84,25 +84,25 @@
     {
       "chain": "tempo",
       "signedRecords": true,
-      "settled": 162,
-      "delivered": 102,
+      "settled": 191,
+      "delivered": 126,
       "wouldRefund": {
-        "purchases": 5,
-        "amountUsd": "0.010700",
+        "purchases": 6,
+        "amountUsd": "0.010800",
         "priceNotRecorded": 0,
         "byRule": {
           "settled_not_delivered": 1,
-          "paid_not_delivered": 4
+          "paid_not_delivered": 5
         }
       },
       "vet402Input": {
-        "purchases": 40,
-        "amountUsd": "1.045500",
+        "purchases": 41,
+        "amountUsd": "1.050500",
         "priceNotRecorded": 0
       },
       "cantTell": {
-        "purchases": 15,
-        "amountUsd": "0.348000",
+        "purchases": 18,
+        "amountUsd": "0.453000",
         "priceNotRecorded": 0
       },
       "sellers": 4,
@@ -139,20 +139,20 @@
     }
   ],
   "totals": {
-    "settled": 802,
+    "settled": 917,
     "wouldRefund": {
-      "purchases": 26,
-      "amountUsd": "0.788000",
+      "purchases": 30,
+      "amountUsd": "0.899100",
       "priceNotRecorded": 0
     },
     "vet402Input": {
-      "purchases": 40,
-      "amountUsd": "1.045500",
+      "purchases": 41,
+      "amountUsd": "1.050500",
       "priceNotRecorded": 0
     },
     "cantTell": {
-      "purchases": 23,
-      "amountUsd": "0.408000",
+      "purchases": 26,
+      "amountUsd": "0.513000",
       "priceNotRecorded": 0
     },
     "sellers": 7,
