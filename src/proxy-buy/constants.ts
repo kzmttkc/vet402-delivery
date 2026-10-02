@@ -86,7 +86,7 @@ export const REFUND_POLICY =
  * ones that cannot be told apart from a slow seller or vet402's own side (src/proxy-buy/not-delivered.ts).
  */
 export const REFUND_POLICY_NOT_DELIVERED =
-  "If your payment settles and vet402 then does not pay the seller, vet402 refunds your full payment to the address that paid, on the same chain in the same token. On Solana, if vet402 paid the seller and the seller answered 402 again, 5xx, a 1xx or 3xx status, a 2xx with an empty body, or closed the connection with no answer, vet402 refunds your full payment the same way, within a cap per UTC day and per UTC month, at most one such refund per paying address per UTC day, and never to the seller's own payTo; a seller refunded this way is not bought from again until a later vet402 purchase from it delivers. A 4xx other than 402, or no answer within the wait, is not refunded.";
+  "If your payment settles and vet402 then does not pay the seller, vet402 refunds your full payment to the address that paid, on the same chain in the same token. On Solana, if vet402 paid the seller and the seller answered 402 again, 5xx, a 1xx or 3xx status, a 2xx with an empty body, or closed the connection with no answer, vet402 refunds your full payment the same way, within a cap per UTC day and per UTC month shared by all agents, at most one such refund per paying address per UTC day, and never to the seller's own payTo; a refund refused by these limits is not tried again. A seller refunded this way is not bought from again until a later vet402 purchase from it delivers, for 7 days at most. A 4xx other than 402, or no answer within the wait, is not refunded.";
 
 /**
  * Ceilings on refunds for an answer the seller did not deliver after vet402 paid it (owner approval 2026-10-02:

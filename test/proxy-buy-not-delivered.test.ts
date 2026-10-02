@@ -12,7 +12,7 @@ import { generateKeyPairSigner } from "@solana/kit";
 import { makeAllowlist } from "../src/proxy-buy/allowlist.js";
 import { configFromEnv, notDeliveredRefundCaps } from "../src/proxy-buy/config.js";
 import { REFUND_POLICY, REFUND_POLICY_NOT_DELIVERED } from "../src/proxy-buy/constants.js";
-import { fetchFailureKind, notDeliveredFault, type NotDeliveredRefund } from "../src/proxy-buy/not-delivered.js";
+import { fetchFailureKind, holdActive, notDeliveredFault, type NotDeliveredRefund } from "../src/proxy-buy/not-delivered.js";
 import type { PurchaseRecord } from "../src/proxy-buy/store.js";
 import { classifyFailure } from "../src/rank/classify.js";
 import type { Attempt } from "../src/rank/types.js";
@@ -34,6 +34,10 @@ async function rig(o: Parameters<typeof solRig>[0] = {}, on = true): Promise<Sol
   if (on) r.side.notDeliveredRefund = nd();
   return r;
 }
+
+/** A free quote for the mock seller. */
+const quoteOf = async (r: SolRig) =>
+  (await r.buy.handle(new Request(`https://buy.test/v1/buy?url=${encodeURIComponent("https://seller.test/api/quote?sym=SOL")}`)));
 
 let memoN = 0;
 /** One paid request; each signs a different transaction (its memo), so each is a new payment. */
@@ -281,20 +285,25 @@ test("(b) after a refund, the seller is not bought from until a later vet402 pur
   const al = makeAllowlist([{ chain: "solana", host: S_HOST, payTo: SELLER, settled: true, delivered: true, at: "2026-09-29T00:00:00Z" }]);
   const r = await rig({ seller: { paidStatus: 500, paidBody: "boom" }, allowlist: al });
   r.side.notDeliveredRefund = nd({ lastDeliveredAt: (h, p) => al.find("solana", h, p)?.lastDeliveredAt ?? null });
+  // Signed while the seller was not held yet: the paid request is the one that must refuse.
+  const early = await agentPaysSolana(r.buy, undefined, "e1".padStart(32, "0"));
+  const early2 = await agentPaysSolana(r.buy, undefined, "e2".padStart(32, "0"));
   const first = await buyOnce(r);
   assert.equal((first.body.refund as { status: string }).status, "sent");
   // The next paid request to that seller: refused before any charge.
   r.seller.paidStatus = 200;
   r.seller.paidBody = JSON.stringify({ ok: 1 });
   const settlesBefore = r.fac.settles;
-  const second = await buyOnce(r);
-  assert.equal(second.res.status, 403);
-  assert.equal(second.body.reason, "seller_on_hold");
-  assert.equal(second.body.charged, false);
+  const second = await r.buy.handle(paidReq(early.header));
+  const sb = (await second.json()) as Record<string, unknown>;
+  assert.equal(second.status, 403);
+  assert.equal(sb.reason, "seller_on_hold");
+  assert.equal(sb.charged, false);
   assert.equal(r.fac.settles, settlesBefore);
   // A delivered vet402 purchase from it before the refund does not release it.
   al.find("solana", S_HOST, SELLER)!.lastDeliveredAt = "2026-10-02T11:59:59.000Z";
-  assert.equal((await buyOnce(r)).res.status, 403);
+  assert.equal((await r.buy.handle(paidReq(early2.header))).status, 403);
+  assert.equal((await quoteOf(r)).status, 422);
   // The next daily run delivered (data/ after the refund): bought again.
   al.find("solana", S_HOST, SELLER)!.lastDeliveredAt = "2026-10-03T01:18:00.000Z";
   const third = await buyOnce(r);
@@ -507,4 +516,174 @@ test("two buyers, one seller, the same day: the first is refunded, the seller is
   const granted = [a, b].filter((d) => "granted" in d && d.granted).length;
   const held = [a, b].filter((d) => "granted" in d && !d.granted && d.reason === "seller_on_hold").length;
   assert.deepEqual([granted, held], [1, 1], JSON.stringify([a, b]));
+});
+
+// ---------- review fixes (2026-10-02) ----------
+
+/** The review's probe P-A / probe-dberr: the decision's database write fails once in the request. */
+function failFirstDecision(r: SolRig): void {
+  const orig = r.store.ndRefundClaim.bind(r.store);
+  let n = 0;
+  r.store.ndRefundClaim = (async (...a: Parameters<typeof orig>) => {
+    if (n++ === 0) throw new Error("connection terminated");
+    return orig(...a);
+  }) as typeof orig;
+}
+
+test("review P-A: the refund decision cannot be written in the request (database error) -> 502, answer kept, the reconciler refunds once", async () => {
+  const r = await rig({ seller: { paidStatus: 500, paidBody: "boom" } });
+  failFirstDecision(r);
+  const { res, body } = await buyOnce(r);
+  assert.equal(res.status, 502);
+  assert.equal(body.error, "not_delivered");
+  assert.equal(body.refund, "pending_reconcile");
+  assert.match(String(body.note), /decided later by the reconciler/);
+  assert.equal(r.refunds.length, 0);
+  const p = await onlyPurchase(r);
+  assert.equal(p.state, "seller_unsettled");
+  assert.equal(p.record.answer?.httpStatus, 500);
+  assert.deepEqual(p.facts.answerFault, { refundable: true, basis: "http_500" });
+  assert.equal((p.record.refund as { reason: string }).reason, "decision_pending");
+  const acts = await r.reconcile({ now: LATER });
+  assert.ok(acts.some((a) => /closed: seller paid, not delivered, refund: "sent"/.test(a.action)), JSON.stringify(acts));
+  assert.deepEqual(r.refunds, [{ to: agent.address, amount: TOTAL }]);
+  const after = await onlyPurchase(r);
+  assert.equal(after.state, "done");
+  assert.equal(after.record.outcome, "not_delivered");
+  assert.equal((after.record.refund as { status: string }).status, "sent");
+  assert.equal(after.spent, (TOTAL + PRICE).toString());
+  assert.equal((await r.store.wallet("solana"))!.floor, r.state.balance);
+  for (let i = 0; i < 3; i++) await r.reconcile({ now: LATER });
+  assert.equal(r.refunds.length, 1);
+  assert.equal((await r.store.ndRefunds("solana")).length, 1);
+});
+
+test("review probe-dberr: the same, with the move to seller_unsettled failing too: the answer kept first lets the reconciler refund once", async () => {
+  const r = await rig({ seller: { paidStatus: 500, paidBody: "boom" } });
+  failFirstDecision(r);
+  const move = r.store.move.bind(r.store);
+  r.store.move = (async (...a: Parameters<typeof move>) => {
+    if (a[2] === "seller_unsettled") throw new Error("connection terminated");
+    return move(...a);
+  }) as typeof move;
+  const { res, body } = await buyOnce(r);
+  assert.equal(res.status, 502);
+  assert.equal(body.refund, "pending_reconcile");
+  const p = await onlyPurchase(r);
+  assert.equal(p.state, "in_progress");
+  assert.equal(p.record.answer?.httpStatus, 500);
+  r.store.move = move;
+  const acts = await r.reconcile({ now: LATER, staleMs: 0 });
+  assert.ok(acts.some((a) => /refund: "sent"/.test(a.action)), JSON.stringify(acts));
+  assert.deepEqual(r.refunds, [{ to: agent.address, amount: TOTAL }]);
+  assert.equal((await onlyPurchase(r)).state, "done");
+  await r.reconcile({ now: LATER, staleMs: 0 });
+  assert.equal(r.refunds.length, 1);
+});
+
+test("review: a refund decision the reconciler cannot write waits for its next run (no close, no refund lost)", async () => {
+  const r = await rig({ seller: { paidStatus: 500, paidBody: "boom" }, sellerSettles: false });
+  r.chain.blockhashValid = true;
+  const { body } = await buyOnce(r);
+  assert.equal(body.error, "seller_payment_pending");
+  assert.match(String(body.note), /if it settles, the reconciler decides the refund for an undelivered answer/);
+  const p = await onlyPurchase(r);
+  r.chain.landed.set((p.facts.seller as { messageHash: string }).messageHash, { sig: "sellerlate2", ok: true });
+  r.state.balance -= PRICE;
+  failFirstDecision(r);
+  const a1 = await r.reconcile({ now: LATER });
+  assert.ok(a1.some((a) => /waiting: the refund decision/.test(a.action)), JSON.stringify(a1));
+  assert.equal((await onlyPurchase(r)).state, "seller_unsettled");
+  const a2 = await r.reconcile({ now: LATER });
+  assert.ok(a2.some((a) => /refund: "sent"/.test(a.action)), JSON.stringify(a2));
+  assert.equal(r.refunds.length, 1);
+});
+
+test("review: with the refund off, seller_payment_pending says what it said before", async () => {
+  const r = await rig({ seller: { paidStatus: 500, paidBody: "boom" }, sellerSettles: false }, false);
+  r.chain.blockhashValid = true;
+  const { body } = await buyOnce(r);
+  assert.equal(body.note, "if vet402's payment to the seller never settles, the reconciler refunds you");
+});
+
+test("review: a seller hold ends 7 days after the refund at the latest", async () => {
+  const H = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
+  const DAY_MS = 86_400_000;
+  assert.equal(holdActive(null, null, NOW), false);
+  assert.equal(holdActive(H(6 * DAY_MS), null, NOW), true);
+  assert.equal(holdActive(H(7 * DAY_MS - 1), null, NOW), true);
+  assert.equal(holdActive(H(7 * DAY_MS), null, NOW), false);
+  assert.equal(holdActive(H(DAY_MS), H(DAY_MS - 1), NOW), false); // delivered after the refund
+  assert.equal(holdActive(H(DAY_MS), H(DAY_MS + 1), NOW), true); // delivered before it
+  // Paid path: held 6 days ago -> refused before any charge; 7 days ago -> bought. The seller last delivered before both.
+  const al = makeAllowlist([{ chain: "solana", host: S_HOST, payTo: SELLER, settled: true, delivered: true, at: "2026-09-01T00:00:00Z" }]);
+  let clock = NOW;
+  const r = await rig({ seller: { paidStatus: 200, paidBody: JSON.stringify({ ok: 1 }) }, allowlist: al, now: () => clock });
+  const signed = await agentPaysSolana(r.buy, undefined, "f1".padStart(32, "0"));
+  await seedGranted(r, { id: "old", host: S_HOST, amount: 15_000n, at: H(6 * DAY_MS) });
+  const ares = await r.buy.handle(paidReq(signed.header));
+  const a = (await ares.json()) as Record<string, unknown>;
+  assert.equal(ares.status, 403);
+  assert.equal(a.reason, "seller_on_hold");
+  assert.equal(a.charged, false);
+  assert.match(String(a.detail), /or from 2026-10-03T12:00:00.000Z at the latest/);
+  // A day later the hold is 7 days old: the quote and the paid request both go ahead.
+  clock = new Date(NOW.getTime() + DAY_MS);
+  assert.equal((await buyOnce(r)).res.status, 200);
+  clock = NOW;
+  await r.sql.query(`update pb_nd_refund set at = $1`, [H(7 * DAY_MS)]);
+  // Decision time: a hold of 7 days ago no longer refuses a refund.
+  await r.store.claim({ id: "p-exp", chain: "solana", target: "https://seller.test/x", sellerHost: S_HOST, agent: "agentY", sellerAmount: PRICE, feeReserve: 0n, total: TOTAL, facts: {}, now: NOW });
+  await r.sql.query(`update pb_purchase set state = 'in_progress', day = $1 where id = 'p-exp'`, [DAY]);
+  const d = await r.store.ndRefundClaim("p-exp", { chain: "solana", from: ["in_progress"], to: "buyerY", agent: "agentY", sellerHost: S_HOST, sellerPayTo: SELLER, amount: TOTAL, maxRefund: 105_000n, basis: "http_500", caps: nd(), lastDeliveredAt: null, record: {} as PurchaseRecord, now: NOW });
+  assert.ok("granted" in d && d.granted, JSON.stringify(d));
+});
+
+test("review: UND_ERR_CLOSED (vet402's own client closed) is not the seller's: no refund", async () => {
+  assert.equal(fetchFailureKind(new TypeError("fetch failed", { cause: Object.assign(new Error("closed"), { code: "UND_ERR_CLOSED" }) })), "unknown");
+  const r = await rig({
+    wrapSeller: (f) =>
+      (async (url: string | URL, init?: RequestInit) => {
+        if (new Headers(init?.headers).has("PAYMENT-SIGNATURE")) {
+          await f(url as string, init);
+          throw new TypeError("fetch failed", { cause: Object.assign(new Error("The client is destroyed"), { code: "UND_ERR_CLOSED" }) });
+        }
+        return f(url as string, init);
+      }) as typeof fetch,
+  });
+  const { body } = await buyOnce(r);
+  assert.equal(body.error, "not_delivered");
+  assert.equal(body.refund, "none");
+  assert.equal(r.refunds.length, 0);
+});
+
+
+test("review: the free 402 says seller_on_hold before the agent signs (after this instance's paid request)", async () => {
+  const r = await rig({ seller: { paidStatus: 500, paidBody: "boom" } });
+  assert.equal((await quoteOf(r)).status, 402);
+  const first = await buyOnce(r);
+  assert.equal((first.body.refund as { status: string }).status, "sent");
+  const q = await quoteOf(r);
+  assert.equal(q.status, 422);
+  assert.equal(q.headers.get("PAYMENT-REQUIRED"), null);
+  const b = (await q.json()) as { reason: string; offers: { solana: { refused: string; detail: string } } };
+  assert.equal(b.reason, "no_payable_offer");
+  assert.equal(b.offers.solana.refused, "seller_on_hold");
+  assert.match(b.offers.solana.detail, /at the latest/);
+});
+
+test("review: a free quote reads the holds only while the database is awake anyway (after a cron run), never otherwise", async () => {
+  for (const [at, reads, shown] of [["2026-10-02T12:10:00.000Z", 0, false], ["2026-10-02T12:03:00.000Z", 1, true]] as const) {
+    const r = await rig({ now: () => new Date(at) });
+    await seedGranted(r, { id: `q${at}`, host: S_HOST, amount: 15_000n, at: "2026-10-02T11:00:00.000Z" });
+    let n = 0;
+    const q0 = r.sql.query.bind(r.sql);
+    r.sql.query = ((...a: Parameters<typeof q0>) => {
+      n++;
+      return q0(...a);
+    }) as typeof q0;
+    const q = await quoteOf(r);
+    assert.equal(n, reads, at);
+    assert.equal(q.status, shown ? 422 : 402, at);
+  }
 });

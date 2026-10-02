@@ -25,7 +25,7 @@ import { payOne, type PayDeps, type PurchaseRecord as PayRecord } from "../pay.j
 import { ANSWER_LIMIT_NOTE, OFFER_TTL_SECONDS, PROXY_MAX_FORWARD_BYTES, REFUND_POLICY, REFUND_POLICY_NOT_DELIVERED } from "./constants.js";
 import { AGENT_LOOKBACK_SECONDS, decodeSolanaTx, type Fate, type SolanaFateQuery, type SolanaTxFacts } from "./fate.js";
 import { closeNotDelivered, keepExpiry, noCharge, publicTarget, refundOwed, waitFate, type Common, type PaidAnswer } from "./flow.js";
-import { fetchFailureKind, notDeliveredFault, type FetchFailure, type NotDeliveredRefund } from "./not-delivered.js";
+import { fetchFailureKind, holdActive, holdUntil, notDeliveredFault, type FetchFailure, type NotDeliveredRefund } from "./not-delivered.js";
 import { redact, refusalReason } from "./reasons.js";
 import type { RefundSender } from "./refund.js";
 import { utcDay, type PurchaseRecord } from "./store.js";
@@ -212,13 +212,10 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
     return noCharge(503, "reconcile_pending", "an earlier purchase from this payer or to this seller is being settled on chain first; nothing was charged, try again later");
   }
   // A seller refunded for an undelivered answer is not bought from again until a later vet402 purchase from it
-  // delivered (data/, read at deploy: the next daily run that delivers).
+  // delivered (data/, read at deploy: the next daily run that delivers), or 7 days after the refund at the latest.
   if (side.notDeliveredRefund) {
     const held = await store.ndHoldSince("solana", offer.known.host, offer.accept.payTo);
-    const last = offer.known.lastDeliveredAt;
-    if (held && !(last && Date.parse(last) > Date.parse(held))) {
-      return noCharge(403, "seller_on_hold", `vet402 refunded an undelivered answer from this seller at ${held}; it buys from this seller again once a later vet402 purchase from it delivers. Nothing was charged`);
-    }
+    if (holdActive(held, offer.known.lastDeliveredAt, now)) return noCharge(403, "seller_on_hold", sellerOnHoldDetail(held!));
   }
   // The agent's transaction needs the facilitator's signature as fee payer: it cannot land before vet402 settles it.
   const agentMinSlot = await slotOrNone(side);
@@ -439,7 +436,11 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
   if (sellerSettled !== true && !delivered) {
     const r: PurchaseRecord = { ...base, sellerPayment: { tx: null, settled: null }, answer, outcome: "seller_payment_pending", reason: `seller answered ${status ?? "nothing"}; payment not settled yet` };
     await store.move(id, ["in_progress"], "seller_unsettled", { record: r, ...(fault ? { facts: { answerFault: fault } } : {}), now: ctx.now() });
-    return { kind: "json", status: 502, body: { error: "seller_payment_pending", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile", note: "if vet402's payment to the seller never settles, the reconciler refunds you" }, headers: paidHeaders };
+    const note =
+      side.notDeliveredRefund && fault?.refundable
+        ? "if vet402's payment to the seller never settles, the reconciler refunds you; if it settles, the reconciler decides the refund for an undelivered answer (the refund rule in the price)"
+        : "if vet402's payment to the seller never settles, the reconciler refunds you";
+    return { kind: "json", status: 502, body: { error: "seller_payment_pending", reason: r.reason, record: ctx.recordUrl(id), refund: "pending_reconcile", note }, headers: paidHeaders };
   }
   const headers = {
     ...paidHeaders,
@@ -473,6 +474,7 @@ export async function paySolana(ctx: SolanaContext, target: string, offer: Solan
       send: side.refund,
       headers,
       extra,
+      saveFirst: true,
     });
     return a?.answer ?? { kind: "json", status: 409, body: { error: "purchase_moved", record: ctx.recordUrl(id) }, headers };
   }
@@ -526,6 +528,10 @@ async function slotOrNone(side: SolanaSide): Promise<number | undefined> {
     return undefined;
   }
 }
+
+/** Why a held seller is not bought from (the free 402 and the paid request say the same). */
+export const sellerOnHoldDetail = (heldAt: string) =>
+  `vet402 refunded an undelivered answer from this seller at ${heldAt}; it buys from this seller again once a later vet402 purchase from it delivers, or from ${holdUntil(heldAt)} at the latest. Nothing was charged`;
 
 /** The price block shown in the unpaid 402 body. `notDeliveredRefund`: the refund for undelivered answers is on. */
 export function solanaPriceInfo(offer: SolanaOffer, feeAtomic: bigint, notDeliveredRefund = false) {

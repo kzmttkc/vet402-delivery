@@ -211,9 +211,14 @@ export async function closeNotDelivered(
     send: RefundSender;
     headers: Record<string, string>;
     extra: Record<string, unknown>;
+    /**
+     * The request's path: write the answer and whose failure it is before deciding (the purchase stays in its state),
+     * so a decision that cannot be written now is made later by the reconciler, the same way.
+     */
+    saveFirst?: boolean;
     feeOf?: FeeOf;
   },
-): Promise<{ answer: PaidAnswer; closed: boolean } | null> {
+): Promise<{ answer: PaidAnswer; closed: boolean; deferred?: true } | null> {
   const pin = o.updatedAt ? { updatedAt: o.updatedAt } : {};
   const closeNoRefund = async (refund: PurchaseRecord["refund"]): Promise<{ answer: PaidAnswer; closed: boolean }> => {
     const record: PurchaseRecord = { ...o.record, refund };
@@ -234,7 +239,12 @@ export async function closeNotDelivered(
   const refundTemplate = { to: o.to, amountAtomic: o.total.toString(), tx: null, basis: `not_delivered: ${basis}` };
   if (!o.to) return closeNoRefund({ status: "refused", ...refundTemplate, reason: "payer_unknown" });
   const pending: PurchaseRecord = { ...o.record, refund: { status: "pending", ...refundTemplate, reason: null } };
-  const d = await c.store.ndRefundClaim(o.id, {
+  const undecided: PurchaseRecord = { ...o.record, refund: { status: "pending", ...refundTemplate, reason: "decision_pending" } };
+  const keep = (to: PurchaseState) => c.store.move(o.id, o.from, to, { record: undecided, facts: { answerFault: o.fault }, now: c.now() }).catch(() => false);
+  const saved = o.saveFirst ? await keep(o.from[0]!) : false;
+  let d: Awaited<ReturnType<Store["ndRefundClaim"]>>;
+  try {
+    d = await c.store.ndRefundClaim(o.id, {
     chain: o.chain,
     from: o.from,
     ...pin,
@@ -250,6 +260,31 @@ export async function closeNotDelivered(
     record: pending,
     now: c.now(),
   });
+  } catch {
+    // The decision could not be written (a database error). The answer and its failure are kept with the purchase,
+    // which waits as seller_unsettled: the reconciler decides the refund the same way (never twice: pb_nd_refund).
+    // The reconciler's own path leaves the row as it was read, for its next run.
+    const moved = o.saveFirst ? await keep("seller_unsettled") : false;
+    const later = !o.saveFirst || saved || moved;
+    return {
+      closed: false,
+      deferred: true,
+      answer: {
+        kind: "json",
+        status: 502,
+        body: {
+          error: "not_delivered",
+          ...o.extra,
+          record: c.recordUrl(o.id),
+          refund: later ? "pending_reconcile" : "unknown",
+          note: later
+            ? "vet402 paid the seller and the seller did not deliver; whether your payment is refunded is decided later by the reconciler (the record shows it)"
+            : "vet402 paid the seller and the seller did not deliver; the refund decision could not be recorded (the record shows the outcome)",
+        },
+        headers: o.headers,
+      },
+    };
+  }
   if ("moved" in d) return null;
   if (!d.granted) return closeNoRefund({ status: "refused", ...refundTemplate, reason: `${d.reason}: ${d.detail}` });
   const answer = await refundOwed(c, {

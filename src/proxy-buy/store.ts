@@ -18,6 +18,7 @@
  */
 import type { ProxyChain } from "./allowlist.js";
 import type { Sql } from "./db.js";
+import { holdActive, holdUntil } from "./not-delivered.js";
 
 export type PurchaseState = "claimed" | "admitted" | "settling" | "in_progress" | "seller_unsettled" | "refund_pending" | "done";
 export const OPEN_STATES: PurchaseState[] = ["settling", "in_progress", "seller_unsettled", "refund_pending"];
@@ -452,8 +453,8 @@ export class Store {
    * a request and a reconciler) see each other's grants:
    *   (c) the seller's payTo is the paying address (`to`) or the signer (`agent`): no refund;
    *   (a) this paying address or signer already got such a refund this UTC day: no refund;
-   *   (b) a refund of this kind was granted for this seller (same host or same payTo) and no delivered vet402
-   *       purchase from it is on record after it (`lastDeliveredAt`): no refund;
+   *   (b) a refund of this kind was granted for this seller (same host or same payTo) less than ND_SELLER_HOLD_MS ago
+   *       and no delivered vet402 purchase from it is on record after it (`lastDeliveredAt`): no refund;
    *   the day's and the month's caps (UTC, granted amounts): no refund past them.
    * Granted: the purchase moves to refund_pending (only from `from`, pinned to `updatedAt` when given) with
    * `facts.notDelivered`, and its refund row is taken (status pending) with the day's refunded counter, all in the
@@ -509,8 +510,8 @@ export class Store {
             [o.chain, host, payTo],
           );
           const heldAt = held.rows[0]?.at ?? null;
-          if (heldAt && !(o.lastDeliveredAt && Date.parse(o.lastDeliveredAt) > Date.parse(heldAt))) {
-            out = refuse("seller_on_hold", `a refund for an undelivered answer from this seller at ${heldAt} is not yet followed by a delivered vet402 purchase`);
+          if (holdActive(heldAt, o.lastDeliveredAt, o.now)) {
+            out = refuse("seller_on_hold", `a refund for an undelivered answer from this seller at ${heldAt} is not yet followed by a delivered vet402 purchase (held until ${holdUntil(heldAt!)} at the latest)`);
           } else {
             const sums = await q.query<{ d: string; m: string }>(
               `select coalesce(sum(amount) filter (where day = $2), 0)::text as d, coalesce(sum(amount) filter (where month = $3), 0)::text as m from pb_nd_refund where chain = $1 and granted and (day = $2 or month = $3)`,
@@ -557,6 +558,16 @@ export class Store {
       [chain, host.toLowerCase(), chain === "tempo" ? payTo.toLowerCase() : payTo],
     );
     return r.rows[0]?.at ?? null;
+  }
+
+  /** Granted refunds for undelivered answers since `since` (the holds a free quote may show): seller host, payTo, time. */
+  async ndHolds(chain: ProxyChain, since: Date): Promise<{ host: string; payTo: string; at: string }[]> {
+    const r = await this.sql.query<{ host: string; pay_to: string; at: string }>(
+      `select seller_host as host, seller_pay_to as pay_to, to_char(max(at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') as at
+       from pb_nd_refund where chain = $1 and granted and at >= $2 group by seller_host, seller_pay_to limit 1000`,
+      [chain, iso(since)],
+    );
+    return r.rows.map((x) => ({ host: x.host, payTo: x.pay_to, at: x.at }));
   }
 
   /** Test and ops helper: the decisions on refunds for undelivered answers. */

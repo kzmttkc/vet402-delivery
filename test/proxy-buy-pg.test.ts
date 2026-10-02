@@ -376,3 +376,15 @@ test("pg (undelivered refunds): 20 buyers of 20 sellers at once under a day cap 
   const sum = await pool!.query<{ s: string }>(`select coalesce(sum(amount), 0)::text as s from pb_nd_refund where granted`);
   assert.equal(sum.rows[0]!.s, "45000");
 });
+
+test("pg (undelivered refunds): a hold 7 days old has ended; 10 buyers of that seller at once -> one new grant, the rest held again", { skip }, async () => {
+  const s = await fresh();
+  await pool!.query(
+    `insert into pb_nd_refund (purchase_id, chain, day, month, to_addr, agent, seller_host, seller_pay_to, amount, granted, reason, at) values ('old', 'solana', '2026-09-23', '2026-09', 'X', 'X', 'h.test', 'P', 15000, true, 'http_500', $1)`,
+    [new Date(now.getTime() - 7 * 86_400_000).toISOString()],
+  );
+  for (let i = 0; i < 10; i++) await inProgress(s, `e${i}`, "h.test", `E${i}`);
+  const r = await Promise.all(Array.from({ length: 10 }, (_, i) => ndAsk(s, `e${i}`, { to: `E${i}`, host: "h.test", payTo: "P" })));
+  assert.equal(r.filter((d) => "granted" in d && d.granted).length, 1);
+  assert.equal(r.filter((d) => "granted" in d && !d.granted && d.reason === "seller_on_hold").length, 9);
+});

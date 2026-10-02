@@ -21,7 +21,9 @@ import { BUY_PATH, OFFER_TTL_SECONDS, QUOTES_PER_MINUTE, RECORD_PATH_PREFIX, REF
 import type { Allowlist } from "./allowlist.js";
 import type { DayCaps, Store } from "./store.js";
 import { quote, type Quote, type QuoteDeps, type Refused } from "./quote.js";
-import { paySolana, paymentRequiredHeader, solanaPriceInfo, solanaRequirements, type SolanaSide } from "./solana.js";
+import { paySolana, paymentRequiredHeader, sellerOnHoldDetail, solanaPriceInfo, solanaRequirements, type SolanaSide } from "./solana.js";
+import { holdActive, ND_SELLER_HOLD_MS } from "./not-delivered.js";
+import { databaseLikelyAwake } from "../usage/count.js";
 import { payTempo, tempoPriceInfo, tempoRoute, type TempoSide } from "./tempo.js";
 import type { PaidAnswer } from "./flow.js";
 import { reconcile } from "./reconcile.js";
@@ -111,6 +113,35 @@ function refusedResponse(r: Refused): Response {
   return json(r.status, { verdict: "REFUSE", reason: r.reason, detail: r.detail, charged: false });
 }
 
+/** A free quote re-reads the held sellers at most this often (and only while the database is awake anyway). */
+export const HOLD_VIEW_REFRESH_MS = 60_000;
+
+/**
+ * The sellers held after a refund for an undelivered answer, as this instance last read them, for the free 402. Read
+ * after each paid Solana request (the database is awake then) and, for a quote, only while the database is awake
+ * anyway after a cron run (usage/count.ts databaseLikelyAwake): a quote never wakes the database. So a quote may not
+ * show a hold that the paid request then refuses before any charge (Store.ndHoldSince decides there).
+ */
+export class HoldView {
+  private holds: { host: string; payTo: string; at: string }[] = [];
+  private readAt = -Infinity;
+  constructor(private readonly store: Store) {}
+  async refresh(now: Date): Promise<void> {
+    this.holds = await this.store.ndHolds("solana", new Date(now.getTime() - ND_SELLER_HOLD_MS));
+    this.readAt = now.getTime();
+  }
+  async refreshForQuote(now: Date): Promise<void> {
+    if (now.getTime() - this.readAt < HOLD_VIEW_REFRESH_MS || !databaseLikelyAwake(now)) return;
+    await this.refresh(now).catch(() => undefined);
+  }
+  /** The latest hold time for this seller (same host or same payTo), or null. */
+  latest(host: string, payTo: string): string | null {
+    let at: string | null = null;
+    for (const h of this.holds) if ((h.host === host.toLowerCase() || h.payTo === payTo) && (!at || h.at > at)) at = h.at;
+    return at;
+  }
+}
+
 /** Most distinct clients a quote limit holds in one window; past it, a new client's quote is refused (quotes are free). */
 export const MEMORY_RATE_MAX_KEYS = 50_000;
 
@@ -181,6 +212,7 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
   });
   const solCtx = () => ({ ...common(o.caps.solana!), side: o.solana!, resourceUrl: `${o.publicOrigin}${BUY_PATH}` });
   const tempoCtx = () => ({ ...common(o.caps.tempo!), side: tempo! });
+  const holdView = new HoldView(o.store);
 
   async function unpaid(req: Request, target: string | null): Promise<Response> {
     const q = await quote(target, quoteDeps);
@@ -188,7 +220,16 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     const qq = q as Quote;
     const headers: Record<string, string> = { "cache-control": "no-store" };
     const offers: Record<string, unknown> = {};
-    if (qq.solana.ok && o.solana) {
+    // A seller held after a refund for an undelivered answer: said here, before the agent signs (as this instance knows it).
+    let held: string | null = null;
+    if (qq.solana.ok && o.solana?.notDeliveredRefund) {
+      await holdView.refreshForQuote(now());
+      const at = holdView.latest(qq.solana.known.host, qq.solana.accept.payTo);
+      if (holdActive(at, qq.solana.known.lastDeliveredAt, now())) held = at;
+    }
+    if (held) {
+      offers.solana = { refused: "seller_on_hold", detail: sellerOnHoldDetail(held) };
+    } else if (qq.solana.ok && o.solana) {
       try {
         const c = { side: o.solana, feeAtomic: o.feeAtomic, resourceUrl: `${o.publicOrigin}${BUY_PATH}` };
         const reqs = await solanaRequirements(c, qq.solana, qq.target);
@@ -287,7 +328,10 @@ export function createProxyBuy(o: ProxyBuyOptions): ProxyBuy {
     if (pay.chain === "solana") {
       if (!o.solana || !o.caps.solana) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Solana is not configured", charged: false });
       if (!qq.solana.ok) return refusedResponse(qq.solana);
-      return toResponse(await paySolana(solCtx(), qq.target, qq.solana, pay.header));
+      const answer = await paySolana(solCtx(), qq.target, qq.solana, pay.header);
+      // The database is awake now: this instance's view of held sellers is brought up to date for its free quotes.
+      if (o.solana.notDeliveredRefund) await holdView.refresh(now()).catch(() => undefined);
+      return toResponse(answer);
     }
     if (!tempo || !o.caps.tempo) return json(400, { verdict: "REFUSE", reason: "chain_not_offered", detail: "Tempo is not configured", charged: false });
     if (!qq.tempo.ok) return refusedResponse(qq.tempo);

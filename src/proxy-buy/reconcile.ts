@@ -395,7 +395,9 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
       // With it off (or on Tempo), the purchase closes exactly as before (below).
       const fault = (obj(row.facts.answerFault) as NotDeliveredFault | null) ?? null;
       const ndOn = row.chain === "solana" ? ctx.solana?.notDeliveredRefund : undefined;
-      if (ndOn && base.answer && !base.answer.delivered && row.state === "seller_unsettled") {
+      // The answer is on record when the request kept it: seller_unsettled, or in_progress when the request kept it
+      // before a refund decision it could not write.
+      if (ndOn && base.answer && !base.answer.delivered) {
         const done = await closeNotDelivered(ctx, {
           id: row.id,
           chain: row.chain,
@@ -414,6 +416,7 @@ async function one(ctx: ReconcileContext, run: Run, row: PurchaseRow, note: (a: 
           extra: { sellerStatus: base.answer.httpStatus },
           ...fo,
         });
+        if (done?.deferred) return note("waiting: the refund decision for an undelivered answer could not be written; the next run decides");
         if (!done || !done.closed) return note("skipped: moved by another run");
         const rf = (done.answer as { body?: Record<string, unknown> }).body?.refund;
         if (rf && typeof rf === "object") {

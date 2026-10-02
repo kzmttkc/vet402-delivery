@@ -15,8 +15,11 @@ import type { NotDeliveredRefundCaps } from "./config.js";
 /** What a failed fetch of the paid answer says about the seller. */
 export type FetchFailure = "timeout" | "closed" | "unknown";
 
-/** Error codes that mean the seller's side refused or closed the connection (no answer at all). */
-const CLOSED_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_CLOSED"]);
+/**
+ * Error codes that mean the seller's side refused or closed the connection (no answer at all). Not UND_ERR_CLOSED:
+ * undici gives it when vet402's own client was closed, which is not the seller's doing.
+ */
+const CLOSED_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET"]);
 const TIMEOUT_CODES = /TIMEOUT|ETIMEDOUT|ESOCKETTIMEDOUT/i;
 
 /**
@@ -66,11 +69,32 @@ export interface NotDeliveredRefund extends NotDeliveredRefundCaps {
   lastDeliveredAt: (host: string, payTo: string) => string | null;
 }
 
+/**
+ * How long a seller stays held after a refund for an undelivered answer, at most: it is released earlier when a
+ * delivered vet402 purchase from it is on record after the refund (data/), and in any case after this long, so a
+ * seller the daily runs do not buy again is not held for good.
+ */
+export const ND_SELLER_HOLD_MS = 7 * 86_400_000;
+
+/**
+ * Whether a seller is held: a refund of this kind was granted for it at `heldAt` (ISO), less than ND_SELLER_HOLD_MS
+ * before `now`, and no delivered vet402 purchase from it is on record after it (`lastDeliveredAt`, ISO).
+ */
+export function holdActive(heldAt: string | null, lastDeliveredAt: string | null, now: Date): boolean {
+  if (!heldAt) return false;
+  const h = Date.parse(heldAt);
+  if (!Number.isFinite(h) || now.getTime() - h >= ND_SELLER_HOLD_MS) return false;
+  return !(lastDeliveredAt && Date.parse(lastDeliveredAt) > h);
+}
+
+/** When a hold set at `heldAt` ends at the latest (ISO). */
+export const holdUntil = (heldAt: string) => new Date(Date.parse(heldAt) + ND_SELLER_HOLD_MS).toISOString();
+
 /** Reasons Store.ndRefundClaim gives for not refunding (public: the record and the answer show them). */
 export const ND_REFUSALS = {
   payto_is_buyer: "the seller's payTo is the paying address",
   buyer_daily_limit: "this paying address already had a refund for an undelivered answer this UTC day",
-  seller_on_hold: "a refund for an undelivered answer from this seller is not yet followed by a delivered vet402 purchase",
+  seller_on_hold: "a refund for an undelivered answer from this seller, less than 7 days ago, is not yet followed by a delivered vet402 purchase",
   cap_daily: "the cap for refunds of undelivered answers for this UTC day would be passed",
   cap_monthly: "the cap for refunds of undelivered answers for this UTC month would be passed",
 } as const;
