@@ -566,6 +566,12 @@ test("rebuy copy: no end date, as run.sh has no default VET402_DAILY_END; the mo
   assert.ok(readme.includes(`from UTC day ${REBUY_FIRST_DAY}, with no end date`), "README.md states the plan as the site does");
   assert.ok(rankReadme.includes(`from UTC day ${REBUY_FIRST_DAY}, with no end date`), "src/rank/README.md states the plan as the site does");
   assert.ok(REBUY_PLAN.includes(`from UTC day ${REBUY_FIRST_DAY}, with no end date`));
+  // the month cap amounts in each public text are the code's (2026-10-04: two README lines kept 30 after the cap went to 70)
+  for (const [name, t] of [["README.md", readme], ["src/rank/README.md", rankReadme]] as const) {
+    for (const m of t.matchAll(/(\d+(?:\.\d+)?) USDC(?!\.e)[^.\n]{0,40}?on Solana|\((\d+(?:\.\d+)?) USDC on Solana/g)) {
+      assert.equal(`${m[1] ?? m[2]} USDC`, REBUY_MONTH_CAPS.solana, `${name}: "${m[0]}"`);
+    }
+  }
   assert.ok(REBUY_PLAN.includes(`${REBUY_MONTH_CAPS.solana} on Solana, ${REBUY_MONTH_CAPS.tempo} on Tempo`));
   // The plan is the only declaration; it carries no claim of what happened, so it needs no tense switch.
   assert.ok(!/\b(buys|bought) again every day\b/.test(REBUY_PLAN));

@@ -135,7 +135,7 @@ run. If purchases paced as in section 2 still get either reply, both rules move 
 - Only the count and the spacing. Amounts, payTo checks and the money caps are unchanged.
 - Applies from method v2 on; the 2026-09-27/28 inputs predate it.
 - Rebuy plan from UTC day 2026-09-29, with no end date: twice a day on Solana and once on Tempo, within a cap of
-  30 USDC per calendar month on Solana and 30 USDC.e on Tempo (a chain that reaches its cap buys nothing more until the next month).
+  70 USDC per calendar month on Solana and 30 USDC.e on Tempo (a chain that reaches its cap buys nothing more until the next month).
   Remeasure (`scripts/remeasure.ts`, see the top-level README) buys again from the Solana and Tempo sellers whose
   earlier payment settled. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers
   share one payTo, one of them is bought; the payTo is locked to the earlier payment and the price can be no higher. Which sellers were
