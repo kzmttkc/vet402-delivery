@@ -17,7 +17,7 @@ export const REMEASURE_CHAINS: readonly RemeasureChain[] = ["solana", "tempo"];
 /** Solana, atomic USDC (6 decimals). */
 export const RM_SOLANA_MAX_PER_PURCHASE_ATOMIC = 100_000n; // 0.10 USDC
 export const RM_SOLANA_MAX_PER_RUN_ATOMIC = 3_000_000n; // 3 USDC
-export const RM_SOLANA_MAX_PER_MONTH_ATOMIC = 30_000_000n; // 30 USDC, results/remeasure/budget-solana-YYYY-MM.json
+export const RM_SOLANA_MAX_PER_MONTH_ATOMIC = 70_000_000n; // 70 USDC (30 until 2026-10-04: two runs a day spend about 2.3 USDC, so 30 ran out mid-month), results/remeasure/budget-solana-YYYY-MM.json
 if (RM_SOLANA_MAX_PER_PURCHASE_ATOMIC > MAX_PER_PURCHASE_ATOMIC) throw new Error("remeasure per-purchase cap exceeds the guard's cap");
 
 /** Tempo, atomic USDC.e (6 decimals). Amount + fee reserve count against the caps. */
@@ -27,10 +27,10 @@ export const RM_TEMPO_MAX_PER_MONTH_ATOMIC = 30_000_000n; // 30 USDC.e, summed o
 if (RM_TEMPO_MAX_PER_PURCHASE_ATOMIC > MAX_PER_CALL_ATOMIC) throw new Error("remeasure per-call cap exceeds the Tempo guard's cap");
 
 /**
- * Runaway bound on purchases in one Solana month file. Money is bounded by the 30 USDC month cap;
- * this only stops a loop. ~100 payTos a day for 31 days fits.
+ * Runaway bound on purchases in one Solana month file. Money is bounded by the 70 USDC month cap;
+ * this only stops a loop. October 2026 ran about 180 purchases a day (627 by the 4th), so 31 days fit under 8,000.
  */
-export const RM_MAX_PURCHASES_PER_MONTH = 5_000;
+export const RM_MAX_PURCHASES_PER_MONTH = 8_000;
 
 /** Purchases per payTo in one run: 1 unless --per-payto says more, never above MEASURE_MAX_PER_SELLER. */
 export const RM_DEFAULT_PER_PAYTO = 1;

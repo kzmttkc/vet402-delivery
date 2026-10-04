@@ -173,7 +173,7 @@ export const MONEY_LINE =
  */
 export const REBUY_FIRST_DAY = "2026-09-29";
 /** The month caps as the public text states them (RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_MONTH_ATOMIC). */
-export const REBUY_MONTH_CAPS = { solana: "30 USDC", tempo: "30 USDC.e" } as const;
+export const REBUY_MONTH_CAPS = { solana: "70 USDC", tempo: "30 USDC.e" } as const;
 /** The plan and its rules (rank.json method.measurement, the first page, the method page). */
 export const REBUY_PLAN = `Rebuy plan from UTC day ${REBUY_FIRST_DAY}, with no end date: two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. Spending is capped per calendar month (${REBUY_MONTH_CAPS.solana} on Solana, ${REBUY_MONTH_CAPS.tempo} on Tempo); a chain that reaches its cap buys nothing more until the next month. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them.`;
 
