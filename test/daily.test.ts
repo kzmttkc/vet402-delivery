@@ -275,16 +275,16 @@ test("gate: a seller's request id under the key request_id passes by rule (the a
   const empty = join(dir, "allow.json");
   writeFileSync(empty, JSON.stringify({ kind: "vet402-secret-gate-allow", allow: [], files: [] }));
   const r = seeded(20261004);
-  // the shape of rows[83].detail on those three days: 20 letters and digits, new each time
+  // the shape of rows[83].detail on those three days: 20 characters, new each time; letters and digits on 10-03
+  // and 10-04, a - among them on 10-02 (the shape AAaAAaa-A9AAa99AAaaA)
   const cookin = (id: string) => `{"data":[],"meta":{"request_id":"${id}","cached_at":"2026-10-04T01:23:45.678901Z"}}`;
-  for (let i = 0; i < 5; i++) {
-    writeFileSync(join(dir, "in.json"), JSON.stringify({ rows: [{ host: "api.cookin.fun", detail: cookin(alnum(r, 20)) }] }));
+  for (const id of [alnum(r, 20), `${alnum(r, 7)}-${alnum(r, 12)}`, `${alnum(r, 5)}_${alnum(r, 6)}-${alnum(r, 7)}`, b64url(r, 20), b64url(r, 20)]) {
+    writeFileSync(join(dir, "in.json"), JSON.stringify({ rows: [{ host: "api.cookin.fun", detail: cookin(id) }] }));
     const c = gateCli("copy", join(dir, "in.json"), join(dir, "out.json"), "--allow", empty);
     assert.equal(c.status, 0, c.stderr);
   }
   const none = (text: string, name = "data/x.json") => blockingFindings(scanFileText(text, name), []).map((f) => `${f.kind} ${f.shape}`);
-  for (let n = 16; n <= 32; n++) {
-    const id = alnum(r, n);
+  for (let n = 16; n <= 32; n++) for (const id of [alnum(r, n), b64url(r, n), `${alnum(r, n - 2)}-_`.split("").sort(() => r() - 0.5).join("")]) {
     // any host, anywhere in the body, as a parsed field, and with JSON-escaped quotes in a line that is not JSON
     assert.deepEqual(none(withDetail(`{"ok":true,"request_id":"${id}"}`)), [], id);
     assert.deepEqual(none(withDetail(`{"meta":{"request_id" : "${id}"},"data":[]}`)), [], id);
@@ -299,10 +299,19 @@ test("gate: under request_id a key's shape, a longer or cut value, the runner's 
   const stops = (text: string, opts = {}) => blockingFindings(scanFileText(text, "data/x.json", opts), []).map((f) => f.kind);
   const body = (v: string, k = "request_id") => withDetail(`{"data":[],"meta":{"${k}":"${v}"}}`);
   const field = (v: string) => JSON.stringify({ rows: [{ host: "s.example", meta: { request_id: v } }] });
-  // a key's shape under the very name the rule reads: each check before the rule stops it
+  // a key's shape under the very name the rule reads: each check before the rule stops it, including the vendor
+  // keys with _ or - in them that fit in 32 characters (the rule's own range)
   const shaped: [string, Finding["kind"]][] = [
     [`sk_live_${alnum(r, 24)}`, "vendor-key"],
+    [`sk_live_${alnum(r, 16)}`, "vendor-key"],
+    [`rk_test_${alnum(r, 16)}`, "vendor-key"],
     [`ghp_${alnum(r, 36)}`, "vendor-key"],
+    [`ghp_${alnum(r, 20)}`, "vendor-key"],
+    [`github_pat_${alnum(r, 20)}`, "vendor-key"],
+    [`glpat-${alnum(r, 16)}`, "vendor-key"],
+    [`xoxb-${alnum(r, 12)}`, "vendor-key"],
+    [`re_${alnum(r, 8)}_${alnum(r, 16)}`, "vendor-key"],
+    [`sk-${alnum(r, 24)}`, "vendor-key"],
     [`AKIA${alnum(r, 16).toUpperCase()}`, "vendor-key"],
     [base58(bytes(r, 32)), "opaque-40"],
     [base58(bytes(r, 64)), "opaque-40"],
@@ -310,6 +319,8 @@ test("gate: under request_id a key's shape, a longer or cut value, the runner's 
     [`Bearer ${alnum(r, 24)}`, "bearer"],
     [`eyJhbGciOiJIUzI1NiJ9.${b64url(r, 40)}.${b64url(r, 20)}`, "jwt"],
     [`eyJ${alnum(r, 17)}`, "jwt"],
+    [`eyJ${b64url(r, 25)}`, "jwt"],
+    [`eyJhbGci.${b64url(r, 12)}`, "jwt"],
   ];
   for (const [v, kind] of shaped) {
     assert.ok(stops(body(v)).includes(kind), `${v.slice(0, 6)}: ${JSON.stringify(stops(body(v)))}`);
@@ -326,8 +337,13 @@ test("gate: under request_id a key's shape, a longer or cut value, the runner's 
     assert.ok(stops(body(alnum(r, 40))).includes("opaque-40"));
     assert.ok(stops(field(alnum(r, 33))).includes("opaque-40"));
     assert.ok(stops(withDetail(`{"data":[],"meta":{"request_id":"${id}`)).includes("opaque-40"));
-    // other characters in the value
-    assert.ok(stops(body(`${alnum(r, 10)}-${alnum(r, 14)}`)).includes("opaque-40"));
+    // - and _ in the value pass (the 2026-10-02 shape); any other character does not
+    assert.deepEqual(stops(body(`${alnum(r, 7)}-${alnum(r, 12)}`)), []);
+    assert.deepEqual(stops(body(`${alnum(r, 5)}_${alnum(r, 6)}-${alnum(r, 7)}`)), []);
+    assert.deepEqual(stops(field(`${alnum(r, 7)}-${alnum(r, 12)}`)), []);
+    assert.ok(stops(body(`${alnum(r, 20)}.${alnum(r, 8)}`)).includes("opaque-40"));
+    assert.ok(stops(body(`${alnum(r, 20)}+${alnum(r, 8)}`)).includes("opaque-40"));
+    assert.ok(stops(body(`${alnum(r, 20)}/${alnum(r, 8)}`)).includes("opaque-40"));
     // the runner's own key stops whatever its length and place
     assert.ok(stops(body(id), { ownKeys: [id] }).includes("own-key"));
     assert.ok(stops(field(id), { ownKeys: [id] }).includes("own-key"));

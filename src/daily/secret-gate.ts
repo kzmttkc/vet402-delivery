@@ -22,7 +22,7 @@
  *    transaction elsewhere in the same file. Words, slugs and UUID-like ids are not random-looking. A public
  *    image URL (https, a plain path ending in an image file or under /images/, or cut at the end of a body
  *    under a field named for an image) is one public value; its query and fragment are still read. A seller's
- *    request id (16 to 32 letters and digits under a JSON key named exactly request_id) is the id of that one
+ *    request id (16 to 32 letters, digits, _ and - under a JSON key named exactly request_id) is the id of that one
  *    response, not a random run; every check above still reads it first.
  * Anything else that is public by design is allowed by exact sha256 only, each with a reason, in
  * scripts/daily/secret-allow.json.
@@ -744,17 +744,18 @@ function cutImageUrl(v: string, path: string, offset: number, length: number): b
 }
 
 /**
- * A request id a seller puts in its answer ({"meta":{"request_id":"<20 letters and digits>"}}, api.cookin.fun
- * on every paid answer since 2026-10-02): the id of that one response, new each time. It passes the random-run
- * checks only when all of these hold: the JSON key is exactly request_id (x_request_id, request_id_sig, token or
- * requestId are not), the value is 16 to 32 letters and digits with its closing quote (a value cut at the end of
- * a body, or longer, is not), and the value is not a key's shape: not 32 or 64 bytes in base58 (a Solana key or
- * seed), not a JWT piece, not a vendor key prefix. The checks before this one (the runner's own key, JWTs, vendor
- * keys, Bearer values, values under secret names) read the value first and stop it on their own. Any host.
+ * A request id a seller puts in its answer ({"meta":{"request_id":"<20 characters>"}}, api.cookin.fun on every
+ * paid answer since 2026-10-02, letters and digits with _ and - as in 2026-10-02's value): the id of that one
+ * response, new each time. It passes the random-run checks only when all of these hold: the JSON key is exactly
+ * request_id (x_request_id, request_id_sig, token or requestId are not), the value is 16 to 32 letters, digits,
+ * _ and - with its closing quote (a value cut at the end of a body, or longer, is not), and the value is not a
+ * key's shape: not 32 or 64 bytes in base58 (a Solana key or seed), not a JWT piece, not a vendor key (sk_live_,
+ * ghp_, glpat-, xoxb-, AKIA...). The checks before this one (the runner's own key, JWTs, vendor keys, Bearer
+ * values, values under secret names) read the value first and stop it on their own. Any host.
  */
-const REQUEST_ID_PAIR = /(\\*"request_id\\*"\s*:\s*\\*")([A-Za-z0-9]{16,32})(?=\\*")/g;
+const REQUEST_ID_PAIR = /(\\*"request_id\\*"\s*:\s*\\*")([A-Za-z0-9_-]{16,32})(?=\\*")/g;
 export function isRequestIdValue(t: string): boolean {
-  if (!/^[A-Za-z0-9]{16,32}$/.test(t)) return false;
+  if (!/^[A-Za-z0-9_-]{16,32}$/.test(t)) return false;
   const b = base58Len(t);
   if (b === 32 || b === 64) return false;
   if (/^eyJ/.test(t) || new RegExp(`^(?:${VENDOR_KEY.source})$`).test(t)) return false;
@@ -906,7 +907,7 @@ export function scanText(text: string, file: string, path: string, key: string |
     v = blankPublicAddresses(v);
     // A public image URL (https, a plain path to an image file or under /images/) is one public value, not runs.
     v = blankPublicImageUrls(v);
-    // A seller's request id ("request_id":"<16-32 letters and digits>" in a body, or the whole value of a parsed
+    // A seller's request id ("request_id":"<16-32 letters, digits, _ and ->" in a body, or the whole value of a parsed
     // request_id field) is the id of one response. Only after every check above has read it.
     v = original && key === "request_id" && v === text && isRequestIdValue(v) ? " ".repeat(v.length) : blankRequestIds(v);
     // base64 runs: judged whole, since their slashes and plus signs split them into short pieces below.
