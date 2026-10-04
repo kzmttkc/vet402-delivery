@@ -270,6 +270,107 @@ test("gate: an image URL cut at the end of a 300-character body passes only unde
   }
 });
 
+test("gate: a seller's request id under the key request_id passes by rule (the api.cookin.fun meta.request_id that stopped 2026-10-02, -03 and -04), with no allow entry", () => {
+  const dir = tmp();
+  const empty = join(dir, "allow.json");
+  writeFileSync(empty, JSON.stringify({ kind: "vet402-secret-gate-allow", allow: [], files: [] }));
+  const r = seeded(20261004);
+  // the shape of rows[83].detail on those three days: 20 characters, new each time; letters and digits on 10-03
+  // and 10-04, a - among them on 10-02 (the shape AAaAAaa-A9AAa99AAaaA)
+  const cookin = (id: string) => `{"data":[],"meta":{"request_id":"${id}","cached_at":"2026-10-04T01:23:45.678901Z"}}`;
+  for (const id of [alnum(r, 20), `${alnum(r, 7)}-${alnum(r, 12)}`, `${alnum(r, 5)}_${alnum(r, 6)}-${alnum(r, 7)}`, b64url(r, 20), b64url(r, 20)]) {
+    writeFileSync(join(dir, "in.json"), JSON.stringify({ rows: [{ host: "api.cookin.fun", detail: cookin(id) }] }));
+    const c = gateCli("copy", join(dir, "in.json"), join(dir, "out.json"), "--allow", empty);
+    assert.equal(c.status, 0, c.stderr);
+  }
+  const none = (text: string, name = "data/x.json") => blockingFindings(scanFileText(text, name), []).map((f) => `${f.kind} ${f.shape}`);
+  for (let n = 16; n <= 32; n++) for (const id of [alnum(r, n), b64url(r, n), `${alnum(r, n - 2)}-_`.split("").sort(() => r() - 0.5).join("")]) {
+    // any host, anywhere in the body, as a parsed field, and with JSON-escaped quotes in a line that is not JSON
+    assert.deepEqual(none(withDetail(`{"ok":true,"request_id":"${id}"}`)), [], id);
+    assert.deepEqual(none(withDetail(`{"meta":{"request_id" : "${id}"},"data":[]}`)), [], id);
+    assert.deepEqual(none(JSON.stringify({ rows: [{ host: "s.example", meta: { request_id: id } }] })), [], id);
+    assert.deepEqual(none(`{"detail":"{\\"meta\\":{\\"request_id\\":\\"${id}\\"}}"}`, "data/x.txt"), [], id);
+  }
+  rmSync(dir, { recursive: true });
+});
+
+test("gate: under request_id a key's shape, a longer or cut value, the runner's key, and any other name still stop", () => {
+  const r = seeded(20261005);
+  const stops = (text: string, opts = {}) => blockingFindings(scanFileText(text, "data/x.json", opts), []).map((f) => f.kind);
+  const body = (v: string, k = "request_id") => withDetail(`{"data":[],"meta":{"${k}":"${v}"}}`);
+  const field = (v: string) => JSON.stringify({ rows: [{ host: "s.example", meta: { request_id: v } }] });
+  // a key's shape under the very name the rule reads: each check before the rule stops it, including the vendor
+  // keys with _ or - in them that fit in 32 characters (the rule's own range)
+  const shaped: [string, Finding["kind"]][] = [
+    [`sk_live_${alnum(r, 24)}`, "vendor-key"],
+    [`sk_live_${alnum(r, 16)}`, "vendor-key"],
+    [`rk_test_${alnum(r, 16)}`, "vendor-key"],
+    [`ghp_${alnum(r, 36)}`, "vendor-key"],
+    [`ghp_${alnum(r, 20)}`, "vendor-key"],
+    [`github_pat_${alnum(r, 20)}`, "vendor-key"],
+    [`glpat-${alnum(r, 16)}`, "vendor-key"],
+    [`xoxb-${alnum(r, 12)}`, "vendor-key"],
+    [`re_${alnum(r, 8)}_${alnum(r, 16)}`, "vendor-key"],
+    [`sk-${alnum(r, 24)}`, "vendor-key"],
+    [`AKIA${alnum(r, 16).toUpperCase()}`, "vendor-key"],
+    [base58(bytes(r, 32)), "opaque-40"],
+    [base58(bytes(r, 64)), "opaque-40"],
+    [hex(r, 64), "opaque-40"],
+    [`Bearer ${alnum(r, 24)}`, "bearer"],
+    [`eyJhbGciOiJIUzI1NiJ9.${b64url(r, 40)}.${b64url(r, 20)}`, "jwt"],
+    [`eyJ${alnum(r, 17)}`, "jwt"],
+    [`eyJ${b64url(r, 25)}`, "jwt"],
+    [`eyJhbGci.${b64url(r, 12)}`, "jwt"],
+  ];
+  for (const [v, kind] of shaped) {
+    assert.ok(stops(body(v)).includes(kind), `${v.slice(0, 6)}: ${JSON.stringify(stops(body(v)))}`);
+    assert.ok(stops(field(v)).includes(kind), `${v.slice(0, 6)} as a field: ${JSON.stringify(stops(field(v)))}`);
+  }
+  for (let i = 0; i < 5; i++) {
+    const id = alnum(r, 20);
+    // the same value under any other name, including names close to request_id
+    for (const k of ["token", "api_key", "secret", "authorization", "x-request-id-signature", "x_request_id", "request_id_sig", "requestId", "Request_Id", "request-id", "ref"]) {
+      assert.ok(stops(body(id, k)).length > 0, `${k}: passed`);
+    }
+    // longer than 32, or cut at the end of a body (no closing quote)
+    assert.ok(stops(body(alnum(r, 33))).includes("opaque-40"));
+    assert.ok(stops(body(alnum(r, 40))).includes("opaque-40"));
+    assert.ok(stops(field(alnum(r, 33))).includes("opaque-40"));
+    assert.ok(stops(withDetail(`{"data":[],"meta":{"request_id":"${id}`)).includes("opaque-40"));
+    // a value cut short and then followed by an outer quote is not a closed request_id pair
+    const cut = alnum(r, 40).slice(0, 24);
+    const cutTxt = (t: string) => blockingFindings(scanFileText(t, "data/x.txt"), []).map((f) => f.kind);
+    assert.ok(cutTxt(`detail: "{\\"meta\\":{\\"request_id\\":\\"${cut}" status=402`).includes("opaque-40"));
+    assert.ok(cutTxt(`body: {"request_id":"${cut}" (cut)`).includes("opaque-40"));
+    assert.ok(stops(JSON.stringify({ rows: [{ first300: `{"request_id":"${cut}` }] })).includes("opaque-40"));
+    // - and _ in the value pass (the 2026-10-02 shape); any other character does not
+    assert.deepEqual(stops(body(`${alnum(r, 7)}-${alnum(r, 12)}`)), []);
+    assert.deepEqual(stops(body(`${alnum(r, 5)}_${alnum(r, 6)}-${alnum(r, 7)}`)), []);
+    assert.deepEqual(stops(field(`${alnum(r, 7)}-${alnum(r, 12)}`)), []);
+    assert.ok(stops(body(`${alnum(r, 20)}.${alnum(r, 8)}`)).includes("opaque-40"));
+    assert.ok(stops(body(`${alnum(r, 20)}+${alnum(r, 8)}`)).includes("opaque-40"));
+    assert.ok(stops(body(`${alnum(r, 20)}/${alnum(r, 8)}`)).includes("opaque-40"));
+    // the runner's own key stops whatever its length and place
+    assert.ok(stops(body(id), { ownKeys: [id] }).includes("own-key"));
+    assert.ok(stops(field(id), { ownKeys: [id] }).includes("own-key"));
+  }
+  // through the CLI with --keys-dir: each encoding of the runner's key under request_id stops the copy
+  const dir = tmp();
+  const keys = join(dir, "keys");
+  mkdirSync(keys);
+  writeFileSync(join(keys, "payer.json"), JSON.stringify([...bytes(r, 64)]));
+  const empty = join(dir, "allow.json");
+  writeFileSync(empty, JSON.stringify({ kind: "vet402-secret-gate-allow", allow: [], files: [] }));
+  for (const n of ownKeyNeedles(keys)) {
+    writeFileSync(join(dir, "in.json"), JSON.stringify({ rows: [{ detail: `{"data":[],"meta":{"request_id":"${n}"}}` }] }));
+    const c = gateCli("copy", join(dir, "in.json"), join(dir, "out.json"), "--keys-dir", keys, "--allow", empty);
+    assert.equal(c.status, 3, c.stdout);
+    assert.match(c.stderr, /own-key/);
+    assert.ok(!existsSync(join(dir, "out.json")));
+  }
+  rmSync(dir, { recursive: true });
+});
+
 test("gate: a crypto asset named token passes only in its public shape; credential tokens always stop", () => {
   const pass = [
     { token_amount: "835335.7825230001" }, { base_token_price_quote_token: "2668.701" }, { token_name: "American Inu" },
