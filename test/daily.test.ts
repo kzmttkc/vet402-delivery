@@ -337,6 +337,12 @@ test("gate: under request_id a key's shape, a longer or cut value, the runner's 
     assert.ok(stops(body(alnum(r, 40))).includes("opaque-40"));
     assert.ok(stops(field(alnum(r, 33))).includes("opaque-40"));
     assert.ok(stops(withDetail(`{"data":[],"meta":{"request_id":"${id}`)).includes("opaque-40"));
+    // a value cut short and then followed by an outer quote is not a closed request_id pair
+    const cut = alnum(r, 40).slice(0, 24);
+    const cutTxt = (t: string) => blockingFindings(scanFileText(t, "data/x.txt"), []).map((f) => f.kind);
+    assert.ok(cutTxt(`detail: "{\\"meta\\":{\\"request_id\\":\\"${cut}" status=402`).includes("opaque-40"));
+    assert.ok(cutTxt(`body: {"request_id":"${cut}" (cut)`).includes("opaque-40"));
+    assert.ok(stops(JSON.stringify({ rows: [{ first300: `{"request_id":"${cut}` }] })).includes("opaque-40"));
     // - and _ in the value pass (the 2026-10-02 shape); any other character does not
     assert.deepEqual(stops(body(`${alnum(r, 7)}-${alnum(r, 12)}`)), []);
     assert.deepEqual(stops(body(`${alnum(r, 5)}_${alnum(r, 6)}-${alnum(r, 7)}`)), []);

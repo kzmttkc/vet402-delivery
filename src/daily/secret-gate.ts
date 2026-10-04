@@ -753,7 +753,7 @@ function cutImageUrl(v: string, path: string, offset: number, length: number): b
  * ghp_, glpat-, xoxb-, AKIA...). The checks before this one (the runner's own key, JWTs, vendor keys, Bearer
  * values, values under secret names) read the value first and stop it on their own. Any host.
  */
-const REQUEST_ID_PAIR = /(\\*"request_id\\*"\s*:\s*\\*")([A-Za-z0-9_-]{16,32})(?=\\*")/g;
+const REQUEST_ID_PAIR = /((\\*)"request_id\2"\s*:\s*\2")([A-Za-z0-9_-]{16,32})(?=\2"(?!\\)\s*[,}\]])/g;
 export function isRequestIdValue(t: string): boolean {
   if (!/^[A-Za-z0-9_-]{16,32}$/.test(t)) return false;
   const b = base58Len(t);
@@ -763,7 +763,7 @@ export function isRequestIdValue(t: string): boolean {
 }
 /** The string with each seller request id value (see REQUEST_ID_PAIR) blanked out (same length); the key stays. */
 export function blankRequestIds(v: string): string {
-  return v.replace(REQUEST_ID_PAIR, (m: string, pre: string, id: string) => (isRequestIdValue(id) ? pre + " ".repeat(id.length) : m));
+  return v.replace(REQUEST_ID_PAIR, (m: string, pre: string, _esc: string, id: string) => (isRequestIdValue(id) ? pre + " ".repeat(id.length) : m));
 }
 
 /** The runner's own key material in the encodings it could leak in. */
