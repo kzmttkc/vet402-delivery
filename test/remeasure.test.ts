@@ -203,7 +203,7 @@ test("solana: month cap boundary, persisted: what is left is bought, then the ru
   const slots = selectSlots([solTarget("a.example", P1), solTarget("b.example", P2)], 1).slots;
   const res = await paySolana(slots, w.pay, { date: DATE, budget: new RemeasureBudget(file), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
   assert.equal(w.signs.length, 1);
-  assert.match(res.stopped!, /^total_cap_reached: month 30000000 \+ 10000 > 30000000/);
+  assert.match(res.stopped!, new RegExp(`^total_cap_reached: month ${RM_SOLANA_MAX_PER_MONTH_ATOMIC} \\+ 10000 > ${RM_SOLANA_MAX_PER_MONTH_ATOMIC}`));
   assert.equal(new RemeasureBudget(file).spent, RM_SOLANA_MAX_PER_MONTH_ATOMIC);
 
   // same day, fresh month budget with room: the key <date>|<payTo>|<slot> is already in the file

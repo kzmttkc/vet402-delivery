@@ -1,7 +1,7 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-10-04",
-  "generatedAt": "2026-10-04T06:00:49.749Z",
+  "generatedAt": "2026-10-04T12:01:58.703Z",
   "method": {
     "version": "v3",
     "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
@@ -94,7 +94,7 @@
     },
     "dUpper": 0.5,
     "order": "Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.",
-    "measurement": "From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. Rebuy plan from UTC day 2026-09-29, with no end date: two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. Spending is capped per calendar month (30 USDC on Solana, 30 USDC.e on Tempo); a chain that reaches its cap buys nothing more until the next month. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them. Base sellers have been bought once.",
+    "measurement": "From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. Rebuy plan from UTC day 2026-09-29, with no end date: two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. Spending is capped per calendar month (70 USDC on Solana, 30 USDC.e on Tempo); a chain that reaches its cap buys nothing more until the next month. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them. Base sellers have been bought once.",
     "measureMaxPerSeller": 5,
     "measureSpacingMs": 60000,
     "sellerIdentity": "Seller = hostname. When one host fronts several catalog services that each pay their own recipient (a proxy), each service is its own seller: host#service.",
