@@ -35,6 +35,12 @@
 #                                            lock, so it never waits on or blocks a paying run; pays nothing.
 #   scripts/daily/run.sh publish  by hand   publish today's results again without paying (after a stop that a
 #                                            person has resolved, for example a new allow-list entry)
+#   scripts/daily/run.sh catchup  :12 and :42  runs once a scheduled am, pm, records or board run that stopped for
+#                                            lack of network (its marker missed-<mode>-<UTC day> in the state folder),
+#                                            when all of these hold: the network answers now, it is still that UTC
+#                                            day, am and pm are inside the pay window, that mode has not ended well
+#                                            that day (done-<mode>-<UTC day>), and no other daily run holds the lock.
+#                                            Its own lock; pays nothing itself.
 #   add --dry-run (or VET402_DAILY_DRY=1): remeasure --dry-run only, the anchor only simulated, records built in a
 #   scratch copy, the data commit made in the publish worktree and checked by the pre-push hook, never pushed.
 #
@@ -44,6 +50,14 @@
 # data/ already uses; anything else it finds stops the commit), data/manifest.json is updated, rank and site are
 # rebuilt, typecheck and npm test run, and one commit with data/ and site/ only is pushed (the pre-push review gate
 # lets data-only commits through). Then the Pages run for that commit is awaited.
+#
+# Network first: am, pm, records, board and publish check, before git fetch, that github.com and the RPC hosts the
+# mode uses (Solana: SOLANA_RPC_URL or its default; Tempo for am, and for records with tempo-anchor-enabled) resolve
+# and answer over HTTPS (only the host is asked, never the path or query, which may hold a key). Without an answer
+# the run waits, one log line, checking every VET402_NET_WAIT_STEP seconds up to VET402_NET_WAIT_MAX (wall clock, so
+# time asleep counts), then stops with a "no network" alert line and, for a scheduled mode, the catch-up marker.
+# am and pm check the pay window again after a wait: a wait that ends outside it pays nothing. proxy-alerts does not
+# wait (it runs every 30 minutes anyway).
 #
 # Any failure, cap, refusal or unknown secret stops the run without paying again: one line goes to the alert
 # file and a macOS notification is shown. A stop after money could have moved, or a refused plan, also writes
@@ -76,6 +90,8 @@
 #   VET402_PROXY_ALERTS_SECRET  the deployment's read-only alerts secret, not the cron's (never printed)
 #   VET402_PROXY_ALERTS_END     first JST day with no proxy-alerts runs                default 2026-12-31
 #   VET402_DAILY_NOTIFY  0 turns the macOS notification off
+#   VET402_NET_WAIT_MAX  seconds to wait for the network before a stop               default 1800
+#   VET402_NET_WAIT_STEP seconds between two network checks while waiting           default 60
 #   VET402_DAILY_NOW     epoch seconds to use as now (tests)
 
 # Everything runs inside main(), read in full before it starts, so a git pull that rewrites this file
@@ -97,15 +113,18 @@ main() {
   for a in "$@"; do
     case "$a" in
       --dry-run) DRY=1 ;;
-      *) echo "usage: run.sh am|pm|records|board|proxy-alerts|publish [--dry-run]" >&2; return 2 ;;
+      *) echo "usage: run.sh am|pm|records|board|proxy-alerts|publish|catchup [--dry-run]" >&2; return 2 ;;
     esac
   done
+  # What was asked, before records turns itself into a dry run: only a run not asked as a dry run counts as done.
+  ASKED_DRY="$DRY"
   case "$MODE" in
     am | pm | publish) LANE=pay ;;
     records) LANE=records ;;
     board) LANE=board ;;
     proxy-alerts) LANE=proxyalerts ;;
-    *) echo "usage: run.sh am|pm|records|board|proxy-alerts|publish [--dry-run]" >&2; return 2 ;;
+    catchup) LANE=catchup ;;
+    *) echo "usage: run.sh am|pm|records|board|proxy-alerts|publish|catchup [--dry-run]" >&2; return 2 ;;
   esac
 
   CONF="$HOME/.config/vet402-daily"
@@ -131,8 +150,10 @@ main() {
   [ "$MODE" = records ] && END_DAY="${VET402_RECORDS_END:-}"
   [ "$MODE" = board ] && END_DAY="${VET402_BOARD_END:-}"
   [ "$MODE" = proxy-alerts ] && END_DAY="${VET402_PROXY_ALERTS_END:-2026-12-31}"
+  [ "$MODE" = catchup ] && END_DAY="" # each run it starts checks its own end
   NOW="${VET402_DAILY_NOW:-$(/bin/date +%s)}"
   GIT=/usr/bin/git
+  CURL="${VET402_CURL:-/usr/bin/curl}"
   NODE=/opt/homebrew/bin/node
   NPM=/opt/homebrew/bin/npm
   GH="${VET402_GH:-/opt/homebrew/bin/gh}"
@@ -177,6 +198,8 @@ main() {
   local LOCK="$STATE/run.lock"
   # proxy-alerts only reads: its own lock, so it never waits on a paying run nor makes one wait.
   [ "$MODE" = proxy-alerts ] && LOCK="$STATE/proxy-alerts.lock"
+  # catchup: its own lock too; the run it starts takes the daily lock as any run does.
+  [ "$MODE" = catchup ] && LOCK="$STATE/catchup.lock"
   if [ "${VET402_DAILY_LOCKED:-}" != "$LOCK" ]; then
     log "start $MODE$([ "$DRY" = 1 ] && echo ' (dry run)')"
     local args=("$MODE")
@@ -192,6 +215,9 @@ main() {
         else
           log "the previous proxy-alerts run still holds $LOCK: this one did nothing (said before)"
         fi
+        rc=0
+      elif [ "$MODE" = catchup ]; then
+        log "the previous catchup run still holds $LOCK: this one did nothing"
         rc=0
       else
         alert "another daily run holds $LOCK; this $MODE run did nothing"
@@ -215,7 +241,16 @@ main() {
     records) records_lane || rc=$? ;;
     board) board_lane || rc=$? ;;
     proxy-alerts) proxy_alerts_lane || rc=$? ;;
+    catchup) catchup_lane || rc=$? ;;
   esac
+  # A scheduled run that ended well marks its UTC day done, and its catch-up marker (if any) is no longer needed.
+  if [ $rc -eq 0 ] && [ "$ASKED_DRY" != 1 ] && is_caught_up_mode "$MODE"; then
+    : >"$STATE/done-$MODE-$UTC_DAY"
+    if [ -f "$STATE/missed-$MODE-$UTC_DAY" ]; then
+      rm -f "$STATE/missed-$MODE-$UTC_DAY"
+      log "$MODE of UTC $UTC_DAY ended well: its catch-up marker is removed"
+    fi
+  fi
   # Fail loud: a stop that did not say why still says that it stopped.
   if [ $rc -ne 0 ] && [ "$ALERTED" = 0 ]; then
     alert "stopped at a step that gave no reason (exit $rc); see the log" halt
@@ -335,11 +370,100 @@ no_inflight() {
 }
 
 # Payments must start and end inside one UTC day, before the records run reads it (00:05 UTC).
+# pay_window [why]: why is said after the time (after a wait for the network).
 pay_window() {
   if [ "$UTC_HM" -lt 0030 ] || [ "$UTC_HM" -ge 2200 ]; then
-    alert "UTC $UTC_HM is outside the pay window 00:30-22:00 UTC; nothing paid"
+    alert "UTC $UTC_HM is outside the pay window 00:30-22:00 UTC${1:-}; nothing paid"
     return 1
   fi
+}
+
+# ---------- network (before git fetch; nothing paid yet, so a stop here does not halt) ----------
+
+# The scheduled modes a stop for lack of network marks for the catch-up job.
+is_caught_up_mode() { case "$1" in am | pm | records | board) return 0 ;; *) return 1 ;; esac; }
+
+# rpc_origin <url>: scheme://host[:port] of an http(s) URL. The path and the query are dropped: they may hold a key.
+rpc_origin() {
+  local u="$1" scheme
+  case "$u" in https://* | http://*) ;; *) return 0 ;; esac
+  scheme="${u%%://*}"
+  u="${u#*://}"
+  u="${u%%[/?#]*}"
+  u="${u##*@}"
+  [ -n "$u" ] && printf '%s://%s\n' "$scheme" "$u"
+  return 0
+}
+
+# net_targets <mode>: what that mode reaches first: GitHub (git fetch, gh) and the RPC hosts its own steps read.
+net_targets() {
+  local tempo_const
+  echo "https://github.com"
+  case "$1" in
+    am | pm | records) rpc_origin "${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}" ;;
+  esac
+  tempo_const="$(/usr/bin/sed -n 's/^export const TEMPO_RPC_URL = "\(https:[^"]*\)";.*/\1/p' "$REPO/src/tempo/constants.ts" 2>/dev/null | head -1)"
+  # remeasure buys on Tempo through the constant; the records' Tempo anchor reads TEMPO_RPC_URL first.
+  if [ "$1" = am ]; then
+    rpc_origin "${tempo_const:-https://rpc.tempo.xyz}"
+  elif [ "$1" = records ] && [ -f "$CONF/tempo-anchor-enabled" ]; then
+    rpc_origin "${TEMPO_RPC_URL:-${tempo_const:-https://rpc.tempo.xyz}}"
+  fi
+}
+
+# net_ready <origin...>: each resolves and answers over HTTPS (any HTTP status is an answer). The first that does
+# not is in NET_WHY.
+net_ready() {
+  local o rc
+  for o in "$@"; do
+    rc=0
+    "$CURL" -s -o /dev/null --connect-timeout 10 --max-time 20 "$o/" || rc=$?
+    [ $rc -eq 0 ] && continue
+    case $rc in
+      6) NET_WHY="${o#*://} does not resolve" ;;
+      7) NET_WHY="no connection to ${o#*://}" ;;
+      28) NET_WHY="no answer from ${o#*://} within 20s" ;;
+      *) NET_WHY="${o#*://} unreachable (curl exit $rc)" ;;
+    esac
+    return 1
+  done
+  return 0
+}
+
+# net_wait: returns at once when the network answers; else one log line, a check every VET402_NET_WAIT_STEP
+# seconds until VET402_NET_WAIT_MAX seconds have passed on the wall clock (a Mac asleep meanwhile counts), and then
+# a stop that says "no network", with the catch-up marker for a scheduled mode. NET_WAITED: seconds waited.
+NET_WAITED=0
+net_wait() {
+  local max="${VET402_NET_WAIT_MAX:-1800}" step="${VET402_NET_WAIT_STEP:-60}" targets t0 t left marked=""
+  if ! [[ "$max" =~ ^[0-9]+$ ]] || ! [[ "$step" =~ ^[1-9][0-9]*$ ]]; then
+    alert "VET402_NET_WAIT_MAX ('$max') and VET402_NET_WAIT_STEP ('$step') are not whole seconds (the step at least 1); nothing ran"
+    return 1
+  fi
+  targets="$(net_targets "$MODE")"
+  # shellcheck disable=SC2086
+  net_ready $targets && return 0
+  t0="$(/bin/date +%s)"
+  log "network: $NET_WHY; waiting up to ${max}s for $(echo $targets | /usr/bin/sed 's#[a-z]*://##g') (a check every ${step}s)"
+  while :; do
+    t="$(/bin/date +%s)"
+    left=$((max - (t - t0)))
+    [ "$left" -gt 0 ] || break
+    sleep $((step < left ? step : left))
+    # shellcheck disable=SC2086
+    if net_ready $targets; then
+      NET_WAITED=$(($(/bin/date +%s) - t0))
+      log "network: back after ${NET_WAITED}s"
+      return 0
+    fi
+  done
+  NET_WAITED=$(($(/bin/date +%s) - t0))
+  if [ "$ASKED_DRY" != 1 ] && is_caught_up_mode "$MODE"; then
+    printf '%s %s\n' "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" "$NET_WHY" >"$STATE/missed-$MODE-$UTC_DAY"
+    marked=". The catch-up job runs $MODE once when the network is back on UTC $UTC_DAY$([ "$LANE" = pay ] && echo ' inside the pay window') ($STATE/missed-$MODE-$UTC_DAY)"
+  fi
+  alert "no network: $NET_WHY, still after waiting ${NET_WAITED}s (VET402_NET_WAIT_MAX=$max); nothing ran, nothing paid$marked"
+  return 1
 }
 
 # ---------- am / pm ----------
@@ -347,6 +471,17 @@ pay_window() {
 pay_lane() {
   local per="$1" chains="$2" c
   pay_window || return 1
+  net_wait || return 1
+  # After a wait, the window again with the time that has passed: a run that would start late pays nothing.
+  if [ "$NET_WAITED" -gt 0 ]; then
+    local later=$((NOW + NET_WAITED))
+    UTC_HM="$(/bin/date -u -r "$later" +%H%M)"
+    if [ "$(/bin/date -u -r "$later" +%Y-%m-%d)" != "$UTC_DAY" ]; then
+      alert "UTC day $UTC_DAY ended while waiting ${NET_WAITED}s for the network; nothing paid"
+      return 1
+    fi
+    pay_window " after waiting ${NET_WAITED}s for the network" || return 1
+  fi
   preflight_repo || return 1
   preflight_pub || return 1
   gate_tree || return 1
@@ -462,6 +597,7 @@ publish_remeasure() {
 
 # By hand: publish today's results again, paying nothing.
 publish_lane() {
+  net_wait || return 1
   preflight_repo || return 1
   preflight_pub || return 1
   gate_tree || return 1
@@ -569,6 +705,7 @@ open_record_days() {
 }
 
 records_lane() {
+  net_wait || return 1
   preflight_repo || return 1
   if ! grep -q "assertDaySourcesCurrent" "$REPO/src/receipt/sources.ts" 2>/dev/null; then
     log "the daily-records code (src/receipt/sources.ts) is not on main yet: nothing to do"
@@ -889,6 +1026,61 @@ proxy_alerts_lane() {
   return 0
 }
 
+# ---------- catchup (a scheduled run that stopped for lack of network, run once later the same UTC day) ----------
+
+catchup_lane() {
+  local f base day mode rc why
+  # Done stamps of earlier days are no longer read.
+  for f in "$STATE"/done-*-????-??-??; do
+    [ -f "$f" ] || continue
+    [[ "${f: -10}" < "$UTC_DAY" ]] && rm -f "$f"
+  done
+  for f in "$STATE"/missed-*-????-??-??; do
+    [ -f "$f" ] || continue
+    base="${f##*/missed-}"
+    day="${base: -10}"
+    mode="${base%-"$day"}"
+    if ! is_caught_up_mode "$mode"; then
+      log "catch-up: $f names no mode that is caught up: left as it is"
+      continue
+    fi
+    if [ "$day" != "$UTC_DAY" ]; then
+      why="$(head -c 200 "$f" | tr '\n' ' ')"
+      rm -f "$f"
+      notice "$mode of UTC $day was not caught up: no run could start that UTC day (network: $why)"
+      continue
+    fi
+    if [ -f "$STATE/done-$mode-$day" ]; then
+      rm -f "$f"
+      log "catch-up: $mode of $day has ended well since: marker removed, nothing run"
+      continue
+    fi
+    if { [ "$mode" = am ] || [ "$mode" = pm ]; } && { [ "$UTC_HM" -lt 0030 ] || [ "$UTC_HM" -ge 2200 ]; }; then
+      log "catch-up: $mode of $day waits: UTC $UTC_HM is outside the pay window"
+      continue
+    fi
+    # shellcheck disable=SC2046
+    if ! net_ready $(net_targets "$mode"); then
+      log "catch-up: $mode of $day waits: $NET_WHY"
+      continue
+    fi
+    if ! /usr/bin/lockf -k -t 0 "$STATE/run.lock" /usr/bin/true; then
+      log "catch-up: $mode of $day waits: another daily run holds $STATE/run.lock"
+      continue
+    fi
+    rm -f "$f"
+    notice "running $mode of UTC $day once, missed for lack of network (it stops as usual on any other cause)"
+    rc=0
+    /bin/bash "$SELF" "$mode" $([ "$DRY" = 1 ] && echo --dry-run) || rc=$?
+    if [ $rc -eq 75 ]; then
+      # Another run took the lock between the check and the start: nothing ran, the marker goes back.
+      printf '%s %s\n' "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" "the lock was taken" >"$f"
+    fi
+    log "catch-up: $mode of $day ended rc=$rc"
+  done
+  return 0
+}
+
 # ---------- board (kzmttkc/vet402-algorand) ----------
 
 # 1: board/<day>.json on main has a valid completedAt; 0: it has none; 2: unreadable.
@@ -904,6 +1096,7 @@ board_lane() {
     log "board: already started once for $day ($(cat "$stamp")): nothing more"
     return 0
   fi
+  net_wait || return 1
   body="$("$GH" api -H "Accept: application/vnd.github.raw" "repos/$BOARD_REPO/contents/board/$day.json?ref=main" 2>"$err")"
   rc=$?
   if [ $rc -ne 0 ]; then

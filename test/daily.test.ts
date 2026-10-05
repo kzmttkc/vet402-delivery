@@ -1029,6 +1029,30 @@ if (a.includes("--send")) writeFileSync(process.env.FAKE_RECEIPTS + "/" + v("--d
 `,
 };
 
+/**
+ * A stand-in for curl, the network check (VET402_CURL): every check answers unless FAKE_NET_DOWN says the first N
+ * checks (counted in FAKE_NET_COUNT), or "all", fail as a name that does not resolve (curl exit 6). FAKE_NET_LOG
+ * gets each URL asked.
+ */
+function fakeCurl(dir: string): string {
+  const p = join(dir, "curl");
+  writeFileSync(
+    p,
+    `#!/bin/bash
+url="\${@: -1}"
+[ -n "\${FAKE_NET_LOG:-}" ] && echo "$url" >> "$FAKE_NET_LOG"
+if [ -n "\${FAKE_NET_DOWN:-}" ]; then
+  n=$(( $(cat "$FAKE_NET_COUNT" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$FAKE_NET_COUNT"
+  if [ "$FAKE_NET_DOWN" = all ] || [ "$n" -le "$FAKE_NET_DOWN" ]; then exit 6; fi
+fi
+exit 0
+`,
+  );
+  chmodSync(p, 0o755);
+  return p;
+}
+
 /** A bare origin, a clone on main that looks like this repository to run.sh, and fake scripts. */
 function sandbox(opts: { records?: boolean } = {}): Sandbox {
   const dir = tmp();
@@ -1099,6 +1123,8 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
     HOME: home,
     VET402_TSX: TSX,
     VET402_GH: gh,
+    VET402_CURL: fakeCurl(dir),
+    FAKE_NET_COUNT: join(dir, "net-count"),
     VET402_KEYS: join(dir, "keys"),
     VET402_RECEIPTS: receipts,
     VET402_DAILY_STATE: state,
@@ -1577,6 +1603,155 @@ test("run.sh end dates: with VET402_DAILY_END=2026-10-09 and VET402_RECORDS_END=
   rmSync(sb.dir, { recursive: true });
 });
 
+// ---------- run.sh network: wait for it, stop saying so, catch up later the same UTC day ----------
+
+const NET = (o: { down?: string; max?: string; step?: string } = {}): NodeJS.ProcessEnv => ({
+  ...(o.down ? { FAKE_NET_DOWN: o.down } : {}),
+  VET402_NET_WAIT_MAX: o.max ?? "2",
+  VET402_NET_WAIT_STEP: o.step ?? "1",
+});
+const netLog = (sb: Sandbox) => (existsSync(join(sb.dir, "net.log")) ? read(join(sb.dir, "net.log")) : "");
+
+test("run.sh network: no answer until VET402_NET_WAIT_MAX: one waiting line, a stop that says no network, nothing fetched, no HALT, the catch-up marker", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-04.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z"), FAKE_NET_LOG: join(sb.dir, "net.log"), ...NET({ down: "all" }) });
+  assert.equal(r.status, 1, logs(sb));
+  assert.match(alerts(sb), /\[vet402_daily\] records stopped: no network: github\.com does not resolve, still after waiting [23]s \(VET402_NET_WAIT_MAX=2\); nothing ran, nothing paid\. The catch-up job runs records once when the network is back on UTC 2026-10-05 /);
+  assert.equal(alerts(sb).split("\n").filter((l) => l.startsWith("## ")).length, 1, "one alert line");
+  assert.equal(logs(sb).split("\n").filter((l) => /network: .*waiting up to 2s for github\.com api\.mainnet-beta\.solana\.com/.test(l)).length, 1, "one waiting line");
+  assert.ok(!logs(sb).includes("> git fetch"), "no git fetch");
+  assert.equal(calls(sb), "");
+  assert.ok(existsSync(join(sb.state, "missed-records-2026-10-05")));
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "nothing paid: no HALT");
+  assert.ok(!existsSync(join(sb.state, "done-records-2026-10-05")));
+  // only the host is asked
+  assert.deepEqual([...new Set(netLog(sb).trim().split("\n"))], ["https://github.com/"]);
+  // a wait that is not whole seconds stops before anything
+  const bad = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z"), ...NET({ max: "30m" }) });
+  assert.equal(bad.status, 1);
+  assert.match(alerts(sb), /VET402_NET_WAIT_MAX \('30m'\) and VET402_NET_WAIT_STEP \('1'\) are not whole seconds/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh network: back before VET402_NET_WAIT_MAX: the run goes on as usual, ends well, marks the day done; with the network there no check waits", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-04.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z"), ...NET({ down: "2", max: "20" }) });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /network: back after [123]s/);
+  assert.match(calls(sb), /build-receipts .*--day 2026-10-04/);
+  assert.match(calls(sb), /anchor-receipts --day 2026-10-04/);
+  assert.equal(alerts(sb), "");
+  assert.ok(!existsSync(join(sb.state, "missed-records-2026-10-05")));
+  assert.ok(existsSync(join(sb.state, "done-records-2026-10-05")));
+  rmSync(sb.dir, { recursive: true });
+  // with the network there: no waiting line; am checks GitHub, the Solana RPC (SOLANA_RPC_URL's host only) and Tempo
+  const sb2 = sandbox();
+  writeFileSync(join(sb2.home, ".config", "vet402-daily", "env"), `VET402_ALERTS_FILE=${sb2.alerts}\nSOLANA_RPC_URL=https://rpc.example.com/v1/abc?api-key=k\n`);
+  const am = runSh(sb2, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z"), FAKE_NET_LOG: join(sb2.dir, "net.log") });
+  assert.equal(am.status, 0, logs(sb2));
+  assert.ok(!/waiting up to/.test(logs(sb2)));
+  assert.deepEqual(netLog(sb2).trim().split("\n"), ["https://github.com/", "https://rpc.example.com/", "https://rpc.tempo.xyz/"]);
+  assert.ok(!existsSync(join(sb2.state, "done-am-2026-10-01")), "a dry run is not a run done");
+  rmSync(sb2.dir, { recursive: true });
+});
+
+test("run.sh network: am and pm check the pay window again after the wait: a wait that ends past 22:00 UTC pays nothing; one that ends inside it goes on", () => {
+  const sb = sandbox();
+  const pm = runSh(sb, ["pm"], { VET402_DAILY_NOW: at("2026-10-01T21:59:59Z"), ...NET({ down: "1", max: "20", step: "2" }) });
+  assert.equal(pm.status, 1, logs(sb));
+  assert.match(logs(sb), /network: back after [23]s/);
+  assert.match(alerts(sb), /\[vet402_daily\] pm stopped: UTC 2200 is outside the pay window 00:30-22:00 UTC after waiting [23]s for the network; nothing paid/);
+  assert.equal(calls(sb), "", "no remeasure, not even the dry run");
+  assert.ok(!logs(sb).includes("> git fetch"));
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.ok(!existsSync(join(sb.state, "missed-pm-2026-10-01")), "no catch-up: the window is over");
+  rmSync(sb.dir, { recursive: true });
+  const sb2 = sandbox();
+  const am = runSh(sb2, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z"), ...NET({ down: "1", max: "20", step: "2" }) });
+  assert.equal(am.status, 0, logs(sb2));
+  assert.match(calls(sb2), /--chain solana --dry-run --per-payto 1/);
+  rmSync(sb2.dir, { recursive: true });
+});
+
+test("run.sh catchup: a marked run is run once when the network is back the same UTC day, then its marker is gone and a second catchup does nothing", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-04.json"), "{}");
+  assert.equal(runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z"), ...NET({ down: "all", max: "1" }) }).status, 1);
+  assert.ok(existsSync(join(sb.state, "missed-records-2026-10-05")));
+  // still no network: nothing runs, the marker stays
+  const still = runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T00:42:00Z"), ...NET({ down: "all" }) });
+  assert.equal(still.status, 0, logs(sb));
+  assert.match(logs(sb), /catch-up: records of 2026-10-05 waits: github\.com does not resolve/);
+  assert.equal(calls(sb), "");
+  assert.ok(existsSync(join(sb.state, "missed-records-2026-10-05")));
+  // the network is back: records runs once
+  const back = runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T01:12:00Z") });
+  assert.equal(back.status, 0, logs(sb));
+  assert.match(alerts(sb), /\[vet402_daily\] catchup: running records of UTC 2026-10-05 once, missed for lack of network/);
+  assert.equal(calls(sb).split("\n").filter((l) => l.startsWith("anchor-receipts --day 2026-10-04")).length, 1, calls(sb));
+  assert.ok(!existsSync(join(sb.state, "missed-records-2026-10-05")));
+  assert.ok(existsSync(join(sb.state, "done-records-2026-10-05")));
+  assert.match(logs(sb), /catch-up: records of 2026-10-05 ended rc=0/);
+  const before = calls(sb);
+  assert.equal(runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T01:42:00Z") }).status, 0);
+  assert.equal(calls(sb), before, "a second catchup runs nothing");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh catchup: nothing runs when that mode already ended well that day, while another run holds the lock, or outside the pay window; a marker of an earlier UTC day is said and removed", async () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-04.json"), "{}");
+  mkdirSync(sb.state, { recursive: true });
+  // already ended well (a person ran it by hand): the marker goes, nothing runs
+  writeFileSync(join(sb.state, "missed-am-2026-10-05"), "x\n");
+  writeFileSync(join(sb.state, "done-am-2026-10-05"), "");
+  assert.equal(runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T02:12:00Z") }).status, 0);
+  assert.equal(calls(sb), "");
+  assert.ok(!existsSync(join(sb.state, "missed-am-2026-10-05")));
+  assert.match(logs(sb), /catch-up: am of 2026-10-05 has ended well since: marker removed, nothing run/);
+  // another daily run holds the lock: nothing runs, the marker stays
+  writeFileSync(join(sb.state, "missed-records-2026-10-05"), "x\n");
+  const ready = join(sb.dir, "ready");
+  const holder = spawn("/usr/bin/lockf", ["-k", join(sb.state, "run.lock"), "/bin/sh", "-c", `touch '${ready}'; sleep 20`]);
+  for (let i = 0; i < 100 && !existsSync(ready); i++) await new Promise((res) => setTimeout(res, 50));
+  try {
+    assert.equal(runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T02:12:00Z") }).status, 0);
+  } finally {
+    holder.kill();
+  }
+  assert.equal(calls(sb), "");
+  assert.ok(existsSync(join(sb.state, "missed-records-2026-10-05")));
+  assert.match(logs(sb), /catch-up: records of 2026-10-05 waits: another daily run holds .*run\.lock/);
+  assert.equal(alerts(sb), "", "waiting on the lock is not an alert");
+  rmSync(join(sb.state, "missed-records-2026-10-05"));
+  // pm missed, the network back only after 22:00 UTC: nothing paid; the next UTC day says it was not caught up
+  writeFileSync(join(sb.state, "missed-pm-2026-10-05"), "2026-10-05T13:52:43Z github.com does not resolve\n");
+  assert.equal(runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T22:12:00Z") }).status, 0);
+  assert.match(logs(sb), /catch-up: pm of 2026-10-05 waits: UTC 2212 is outside the pay window/);
+  assert.equal(calls(sb), "");
+  assert.ok(existsSync(join(sb.state, "missed-pm-2026-10-05")));
+  assert.equal(runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-06T00:42:00Z") }).status, 0);
+  assert.equal(calls(sb), "");
+  assert.ok(!existsSync(join(sb.state, "missed-pm-2026-10-05")));
+  assert.ok(!existsSync(join(sb.state, "done-am-2026-10-05")), "done stamps of earlier days are removed");
+  assert.match(alerts(sb), /\[vet402_daily\] catchup: pm of UTC 2026-10-05 was not caught up: no run could start that UTC day \(network: 2026-10-05T13:52:43Z github\.com does not resolve/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh network: proxy-alerts does not wait for the network, and a run asked as a dry run leaves no catch-up marker", () => {
+  const sb = sandbox();
+  const pa = runSh(sb, ["proxy-alerts"], { VET402_DAILY_NOW: at("2026-10-05T00:32:00Z"), FAKE_NET_LOG: join(sb.dir, "net.log"), ...NET({ down: "all" }) });
+  assert.equal(pa.status, 0, logs(sb));
+  assert.equal(netLog(sb), "");
+  const dry = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-05T01:17:00Z"), ...NET({ down: "all", max: "1" }) });
+  assert.equal(dry.status, 1);
+  assert.match(alerts(sb), /am stopped \(dry run\): no network: github\.com does not resolve/);
+  assert.ok(!existsSync(join(sb.state, "missed-am-2026-10-05")));
+  rmSync(sb.dir, { recursive: true });
+});
+
 // ---------- run.sh board: the vet402-algorand board workflow, watched from outside ----------
 
 /** A stand-in for gh: FAKE_BOARD is the board file on main (unset = 404), FAKE_RUNNING the unfinished runs. */
@@ -1609,6 +1784,8 @@ function boardBox() {
     PATH: "/usr/bin:/bin",
     HOME: home,
     VET402_GH: fakeGh(dir),
+    VET402_CURL: fakeCurl(dir),
+    FAKE_NET_COUNT: join(dir, "net-count"),
     VET402_DAILY_STATE: join(dir, "state"),
     VET402_DAILY_LOGS: join(dir, "logs"),
     VET402_DAILY_NOTIFY: "0",

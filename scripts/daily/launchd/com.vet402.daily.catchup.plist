@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Copy to ~/Library/LaunchAgents/ and bootstrap (README: Daily runner). At :12 and :42 every hour: runs once a
+     scheduled am, pm, records or board run that stopped for lack of network, when the network is back the same UTC
+     day (am and pm inside the pay window) and no other daily run holds the lock. With no marker it does nothing. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vet402.daily.catchup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>mkdir -p ~/Library/Logs/vet402-daily &amp;&amp; exec ~/.config/vet402-daily/launch.sh catchup &gt;&gt;~/Library/Logs/vet402-daily/launchd.log 2&gt;&amp;1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Minute</key>
+      <integer>12</integer>
+    </dict>
+    <dict>
+      <key>Minute</key>
+      <integer>42</integer>
+    </dict>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
