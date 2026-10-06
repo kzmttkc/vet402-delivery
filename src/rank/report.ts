@@ -4,7 +4,7 @@
 import { MEASURE_MAX_PER_SELLER, MEASURE_SPACING_MS } from "../constants.js";
 import { FAULT_RULES } from "./classify.js";
 import { compareWithCatalog, type CdpHost, type Comparison } from "./compare.js";
-import { aggregate, D_UPPER, GRADE_LOWER, GRADES, MIN_COUNTED, MIN_DAYS, rank, WILSON_Z, type Grade, type RankedSeller, type SellerStats } from "./score.js";
+import { aggregate, D_UPPER, FIXED_MIN_DAYS, FIXED_MIN_FAILED, FIXED_MIN_STREAK, GRADE_LOWER, GRADES, MIN_COUNTED, MIN_DAYS, rank, WILSON_Z, type Grade, type RankedSeller, type SellerStats } from "./score.js";
 import { CHAINS } from "./normalize.js";
 import type { Attempt, Chain, Fault, ReasonCategory } from "./types.js";
 
@@ -129,6 +129,8 @@ export interface RankReport {
     gradeLower: typeof GRADE_LOWER;
     dUpper: number;
     order: string;
+    /** Fixed after a failure: display only (score.ts fixedAfterFailure). */
+    fixed: string;
     measurement: string;
     measureMaxPerSeller: number;
     measureSpacingMs: number;
@@ -233,6 +235,7 @@ export const CHANGE_LOG: ChangeLogEntry[] = [
       "Wording only, no change to the test: \"settled\" on Algorand is named for what it is, a settlement receipt with a tx id from the facilitator, which vet402 has not read back on chain; on Solana, Tempo and Base the runners checked the payment on chain. The Tempo note now says which purchases kept no body (the census ledger) and which were tested for an empty body (the re-purchases).",
       "Wording only, no change to the test: \"delivered\" is shown as \"came back with an answer\", with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402's own purchases, and a paid check is a separate report that never moves a grade.",
       "2026-09-30, Tempo: vet402 checked the requests it sent. For some sellers the catalog (Mercator) gave the schema's type name in place of an example ({\"ip\":\"string\"}), and vet402 sent it. A settled payment followed by 400, 404 or 422 to such a request, or to a request that left out a required parameter, or with no input where the answer says the input was wrong, is now vet402's side (rule paid_then_4xx_vet402_input); 401, 403, 407 and 429 stay can't tell. A settled 402 to a request with such a placeholder is can't tell (rule paid_then_402_placeholder), no longer the seller's side. From 2026-10-01, remeasure does not buy again a request with a placeholder that got 400, 404 or 422 in the census, and the Tempo re-purchases record the answer's shape (never its text) and are tested for an empty body after trimming, as on Solana.",
+      `2026-10-06, display only, no change to what is counted, the grades or the rank numbers: a seller is marked "fixed" when the latest ${FIXED_MIN_STREAK} or more purchases vet402 paid for all came back with an answer, on ${FIXED_MIN_DAYS} or more UTC days, and the ${FIXED_MIN_FAILED} or more purchases just before them all failed on the seller's side, on ${FIXED_MIN_DAYS} or more UTC days. Where vet402 told that seller, the day it did is shown too.`,
     ],
   },
   {
@@ -277,6 +280,7 @@ export const METHOD: RankReport["method"] = {
   gradeLower: GRADE_LOWER,
   dUpper: D_UPPER,
   order: "Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.",
+  fixed: `Fixed (display only, never part of the grade): the latest ${FIXED_MIN_STREAK} or more purchases vet402 paid for all came back with an answer, on ${FIXED_MIN_DAYS} or more UTC days, and the ${FIXED_MIN_FAILED} or more purchases just before them all failed on the seller's side, on ${FIXED_MIN_DAYS} or more UTC days. A later purchase that does not come back, whoever was at fault, removes the mark.`,
   measurement: `From method v2 on: at most ${MEASURE_MAX_PER_SELLER} purchases per seller in one run, at least ${MEASURE_SPACING_MS / 1000} s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. ${REBUY_PLAN} Base sellers have been bought once.`,
   measureMaxPerSeller: MEASURE_MAX_PER_SELLER,
   measureSpacingMs: MEASURE_SPACING_MS,

@@ -12,7 +12,8 @@ import { chainName } from "../receipt/html.js";
 import { FAULT_LABEL, ruleById } from "./classify.js";
 import type { Comparison, CompareRow } from "./compare.js";
 import { APPEAL_ISSUES_URL, DELIVERED_LINE, GROUPS, groupById, MONEY_LINE, REBUY_PLAN, rebuyFacts, rebuySeller, type GroupId, type GroupReport, type RankReport } from "./report.js";
-import { D_UPPER, GRADE_LOWER, MIN_DAYS, wilsonLower, wilsonUpper, type ChainFigures, type Grade, type RankedSeller } from "./score.js";
+import { D_UPPER, GRADE_LOWER, MIN_DAYS, wilsonLower, wilsonUpper, type ChainFigures, type FixedAfterFailure, type Grade, type RankedSeller } from "./score.js";
+import { notifiedSellers, type NotifiedFile } from "../receipt/publish.js";
 import type { Chain, Fault, ReasonCategory } from "./types.js";
 import { BOUGHT_STATUSES, SETTLED_STATUSES, renderArbitrumPage, renderRobinhoodPage, type LanePublic } from "../evm/site.js";
 import { lookup } from "../../packages/check/src/check.js";
@@ -371,9 +372,75 @@ function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** notified.json as the records loader reads it: seller key to the day vet402 told it. Unreadable or absent: nobody told. */
+export function toldOn(raw: unknown): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  if (!raw) return out;
+  try {
+    notifiedSellers(raw as NotifiedFile); // the same checks as the records loader
+  } catch {
+    return out;
+  }
+  for (const e of (raw as NotifiedFile).sellers) out.set(e.seller, e.notifiedAt);
+  return out;
+}
+
+/**
+ * The small mark in a table row: "fixed 10-03". Empty when the seller is not fixed. In a one-chain table, only when
+ * the failures and the run that came back were all on that chain.
+ */
+export function fixedMark(s: Pick<RankedSeller, "fixed">, chain?: Chain): string {
+  if (!s.fixed) return "";
+  if (chain !== undefined && !(s.fixed.chains.length === 1 && s.fixed.chains[0] === chain)) return "";
+  return `fixed ${monthDay(s.fixed.since)}`;
+}
+
+/** "2026-10-03", or with the time when a failure came earlier on the same UTC day (then the day alone would be untrue). */
+function fixedSince(f: FixedAfterFailure): string {
+  return f.failedLastAt.slice(0, 10) < f.since ? f.since : `${f.since} ${f.sinceAt.slice(11, 19)} UTC`;
+}
+
+/** "2026-09-28 to 2026-10-02": the days of the failures before the run (always 2+ days). */
+function fixedFailedRange(f: FixedAfterFailure): string {
+  return `${f.failedFirstAt.slice(0, 10)} to ${f.failedLastAt.slice(0, 10)}`;
+}
+
+/** The failures before the run, in words that hold for each kind: paid with nothing usable back, or an error with no settled payment. */
+function fixedFailedText(f: FixedAfterFailure): string {
+  const n = f.failedBefore;
+  const k = f.failedSettled;
+  const range = fixedFailedRange(f);
+  if (k === n) return `${n} paid purchases in a row came back with nothing usable (${range})`;
+  if (k === 0) return `${n} purchases in a row failed on the seller's side, each an error with no settled payment on record (${range})`;
+  return `${n} purchases in a row failed on the seller's side (${range}): ${k} paid ones came back with nothing usable, and ${n - k} were an error with no settled payment on record`;
+}
+
+/** The seller page line. The told day only for a seller on notified.json. */
+export function fixedText(f: FixedAfterFailure, toldAt: string | null): string {
+  return `Fixed: every purchase since ${fixedSince(f)} came back (${f.streak} in a row, on ${f.days} UTC days), after ${f.failedBefore} in a row that failed on the seller's side (${fixedFailedRange(f)}).${toldAt ? ` vet402 told the seller on ${toldAt}.` : ""}`;
+}
+
+/**
+ * Near the top of a sellers page: the sellers fixed after a failure, each with its failures, the day vet402 told it
+ * (only for sellers on notified.json) and the run since. In that order, by date, so nothing reads as "fixed right
+ * after being told". Nothing when none.
+ */
+function fixedCountLine(g: GroupReport, slugs: Map<string, string>, told: ReadonlyMap<string, string>): string {
+  const fixed = g.ranking.filter((s) => s.fixed);
+  if (fixed.length === 0) return "";
+  const one = fixed.length === 1;
+  const parts = fixed.map((s) => {
+    const f = s.fixed!;
+    const t = told.get(s.key);
+    const text = `${fixedFailedText(f)}.${t ? ` vet402 told the seller on ${t}.` : ""} Every purchase since ${fixedSince(f)} has come back (${f.streak} in a row).`;
+    return `<a href="seller/${escapeHtml(slugs.get(s.key)!)}.html">${escapeHtml(s.key)}</a>${one ? "." : ":"} ${escapeHtml(text)}`;
+  });
+  return `<p class="meta">Fixed after a failure: ${one ? "" : `<b>${fixed.length}</b> sellers. `}${parts.join(" ")} <a href="method.html#fixed">What counts as fixed</a></p>\n`;
+}
+
 function publicRow(s: RankedSeller, slug: string): string {
   const nc = notCountedFor(s);
-  const sub = [chainList(s), nc ? `${nc} not counted` : ""].filter(Boolean).join(" · ");
+  const sub = [chainList(s), nc ? `${nc} not counted` : "", fixedMark(s)].filter(Boolean).join(" · ");
   return `<tr><td class="rk">${s.rank ?? ""}</td><td class="gr">${publicBadge(s.grade)}</td><td class="name"><a href="seller/${escapeHtml(slug)}.html">${escapeHtml(s.key)}</a><span class="sub">${escapeHtml(sub)}</span></td><td class="num">${s.delivered}/${s.counted}</td><td class="date">${dateCell(s.lastMeasuredAt)}</td></tr>`;
 }
 
@@ -392,7 +459,7 @@ function chainTable(chain: Chain, rows: RankedSeller[], slugs: Map<string, strin
   const body = rows
     .map((s) => {
       const f = s.chains[chain]!;
-      const sub = [`last ${monthDay(f.lastAt)}`, s.grade === "measuring" ? "" : `grade ${GRADE_TEXT[s.grade].mark} on this page`].filter(Boolean).join(" · ");
+      const sub = [`last ${monthDay(f.lastAt)}`, s.grade === "measuring" ? "" : `grade ${GRADE_TEXT[s.grade].mark} on this page`, fixedMark(s, chain)].filter(Boolean).join(" · ");
       return `<tr><td class="name"><a href="seller/${escapeHtml(slugs.get(s.key)!)}.html">${escapeHtml(s.key)}</a><span class="sub">${escapeHtml(sub)}</span></td><td class="num">${f.tried}</td><td class="num">${f.settled}</td><td class="num">${f.delivered}</td></tr>`;
     })
     .join("\n");
@@ -659,7 +726,7 @@ function forSellers(r: RankReport): string {
 }
 
 /** The Sellers page (sellers.html): Solana, Tempo and Base, everything the first page used to hold, unfolded. */
-function renderSellersMain(r: RankReport, g: GroupReport, slugs: Map<string, string>): string {
+function renderSellersMain(r: RankReport, g: GroupReport, slugs: Map<string, string>, told: ReadonlyMap<string, string>): string {
   const t = g.totals;
   const chains = r.chains.filter((c) => g.chains.includes(c.chain));
   const perChain = chains
@@ -682,7 +749,7 @@ ${tabs("main")}
 <p class="lead">${escapeHtml(SELLERS_INTRO)}</p>
 <p class="meta">${escapeHtml(PUBLIC_LEAD)}</p>
 <p class="dim">${escapeHtml(g.label)} · purchases ${periodHtml(t)} · method ${escapeHtml(r.method.version)} (<span class="nw">${escapeHtml(methodDate(r))}</span>)</p>
-</header>
+${fixedCountLine(g, slugs, told)}</header>
 ${forSellers(r)}
 ${purchaseStats(t, g.id)}
 <p class="meta">${escapeHtml(DELIVERED_LINE)}</p>
@@ -897,7 +964,7 @@ ${publicFooter()}
 }
 
 /** The Algorand page: data from vet402-algorand, graded from Algorand purchases only, nothing folded. */
-function renderAlgorandIndex(r: RankReport, g: GroupReport, slugs: Map<string, string>): string {
+function renderAlgorandIndex(r: RankReport, g: GroupReport, slugs: Map<string, string>, told: ReadonlyMap<string, string>): string {
   const t = g.totals;
   const measuring = g.ranking.filter((s) => s.rank === null);
   const body = `
@@ -906,7 +973,7 @@ ${tabs("algorand")}
 <h1>Algorand: delivery grades</h1>
 <p class="lead">vet402 bought the listed Algorand x402 APIs it could buy, with its own money, from ${periodHtml(t)}. ${t.sellersRanked} of ${plural(t.sellersListed, "seller")} have enough purchases for a rank number.</p>
 <p class="meta">These results come from <a href="${escapeHtml(ALGORAND_REPO_URL)}" rel="noopener noreferrer nofollow">vet402-algorand</a>, a separate project built for Algorand's Global x402 Challenge. They are graded from Algorand purchases only, apart from the Solana, Tempo and Base page. Those runs bought up to about 500 items of one seller in under an hour, before the pacing rule of method v2.</p>
-</header>
+${fixedCountLine(g, slugs, told)}</header>
 ${purchaseStats(t, g.id)}
 <p class="meta">${escapeHtml(DELIVERED_LINE)} On Algorand, "settled" is the facilitator's settlement receipt with a tx id, as vet402-algorand recorded it; vet402 has not read these payments back on chain.</p>
 ${publicLegend()}
@@ -950,7 +1017,7 @@ function recordsSection(links: readonly SellerRecordLink[] | undefined): string 
 }
 
 /** One page's part of a seller page: that page's figures, grade and purchases only. */
-function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): string {
+function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller, told: ReadonlyMap<string, string>): string {
   const lo = s.wilsonLower;
   const hi = s.wilsonUpper;
   const chains = (Object.entries(s.chains) as [Chain, ChainFigures][]).filter(([, v]) => v.tried > 0);
@@ -998,7 +1065,7 @@ function sellerGroupSection(r: RankReport, g: GroupReport, s: RankedSeller): str
 <p class="lead">vet402 paid this seller ${plural(s.tried, "time")} with its own money (${escapeHtml(triedText)}), most recently on <span class="nw">${escapeHtml(day(s.lastMeasuredAt))}</span> (UTC). ${s.settled} ${SETTLED_TEXT[g.id].short}; ${s.delivered} came back with an answer${s.paidButNotDelivered ? `; ${s.paidButNotDelivered} ${SETTLED_TEXT[g.id].nothing}` : ""}.</p>
 <p class="meta">${rebuys ? `${escapeHtml(rebuys)} ` : ""}It costs the seller nothing, and there is nothing to sign up for.</p>
 <p>${publicBadge(s.grade)} ${escapeHtml(s.grade === "measuring" || s.grade === "undecided" ? PUBLIC_GRADE_TEXT[s.grade] : `grade ${s.grade}: ${GRADE_TEXT[s.grade].label}`)} · ${escapeHtml(standing)}</p>
-
+${s.fixed ? `<p class="fixed">${escapeHtml(fixedText(s.fixed, told.get(s.key) ?? null))} <a href="../method.html#fixed">What counts as fixed</a></p>\n` : ""}
 <div class="stats">
   <div><span class="big">${s.delivered} / ${s.counted}</span><br>came back, of counted${s.counted ? ` (${pct(s.deliveredRate)})` : ""}</div>
   <div><span class="big">${lo.toFixed(2)} to ${hi.toFixed(2)}</span><br>95% interval</div>
@@ -1026,14 +1093,14 @@ ${recent}
 `;
 }
 
-function renderPublicSeller(r: RankReport, key: string, parts: readonly { g: GroupReport; s: RankedSeller }[], records?: readonly SellerRecordLink[]): string {
+function renderPublicSeller(r: RankReport, key: string, parts: readonly { g: GroupReport; s: RankedSeller }[], records: readonly SellerRecordLink[] | undefined, told: ReadonlyMap<string, string>): string {
   const tried = parts.reduce((n, p) => n + p.s.tried, 0);
   const delivered = parts.reduce((n, p) => n + p.s.delivered, 0);
   const body = `
 ${siteNav("sellers", "../")}
 <h1>${escapeHtml(key)}</h1>
 ${parts.length > 1 ? `<p class="meta">Bought on both pages; each part below is graded from its own purchases only: ${parts.map((p) => `<a href="#${p.g.id}">${escapeHtml(p.g.label)}</a>`).join(" · ")}.</p>` : ""}
-${parts.map((p) => sellerGroupSection(r, p.g, p.s)).join("\n")}
+${parts.map((p) => sellerGroupSection(r, p.g, p.s, told)).join("\n")}
 ${recordsSection(records)}<h2 id="appeal">Are you the seller?</h2>
 <p>Is a row wrong? ${escapeHtml(r.method.correction)}</p>
 <p><a href="${escapeHtml(appealUrl(key, r.date))}" rel="noopener noreferrer nofollow">Tell vet402 a row is wrong (GitHub issue, prefilled)</a></p>
@@ -1107,7 +1174,7 @@ ${siteNav("method")}
 <p>${escapeHtml(m.rankNumber)}</p>
 <p class="meta">${escapeHtml(m.grades)}</p>
 <p class="meta">${escapeHtml(m.order)}</p>
-<p class="meta">This report:<br>${grades}</p>
+${m.fixed ? `<p class="meta" id="fixed">${escapeHtml(m.fixed)}</p>\n` : ""}<p class="meta">This report:<br>${grades}</p>
 
 <h2>5. How vet402 buys</h2>
 <p>${escapeHtml(m.measurement)}</p>
@@ -1188,17 +1255,18 @@ export function renderPublicSite(
   } = {},
 ): Map<string, string> {
   const slugs = siteSlugs(r);
+  const told = toldOn(opts.notified);
   const out = new Map<string, string>();
   out.set("index.html", renderTopIndex(r, opts.lanes, opts.notified ?? null));
-  out.set("sellers.html", renderSellersMain(r, groupById(r, "main"), slugs));
+  out.set("sellers.html", renderSellersMain(r, groupById(r, "main"), slugs, told));
   out.set("use.html", renderUsePage(r, opts.lanes ?? {}, opts.recordsIndex ?? NO_RECORDS, opts.notified ?? null));
-  out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs));
+  out.set("algorand.html", renderAlgorandIndex(r, groupById(r, "algorand"), slugs, told));
   out.set("robinhood.html", renderRobinhoodPage(r, groupById(r, "robinhood"), opts.lanes?.robinhood));
   out.set("arbitrum.html", renderArbitrumPage(r, groupById(r, "arbitrum"), opts.lanes?.arbitrum));
   out.set("method.html", renderPublicMethod(r, opts.lanes));
   for (const [key, slug] of slugs) {
     const parts = r.groups.flatMap((g) => g.ranking.filter((s) => s.key === key).map((s) => ({ g, s })));
-    out.set(`seller/${slug}.html`, renderPublicSeller(r, key, parts, opts.records?.get(key)));
+    out.set(`seller/${slug}.html`, renderPublicSeller(r, key, parts, opts.records?.get(key), told));
   }
   return out;
 }

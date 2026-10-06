@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { classifyFailure, FAULT_RULES } from "../src/rank/classify.js";
 import { cdpByHost, compareWithCatalog, spearman } from "../src/rank/compare.js";
-import { appealUrl, escapeHtml, renderSite, sellerSlugs, txHtml, txUrl } from "../src/rank/html.js";
+import { appealUrl, escapeHtml, fixedMark, fixedText, renderPublicSite, renderSite, sellerSlugs, txHtml, txUrl } from "../src/rank/html.js";
 import { SellerPacer } from "../src/measure.js";
 import { MEASURE_MAX_PER_SELLER } from "../src/constants.js";
 import {
@@ -17,7 +17,7 @@ import {
 import { buildReport, REBUY_FIRST_DAY, REBUY_MONTH_CAPS, REBUY_PLAN, rebuyFacts, rebuySeller } from "../src/rank/report.js";
 import { RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_MONTH_ATOMIC } from "../src/remeasure/constants.js";
 import { decideVerdict } from "../src/receipt/build.js";
-import { aggregate, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
+import { aggregate, fixedAfterFailure, gradeFor, MIN_COUNTED, MIN_DAYS, qualifies, rank, wilsonLower, wilsonUpper } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 
 const ALGO_TX = "KXCP3MI7BZWZ2EYQLEC7BJUIQEORE43I35W7QOD6XT7Q4QQSNNEA";
@@ -676,4 +676,192 @@ test("rebuy counts in site/rank.json equal the settled rows (settled true, with 
   const got: Record<string, number> = {};
   for (const s of pub.groups.find((g) => g.id === "main")!.ranking) for (const [c, n] of Object.entries(s.rebuy.purchases)) got[c] = (got[c] ?? 0) + n;
   assert.deepEqual(got, want);
+});
+
+// ---------- fixed after a failure (display only) ----------
+
+/** 2026-10-0<d>, minute n of the day. */
+const at = (d: number, n: number) => `2026-10-0${d}T0${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}:00.000Z`;
+/** A failure with no clear cause: settled, then 404 (rule paid_then_4xx). */
+const unclear = (over: Partial<Attempt>) => fail({ httpStatus: 404, rawReason: "http_error", ...over });
+/** A seller-side failure where nothing settled: the seller's server answered 503 (rule server_error_5xx). */
+const down = (over: Partial<Attempt>) => att({ delivered: false, category: "unconfirmed_server_error", settled: false, tx: null, httpStatus: 503, rawReason: "http_error", ...over });
+/** Two seller-side failures on two days, then three that came back on three days: the smallest fixed seller. */
+const smallest = (host = "h.example", over: Partial<Attempt> = {}) => [
+  fail({ host, at: at(1, 1), ...over }),
+  fail({ host, at: at(2, 1), ...over }),
+  ...[3, 4, 5].map((d) => att({ host, at: at(d, 1), ...over })),
+];
+
+test("fixed: 9 seller-side failures on 2 days, then 5 that came back on 3 UTC days (api.syraa.fun on 2026-10-03)", () => {
+  const rows = [
+    ...Array.from({ length: 9 }, (_, i) => fail({ host: "s.example", at: at(1 + Math.floor(i / 5), i) })),
+    att({ host: "s.example", at: at(3, 1) }),
+    att({ host: "s.example", at: at(3, 2) }),
+    att({ host: "s.example", at: at(4, 1) }),
+    att({ host: "s.example", at: at(4, 2) }),
+    att({ host: "s.example", at: at(5, 1) }),
+    att({ host: "s.example", at: at(5, 2), tried: false, delivered: false, category: "vet402_skipped", settled: null, rawReason: "already_bought" }),
+  ];
+  const s = aggregate(rows)[0]!;
+  assert.deepEqual(s.fixed, {
+    since: "2026-10-03",
+    sinceAt: at(3, 1),
+    streak: 5,
+    days: 3,
+    chains: ["solana"],
+    failedBefore: 9,
+    failedDays: 2,
+    failedSettled: 9,
+    failedFirstAt: at(1, 0),
+    failedLastAt: at(2, 8),
+  });
+  assert.equal(fixedText(s.fixed!, null), "Fixed: every purchase since 2026-10-03 came back (5 in a row, on 3 UTC days), after 9 in a row that failed on the seller's side (2026-10-01 to 2026-10-02).");
+  assert.equal(
+    fixedText(s.fixed!, "2026-10-01"),
+    "Fixed: every purchase since 2026-10-03 came back (5 in a row, on 3 UTC days), after 9 in a row that failed on the seller's side (2026-10-01 to 2026-10-02). vet402 told the seller on 2026-10-01.",
+  );
+  assert.equal(fixedMark(s), "fixed 10-03");
+  assert.equal(fixedMark(s, "solana"), "fixed 10-03");
+  assert.equal(fixedMark(s, "tempo"), "", "only in the table of the chain it was fixed on");
+});
+
+test("fixed: not given without 2+ seller-side failures on 2+ days just before, without 3+ that came back on 2+ days, or when the latest failed", () => {
+  const cases: [string, Attempt[]][] = [
+    ["no failure", [att({ at: at(1, 1) }), att({ at: at(2, 1) }), att({ at: at(3, 1) })]],
+    ["one failure", [fail({ at: at(1, 1) }), ...[2, 3, 4].map((d) => att({ at: at(d, 1) }))]],
+    ["two failures on the same day", [fail({ at: at(1, 1) }), fail({ at: at(1, 2) }), ...[2, 3, 4].map((d) => att({ at: at(d, 1) }))]],
+    ["two in a row came back", [fail({ at: at(1, 1) }), fail({ at: at(2, 1) }), att({ at: at(3, 1) }), att({ at: at(4, 1) })]],
+    ["came back on one day only", [fail({ at: at(1, 1) }), fail({ at: at(2, 1) }), ...[1, 2, 3, 4].map((n) => att({ at: at(3, n) }))]],
+    ["latest failed", [...smallest(), fail({ at: at(6, 1) })]],
+    ["latest failed on vet402's side", [...smallest(), burst({ at: at(6, 1) })]],
+    ["vet402-side failures only", [burst({ at: at(1, 1) }), burst({ at: at(2, 1) }), ...[3, 4, 5].map((d) => att({ at: at(d, 1) }))]],
+    ["unclear failures only", [unclear({ at: at(1, 1) }), unclear({ at: at(2, 1) }), ...[3, 4, 5].map((d) => att({ at: at(d, 1) }))]],
+    // counted purchases alone would read: 2 failed, then 3 came back. The unclear failure just before the run did not come back.
+    ["unclear failure between", [fail({ at: at(1, 1) }), fail({ at: at(2, 1) }), unclear({ at: at(2, 2) }), ...[3, 4, 5].map((d) => att({ at: at(d, 1) }))]],
+    // an unclear failure inside the run ends it: after it only 2 came back
+    ["unclear failure inside", [fail({ at: at(1, 1) }), fail({ at: at(2, 1) }), att({ at: at(3, 1) }), unclear({ at: at(3, 2) }), att({ at: at(4, 1) }), att({ at: at(5, 1) })]],
+    // the last failure and the first that came back at the same time: which came first cannot be told
+    ["same time", [fail({ at: at(1, 1) }), fail({ at: at(2, 1) }), att({ at: at(2, 1) }), att({ at: at(3, 1) }), att({ at: at(4, 1) })]],
+  ];
+  for (const [name, rows] of cases) {
+    const s = aggregate(rows)[0]!;
+    assert.equal(s.fixed, undefined, name);
+    assert.ok(!("fixed" in s), `${name}: no key at all`);
+  }
+  assert.ok(aggregate(smallest())[0]!.fixed, "the smallest case is fixed");
+  assert.equal(fixedAfterFailure([]), null);
+});
+
+test("fixed: purchases at the same time are ordered by URL and tx, not by input order", () => {
+  const rows = [
+    fail({ at: at(1, 1) }),
+    fail({ at: at(2, 1) }),
+    att({ at: at(3, 1), url: "https://h.example/b" }),
+    att({ at: at(3, 1), url: "https://h.example/a" }),
+    att({ at: at(4, 1) }),
+    att({ at: at(5, 1) }),
+  ];
+  const fwd = aggregate(rows)[0]!.fixed;
+  const rev = aggregate([...rows].reverse())[0]!.fixed;
+  assert.deepEqual(fwd, rev);
+  assert.equal(fwd!.streak, 4);
+});
+
+test("fixed: a seller-side failure where nothing settled (the seller's server answered 5xx) counts as a failure before, and is not called paid", () => {
+  const rows = [down({ at: at(1, 1) }), down({ at: at(2, 1) }), ...[3, 4, 5].map((d) => att({ at: at(d, 1) }))];
+  const s = aggregate(rows)[0]!;
+  assert.equal(s.fixed?.failedBefore, 2);
+  assert.equal(s.fixed?.failedSettled, 0);
+  const sellers = renderPublicSite(buildReport({ date: "2026-10-05", generatedAt: "2026-10-05T12:00:00.000Z", attempts: rows, excludeHosts: [], cdp: null, mercator: null, inputs: [] })).get("sellers.html")!;
+  assert.ok(sellers.includes("2 purchases in a row failed on the seller&#39;s side, each an error with no settled payment on record (2026-10-01 to 2026-10-02)."));
+  assert.ok(!sellers.includes("paid purchases in a row"));
+  const mixed = aggregate([fail({ at: at(1, 1) }), down({ at: at(2, 1) }), ...[3, 4, 5].map((d) => att({ at: at(d, 1) }))])[0]!;
+  assert.equal(mixed.fixed?.failedSettled, 1);
+});
+
+test("fixed: display only; the figures, grade, interval and rank number are what they are without it", () => {
+  const fixedRows = [...Array.from({ length: 9 }, (_, i) => fail({ host: "f.example", at: at(1 + (i % 2), i) })), ...[3, 4, 5, 6, 7].map((d) => att({ host: "f.example", at: at(d, 1) }))];
+  const plainRows = [...[1, 2, 3, 4, 5].map((d) => att({ host: "p.example", at: at(d, 1) })), ...Array.from({ length: 9 }, (_, i) => fail({ host: "p.example", at: at(6 + (i % 2), i) }))];
+  const [f, p] = rank(aggregate([...fixedRows, ...plainRows])).sort((a, b) => (a.key < b.key ? -1 : 1));
+  assert.ok(f!.fixed && !p!.fixed);
+  assert.deepEqual(Object.keys(f!).filter((k) => k !== "fixed"), Object.keys(p!), "fixed is the only key added");
+  for (const s of [f!, p!]) {
+    assert.equal(s.counted, 14);
+    assert.equal(s.delivered, 5);
+    assert.equal(s.wilsonLower, wilsonLower(5, 14));
+    assert.equal(s.wilsonUpper, wilsonUpper(5, 14));
+    assert.equal(s.grade, gradeFor(5, 14, s.days.length));
+  }
+  assert.equal(f!.rank, p!.rank, "same figures, same rank number");
+});
+
+test("fixed on the site: the seller page line, the mark, the Sellers page line; told only for a seller on notified.json", () => {
+  const rows = [...smallest("told.example"), ...smallest("quiet.example"), ...[3, 4, 5].map((d) => att({ host: "fine.example", at: at(d, 1) }))];
+  const build = (attempts: Attempt[]) => buildReport({ date: "2026-10-05", generatedAt: "2026-10-05T12:00:00.000Z", attempts, excludeHosts: [], cdp: null, mercator: null, inputs: [] });
+  const notified = { note: "t", sellers: [{ seller: "told.example", notifiedAt: "2026-10-01" }, { seller: "fine.example", notifiedAt: "2026-10-01" }] };
+  const pages = renderPublicSite(build(rows), { notified });
+  const told = pages.get("seller/told.example.html")!;
+  const quiet = pages.get("seller/quiet.example.html")!;
+  const fine = pages.get("seller/fine.example.html")!;
+  const line = "Fixed: every purchase since 2026-10-03 came back (3 in a row, on 3 UTC days), after 2 in a row that failed on the seller&#39;s side (2026-10-01 to 2026-10-02).";
+  assert.ok(told.includes(`${line} vet402 told the seller on 2026-10-01. <a href="../method.html#fixed">What counts as fixed</a>`));
+  assert.ok(quiet.includes(`${line} <a href="../method.html#fixed">`));
+  assert.ok(!quiet.includes("told the seller"), "a seller not on notified.json is never said to be told");
+  assert.ok(!fine.includes("Fixed:") && !fine.includes("told the seller"), "no failure, no fixed line, told or not");
+  const sellers = pages.get("sellers.html")!;
+  assert.ok(
+    sellers.includes(
+      'Fixed after a failure: <b>2</b> sellers. <a href="seller/quiet.example.html">quiet.example</a>: 2 paid purchases in a row came back with nothing usable (2026-10-01 to 2026-10-02). Every purchase since 2026-10-03 has come back (3 in a row). <a href="seller/told.example.html">told.example</a>: 2 paid purchases in a row came back with nothing usable (2026-10-01 to 2026-10-02). vet402 told the seller on 2026-10-01. Every purchase since 2026-10-03 has come back (3 in a row). <a href="method.html#fixed">What counts as fixed</a>',
+    ),
+  );
+  assert.ok(sellers.indexOf("Fixed after a failure:") < sellers.indexOf('<h2 id="for-sellers">'), "near the top");
+  assert.ok(/quiet\.example<\/a><span class="sub">[^<]*fixed 10-03/.test(sellers) && /told\.example<\/a><span class="sub">[^<]*fixed 10-03/.test(sellers));
+  assert.ok(!/fine\.example<\/a><span class="sub">[^<]*fixed/.test(sellers));
+  assert.ok(pages.get("method.html")!.includes('id="fixed"'), "the rule is on the method page");
+  // One seller: its name, then its sentences.
+  const solo = renderPublicSite(build(smallest("told.example")), { notified }).get("sellers.html")!;
+  assert.ok(
+    solo.includes(
+      'Fixed after a failure: <a href="seller/told.example.html">told.example</a>. 2 paid purchases in a row came back with nothing usable (2026-10-01 to 2026-10-02). vet402 told the seller on 2026-10-01. Every purchase since 2026-10-03 has come back (3 in a row). <a href="method.html#fixed">What counts as fixed</a>',
+    ),
+  );
+  // notified.json that does not read: nobody is told.
+  const bad = renderPublicSite(build(rows), { notified: { sellers: [{ seller: "told.example", notifiedAt: "soon" }] } });
+  assert.ok(!bad.get("seller/told.example.html")!.includes("told the seller"));
+  assert.ok(!bad.get("sellers.html")!.includes("told the seller"));
+  // None fixed: no line.
+  assert.ok(!renderPublicSite(build(rows.filter((r) => r.host === "fine.example"))).get("sellers.html")!.includes("Fixed after a failure"));
+});
+
+test("fixed: one service behind a shared host is its own seller, and told is read by its host#service key", () => {
+  const svc = (service: string) => smallest("proxy.example", { chain: "tempo", service, url: `https://proxy.example/${service}` });
+  const rows = [...svc("s1"), ...[3, 4, 5].map((d) => att({ chain: "tempo", host: "proxy.example", service: "s2", url: "https://proxy.example/s2", at: at(d, 1) }))];
+  const report = buildReport({ date: "2026-10-05", generatedAt: "2026-10-05T12:00:00.000Z", attempts: rows, excludeHosts: [], cdp: null, mercator: null, inputs: [] });
+  const main = report.groups.find((g) => g.id === "main")!;
+  assert.deepEqual(main.ranking.filter((s) => s.fixed).map((s) => s.key), ["proxy.example#s1"]);
+  // A bare host on notified.json names none of the services.
+  const bare = renderPublicSite(report, { notified: { note: "t", sellers: [{ seller: "proxy.example", notifiedAt: "2026-10-01" }] } });
+  const slug = [...bare.keys()].find((k) => k.startsWith("seller/") && k.includes("s1"))!;
+  assert.ok(bare.get(slug)!.includes("Fixed: every purchase since 2026-10-03") && !bare.get(slug)!.includes("told the seller"));
+  const exact = renderPublicSite(report, { notified: { note: "t", sellers: [{ seller: "proxy.example#s1", notifiedAt: "2026-10-01" }] } });
+  assert.ok(exact.get(slug)!.includes("vet402 told the seller on 2026-10-01."));
+  assert.ok(/proxy\.example#s1<\/a><span class="sub">[^<]*fixed 10-03/.test(exact.get("sellers.html")!), "mark in the Tempo table");
+});
+
+test("fixed: the Algorand page has its own line, and none when no Algorand seller is fixed", () => {
+  const algo = smallest("algo.example", { chain: "algorand", tx: ALGO_TX });
+  const build = (attempts: Attempt[]) => buildReport({ date: "2026-10-05", generatedAt: "2026-10-05T12:00:00.000Z", attempts, excludeHosts: [], cdp: null, mercator: null, inputs: [] });
+  const withFix = renderPublicSite(build([...algo, ...smallest("sol.example")]));
+  assert.ok(withFix.get("algorand.html")!.includes('Fixed after a failure: <a href="seller/algo.example.html">algo.example</a>.'));
+  assert.ok(!withFix.get("algorand.html")!.includes("sol.example"), "each page names its own sellers");
+  assert.ok(!withFix.get("sellers.html")!.includes("algo.example"));
+  const noFix = renderPublicSite(build([...[3, 4, 5].map((d) => att({ chain: "algorand", host: "algo.example", tx: ALGO_TX, at: at(d, 1) })), ...smallest("sol.example")]));
+  assert.ok(!noFix.get("algorand.html")!.includes("Fixed after a failure"));
+  assert.ok(noFix.get("sellers.html")!.includes("Fixed after a failure"));
+});
+
+test("fixed: a failure earlier on the same UTC day gives the time to the second, so \"since\" stays true", () => {
+  const s = aggregate([fail({ at: "2026-10-02T01:00:00.000Z" }), fail({ at: "2026-10-03T01:00:00.000Z" }), att({ at: "2026-10-03T13:24:57.767Z" }), att({ at: "2026-10-04T01:00:00.000Z" }), att({ at: "2026-10-04T13:00:00.000Z" })])[0]!;
+  assert.equal(fixedText(s.fixed!, null), "Fixed: every purchase since 2026-10-03 13:24:57 UTC came back (3 in a row, on 2 UTC days), after 2 in a row that failed on the seller's side (2026-10-02 to 2026-10-03).");
 });

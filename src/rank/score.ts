@@ -184,6 +184,93 @@ export interface SellerStats {
   payToChanges: PayToChange[];
   firstAt: string;
   lastAt: string;
+  /** Came back again after failing on the seller's side (fixedAfterFailure). Display only; absent when not. */
+  fixed?: FixedAfterFailure;
+}
+
+/**
+ * Fixed after a failure. Display only: it never enters counted, the grade, the interval or the rank number.
+ * Read over the tried purchases in time order (every purchase vet402 sent a payment for, whoever was at fault), so
+ * "every purchase since … came back" stays true: a failure on vet402's side or with no clear cause ends the run too.
+ */
+/** The run that came back: this many purchases or more … */
+export const FIXED_MIN_STREAK = 3;
+/** … on this many UTC days or more. The seller-side failures just before it need the same day count. */
+export const FIXED_MIN_DAYS = 2;
+/** The seller-side failures in a row just before the run: this many or more. */
+export const FIXED_MIN_FAILED = 2;
+
+export interface FixedAfterFailure {
+  /** UTC day of the first purchase of the run that came back. */
+  since: string;
+  /** Time of that purchase. */
+  sinceAt: string;
+  /** Purchases in a row that came back, up to the latest. */
+  streak: number;
+  /** Different UTC days in that run. */
+  days: number;
+  /** Chains of the purchases in the run and in the failures before it. */
+  chains: Chain[];
+  /** Seller-side failures in a row just before the run. */
+  failedBefore: number;
+  /** Different UTC days of those failures. */
+  failedDays: number;
+  /** Of those failures, how many came after vet402's payment settled (the rest: the seller's server answered 5xx, nothing settled). */
+  failedSettled: number;
+  /** Time of the first and of the last of those failures. */
+  failedFirstAt: string;
+  failedLastAt: string;
+}
+
+export interface FixedInput {
+  at: string;
+  delivered: boolean;
+  fault: Fault | null;
+  settled: boolean | null;
+  chain: Chain;
+  url: string;
+  tx: string | null;
+}
+
+/** Time, then URL, then tx: two purchases at the same time keep one order whatever order the inputs came in. */
+function byAtThenKey(a: FixedInput, b: FixedInput): number {
+  const x = [a.at, a.url, a.tx ?? ""];
+  const y = [b.at, b.url, b.tx ?? ""];
+  for (let n = 0; n < x.length; n++) if (x[n]! !== y[n]!) return x[n]! < y[n]! ? -1 : 1;
+  return 0;
+}
+
+/**
+ * Null unless, over the tried purchases in time order: the latest FIXED_MIN_STREAK+ all came back, on FIXED_MIN_DAYS+
+ * UTC days, and the FIXED_MIN_FAILED+ just before them all failed on the seller's side, on FIXED_MIN_DAYS+ UTC days
+ * (counted back to a purchase that came back or a failure not on the seller's side). Also null when the last failure
+ * and the first purchase that came back carry the same time: which came first cannot be told.
+ */
+export function fixedAfterFailure(input: readonly FixedInput[]): FixedAfterFailure | null {
+  const tried = [...input].sort(byAtThenKey);
+  let i = tried.length;
+  while (i > 0 && tried[i - 1]!.delivered) i--;
+  const run = tried.slice(i);
+  let j = i;
+  while (j > 0 && !tried[j - 1]!.delivered && tried[j - 1]!.fault === "seller") j--;
+  const failed = tried.slice(j, i);
+  const dayCount = (rows: readonly FixedInput[]) => new Set(rows.map((r) => r.at.slice(0, 10))).size;
+  const days = dayCount(run);
+  const failedDays = dayCount(failed);
+  if (run.length < FIXED_MIN_STREAK || days < FIXED_MIN_DAYS || failed.length < FIXED_MIN_FAILED || failedDays < FIXED_MIN_DAYS) return null;
+  if (failed.at(-1)!.at === run[0]!.at) return null;
+  return {
+    since: run[0]!.at.slice(0, 10),
+    sinceAt: run[0]!.at,
+    streak: run.length,
+    days,
+    chains: [...new Set([...failed, ...run].map((r) => r.chain))].sort(),
+    failedBefore: failed.length,
+    failedDays,
+    failedSettled: failed.filter((r) => r.settled === true).length,
+    failedFirstAt: failed[0]!.at,
+    failedLastAt: failed.at(-1)!.at,
+  };
 }
 
 export interface RankedSeller extends SellerStats {
@@ -301,6 +388,7 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
     const payTos = [...new Set(rows.filter((r) => r.payTo && r.category !== "payto_changed").map((r) => normAddr(r.payTo!)))].sort();
 
     const first = rows[0]!;
+    const fixed = fixedAfterFailure(tried.map((r) => ({ at: r.at, delivered: r.delivered, fault: fault.get(r)?.fault ?? null, settled: r.settled, chain: r.chain, url: r.url, tx: r.tx })));
     out.push({
       key,
       host: first.host,
@@ -342,6 +430,7 @@ export function aggregate(attempts: readonly Attempt[], excludeHosts: readonly s
       payToChanges: changes,
       firstAt: first.at,
       lastAt: rows.at(-1)!.at,
+      ...(fixed ? { fixed } : {}),
     });
   }
   return out;

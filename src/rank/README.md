@@ -178,6 +178,20 @@ Algorand page and the method table say "with a settlement receipt" instead of "s
 - 10 out of 10 has a lower bound of 0.72 (grade C); an A needs about 35 out of 35.
 - Order among ranked sellers: lower bound desc, then delivered rate desc, then counted desc, then seller
   key. Equal lower bound, rate and count share a number.
+- **Fixed after a failure (display only, `fixedAfterFailure` in `src/rank/score.ts`).** Read over the tried
+  purchases in time order (then by URL and tx, so purchases at the same time keep one order): the latest
+  `FIXED_MIN_STREAK = 3` or more all came back with an answer, on `FIXED_MIN_DAYS = 2` or more UTC days, and the
+  `FIXED_MIN_FAILED = 2` or more purchases just before them all failed on the seller's side, on 2 or more UTC days.
+  Not when the last of those failures and the first purchase that came back carry the same time.
+  `rank.json` then carries `fixed` on that seller (`since` = UTC day of the first of the run, `sinceAt`, `streak`,
+  `days`, `chains`, `failedBefore` = seller-side failures in a row just before, `failedDays`, `failedSettled` = how
+  many of those came after vet402's payment settled, `failedFirstAt`, `failedLastAt`); otherwise the key is absent.
+  Any later purchase that does not come back, whoever was at fault, removes it, so "every purchase since … came
+  back" stays true. The seller page says it in one line (with the day vet402 told the seller, only for sellers in
+  `data/records/notified.json`), the rows carry `fixed MM-DD` (in a one-chain table only when every purchase in it
+  was on that chain), and the top of the Sellers and Algorand pages names each such seller with its failures, the
+  day it was told and the run since, in that order. It never changes counted, the grade, the interval or the rank
+  number.
 - Seller = hostname. When one host fronts several catalog services that each pay their own recipient
   (a proxy such as `mpp.orthogonal.com`), each service is its own seller: `host#service`.
 - payTo changed = the same chain and URL asked for a different recipient in a later run, or vet402
@@ -217,6 +231,10 @@ row is fixed after checking the chain and the raw result, and the fix goes in th
   first to say so. Wording only, no change to the test: "delivered" is shown as "came back with an
   answer", with the note that vet402 did not check the answer against the listing, and the money sentence
   now says that grades come only from vet402's own purchases and a paid check never moves a grade.
+  2026-10-06, display only, no change to what is counted, the grades or the rank numbers: a seller is marked
+  "fixed" when the latest 3 or more purchases vet402 paid for all came back with an answer, on 2 or more UTC
+  days, and the 2 or more purchases just before them all failed on the seller's side, on 2 or more UTC days
+  (section 4). Where vet402 told that seller, the day it did is shown too.
 - **v2 (2026-09-28)**: fault split (seller / vet402 or facilitator / can't tell), one delivery test on
   every chain with the declared match as a separate column, rank numbers only with 10 counted purchases on
   2+ days, grades A–D with asymmetric bounds, measurement pacing 5 per seller per run, 60 s apart.

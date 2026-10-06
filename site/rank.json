@@ -1,7 +1,7 @@
 {
   "kind": "vet402-seller-rank",
   "date": "2026-10-06",
-  "generatedAt": "2026-10-06T02:04:44.762Z",
+  "generatedAt": "2026-10-06T07:52:07.372Z",
   "method": {
     "version": "v3",
     "settled": "Settled: on Solana, Tempo and Base the runner checked vet402's payment on chain before recording it as settled. On Algorand, settled means the facilitator returned a successful settlement receipt with a tx id (the paid field of the vet402-algorand census); vet402 has not read those payments back on chain.",
@@ -94,6 +94,7 @@
     },
     "dUpper": 0.5,
     "order": "Sellers with a rank number: lower bound desc, then delivered rate desc, then counted purchases desc, then seller name. Equal values share a number. Measuring sellers follow by name.",
+    "fixed": "Fixed (display only, never part of the grade): the latest 3 or more purchases vet402 paid for all came back with an answer, on 2 or more UTC days, and the 2 or more purchases just before them all failed on the seller's side, on 2 or more UTC days. A later purchase that does not come back, whoever was at fault, removes the mark.",
     "measurement": "From method v2 on: at most 5 purchases per seller in one run, at least 60 s apart. Amounts, payTo checks and money caps are unchanged. The 2026-09-27/28 Algorand runs predate this and bought up to ~500 items of one seller in under an hour. Rebuy plan from UTC day 2026-09-29, with no end date: two runs a day on Solana and one on Tempo, each buying again from the Solana and Tempo sellers whose earlier payment settled, to the same payTo and at no more than the earlier price. Spending is capped per calendar month (70 USDC on Solana, 30 USDC.e on Tempo); a chain that reaches its cap buys nothing more until the next month. The ledger allows one purchase per recipient per slot per UTC day, so where several sellers share one payTo, one of them is bought. Which sellers were bought again is decided by the rows in data/remeasure/, and a correction can change them. Base sellers have been bought once.",
     "measureMaxPerSeller": 5,
     "measureSpacingMs": 60000,
@@ -122,7 +123,8 @@
           "A settled payment followed by a 4xx other than 402 (400, 401, 404, 422, 429 …) is no longer counted against the seller: rule paid_then_4xx, can't tell, shown as a count. vet402 built that request from the seller's listing, so a fault on vet402's side is not ruled out; the signed records already call it UNCLEAR. 5xx, 402 again, no answer and an empty 2xx after settlement stay on the seller's side. Effect on the 2026-09-29 report: 40 purchases on Solana, Tempo and Base (Solana 4, Tempo 36) and 2 on Algorand move from the seller side to not counted; no grade and no rank number changes, because every seller concerned was still measuring.",
           "Wording only, no change to the test: \"settled\" on Algorand is named for what it is, a settlement receipt with a tx id from the facilitator, which vet402 has not read back on chain; on Solana, Tempo and Base the runners checked the payment on chain. The Tempo note now says which purchases kept no body (the census ledger) and which were tested for an empty body (the re-purchases).",
           "Wording only, no change to the test: \"delivered\" is shown as \"came back with an answer\", with the note that vet402 did not check the answer against the listing. The money sentence now reads: grades come only from vet402's own purchases, and a paid check is a separate report that never moves a grade.",
-          "2026-09-30, Tempo: vet402 checked the requests it sent. For some sellers the catalog (Mercator) gave the schema's type name in place of an example ({\"ip\":\"string\"}), and vet402 sent it. A settled payment followed by 400, 404 or 422 to such a request, or to a request that left out a required parameter, or with no input where the answer says the input was wrong, is now vet402's side (rule paid_then_4xx_vet402_input); 401, 403, 407 and 429 stay can't tell. A settled 402 to a request with such a placeholder is can't tell (rule paid_then_402_placeholder), no longer the seller's side. From 2026-10-01, remeasure does not buy again a request with a placeholder that got 400, 404 or 422 in the census, and the Tempo re-purchases record the answer's shape (never its text) and are tested for an empty body after trimming, as on Solana."
+          "2026-09-30, Tempo: vet402 checked the requests it sent. For some sellers the catalog (Mercator) gave the schema's type name in place of an example ({\"ip\":\"string\"}), and vet402 sent it. A settled payment followed by 400, 404 or 422 to such a request, or to a request that left out a required parameter, or with no input where the answer says the input was wrong, is now vet402's side (rule paid_then_4xx_vet402_input); 401, 403, 407 and 429 stay can't tell. A settled 402 to a request with such a placeholder is can't tell (rule paid_then_402_placeholder), no longer the seller's side. From 2026-10-01, remeasure does not buy again a request with a placeholder that got 400, 404 or 422 in the census, and the Tempo re-purchases record the answer's shape (never its text) and are tested for an empty body after trimming, as on Solana.",
+          "2026-10-06, display only, no change to what is counted, the grades or the rank numbers: a seller is marked \"fixed\" when the latest 3 or more purchases vet402 paid for all came back with an answer, on 2 or more UTC days, and the 2 or more purchases just before them all failed on the seller's side, on 2 or more UTC days. Where vet402 told that seller, the day it did is shown too."
         ]
       },
       {
@@ -18668,6 +18670,20 @@
           "payToChanges": [],
           "firstAt": "2026-09-28T07:36:12.997Z",
           "lastAt": "2026-10-06T01:07:51.036Z",
+          "fixed": {
+            "since": "2026-10-03",
+            "sinceAt": "2026-10-03T01:19:49.603Z",
+            "streak": 6,
+            "days": 4,
+            "chains": [
+              "solana"
+            ],
+            "failedBefore": 9,
+            "failedDays": 5,
+            "failedSettled": 9,
+            "failedFirstAt": "2026-09-28T07:36:12.997Z",
+            "failedLastAt": "2026-10-02T13:26:57.977Z"
+          },
           "rank": 83
         },
         {
