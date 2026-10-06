@@ -1082,7 +1082,7 @@ catchup_lane() {
     /bin/bash "$SELF" "$mode" $([ "$DRY" = 1 ] && echo --dry-run) || rc=$?
     if [ $rc -eq 75 ]; then
       # Another run took the lock between the check and the start: nothing ran, the marker goes back.
-      printf '%s %s\n' "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" "the lock was taken" >"$f"
+      printf '%s %s\n' "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" "the daily lock was held" >"$f"
     fi
     log "catch-up: $mode of $day ended rc=$rc"
   done
