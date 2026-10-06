@@ -1,0 +1,118 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-05_001498",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 1498
+  },
+  "issuedAt": 1791246996,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://api.exa.ai/search",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0x2b9018d7860bfaad9e5376aed219632bee01ca6858a40995d614f35773a09db5",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0xB98eF29eb2be19Ae646A8FC0248255B90A332dbC",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "7000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xb139b9bf8f07e4f64c9251c5729994d9fcde2be69a42efd1fdfb113f827e292c",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-10-05T06:02:40.091Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 3376,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-10-05",
+    "row": "rows[19]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-05",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "36MTYdQMEX1LzKEtr7s9RfzRTkhNszovCwu826NcoiBjnv7pdh2nFgYRqG8LYSao2xj93PXDsJdf7bm66cZLLDqJ",
+    "root": "0x14a2f33f25ab7e281caff2e1642b26e7f56016fd6fc7075ecba69fe3dd01ce10",
+    "leafIndex": 105,
+    "proof": [
+      "0xff668f7d4e145f9c8b75c8872a545abe6d9a4a7f475d785a25c2595d0c30d10c",
+      "0x0326d5e6d34b606e289d2c4968309fa91276315df1ddba84212f8fd77eb6d717",
+      "0x97b5d88b3a2cc6910979e2b90ad5d4abad27bfc8221ad7133daa2b11dd7c73eb",
+      "0x27a98708e103ad3c020e8316618f9214616d46b51adc1f86391d698210c38fee",
+      "0xa395ad6b995219e88414049c84079017e0f97696aee9a6b6ee2e25aa17179131",
+      "0xae2774a29b861bfe27730727705cdab64ba0e1cd0256e9af0aed0c53092f629c",
+      "0xf331c2aef68831c07b493a6520a1f548088ef1cf92501cf793b2139a3676eb97"
+    ],
+    "count": 115,
+    "sequenceRange": [
+      1393,
+      1507
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-06T01:54:07.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0xe9b06fd9145963648dfe003ccfd1ee402e7be92f0a4991717cb1b68a9b78416e72e44180b220f170858863fa777eb4be4fcc997a9685f36d652e6ee1deb32c1e1c"
+  }
+}
