@@ -1256,6 +1256,37 @@ test("run.sh: a second run while one holds the lock stops, alerts, and does noth
   rmSync(sb.dir, { recursive: true });
 });
 
+test("run.sh: a run pushed out by the lock leaves a catch-up marker, and catchup runs it once later the same UTC day", async () => {
+  const sb = sandbox();
+  mkdirSync(sb.state, { recursive: true });
+  const ready = join(sb.dir, "ready");
+  const holder = spawn("/usr/bin/lockf", ["-k", join(sb.state, "run.lock"), "/bin/sh", "-c", `touch '${ready}'; sleep 20`]);
+  for (let i = 0; i < 100 && !existsSync(ready); i++) await new Promise((res) => setTimeout(res, 50));
+  assert.ok(existsSync(ready));
+  try {
+    const r = runSh(sb, ["pm"], { VET402_DAILY_NOW: at("2026-10-05T13:17:00Z") });
+    assert.equal(r.status, 75);
+    assert.match(alerts(sb), /pm stopped: another daily run holds .*run\.lock; this pm run did nothing\. The catch-up job runs pm once later on UTC 2026-10-05/);
+    assert.match(readFileSync(join(sb.state, "missed-pm-2026-10-05"), "utf8"), /the daily lock was held/);
+    // a dry run asked by hand leaves no marker
+    const dry = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-05T13:18:00Z") });
+    assert.equal(dry.status, 75);
+    assert.ok(!existsSync(join(sb.state, "missed-am-2026-10-05")));
+    // while the lock is still held, catchup waits and the marker stays
+    assert.equal(runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T13:42:00Z") }).status, 0);
+    assert.match(logs(sb), /catch-up: pm of 2026-10-05 waits: another daily run holds/);
+    assert.ok(existsSync(join(sb.state, "missed-pm-2026-10-05")));
+  } finally {
+    holder.kill();
+  }
+  await new Promise((res) => setTimeout(res, 200));
+  const back = runSh(sb, ["catchup"], { VET402_DAILY_NOW: at("2026-10-05T14:12:00Z") });
+  assert.equal(back.status, 0, logs(sb));
+  assert.match(alerts(sb), /catchup: running pm of UTC 2026-10-05 once, missed for another daily run holding the lock/);
+  assert.ok(!existsSync(join(sb.state, "missed-pm-2026-10-05")));
+  rmSync(sb.dir, { recursive: true });
+});
+
 test("run.sh: a HALT file stops the lane until removed; outside the pay window nothing is paid", () => {
   const sb = sandbox();
   mkdirSync(sb.state, { recursive: true });

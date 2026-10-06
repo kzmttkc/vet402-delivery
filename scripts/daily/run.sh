@@ -220,7 +220,13 @@ main() {
         log "the previous catchup run still holds $LOCK: this one did nothing"
         rc=0
       else
-        alert "another daily run holds $LOCK; this $MODE run did nothing"
+        # A run pushed out by another (often a catch-up) is caught up the same UTC day like a run the network missed.
+        held=""
+        if [ "$ASKED_DRY" != 1 ] && is_caught_up_mode "$MODE"; then
+          printf '%s %s\n' "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" "the daily lock was held" >"$STATE/missed-$MODE-$UTC_DAY"
+          held=". The catch-up job runs $MODE once later on UTC $UTC_DAY ($STATE/missed-$MODE-$UTC_DAY)"
+        fi
+        alert "another daily run holds $LOCK; this $MODE run did nothing$held"
       fi
     fi
     log "end $MODE rc=$rc"
@@ -1068,8 +1074,10 @@ catchup_lane() {
       log "catch-up: $mode of $day waits: another daily run holds $STATE/run.lock"
       continue
     fi
+    why="lack of network"
+    grep -q "the daily lock was held" "$f" 2>/dev/null && why="another daily run holding the lock"
     rm -f "$f"
-    notice "running $mode of UTC $day once, missed for lack of network (it stops as usual on any other cause)"
+    notice "running $mode of UTC $day once, missed for $why (it stops as usual on any other cause)"
     rc=0
     /bin/bash "$SELF" "$mode" $([ "$DRY" = 1 ] && echo --dry-run) || rc=$?
     if [ $rc -eq 75 ]; then
