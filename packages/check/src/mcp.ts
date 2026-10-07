@@ -13,7 +13,7 @@ import { verdictLine } from "./verdict.js";
 import { verifyRecord, type VerifyOptions } from "./verify.js";
 
 export const SERVER_NAME = "vet402-check";
-export const SERVER_VERSION = "0.1.1"; // keep equal to packages/check/package.json (test/mcp-version.test.ts)
+export const SERVER_VERSION = "0.1.2"; // keep equal to packages/check/package.json (test/mcp-version.test.ts)
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
