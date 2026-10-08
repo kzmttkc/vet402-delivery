@@ -10,7 +10,8 @@
 import { type PublicData } from "./sources.js";
 import { PUBLIC_SITE_URL } from "./sources.js";
 import { verdictFor, type Verdict, type VerdictBasis } from "./verdict.js";
-import { notifiedSellers, type NotifiedFile } from "../../../src/receipt/publish.js";
+import { notifiedSellers, sellerWasTold, type NotifiedFile } from "../../../src/receipt/publish.js";
+import { baseReasons, compareOffer, listedPurchases, paymentOfRecord, type OfferComparison, type PurchaseRow, type ReasonHit, type RecordedPayment } from "./reasons.js";
 
 export interface CheckInput {
   /** The resource URL about to be paid. */
@@ -19,6 +20,12 @@ export interface CheckInput {
   chain?: string;
   /** The payTo (recipient) the 402 names. */
   payTo?: string;
+  /** The amount the 402 asks, in atomic units as x402 writes it (compared with what vet402 paid: price_jump). */
+  amount?: string;
+  /** The asset the 402 asks for (mint or token address; compared with what vet402 paid: asset_unseen). */
+  asset?: string;
+  /** Also list the purchases and signed payments the answer rests on (`explain`). */
+  explain?: boolean;
 }
 
 export interface Attempt {
@@ -126,6 +133,15 @@ export interface CheckResult {
   asOf: { rankDate: string | null; rankGeneratedAt: string | null; recordDays: string[]; recordsPublished: number };
   notes: string[];
   sources: string[];
+  /**
+   * Named reasons (reasons.ts): paid_not_delivered, payto_differs, price_jump, asset_unseen, never_bought,
+   * stale, each with its evidence. They never change the verdict.
+   */
+  reasons: ReasonHit[];
+  /** The 402's amount and asset against what vet402 paid; present when amount or asset was given. */
+  comparison?: OfferComparison;
+  /** With `explain`: the purchases rank.json lists for the seller (newest first) and the signed payments read. */
+  explain?: { purchases: PurchaseRow[]; payments: RecordedPayment[] };
 }
 
 /** Chain names as rank.json writes them, from a name or a CAIP-2 id. */
@@ -533,7 +549,15 @@ function sellerLine(f: SellerFacts, chain: string | null): string {
  * The lookup itself, over data already read. Pure. `lanesRaw`: data/evm/arbitrum.json and robinhood.json
  * (Arbitrum and Robinhood Chain), optional.
  */
-export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, sources: string[] = [], lanesRaw: unknown[] = [], notifiedRaw: unknown = null): CheckResult {
+/** What lookup reads beyond rank.json and the index: the clock (for stale) and signed payments already read. */
+export interface LookupExtra {
+  /** Milliseconds since the epoch. Default: now. */
+  now?: number;
+  /** Payments from this seller's signed records (recordedPayments), for price_jump, asset_unseen and explain. */
+  paid?: RecordedPayment[];
+}
+
+export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, sources: string[] = [], lanesRaw: unknown[] = [], notifiedRaw: unknown = null, extra: LookupExtra = {}): CheckResult {
   const u = parseUrl(input.url);
   const host = u.hostname.toLowerCase();
   const chain = input.chain ? normalizeChain(input.chain) : null;
@@ -609,7 +633,17 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
   }
 
   const asked = { url: u.href, host, chain, payTo };
-  const v = verdictFor({ found, sellers, asked, payTo: payToFact }, toldSet(notifiedRaw));
+  const told = toldSet(notifiedRaw);
+  const v = verdictFor({ found, sellers, asked, payTo: payToFact }, told);
+  const purchases = listedPurchases(rankRaw, keys);
+  const reasons = baseReasons({ sellers, chain, told: (k) => sellerWasTold(k, told), purchases, payTo: payToFact, now: extra.now ?? Date.now() });
+  const paid = (extra.paid ?? []).filter((p) => keys.has(p.seller ?? "") || p.seller === undefined);
+  let comparison: OfferComparison | undefined;
+  if (input.amount !== undefined || input.asset !== undefined) {
+    const c = compareOffer({ url: u.href, chain, amount: input.amount ?? null, asset: input.asset ?? null }, paid);
+    reasons.push(...c.hits);
+    comparison = c.comparison;
+  }
   return {
     verdict: v.verdict,
     why: v.why,
@@ -627,6 +661,9 @@ export function lookup(rankRaw: unknown, indexRaw: unknown, input: CheckInput, s
     asOf: { rankDate: rank.date, rankGeneratedAt: rank.generatedAt, recordDays: [...index.days.keys()].sort(), recordsPublished: index.entries.length },
     notes,
     sources,
+    reasons,
+    ...(comparison ? { comparison } : {}),
+    ...(input.explain ? { explain: { purchases: purchases.filter((r) => !chain || r.chain === chain), payments: paid.filter((p) => !chain || chainOfNetwork(p.network) === chain) } } : {}),
   };
 }
 
@@ -640,8 +677,53 @@ export function toldSet(raw: unknown): ReadonlySet<string> {
   }
 }
 
+/** How many signed records of a seller are read to compare a 402's amount and asset (same URL first). */
+export const MAX_PAYMENT_RECORDS = 8;
+
+/**
+ * The payments in a seller's newest signed records on a chain (records for this URL first), read through
+ * `data` (kept in memory like rank.json). A record that cannot be read is left out and counted in `unread`.
+ */
+export async function recordedPayments(
+  data: PublicData,
+  indexRaw: unknown,
+  sellerKeys: ReadonlySet<string>,
+  chain: string | null,
+  url: string,
+  limit = MAX_PAYMENT_RECORDS,
+): Promise<{ payments: RecordedPayment[]; unread: number }> {
+  const index = readRecordsIndex(indexRaw);
+  const entries = index.entries
+    .filter((e) => sellerKeys.has(e.seller) && (!chain || chainOfNetwork(e.network) === chain))
+    .sort((a, b) => Number(sameUrl(b.resourceUrl, url)) - Number(sameUrl(a.resourceUrl, url)) || (a.id < b.id ? 1 : -1))
+    .slice(0, limit);
+  let unread = 0;
+  const payments: RecordedPayment[] = [];
+  await Promise.all(
+    entries.map(async (e) => {
+      try {
+        const raw = await data.recordJson(e.id);
+        const p = paymentOfRecord(raw, `${PUBLIC_SITE_URL}/records/${e.id}.json`, e.day);
+        if (p) payments.push({ ...p, seller: e.seller });
+        else unread++;
+      } catch {
+        unread++;
+      }
+    }),
+  );
+  payments.sort((a, b) => (a.id < b.id ? 1 : -1));
+  return { payments, unread };
+}
+
 /** Read the public data (or the sources `data` names) and look the URL up. Read-only. */
-export async function checkBeforePaying(input: CheckInput, data: PublicData): Promise<CheckResult> {
+export async function checkBeforePaying(input: CheckInput, data: PublicData, extra: { now?: number } = {}): Promise<CheckResult> {
   const [rankRaw, indexRaw, lanesRaw, notifiedRaw] = await Promise.all([data.rank(), data.recordsIndex(), data.lanes(), data.notified()]);
-  return lookup(rankRaw, indexRaw, input, [data.sources.rank, data.sources.recordsIndex, ...data.sources.lanes, ...(data.sources.notified ? [data.sources.notified] : [])], lanesRaw, notifiedRaw);
+  const sources = [data.sources.rank, data.sources.recordsIndex, ...data.sources.lanes, ...(data.sources.notified ? [data.sources.notified] : [])];
+  const first = lookup(rankRaw, indexRaw, input, sources, lanesRaw, notifiedRaw, extra);
+  if (input.amount === undefined && input.asset === undefined && !input.explain) return first;
+  const keys = new Set(first.sellers.map((f) => f.key));
+  const { payments, unread } = await recordedPayments(data, indexRaw, keys, first.asked.chain, first.asked.url);
+  const r = lookup(rankRaw, indexRaw, input, sources, lanesRaw, notifiedRaw, { ...extra, paid: payments });
+  if (unread) r.notes.push(`${unread} signed record${unread === 1 ? "" : "s"} of this seller could not be read; the amount and asset comparison leaves ${unread === 1 ? "it" : "them"} out.`);
+  return r;
 }

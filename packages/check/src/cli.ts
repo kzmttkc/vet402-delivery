@@ -1,30 +1,33 @@
 /**
  * vet402-check: the command line.
  *
- *   vet402-check <url> [--chain <name|CAIP-2>] [--pay-to <address>] [--verify] [--offline] [--json]
+ *   vet402-check <url> [--chain <name|CAIP-2>] [--pay-to <address>] [--amount <atomic>] [--asset <address>] [--explain] [--verify] [--offline] [--json]
  *   vet402-check verify <record id | https URL | file> [--offline] [--json]
+ *   vet402-check diagnose <tx> --url <seller URL> [--chain solana|base] [--status <http>] [--json]
  *   vet402-check --mcp
  *
  * Read-only: public files and public RPC only. Exit 0 after a lookup (found or not), 1 when a record
  * fails verification, 2 on bad input or when the public data cannot be read.
  */
 import { checkBeforePaying, type CheckResult, type SellerFacts } from "./check.js";
+import { diagnose, formatDiagnose } from "./diagnose.js";
 import { serveStdio } from "./mcp.js";
 import { verdictLine } from "./verdict.js";
 import { PublicData } from "./sources.js";
 import { formatVerify, verifyRecord } from "./verify.js";
 
 const USAGE = `usage:
-  vet402-check <url> [--chain solana|tempo|base|algorand|<CAIP-2>] [--pay-to <address>] [--verify] [--offline] [--json]
+  vet402-check <url> [--chain solana|tempo|base|algorand|<CAIP-2>] [--pay-to <address>] [--amount <atomic units>] [--asset <address>] [--explain] [--verify] [--offline] [--json]
   vet402-check verify <record id | https URL | file> [--offline] [--json]
-  vet402-check --mcp          (MCP server on stdio: check_before_paying, verify_record)
+  vet402-check diagnose <tx signature or hash> --url <seller URL> [--chain solana|base] [--status <http>] [--json]
+  vet402-check --mcp          (MCP server on stdio: check_before_paying, verify_record, diagnose_failed_payment)
 
 Reads vet402's public rank.json and signed records. No key, no wallet, no payment.`;
 
 export function parseArgs(argv: string[]): { positional: string[]; flags: Map<string, string | true> } {
   const positional: string[] = [];
   const flags = new Map<string, string | true>();
-  const withValue = new Set(["--chain", "--pay-to"]);
+  const withValue = new Set(["--chain", "--pay-to", "--url", "--status", "--amount", "--asset"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (withValue.has(a)) {
@@ -65,6 +68,22 @@ export function formatCheck(r: CheckResult): string {
         out.push(`    ${x.id} ${x.verdict} ${x.resourceUrl}  ${x.json}${x.anchor?.status === "anchored" ? `  (root in Solana memo ${x.anchor.tx})` : ""}`);
     }
   }
+  for (const h of r.reasons ?? []) out.push(`  reason ${h.reason}: ${h.detail}`);
+  if (r.comparison) {
+    const c = r.comparison;
+    out.push(
+      `  compared with vet402's payments: ${c.recordsRead} signed record${c.recordsRead === 1 ? "" : "s"} read; assets paid ${c.assetsPaid.join(", ") || "none"}; ` +
+        (c.priceReference ? `most paid for this URL ${c.priceReference.amount} on ${c.priceReference.day}${c.ratio !== null ? `, this 402 asks ${c.ratio} times that` : ""}` : "no payment for this URL to compare the amount with"),
+    );
+  }
+  if (r.explain) {
+    out.push(`  purchases listed in rank.json (newest first, the newest few per seller; the counts above cover all):`);
+    for (const p of r.explain.purchases) out.push(`    ${p.at} ${p.chain} ${p.result}${p.httpStatus !== null ? ` HTTP ${p.httpStatus}` : ""} ${p.explorer ?? p.tx ?? "(no tx)"} ${p.url}`);
+    if (r.explain.payments.length) {
+      out.push(`  payments in signed records:`);
+      for (const p of r.explain.payments) out.push(`    ${p.at ?? p.day} ${p.verdict} paid ${p.amount} of ${p.asset} to ${p.payTo} ${p.json}`);
+    }
+  }
   for (const n of r.notes) out.push(`  note: ${n}`);
   out.push(`  as of: rank.json ${r.asOf.rankDate ?? "?"} (generated ${r.asOf.rankGeneratedAt ?? "?"}), ${r.asOf.recordsPublished} signed records, days ${r.asOf.recordDays.join(", ") || "none"}`);
   return out.join("\n");
@@ -100,6 +119,19 @@ export async function main(argv: string[], data = new PublicData()): Promise<num
       console.log(json ? JSON.stringify(v, null, 2) : formatVerify(v));
       return v.result === "FAIL" ? 1 : 0;
     }
+    if (positional[0] === "diagnose") {
+      const tx = positional[1];
+      const url = flags.get("--url");
+      const status = flags.get("--status");
+      if (!tx || positional.length > 2 || typeof url !== "string" || (status !== undefined && !/^\d{3}$/.test(String(status)))) {
+        console.error(USAGE);
+        return 2;
+      }
+      const chain = flags.get("--chain");
+      const d = await diagnose({ tx, url, ...(typeof chain === "string" ? { chain } : {}), ...(typeof status === "string" ? { status: Number(status) } : {}) }, data);
+      console.log(json ? JSON.stringify(d, null, 2) : formatDiagnose(d));
+      return 0;
+    }
     const url = positional[0];
     if (!url || positional.length > 1) {
       console.error(USAGE);
@@ -107,7 +139,19 @@ export async function main(argv: string[], data = new PublicData()): Promise<num
     }
     const chain = flags.get("--chain");
     const payTo = flags.get("--pay-to");
-    const r = await checkBeforePaying({ url, ...(typeof chain === "string" ? { chain } : {}), ...(typeof payTo === "string" ? { payTo } : {}) }, data);
+    const amount = flags.get("--amount");
+    const asset = flags.get("--asset");
+    const r = await checkBeforePaying(
+      {
+        url,
+        ...(typeof chain === "string" ? { chain } : {}),
+        ...(typeof payTo === "string" ? { payTo } : {}),
+        ...(typeof amount === "string" ? { amount } : {}),
+        ...(typeof asset === "string" ? { asset } : {}),
+        ...(flags.has("--explain") ? { explain: true } : {}),
+      },
+      data,
+    );
     const newest = r.records.newest[0];
     const v = flags.has("--verify") && newest ? await verifyRecord(newest.id, data, { offline }) : null;
     if (json) console.log(JSON.stringify(v ? { ...r, newestRecordVerified: v } : r, null, 2));

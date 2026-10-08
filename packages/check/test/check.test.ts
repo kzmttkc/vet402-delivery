@@ -246,7 +246,7 @@ test("MCP: tools/list and tools/call over handleMessage", async () => {
   assert.equal((init!.result as { protocolVersion: string }).protocolVersion, "2025-06-18");
   assert.equal(await handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" }, { data }), null);
   const list = await handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { data });
-  assert.deepEqual((list!.result as { tools: { name: string }[] }).tools.map((t) => t.name), ["check_before_paying", "verify_record"]);
+  assert.deepEqual((list!.result as { tools: { name: string }[] }).tools.map((t) => t.name), ["check_before_paying", "verify_record", "diagnose_failed_payment"]);
   const call = await handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "check_before_paying", arguments: { url: XONA } } }, { data });
   const res = call!.result as { structuredContent: CheckResult; isError?: boolean };
   assert.equal(res.isError, undefined);
@@ -289,7 +289,7 @@ test("MCP over stdio: the bin starts, lists both tools and answers a call", asyn
   ]);
   const byId = new Map(replies.map((r) => [r.id, r]));
   assert.equal((byId.get(1)!.result as { serverInfo: { name: string } }).serverInfo.name, "vet402-check");
-  assert.equal((byId.get(2)!.result as { tools: unknown[] }).tools.length, 2);
+  assert.equal((byId.get(2)!.result as { tools: unknown[] }).tools.length, 3);
   const text = (byId.get(3)!.result as { content: { text: string }[] }).content[0]!.text;
   assert.match(text, /^verdict: unknown\. vet402 has not bought from this seller; not enough to say pay or avoid\.\nvet402 has no record of this seller/);
 });

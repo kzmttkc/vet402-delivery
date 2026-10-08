@@ -141,6 +141,11 @@ export class PublicData {
     return joinSource(this.sources.recordsBase, `${id}.json`);
   }
 
+  /** One published record by id, parsed, kept in memory like rank.json (a published record does not change). */
+  recordJson(id: string): Promise<unknown> {
+    return this.cached(`record:${id}`, async () => JSON.parse((await this.recordText(id)).text) as unknown);
+  }
+
   /** The record's bytes as published: a record id, an https URL, or a local file. */
   recordText(ref: string): Promise<{ location: string; text: string }> {
     const location = RECORD_ID.test(ref) ? this.recordLocation(ref) : ref;

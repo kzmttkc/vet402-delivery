@@ -1,19 +1,21 @@
 /**
- * MCP server over stdio: two read-only tools over the same functions the CLI runs.
- *   check_before_paying  what vet402's public record holds about a seller, before paying it
- *   verify_record        re-check one signed record: signature, Merkle proof, payment and Solana memo anchor
+ * MCP server over stdio: three read-only tools over the same functions the CLI runs.
+ *   check_before_paying      what vet402's public record holds about a seller, before paying it
+ *   verify_record            re-check one signed record: signature, Merkle proof, payment and Solana memo anchor
+ *   diagnose_failed_payment  a payment that brought no answer, read from chain, next to vet402's purchases
  *
  * Newline-delimited JSON-RPC 2.0 on stdin and stdout (the MCP stdio transport). Nothing is written to
  * stdout except protocol messages. No dependency beyond the check itself.
  */
 import { createInterface } from "node:readline";
 import { checkBeforePaying } from "./check.js";
+import { diagnose, formatDiagnose, type DiagnoseOptions } from "./diagnose.js";
 import { PublicData } from "./sources.js";
 import { verdictLine } from "./verdict.js";
 import { verifyRecord, type VerifyOptions } from "./verify.js";
 
 export const SERVER_NAME = "vet402-check";
-export const SERVER_VERSION = "0.1.2"; // keep equal to packages/check/package.json (test/mcp-version.test.ts)
+export const SERVER_VERSION = "0.2.0"; // keep equal to packages/check/package.json (test/mcp-version.test.ts)
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
@@ -38,6 +40,9 @@ export const TOOLS = [
         chain: { type: "string", description: "solana, tempo, base, algorand, or a CAIP-2 id such as eip155:8453" },
         pay_to: { type: "string", description: "The payTo (recipient) in the 402 you hold" },
         verify_newest_record: { type: "boolean", description: "Also verify the newest signed record of this seller (signature, Merkle proof, payment and anchor on chain)" },
+        amount: { type: "string", description: "The amount in the 402, in atomic units; compared with what vet402 paid for this URL (reason price_jump)" },
+        asset: { type: "string", description: "The asset in the 402 (mint or token address); compared with the assets vet402 paid this seller in (reason asset_unseen)" },
+        explain: { type: "boolean", description: "Also list the purchases the answer rests on, with date and tx" },
       },
       required: ["url"],
       additionalProperties: false,
@@ -64,6 +69,30 @@ export const TOOLS = [
     },
     annotations: READ_ONLY,
   },
+  {
+    name: "diagnose_failed_payment",
+    title: "Diagnose an x402 payment that brought no answer",
+    description:
+      "Give the transaction of a payment you made (a Solana signature or a Base tx hash), the URL you paid and, if you have it, the " +
+      "HTTP status the seller answered. Reads the payment from public RPC (settled or not, payTo, amount, asset, time) and puts it " +
+      "next to vet402's own purchases from the same seller on the same chain within 24 hours. Returns fault: seller_side, " +
+      "facilitator_side, buyer_side or undetermined, with reasons. seller_side needs a settled payment to a payTo vet402 paid this " +
+      "seller, a status vet402's rules put on the seller, and vet402's own paid purchases in the window failing too with none " +
+      "delivered; anything less is undetermined. For seller_side it adds an evidence pack (JSON and Markdown) to hand to the " +
+      "seller; nothing is sent. Reads public data only: no key, no payment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tx: { type: "string", description: "Solana transaction signature or Base tx hash of the payment" },
+        url: { type: "string", description: "The URL that was paid" },
+        chain: { type: "string", description: "solana or base (default: from the shape of tx)" },
+        status: { type: "integer", description: "The HTTP status the seller answered after the payment" },
+      },
+      required: ["tx", "url"],
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
 ] as const;
 
 type Json = Record<string, unknown>;
@@ -71,6 +100,7 @@ type Json = Record<string, unknown>;
 export interface ServerOptions {
   data?: PublicData;
   verify?: VerifyOptions;
+  diagnose?: DiagnoseOptions;
 }
 
 function text(t: string, structured: unknown, isError = false): Json {
@@ -83,7 +113,17 @@ async function callTool(name: string, args: Json, opts: Required<Pick<ServerOpti
     if (name === "check_before_paying") {
       const url = str("url");
       if (!url) return text("url is required", { error: "url is required" }, true);
-      const result = await checkBeforePaying({ url, ...(str("chain") ? { chain: str("chain")! } : {}), ...(str("pay_to") ? { payTo: str("pay_to")! } : {}) }, opts.data);
+      const result = await checkBeforePaying(
+        {
+          url,
+          ...(str("chain") ? { chain: str("chain")! } : {}),
+          ...(str("pay_to") ? { payTo: str("pay_to")! } : {}),
+          ...(str("amount") ? { amount: str("amount")! } : {}),
+          ...(str("asset") ? { asset: str("asset")! } : {}),
+          ...(args.explain === true ? { explain: true } : {}),
+        },
+        opts.data,
+      );
       let verified: unknown = null;
       let extra = "";
       if (args.verify_newest_record === true && result.records.newest[0]) {
@@ -92,7 +132,16 @@ async function callTool(name: string, args: Json, opts: Required<Pick<ServerOpti
         extra = ` Newest record ${v.id} verified: ${v.result}.`;
       }
       const out = verified ? { ...result, newestRecordVerified: verified } : result;
-      return text(`${verdictLine(result)}\n${result.summary}${extra}\n\n${JSON.stringify(out, null, 2)}`, out);
+      const reasons = result.reasons.length ? `\nreasons: ${result.reasons.map((r) => `${r.reason} (${r.detail})`).join("; ")}` : "";
+      return text(`${verdictLine(result)}\n${result.summary}${extra}${reasons}\n\n${JSON.stringify(out, null, 2)}`, out);
+    }
+    if (name === "diagnose_failed_payment") {
+      const tx = str("tx");
+      const url = str("url");
+      if (!tx || !url) return text("tx and url are required", { error: "tx and url are required" }, true);
+      const status = typeof args.status === "number" ? args.status : typeof args.status === "string" && /^\d{3}$/.test(args.status) ? Number(args.status) : undefined;
+      const d = await diagnose({ tx, url, ...(str("chain") ? { chain: str("chain")! } : {}), ...(status !== undefined ? { status } : {}) }, opts.data, opts.diagnose);
+      return text(formatDiagnose(d), d);
     }
     if (name === "verify_record") {
       const record = str("record");
@@ -127,7 +176,9 @@ export async function handleMessage(msg: unknown, opts: ServerOptions = {}): Pro
         protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-        instructions: "Call check_before_paying with the URL before paying an x402 or MPP endpoint. It returns facts from vet402's public record; the decision is yours.",
+        instructions:
+          "Call check_before_paying with the URL before paying an x402 or MPP endpoint. It returns facts from vet402's public record; the decision is yours. " +
+          "After a payment that brought no answer, call diagnose_failed_payment with its transaction and the URL.",
       });
     }
     case "ping":
