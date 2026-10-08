@@ -19,8 +19,8 @@
  * offered chains the client will pay on. "unknown", and a record that cannot be read, go on.
  *
  * Or name what to do per reason (reasons.ts): `{ policy: { price_jump: "block", never_bought: "ask_human" } }`.
- * Each 402's amount, asset and payTo are compared with what vet402 paid the seller (signed records), and
- * every reason found is in `event.reasons`. "block" throws a CheckBlockedError; "ask_human" calls
+ * With a policy, each 402's amount and asset are also compared with what vet402 paid the seller (signed
+ * records); every reason found is in `event.reasons`. "block" throws a CheckBlockedError; "ask_human" calls
  * `askHuman(event)` and goes on only when it returns true (with no askHuman, it stops with a
  * CheckNeedsApprovalError); "warn" and "allow" go on. A reason the policy leaves out is "allow". Without a
  * policy the hook decides as 0.1.2 did: only `block: "avoid"` stops.
@@ -181,7 +181,7 @@ export class CheckNeedsApprovalError extends CheckBlockedError {
 }
 
 /** The reasons of the checks, and of each x402 offer's amount and asset against vet402's signed payments. */
-async function reasonsOf(url: string, offers: Offer[], checks: CheckResult[], data: PublicData): Promise<ReasonHit[]> {
+async function reasonsOf(url: string, offers: Offer[], checks: CheckResult[], data: PublicData, compareOffers: boolean): Promise<ReasonHit[]> {
   const out: ReasonHit[] = [];
   const seen = new Set<string>();
   const push = (h: ReasonHit) => {
@@ -189,7 +189,8 @@ async function reasonsOf(url: string, offers: Offer[], checks: CheckResult[], da
     if (!seen.has(k)) (seen.add(k), out.push(h));
   };
   for (const c of checks) for (const h of c.reasons ?? []) push(h);
-  for (const o of offers) {
+  // Reading signed records for the amount and asset happens only with a policy, so a hook without one waits as long as 0.1.2 did.
+  for (const o of compareOffers ? offers : []) {
     if (o.protocol !== "x402" || !o.chain || (o.amount === null && o.asset === null)) continue;
     const c = checks.find((x) => x.asked.chain === o.chain && (x.asked.payTo ?? null) === (o.payTo ?? null)) ?? checks.find((x) => x.asked.chain === o.chain);
     if (!c || !c.sellers.length) continue;
@@ -223,7 +224,7 @@ export function wrapFetchWithCheck(innerFetch: WrappedFetch, options: CheckHookO
     } catch (e) {
       event.error = e instanceof Error ? e.message : String(e);
     }
-    if (!event.error) event.reasons = await reasonsOf(url, offers, event.checks, data);
+    if (!event.error) event.reasons = await reasonsOf(url, offers, event.checks, data, policy !== null);
     if (policy) event.decision = applyPolicy(policy, event.reasons);
     if (options.onCheck) await options.onCheck(event);
     if (options.block === "avoid") {

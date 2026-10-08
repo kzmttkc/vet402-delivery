@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
@@ -48,17 +48,19 @@ const addr = (label: string) => base58(createHash("sha256").update(label).digest
 const evmHash = (label: string) => `0x${createHash("sha256").update(label).digest("hex")}`;
 
 /** PublicData over the fixtures; `rank` can be a changed copy (served from memory through a fake loopback fetch). */
-function data(rank: unknown = RANK): PublicData {
-  const files: Record<string, unknown> = { "http://127.0.0.1/rank.json": rank };
+function data(rank: unknown = RANK, index: unknown = INDEX, reads: string[] = []): PublicData {
+  const files: Record<string, unknown> = { "http://127.0.0.1/rank.json": rank, "http://127.0.0.1/index.json": index };
+  for (const f of readdirSync(join(FX, "records"))) files[`http://127.0.0.1/records/${f}`] = JSON.parse(readFileSync(join(FX, "records", f), "utf8"));
   return new PublicData({
-    sources: { rank: "http://127.0.0.1/rank.json", recordsIndex: join(FX, "verdict-records-index.json"), recordsBase: join(FX, "records"), lanes: [], notified: join(FX, "verdict-notified.json") },
-    fetch: async (u: string) => (u in files ? new Response(JSON.stringify(files[u])) : Promise.reject(new Error("no network in tests"))),
+    sources: { rank: "http://127.0.0.1/rank.json", recordsIndex: "http://127.0.0.1/index.json", recordsBase: "http://127.0.0.1/records", lanes: [], notified: join(FX, "verdict-notified.json") },
+    fetch: async (u: string) => (reads.push(u), u in files ? new Response(JSON.stringify(files[u])) : new Response("not found", { status: 404 })),
   });
 }
 
 /** A getTransaction answer: the recorded XONA purchase with another signature, time, payer and payee. */
-function solanaTx(o: { at: string; payTo?: string; payer?: string; amount?: string; err?: unknown; failingIx?: number }): unknown {
+function solanaTx(o: { at: string; payTo?: string; payer?: string; amount?: string; err?: unknown; mint?: string }): unknown {
   const t = structuredClone(RECORDED_TX);
+  if (o.mint) for (const b of [...t.meta.preTokenBalances, ...t.meta.postTokenBalances]) b.mint = o.mint;
   t.blockTime = Math.floor(Date.parse(o.at) / 1000);
   const payTo = o.payTo ?? XONA_PAYTO;
   const payer = o.payer ?? addr("buyer");
@@ -144,6 +146,9 @@ test("diagnose: settled to XONA's payTo, HTTP 500, vet402's purchases within 24 
   assert.match(e.markdown, /^# Paid x402 call with no answer: api\.xona-agent\.com\n/);
   assert.ok(e.markdown.includes(`https://solscan.io/tx/${tx}`));
   assert.match(e.markdown, /Nothing was sent to anyone\.\n$/);
+  assert.ok(e.markdown.includes("- HTTP status reported by the buyer: 500"), "the status is the buyer's report");
+  assert.match(e.json.rule!.text, /^The buyer's payment settled, then the seller answered 5xx/);
+  assert.ok(!e.json.rule!.text.includes("vet402's payment"));
   assert.match(formatDiagnose(d), /^fault: seller_side\n/);
 });
 
@@ -240,6 +245,59 @@ test("diagnose on Base: Transfer log read for payTo, amount, asset and time; a r
   neverSeller(reverted);
 });
 
+// ---- review fixes: what rank.json's short list cannot show ----
+
+test("diagnose: a DELIVERED signed record of the window's days keeps it undetermined (rank.json may no longer list that purchase)", async () => {
+  const index = structuredClone(INDEX);
+  const tmpl = index.records.find((e: any) => e.day === "2026-09-29");
+  index.records.push({ ...tmpl, id: "obs_2026-09-29_999999", verdict: "DELIVERED", resourceUrl: XONA, host: "api.xona-agent.com", seller: "api.xona-agent.com", network: SOLANA });
+  const d = await diagnose({ tx: sig("buyer-paid-xona"), url: XONA, status: 500 }, data(RANK, index), { rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-29T09:00:00Z" }) }) });
+  assert.equal(d.fault, "undetermined");
+  assert.ok(d.reasons.some((r) => r.code === "vet402_delivered_record_in_window_days" && r.detail.includes("obs_2026-09-29_999999")), JSON.stringify(d.reasons));
+  neverSeller(d);
+});
+
+test("diagnose: a payment older than rank.json's recent list reaches stays undetermined, even when only failures are listed for its days", async () => {
+  const rank = structuredClone(RANK);
+  const xona = rank.groups[0].ranking.find((s: any) => s.key === "api.xona-agent.com");
+  // recent keeps only the newest purchases; sellerFailures still lists the older failures.
+  xona.recent = xona.recent.filter((r: any) => r.at >= "2026-09-30");
+  const d = await diagnose({ tx: sig("old-payment"), url: XONA, status: 500 }, data(rank), { rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-29T09:00:00Z" }) }) });
+  assert.ok(d.vet402.inWindow.length > 0, "the older failures are still in the window");
+  assert.equal(d.fault, "undetermined");
+  assert.ok(d.reasons.some((r) => r.code === "vet402_list_does_not_cover_window"), JSON.stringify(d.reasons));
+  neverSeller(d);
+});
+
+test("diagnose: vet402's own payment is left out of the window and of the signed records; Base hashes match without case", async () => {
+  const own = "snofPqfZEQ4NyfDepxepVUoYbfBujeq5C6uuK2xQFE38EYzk6yKkvEwvZKUa3cBjniN8QXQAdRZwjWWuQ9m4f8a"; // obs_2026-09-28_000164
+  const d = await diagnose({ tx: own, url: XONA, status: 500 }, data(), { rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-28T08:28:55Z" }) }) });
+  assert.ok(!d.vet402.records.some((r) => r.id === "obs_2026-09-28_000164"), JSON.stringify(d.vet402.records.map((r) => r.id)));
+  assert.ok(![...d.vet402.inWindow, ...d.vet402.nearest].some((p) => p.tx === own));
+  const fixRank = JSON.parse(readFileSync(join(FX, "rank.json"), "utf8"));
+  const baseTx = "0x2c9f52315eeb527428dc2592edb469548b4dfcfd5ad745a3e145a05ed9802490";
+  const upper = `0x${baseTx.slice(2).toUpperCase()}`;
+  const receipt = { status: "0x1", blockNumber: "0x10", logs: [] };
+  const b = await diagnose({ tx: upper, url: "https://agent402.tools/api/crypto-trending", status: 500 }, data(fixRank, json("records-index.json")), {
+    rpcFor: rpcWith({ eth_getTransactionReceipt: receipt, eth_getBlockByNumber: { timestamp: `0x${Math.floor(Date.parse("2026-09-28T08:16:44Z") / 1000).toString(16)}` } }),
+  });
+  assert.ok(![...b.vet402.inWindow, ...b.vet402.nearest].some((p) => p.tx?.toLowerCase() === baseTx), "the same Base tx in another case is the same payment");
+});
+
+test("diagnose: a payment in an asset vet402 never paid the seller in, or below the least vet402 paid, is undetermined", async () => {
+  const other = await diagnose({ tx: sig("other-asset"), url: XONA, status: 500 }, data(), {
+    rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-29T09:00:00Z", mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" }) }),
+  });
+  assert.equal(other.fault, "undetermined");
+  assert.equal(other.reasons[0]?.code, "asset_unseen");
+  neverSeller(other);
+  const low = await diagnose({ tx: sig("low-amount"), url: XONA, status: 500 }, data(), { rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-29T09:00:00Z", amount: "50000" }) }) });
+  assert.equal(low.fault, "undetermined");
+  assert.equal(low.reasons[0]?.code, "amount_below_recorded");
+  assert.match(low.reasons[0]!.detail, /less than the least vet402 paid for this URL \(100000\)/);
+  neverSeller(low);
+});
+
 // ---- criterion 6: the 402 against what vet402 paid ----
 
 const paid = (amount: string, o: Partial<RecordedPayment> = {}): RecordedPayment => ({
@@ -329,7 +387,7 @@ function spyClient(): { client: x402Client; signed: () => number } {
   return { client, signed: () => n };
 }
 
-test("hook policy: price_jump blocks before signing; without a policy the same 402 is paid and the reason is still in the event", async () => {
+test("hook policy: price_jump blocks before signing; without a policy the same 402 is paid and only the rank.json reasons are in the event", async () => {
   const spy = spyClient();
   const pay = wrapFetchWithPayment(wrapFetchWithCheck(x402Server(XONA, XONA_PAYTO, "10000000"), { data: data(), policy: { price_jump: "block" } }) as typeof fetch, spy.client);
   await assert.rejects(pay(XONA), (e: unknown) => e instanceof CheckBlockedError && e.reasons.some((r) => r.reason === "price_jump") && /the policy blocks price_jump/.test(e.message));
@@ -339,8 +397,21 @@ test("hook policy: price_jump blocks before signing; without a policy the same 4
   const free = wrapFetchWithPayment(wrapFetchWithCheck(x402Server(XONA, XONA_PAYTO, "10000000"), { data: data(), onCheck: (e) => void events.push(e) }) as typeof fetch, spy2.client);
   assert.equal((await free(XONA)).status, 200);
   assert.equal(spy2.signed(), 1, "no policy: decided as in 0.1.2 (XONA is not stopped without block)");
-  assert.ok(events[0]!.reasons.some((r) => r.reason === "price_jump"));
+  assert.ok(!events[0]!.reasons.some((r) => r.reason === "price_jump"), "no policy: no signed record read, no price comparison");
+  assert.ok(events[0]!.reasons.some((r) => r.reason === "paid_not_delivered"), "the reasons from rank.json alone are there");
   assert.equal(events[0]!.decision, null);
+});
+
+test("hook without a policy reads no signed record (the same reads as 0.1.2); with one it does", async () => {
+  for (const policy of [undefined, { price_jump: "block" as const }]) {
+    const reads: string[] = [];
+    const spy = spyClient();
+    const pay = wrapFetchWithPayment(wrapFetchWithCheck(x402Server(XONA, XONA_PAYTO, "100000"), { data: data(RANK, INDEX, reads), ...(policy ? { policy } : { onCheck: () => undefined }) }) as typeof fetch, spy.client);
+    assert.equal((await pay(XONA)).status, 200);
+    const recordReads = reads.filter((u) => u.includes("/records/")).length;
+    if (policy) assert.ok(recordReads > 0, "with a policy the signed records are read");
+    else assert.equal(recordReads, 0, "without a policy no signed record is read");
+  }
 });
 
 test("hook policy: payto_differs blocks; ask_human asks and goes on only on true; with no askHuman it stops; warn goes on", async () => {

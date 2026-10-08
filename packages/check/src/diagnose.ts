@@ -9,9 +9,11 @@
  *      lists the newest few per seller; when none fall in the window, the nearest are shown).
  *
  * The answer is seller_side only when every one of these holds: the payment settled on chain, to a payTo
- * vet402 paid this seller, the buyer got an HTTP status that vet402's rules put on the seller after a settled
- * payment, and vet402's own paid purchases from the seller in the same window also came back with no answer,
- * with none delivered. Anything less is undetermined, never seller_side: a seller is not named on a guess.
+ * vet402 paid this seller, in an asset vet402 paid it in and not below the least vet402 paid; the buyer got an
+ * HTTP status that vet402's rules put on the seller after a settled payment; rank.json's list of the seller's
+ * newest purchases reaches back past the start of the window; vet402's own paid purchases from the seller in
+ * the window also came back with no answer, with none delivered; and no signed record of those days (other
+ * than the payment itself) shows a delivered purchase. Anything less is undetermined, never seller_side: a seller is not named on a guess.
  * buyer_side only for a payment that failed on chain because the paying account lacked the funds.
  * facilitator_side only for a payment that failed on chain for another reason while vet402's purchases in the
  * window failed at the payment step too (rule payment_tx_rejected).
@@ -23,7 +25,7 @@ import { jsonRpc } from "../../../src/chain.js";
 import { classifyFailure, ruleById } from "../../../src/rank/classify.js";
 import type { Attempt as RankAttempt } from "../../../src/rank/types.js";
 import { DEFAULT_RPC } from "../../../src/receipt/chain.js";
-import { explorerFor, lookup, NETWORK_OF, PAID_SELLER_RULES, readRecordsIndex } from "./check.js";
+import { explorerFor, lookup, NETWORK_OF, PAID_SELLER_RULES, readRecordsIndex, recordedPayments } from "./check.js";
 import { listedPurchases, type PurchaseRow } from "./reasons.js";
 import { PUBLIC_SITE_URL, type PublicData } from "./sources.js";
 
@@ -80,6 +82,7 @@ export interface EvidencePack {
   preparedAt: string;
   seller: { url: string; host: string; sellerPage: string | null };
   payment: { chain: string; tx: string; explorer: string | null; payer: string | null; payTo: string | null; amount: string | null; asset: string | null; at: string | null };
+  /** The HTTP status the buyer reported (not observed by vet402). */
   answerSeen: { httpStatus: number | null };
   rule: { id: string; text: string } | null;
   vet402Purchases: { at: string; chain: string; url: string; result: string; httpStatus: number | null; tx: string | null; explorer: string | null }[];
@@ -237,6 +240,8 @@ export async function readBasePayment(rpc: Rpc, tx: string): Promise<ChainPaymen
   return out;
 }
 
+/** The same transaction: Base hashes compared without case, Solana signatures exactly. */
+const sameTx = (a: string | null, b: string): boolean => a !== null && (EVM_HASH.test(a) && EVM_HASH.test(b) ? a.toLowerCase() === b.toLowerCase() : a === b);
 const sameAddress = (a: string, b: string): boolean => (/^0x[0-9a-f]{40}$/i.test(a) && /^0x[0-9a-f]{40}$/i.test(b) ? a.toLowerCase() === b.toLowerCase() : a === b);
 const dayOf = (iso: string): string => iso.slice(0, 10);
 
@@ -309,6 +314,8 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   let sellerPage: string | null = null;
   let purchases: PurchaseRow[] = [];
   let indexRaw: unknown = null;
+  /** The oldest purchase in the sellers' rank.json `recent` lists: before it, the list may leave purchases out. */
+  let oldestRecent: string | null = null;
   try {
     const [rankRaw, idx] = await Promise.all([data.rank(), data.recordsIndex()]);
     indexRaw = idx;
@@ -316,7 +323,8 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
     keys = r.sellers.map((f) => f.key);
     payTosRecorded = [...new Set(r.sellers.flatMap((f) => f.payTos))];
     sellerPage = r.sellers[0]?.sellerPage ?? null;
-    purchases = listedPurchases(rankRaw, new Set(keys)).filter((p) => p.chain === chain && p.tx !== tx);
+    purchases = listedPurchases(rankRaw, new Set(keys)).filter((p) => p.chain === chain && !sameTx(p.tx, tx));
+    oldestRecent = oldestRecentAt(rankRaw, new Set(keys));
   } catch (e) {
     notes.push(`vet402's public record could not be read: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -333,17 +341,39 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   const windowDays = window ? new Set([dayOf(window.from), dayOf(payment.at!), dayOf(window.to)]) : new Set<string>();
   let records: DiagnoseResult["vet402"]["records"] = [];
   try {
-    if (indexRaw && keys.length)
-      records = readRecordsIndex(indexRaw)
-        .entries.filter((e) => keys.includes(e.seller) && e.network === network && windowDays.has(e.day))
+    if (indexRaw && keys.length) {
+      const days = readRecordsIndex(indexRaw).entries.filter((e) => keys.includes(e.seller) && e.network === network && windowDays.has(e.day));
+      // The payment being diagnosed is left out when it is one of vet402's own (a record whose payment is this tx).
+      // A record that cannot be read stays in: it may be the one that shows a delivery.
+      const own = await Promise.all(
+        days.map(async (e) => {
+          try {
+            const raw = (await data.recordJson(e.id)) as { payment?: { transaction?: unknown } };
+            return typeof raw?.payment?.transaction === "string" && sameTx(raw.payment.transaction, tx);
+          } catch {
+            return false;
+          }
+        }),
+      );
+      records = days
+        .filter((_, i) => !own[i])
         .map((e) => ({ id: e.id, day: e.day, verdict: e.verdict, json: `${PUBLIC_SITE_URL}/records/${e.id}.json`, page: `${PUBLIC_SITE_URL}/records/${e.id}.html` }));
+    }
   } catch {
     records = [];
+  }
+  // What vet402 paid this seller on this chain (signed records, this URL first), for the asset and amount test.
+  let paidBefore: Awaited<ReturnType<typeof recordedPayments>>["payments"] = [];
+  try {
+    if (indexRaw && keys.length) paidBefore = (await recordedPayments(data, indexRaw, new Set(keys), chain, u.href)).payments.filter((p) => !sameTx(p.tx, tx));
+  } catch {
+    paidBefore = [];
   }
 
   // 3. The decision. Anything short of the full seller_side test is undetermined.
   let fault: DiagnoseFault = "undetermined";
   let rule: DiagnoseResult["rule"] = null;
+  const below = payment.settled === true ? amountBelow(paidBefore, payment, u.href) : null;
   const delivered = inWindow.filter((p) => p.result === "delivered");
   const paidFailed = inWindow.filter((p) => p.fault === "seller" && PAID_SELLER_RULES.has(p.result));
   if (payment.read === "rpc_error") say("tx_not_read", `The ${chain} RPC could not be read, so whether the payment settled is not known.`);
@@ -360,6 +390,10 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   } else if (payment.settled !== true) say("no_transfer_found", "The transaction succeeded but moved no token, so it is not a payment this can read.");
   else if (payToRecorded === false)
     say("payto_differs", `The payment went to ${payment.payTo}, not to a payTo vet402 paid this seller (${payTosRecorded.join(", ")}). Whether it reached this seller cannot be told.`);
+  else if (paidBefore.length && payment.asset && !paidBefore.some((p) => sameAddress(p.asset, payment.asset!)))
+    say("asset_unseen", `The payment was made in ${payment.asset}, not in an asset vet402 paid this seller in on ${chain} (${[...new Set(paidBefore.map((p) => p.asset))].join(", ")}). Whether it was the payment the seller asked for cannot be told.`);
+  else if (below)
+    say("amount_below_recorded", `The payment was ${payment.amount}, less than the least vet402 paid for ${below.scope} (${below.min}). The seller may have answered for a payment short of its price.`);
   else if (status === null) say("status_not_given", "The payment settled. Without the HTTP status the seller answered (--status), the failure is not classified.");
   else if (status >= 200 && status <= 299) say("answered_2xx", `The seller answered HTTP ${status}. Whether the body was empty is not known here.`);
   else {
@@ -375,6 +409,16 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
         say(
           "vet402_delivered_in_window",
           `vet402's purchases from this seller within 24 hours came back with an answer ${delivered.length} time${delivered.length === 1 ? "" : "s"} (${delivered.map((p) => p.at).join(", ")}). The failure may be particular to this request.`,
+        );
+      else if (records.some((r) => r.verdict === "DELIVERED"))
+        say(
+          "vet402_delivered_record_in_window_days",
+          `vet402's signed records of the same days hold a delivered purchase from this seller on ${chain} (${records.filter((r) => r.verdict === "DELIVERED").map((r) => r.id).join(", ")}). The failure may be particular to this request.`,
+        );
+      else if (oldestRecent === null || Date.parse(window.from) < Date.parse(oldestRecent))
+        say(
+          "vet402_list_does_not_cover_window",
+          `rank.json lists vet402's newest purchases from this seller back to ${oldestRecent ?? "no date"}; the window starts at ${window.from}, so a purchase in it may be left out of the list.`,
         );
       else if (!paidFailed.length)
         say(
@@ -410,6 +454,36 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   return result;
 }
 
+/** The oldest `at` in the sellers' rank.json `recent` lists (any chain: rank.json keeps the newest few per seller). */
+function oldestRecentAt(rankRaw: unknown, keys: ReadonlySet<string>): string | null {
+  let oldest: string | null = null;
+  if (!isObj(rankRaw)) return null;
+  for (const g of arr(rankRaw.groups))
+    for (const s of isObj(g) ? arr(g.ranking) : [])
+      if (isObj(s) && keys.has(str(s.key) ?? ""))
+        for (const r of arr(s.recent)) {
+          const at = isObj(r) ? str(r.at) : null;
+          if (at && (oldest === null || at < oldest)) oldest = at;
+        }
+  return oldest;
+}
+
+/** The least vet402 paid in the payment's asset (for this URL when there are such records, else for the seller), when the payment is below it. */
+function amountBelow(paid: { url: string; asset: string; amount: string }[], p: ChainPayment, url: string): { min: string; scope: string } | null {
+  if (!p.asset || !p.amount || !/^\d+$/.test(p.amount)) return null;
+  const same = paid.filter((x) => sameAddress(x.asset, p.asset!) && /^\d+$/.test(x.amount));
+  const forUrl = same.filter((x) => x.url === url);
+  const ref = forUrl.length ? forUrl : same;
+  if (!ref.length) return null;
+  const min = ref.reduce((m, x) => (BigInt(x.amount) < m ? BigInt(x.amount) : m), BigInt(ref[0]!.amount));
+  return BigInt(p.amount) < min ? { min: min.toString(), scope: forUrl.length ? "this URL" : "this seller" } : null;
+}
+
+/** vet402's rule text, said of the buyer's payment instead of vet402's. */
+function buyerRuleText(text: string): string {
+  return text.replace(/vet402's payment/g, "the buyer's payment").replace(/^the /, "The ");
+}
+
 function evidencePack(r: DiagnoseResult, now: number): { json: EvidencePack; markdown: string } {
   const p = r.payment!;
   const json: EvidencePack = {
@@ -419,7 +493,7 @@ function evidencePack(r: DiagnoseResult, now: number): { json: EvidencePack; mar
     seller: { url: r.asked.url, host: r.asked.host, sellerPage: r.seller.sellerPage },
     payment: { chain: p.chain, tx: p.tx, explorer: p.explorer, payer: p.payer, payTo: p.payTo, amount: p.amount, asset: p.asset, at: p.at },
     answerSeen: { httpStatus: r.asked.status },
-    rule: r.rule ? { id: r.rule.id, text: r.rule.text } : null,
+    rule: r.rule ? { id: r.rule.id, text: buyerRuleText(r.rule.text) } : null,
     vet402Purchases: r.vet402.inWindow.map((x) => ({ at: x.at, chain: x.chain, url: x.url, result: x.result, httpStatus: x.httpStatus, tx: x.tx, explorer: x.explorer })),
     vet402Records: r.vet402.records.map((x) => ({ id: x.id, verdict: x.verdict, json: x.json, page: x.page })),
     readFrom: [`${p.chain} RPC (public chain data)`, `${PUBLIC_SITE_URL}/rank.json`],
@@ -432,8 +506,8 @@ function evidencePack(r: DiagnoseResult, now: number): { json: EvidencePack; mar
     `- URL: ${r.asked.url}`,
     `- Payment: ${p.explorer ?? p.tx} (${p.chain}), settled ${p.at ?? "at an unknown time"}`,
     `- Paid ${p.amount ?? "?"} (atomic units of ${p.asset ?? "?"}) from ${p.payer ?? "?"} to ${p.payTo ?? "?"}`,
-    `- Answer after the payment: HTTP ${r.asked.status ?? "?"}`,
-    r.rule ? `- Rule: ${r.rule.id}. ${r.rule.text}` : "",
+    `- HTTP status reported by the buyer: ${r.asked.status ?? "?"}`,
+    json.rule ? `- vet402's rule for this case (${json.rule.id}), said of this payment: ${json.rule.text}` : "",
     "",
     "## vet402's own purchases from this seller within 24 hours",
     "",

@@ -124,7 +124,7 @@ const fetchWithPay = wrapFetchWithPayment(
 - `ask_human` calls `askHuman(event)` and pays only when it returns `true`. With no `askHuman`, it stops with a `CheckNeedsApprovalError` (a `CheckBlockedError`).
 - `warn` and `allow` go on. A reason the policy leaves out is `allow`.
 - `onCheck` gets `event.reasons` and `event.decision` (the action per reason and the strictest one) before any of this.
-- Without `policy`, the hook decides exactly as in 0.1.2: `event.reasons` is filled, nothing else changes.
+- Without `policy`, the hook decides and waits exactly as in 0.1.2: `event.reasons` holds the reasons that come from rank.json alone, and no signed record is read, so `price_jump` and `asset_unseen` are not looked for.
 - When vet402's record cannot be read, `event.error` is set, there are no reasons, and the payment goes on, as in 0.1.2.
 
 ## Compare the 402 with what vet402 paid
@@ -133,7 +133,7 @@ const fetchWithPay = wrapFetchWithPayment(
 npx -y @vet402/check https://api.xona-agent.com/token/pumpfun-trending --chain solana --amount 1000000 --asset EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 ```
 
-The answer adds `comparison`: the signed records read, the assets vet402 paid this seller in, the highest amount vet402 paid for this URL with its record and tx, and the ratio of the 402's amount to it. The hook makes the same comparison for every x402 offer in a 402.
+The answer adds `comparison`: the signed records read, the assets vet402 paid this seller in, the highest amount vet402 paid for this URL with its record and tx, and the ratio of the 402's amount to it. With a `policy`, the hook makes the same comparison for every x402 offer in a 402.
 
 ## Diagnose a payment that brought no answer
 
@@ -149,12 +149,12 @@ From TypeScript: `diagnose({ tx, url, status }, new PublicData())`. As an MCP to
 
 The answer is `fault` with `reasons[]`:
 
-- `seller_side` only when all of these hold: the payment settled on chain, to a payTo vet402 paid this seller; the HTTP status is one vet402's rules put on the seller after a settled payment (5xx, 402 again); and vet402's own paid purchases from the seller within 24 hours also settled and came back with no answer, with none delivered.
+- `seller_side` only when all of these hold: the payment settled on chain, to a payTo vet402 paid this seller, in an asset vet402 paid it in and not below the least vet402 paid; the HTTP status is one vet402's rules put on the seller after a settled payment (5xx, 402 again); rank.json's list of the seller's newest purchases reaches back past the start of the window; vet402's own paid purchases from the seller within 24 hours also settled and came back with no answer, with none delivered; and no signed record of those days shows a delivered purchase from the seller.
 - `buyer_side` only for a payment that failed on chain because the paying token account lacked the funds.
 - `facilitator_side` only for a payment that failed on chain for another reason while vet402's own payments to the seller in the window also failed before settling.
-- `undetermined` for everything else: the RPC could not be read, no such transaction, no status given, a 4xx, a payTo vet402 never paid, vet402 got an answer from the seller in the window, or vet402 has no purchase in the window. A seller is not named on less than the full test.
+- `undetermined` for everything else: the RPC could not be read, no such transaction, no status given, a 4xx, a payTo vet402 never paid, an asset vet402 never paid the seller in, an amount below the least vet402 paid, vet402 got an answer from the seller in the window (in rank.json or in a signed record of those days), rank.json's list does not reach back to the window, or vet402 has no purchase in the window. A seller is not named on less than the full test.
 
-For `seller_side`, `evidence` holds a pack to hand to the seller, as JSON and as Markdown: the tx and its explorer link, payer, payTo, amount and asset, the status seen, vet402's rule, vet402's purchases in the window with their tx, and the signed records of those days. It is printed, not sent.
+For `seller_side`, `evidence` holds a pack to hand to the seller, as JSON and as Markdown: the tx and its explorer link, payer, payTo, amount and asset, the HTTP status the buyer reported, vet402's rule said of this payment, vet402's purchases in the window with their tx, and the signed records of those days (the payment itself left out when it is one of vet402's own). It is printed, not sent.
 
 ## Framework examples
 
