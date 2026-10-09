@@ -269,6 +269,26 @@ test("diagnose: a payment older than rank.json's recent list reaches stays undet
   neverSeller(d);
 });
 
+test("diagnose: the same seller on two pages, only the other chain's page listing older purchases: undetermined (the reach is per chain)", async () => {
+  const SYRAA = "https://api.syraa.fun/assets";
+  const SYRAA_PAYTO = "53JhuF8bgxvUQ59nDG6kWs4awUQYCS3wswQmUsV5uC7t";
+  const pay = () => ({ rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-30T10:00:00Z", payTo: SYRAA_PAYTO }) }) });
+  const pages = (rank: any) => rank.groups.filter((g: any) => g.ranking.some((s: any) => s.key === "api.syraa.fun")).map((g: any) => g.id);
+  assert.deepEqual(pages(RANK), ["main", "algorand"], "syraa is on the Solana, Tempo and Base page and on the Algorand page");
+  // Control: the Solana page's own list reaches back past the window, and its purchases there failed: seller_side.
+  const full = await diagnose({ tx: sig("syraa"), url: SYRAA, status: 503 }, data(), pay());
+  assert.equal(full.fault, "seller_side", JSON.stringify(full.reasons));
+  // The Solana page lists only from 2026-09-30T02:18; the Algorand page's list reaches 2026-09-27.
+  const rank = structuredClone(RANK);
+  const main = rank.groups.find((g: any) => g.id === "main").ranking.find((s: any) => s.key === "api.syraa.fun");
+  main.recent = main.recent.filter((r: any) => r.at >= "2026-09-30");
+  const d = await diagnose({ tx: sig("syraa"), url: SYRAA, status: 503 }, data(rank), pay());
+  assert.equal(d.fault, "undetermined");
+  assert.ok(d.reasons.some((r) => r.code === "vet402_list_does_not_cover_window" && r.detail.includes("back to 2026-09-30T02:18")), JSON.stringify(d.reasons));
+  assert.ok(d.vet402.inWindow.every((p) => p.chain === "solana"), "the purchases compared are this chain's only");
+  neverSeller(d);
+});
+
 test("diagnose: vet402's own payment is left out of the window and of the signed records; Base hashes match without case", async () => {
   const own = "snofPqfZEQ4NyfDepxepVUoYbfBujeq5C6uuK2xQFE38EYzk6yKkvEwvZKUa3cBjniN8QXQAdRZwjWWuQ9m4f8a"; // obs_2026-09-28_000164
   const d = await diagnose({ tx: own, url: XONA, status: 500 }, data(), { rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-28T08:28:55Z" }) }) });

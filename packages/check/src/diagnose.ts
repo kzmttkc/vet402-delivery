@@ -314,7 +314,7 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   let sellerPage: string | null = null;
   let purchases: PurchaseRow[] = [];
   let indexRaw: unknown = null;
-  /** The oldest purchase in the sellers' rank.json `recent` lists: before it, the list may leave purchases out. */
+  /** How far back rank.json's `recent` lists reach for this seller on this chain: before it, purchases may be left out. */
   let oldestRecent: string | null = null;
   try {
     const [rankRaw, idx] = await Promise.all([data.rank(), data.recordsIndex()]);
@@ -324,7 +324,7 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
     payTosRecorded = [...new Set(r.sellers.flatMap((f) => f.payTos))];
     sellerPage = r.sellers[0]?.sellerPage ?? null;
     purchases = listedPurchases(rankRaw, new Set(keys)).filter((p) => p.chain === chain && !sameTx(p.tx, tx));
-    oldestRecent = oldestRecentAt(rankRaw, new Set(keys));
+    oldestRecent = oldestRecentAt(rankRaw, new Set(keys), chain);
   } catch (e) {
     notes.push(`vet402's public record could not be read: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -454,18 +454,33 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   return result;
 }
 
-/** The oldest `at` in the sellers' rank.json `recent` lists (any chain: rank.json keeps the newest few per seller). */
-function oldestRecentAt(rankRaw: unknown, keys: ReadonlySet<string>): string | null {
-  let oldest: string | null = null;
+/**
+ * How far back rank.json's `recent` lists reach for the seller on this chain. Only the pages (groups) whose
+ * chains include it and where the seller was bought on it count: rank.json keeps the newest few purchases per
+ * seller per page, so another page's list (Algorand, say) says nothing about this chain. Per page, the oldest
+ * purchase listed; across pages, the newest of those (the narrowest reach). Null when no page qualifies.
+ */
+function oldestRecentAt(rankRaw: unknown, keys: ReadonlySet<string>, chain: string): string | null {
+  let reach: string | null = null;
   if (!isObj(rankRaw)) return null;
-  for (const g of arr(rankRaw.groups))
-    for (const s of isObj(g) ? arr(g.ranking) : [])
-      if (isObj(s) && keys.has(str(s.key) ?? ""))
-        for (const r of arr(s.recent)) {
-          const at = isObj(r) ? str(r.at) : null;
-          if (at && (oldest === null || at < oldest)) oldest = at;
-        }
-  return oldest;
+  for (const g of arr(rankRaw.groups)) {
+    if (!isObj(g)) continue;
+    const pageChains = arr(g.chains).map(str);
+    for (const s of arr(g.ranking)) {
+      if (!isObj(s) || !keys.has(str(s.key) ?? "")) continue;
+      const recent = arr(s.recent).filter(isObj);
+      const boughtHere = (isObj(s.chains) && chain in s.chains) || recent.some((r) => str(r.chain) === chain);
+      if (!boughtHere || (pageChains.length && !pageChains.includes(chain) && !recent.some((r) => str(r.chain) === chain))) continue;
+      let oldest: string | null = null;
+      for (const r of recent) {
+        const at = str(r.at);
+        if (at && (oldest === null || at < oldest)) oldest = at;
+      }
+      if (oldest === null) return null; // a page that sells on this chain and lists nothing: the reach is unknown
+      if (reach === null || oldest > reach) reach = oldest;
+    }
+  }
+  return reach;
 }
 
 /** The least vet402 paid in the payment's asset (for this URL when there are such records, else for the seller), when the payment is below it. */
