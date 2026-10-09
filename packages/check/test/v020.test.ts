@@ -289,6 +289,35 @@ test("diagnose: the same seller on two pages, only the other chain's page listin
   neverSeller(d);
 });
 
+test("diagnose: two services on one host and a URL that matches neither: the payee picks the service; not one: undetermined", async () => {
+  const rank = structuredClone(RANK);
+  const b = rank.groups[0].ranking.find((x: any) => x.key === "api.xona-agent.com");
+  const a = structuredClone(b);
+  // A owns the payTo and has no purchase in the window; B (another payTo) failed in the window.
+  Object.assign(a, { key: "api.xona-agent.com#a", service: "a", payTos: [XONA_PAYTO], sellerFailures: [], lastFailure: null });
+  a.recent = [{ at: "2026-09-27T00:00:00.000Z", chain: "solana", url: "https://api.xona-agent.com/a/x", delivered: true, category: "delivered", tx: null }];
+  a.last = a.recent[0];
+  Object.assign(b, { key: "api.xona-agent.com#b", service: "b", payTos: [addr("service-b")] });
+  for (const row of [...b.recent, ...b.sellerFailures, b.last, b.lastFailure].filter(Boolean)) row.url = "https://api.xona-agent.com/b/y";
+  rank.groups[0].ranking.push(a);
+  const pay = (payTo: string) => ({ rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-29T09:00:00Z", payTo }) }) });
+  const unmatched = await diagnose({ tx: sig("2svc"), url: "https://api.xona-agent.com/zzz/q", status: 500 }, data(rank), pay(XONA_PAYTO));
+  assert.equal(unmatched.fault, "undetermined", JSON.stringify(unmatched.reasons));
+  assert.deepEqual(unmatched.seller.keys, ["api.xona-agent.com#a"], "the payee narrows the host to service A");
+  assert.ok(!unmatched.vet402.inWindow.some((p) => p.seller === "api.xona-agent.com#b"), "service B's failures are not compared");
+  neverSeller(unmatched);
+  // The payee is a payTo of neither service: no one service to compare with.
+  const neither = await diagnose({ tx: sig("2svc"), url: "https://api.xona-agent.com/zzz/q", status: 500 }, data(rank), pay(addr("nobody")));
+  assert.equal(neither.fault, "undetermined");
+  assert.equal(neither.reasons[0]?.code, "payto_not_unique_to_one_service");
+  neverSeller(neither);
+  // Both services list the payee: not one service either.
+  b.payTos = [XONA_PAYTO];
+  const both = await diagnose({ tx: sig("2svc"), url: "https://api.xona-agent.com/zzz/q", status: 500 }, data(rank), pay(XONA_PAYTO));
+  assert.equal(both.reasons[0]?.code, "payto_not_unique_to_one_service");
+  neverSeller(both);
+});
+
 test("diagnose: vet402's own payment is left out of the window and of the signed records; Base hashes match without case", async () => {
   const own = "snofPqfZEQ4NyfDepxepVUoYbfBujeq5C6uuK2xQFE38EYzk6yKkvEwvZKUa3cBjniN8QXQAdRZwjWWuQ9m4f8a"; // obs_2026-09-28_000164
   const d = await diagnose({ tx: own, url: XONA, status: 500 }, data(), { rpcFor: rpcWith({ getTransaction: solanaTx({ at: "2026-09-28T08:28:55Z" }) }) });

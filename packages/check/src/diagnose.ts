@@ -316,13 +316,25 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
   let indexRaw: unknown = null;
   /** How far back rank.json's `recent` lists reach for this seller on this chain: before it, purchases may be left out. */
   let oldestRecent: string | null = null;
+  /** Set when the URL's host has several sellers and the payee is not one of exactly one of them. */
+  let notUnique: { candidates: string[]; matched: string[] } | null = null;
   try {
     const [rankRaw, idx] = await Promise.all([data.rank(), data.recordsIndex()]);
     indexRaw = idx;
     const r = lookup(rankRaw, idx, { url: u.href, chain }, [], [], null);
-    keys = r.sellers.map((f) => f.key);
-    payTosRecorded = [...new Set(r.sellers.flatMap((f) => f.payTos))];
-    sellerPage = r.sellers[0]?.sellerPage ?? null;
+    let sellers = r.sellers;
+    // One host can front several services that vet402 counts as separate sellers. The payee picks the one this
+    // payment went to; with none or more than one, the purchases to compare with cannot be told apart.
+    // The same key on two pages is one seller.
+    const distinct = (fs: typeof sellers) => [...new Set(fs.map((f) => f.key))];
+    if (payment.payTo && distinct(sellers).length > 1) {
+      const paid = sellers.filter((f) => f.payTos.some((p) => sameAddress(p, payment.payTo!)));
+      if (distinct(paid).length === 1) sellers = paid;
+      else notUnique = { candidates: distinct(sellers), matched: distinct(paid) };
+    }
+    keys = [...new Set(sellers.map((f) => f.key))];
+    payTosRecorded = [...new Set(sellers.flatMap((f) => f.payTos))];
+    sellerPage = sellers[0]?.sellerPage ?? null;
     purchases = listedPurchases(rankRaw, new Set(keys)).filter((p) => p.chain === chain && !sameTx(p.tx, tx));
     oldestRecent = oldestRecentAt(rankRaw, new Set(keys), chain);
   } catch (e) {
@@ -388,6 +400,11 @@ export async function diagnose(input: DiagnoseInput, data: PublicData, opts: Dia
       say("vet402_payment_step_failed_in_window", `vet402's payments to this seller within 24 hours also failed before settling (payment_tx_rejected), the rule vet402 puts on its own side or the facilitator's.`);
     } else say("payment_failed_on_chain", `The payment failed on chain (${payment.error}). Nothing was paid; the cause is not told apart here.`);
   } else if (payment.settled !== true) say("no_transfer_found", "The transaction succeeded but moved no token, so it is not a payment this can read.");
+  else if (notUnique)
+    say(
+      "payto_not_unique_to_one_service",
+      `vet402 counts ${notUnique.candidates.length} sellers behind this URL's host (${notUnique.candidates.join(", ")}), and the payee ${payment.payTo} is a recorded payTo of ${notUnique.matched.length ? notUnique.matched.join(", ") : "none of them"}. Which seller's purchases to compare with cannot be told.`,
+    );
   else if (payToRecorded === false)
     say("payto_differs", `The payment went to ${payment.payTo}, not to a payTo vet402 paid this seller (${payTosRecorded.join(", ")}). Whether it reached this seller cannot be told.`);
   else if (paidBefore.length && payment.asset && !paidBefore.some((p) => sameAddress(p.asset, payment.asset!)))
