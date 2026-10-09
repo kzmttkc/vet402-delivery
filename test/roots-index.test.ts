@@ -163,9 +163,13 @@ test("backfill: an account or transaction that differs from the index is refused
     await assert.rejects(backfillProgramRoots(fakeChain(chain).rpc, bare), re, what);
   }
   await assert.rejects(backfillProgramRoots(fakeChain(good, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG").rpc, bare), /not Solana mainnet/);
-  // A day not posted yet is left as it is, not refused.
+  // A day not posted yet is left as it is, not refused. Besides 2026-09-30 (taken off the chain here), an anchored
+  // day the published index has no programRoot for is not posted either: the daily records run publishes a day whose
+  // post_root failed without one (scripts/daily/run.sh program_root_day), and that day must not fail this test.
   const r = await backfillProgramRoots(fakeChain(good.filter((d) => d.day !== "2026-09-30")).rpc, bare);
-  assert.deepEqual(r.notPosted, ["2026-09-30"]);
+  const unposted = index.days.filter((d) => d.anchor.status === "anchored" && (d.day === "2026-09-30" || !d.programRoot)).map((d) => d.day);
+  assert.ok(unposted.includes("2026-09-30"));
+  assert.deepEqual(r.notPosted, unposted);
   assert.equal(r.index.days.find((d) => d.day === "2026-09-30")!.programRoot, undefined);
 });
 
