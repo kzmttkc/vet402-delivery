@@ -1,0 +1,118 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-09_002116",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 2116
+  },
+  "issuedAt": 1791594427,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://api.printmoneylab.com/api/v1/fx-rate",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "QZYcok2NHc654EG5qbgow6XBJD7zhhpkJmuh3bizGHK9yDZmspmnb8nzSPRguWN9uZVWhx8Hv5yY2rg4eWU9VB5",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "3Ywxk31SvWKwZBdY6bLvjmn5h4mzWcT3HJ5UZbYXoVy9",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "1000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0x969bfe6d4df86ed42faa768f18c2e26b98e75cdea4dd43facbde501f9117125e",
+    "params_hash": "0x9ba026523e7e6916b09a4339aa10924c284385f42615c0a5e5992bee51923a17",
+    "params_salted": true,
+    "ts": "2026-10-09T02:20:47.239Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-10-09",
+    "row": "rows[5]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-09",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "5oA3jb88J2KpqGXh3p6AkwgMtw6gb3oST2A1eumo6xyG3cbHjUvHvEYoEp7pXRYP3GPbC3JeYtPBhKghwyATo5Tc",
+    "root": "0xc0eea15d2ae1af2c0ef38f850f30385315f10ef252a333f203ffad35ae3a1e00",
+    "leafIndex": 5,
+    "proof": [
+      "0xaf76ed341a2fa317b904fd15f73d2a69b7cdb4476c322c39b7ea540ad4bfc6f2",
+      "0xb327556db7fec140ce024c2756813005bb287e03460e0e64365b848c4ad7976c",
+      "0xb493e0580ea86b50de4abd3e076277b1cd312b7aaaf222fd570f5717d33f6b93",
+      "0x9c928c2fd79a3a47fd42559668999791bfd96523f62d76a8d64b33be918ecca9",
+      "0x62245be166b6305e0fee144a7e29fad7a280442f9d6bcbe323ff7aefdea53815",
+      "0x91ef09c69747ac99b39ad1d107e632cb9f0e5bdf7539a45738cc6b7c3220bd93",
+      "0x138c46d7350e86e81e646488d8d4540bd13589ed9b720fcfaa8561021556c96d",
+      "0xf16ac046ad568d2b9c4b04a39236f38220356eb9bf5bd3b74af4ea691978a488"
+    ],
+    "count": 186,
+    "sequenceRange": [
+      2111,
+      2296
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-10T01:17:35.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0xec991ffda7c682f914a22906bfaccaa393a53ec8bbabe9353132be5fdc951a7902f4ee449ffab336c2c11d031964d51813c0cbae60dd7b18d867b7f363e5cbf91b"
+  }
+}
