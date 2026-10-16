@@ -28,7 +28,7 @@ import {
   gateCopy,
   gateTree,
   loadAllowList,
-  ownKeyNeedles,
+  ownKeyMaterial,
   scanFileText,
   sha256Hex,
   type ScanOptions,
@@ -54,7 +54,8 @@ const allowFile = resolve(opt("--allow") ?? join(HERE, "secret-allow.json"));
 const keysDir = opt("--keys-dir");
 const reason = opt("--reason");
 const allow = existsSync(allowFile) ? loadAllowList(allowFile) : { allow: [], files: [] };
-const scanOpts: ScanOptions = { ownKeys: keysDir ? ownKeyNeedles(resolve(keysDir)) : [] };
+const keyMaterial = keysDir ? ownKeyMaterial(resolve(keysDir)) : { needles: [], pieceSources: [] };
+const scanOpts: ScanOptions = { ownKeys: keyMaterial.needles, ownKeyPieces: keyMaterial.pieceSources };
 
 if (cmd === "copy") {
   const [src, out] = args;

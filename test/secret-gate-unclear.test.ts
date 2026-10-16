@@ -303,7 +303,7 @@ test("copy: the runner's key pair stops in any encoding inside a seller's answer
     ["token= then base64url of the pair", `https://x.example/cb?token=${pair.toString("base64url")}&x=1`],
     ["token= then base64 of the pair", `token=${pair.toString("base64")}`],
     ["a 20-character piece of the pair's base64", pair.toString("base64").slice(30, 50)],
-    ["a 20-character piece of the pair's hex", pair.toString("hex").slice(70, 90)],
+    ["a 20-character piece of the seed's half of the pair's hex", pair.toString("hex").slice(20, 40)],
   ];
   for (const [label, form] of forms) {
     writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"data":{"ref":"${form}"}}` }])));
@@ -361,5 +361,89 @@ test("mappedReadings gives the same texts as readings, in the same order, and ea
     for (const x of m) for (let i = 0; i < x.text.length; i++) assert.ok(x.s[i]! >= 0 && x.e[i]! <= s.length && x.s[i]! < x.e[i]!, s.slice(0, 60));
     // the first reading is the string itself, character for character
     assert.deepEqual(m[0]!.s, [...Array(s.length).keys()]);
+  }
+});
+
+// ---------- the second review (f20ac7e4, SHIP with four middle findings that could halt after paying) ----------
+
+/** A made-up ed25519 key pair in the Solana keypair file format (seed, then public key) in a scratch keys folder. */
+function fakePair(dir: string): { keys: string; pair: Buffer; pub: Buffer } {
+  const keys = join(dir, "keys");
+  mkdirSync(keys);
+  const jwk = generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" }) as { d: string; x: string };
+  const pair = Buffer.concat([Buffer.from(jwk.d, "base64url"), Buffer.from(jwk.x, "base64url")]);
+  writeFileSync(join(keys, "payer.json"), JSON.stringify([...pair]));
+  return { keys, pair, pub: pair.subarray(32) };
+}
+
+test("copy: the public half of the runner's key pair does not stop it (the payer's public key in hex or base64, a transaction holding it at bytes 2, 5 and 65)", () => {
+  const s = scratch();
+  const { keys, pair, pub } = fakePair(s.dir);
+  const r = seeded(6402);
+  const tx = (at: number) => {
+    const b = Buffer.from(bytes(r, 200));
+    pub.copy(b, at);
+    return b.toString("base64");
+  };
+  const pass: [string, string][] = [
+    ["the public key in hex", pub.toString("hex")],
+    ["the public key in upper-case hex", pub.toString("hex").toUpperCase()],
+    ["the public key in base64", pub.toString("base64")],
+    ["a transaction with the public key at byte 2", tx(2)],
+    ["a transaction with the public key at byte 5", tx(5)],
+    ["a transaction with the public key at byte 65", tx(65)],
+    // base64 of the pair: characters 0 to 41 are the seed's bits only, character 42 holds the seed's last 4 bits and
+    // the public key's first 2, characters 43 on are the public key's only
+    ["8 characters of the pair's base64 after the seed (43 to 50)", pair.toString("base64").slice(43, 51)],
+    ["8 characters of the pair's base64 with 7 of the seed (36 to 43)", pair.toString("base64").slice(36, 44)],
+    ["the second half of the pair's hex", pair.toString("hex").slice(64)],
+  ];
+  for (const [label, form] of pass) {
+    writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"v":"${form}"}` }])));
+    const c = gateCli("copy", s.inFile, s.outFile, "--keys-dir", keys, "--allow", s.allowFile);
+    assert.equal(c.status, 0, `${label}: ${c.stderr}`);
+  }
+  const stop: [string, string][] = [
+    ["8 characters of the pair's base64 ending at the boundary character 42 (35 to 42)", pair.toString("base64").slice(35, 43)],
+    ["8 characters of the pair's base64url ending at the boundary character", pair.toString("base64url").slice(35, 43)],
+    ["8 characters of the pair's hex just before the public key", pair.toString("hex").slice(56, 64)],
+  ];
+  for (const [label, form] of stop) {
+    writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"v":"${form}"}` }])));
+    const c = gateCli("copy", s.inFile, s.outFile, "--keys-dir", keys, "--allow", s.allowFile);
+    assert.equal(c.status, 3, `${label}: ${c.stdout}`);
+    assert.match(c.stderr, /own-key/, label);
+  }
+  rmSync(s.dir, { recursive: true });
+});
+
+test("copy: a recovery phrase split by +, by newlines (also escaped ones) or by hyphens stops, never redacted", () => {
+  const words = "abandon ability able about above absent absorb abstract absurd abuse access accident".split(" ");
+  for (const detail of [
+    `{"next":"https://x.example/import?mnemonic=${words.join("+")}&x=1"}`,
+    `{"v":"${words.join("\\n")}"}`,
+    `${words.join("\n")}`,
+    `{"seed":"${words.join("-")}"}`,
+    `{"v":"${words.join("\t")}"}`,
+  ]) {
+    const c = gateCopy(result([{ detail }]), "x.json", []);
+    assert.ok(c.blocking.length > 0 && c.blocking.some((f) => f.sub === "mnemonic"), detail.slice(0, 60));
+  }
+});
+
+test("copy: no reading of any text in the written copy holds a value it redacted (a base64 run broken by zero-width characters, the same value plain in another answer)", () => {
+  const r = seeded(4404);
+  for (let i = 0; i < 40; i++) {
+    const secret = alnum(r, 20 + (i % 9));
+    const b64 = Buffer.from(`token=${secret}`).toString("base64");
+    const broken = `${b64.slice(0, 6 + (i % 7))}​${b64.slice(6 + (i % 7))}`;
+    const raw = result([{ detail: `{"d":"${broken}"}` }, { detail: `{"note":"${secret.slice(0, 18)} ${secret}"}` }, { detail: `see ${b64}` }]);
+    const c = gateCopy(raw, "x.json", []);
+    if (c.blocking.length > 0) continue;
+    const out = JSON.parse(c.text);
+    for (const row of out.rows as { detail: string }[]) {
+      assert.ok(!readings(row.detail).some((x) => x.includes(secret)), `${i}: ${row.detail}`);
+      assert.ok(!row.detail.includes(b64) && !row.detail.includes(broken), `${i}: ${row.detail}`);
+    }
   }
 });

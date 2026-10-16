@@ -1,7 +1,7 @@
 /**
- * The redaction marks the secret gate (./secret-gate.ts) writes into public copies, and the cut that keeps a mark
- * whole when a detail is shortened for the rank and the site (src/remeasure/normalize.ts, src/rank/normalize.ts).
- * No imports, so the rank can use it without loading the gate.
+ * The redaction marks the secret gate (./secret-gate.ts) writes into public copies, and the first step of the cut
+ * that shortens a detail for the rank and the site (./detail-cut.ts): a mark the cut would split is kept whole.
+ * No imports, so the gate can import it.
  */
 
 /** The replacement text for a token a seller returned to vet402 (same wording as data/ since 2026-09-28). */

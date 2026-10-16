@@ -42,7 +42,9 @@ test("rank: a detail cut at 200 characters never ends inside a redaction mark, a
       }
     }
   }
-  // a short detail, and a long one with no mark at the cut, are cut as before
+  // a short detail, and a long one with nothing for the gate at the cut, are cut as before
   assert.equal(remeasure("ok"), "ok");
+  assert.equal(remeasure("ab ".repeat(90)), `${"ab ".repeat(90).slice(0, 200)}…`);
+  // a random-looking run cut at 200 is cut as before (pages already public hold such pieces, src/daily/detail-cut.ts)
   assert.equal(remeasure("b".repeat(250)), `${"b".repeat(200)}…`);
 });

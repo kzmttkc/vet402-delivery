@@ -778,10 +778,28 @@ export function blankRequestIds(v: string): string {
   return v.replace(REQUEST_ID_PAIR, (m: string, pre: string, _esc: string, id: string) => (isRequestIdValue(id) ? pre + " ".repeat(id.length) : m));
 }
 
+/** How long a piece of the runner's key must be to stop the copy step (gateCopy): any run of 8 of its characters. */
+export const OWN_KEY_PIECE = 8;
+
 /** The runner's own key material in the encodings it could leak in. */
 export function ownKeyNeedles(keysDir: string): string[] {
+  return ownKeyMaterial(keysDir).needles;
+}
+
+/**
+ * The runner's own key material: `needles`, the whole values in each encoding (a finding wherever one stands), and
+ * `pieceSources`, the encoded text that only the secret half determines, whose every OWN_KEY_PIECE characters stop
+ * the copy step. A 64-byte key pair is the seed (bytes 0 to 31, secret) and then the public key (bytes 32 to 63,
+ * public: the payer's address, in every transaction it signs). Its hex gives characters 0 to 63 (the seed's hex).
+ * Its base64 and base64url give characters 0 to 42: 0 to 41 hold the seed's bits only, 42 holds the seed's last 4
+ * bits and the public key's first 2, so a piece that ends there is still 7 characters of the seed, and characters 43
+ * on, the public key's only, give no piece. Its base58 is one number of all 64 bytes, so every character holds the
+ * seed and the whole of it is a source. The public key alone, in any encoding, is never a source.
+ */
+export function ownKeyMaterial(keysDir: string): { needles: string[]; pieceSources: string[] } {
   const out: string[] = [];
-  if (!existsSync(keysDir)) return out;
+  const sources: string[] = [];
+  if (!existsSync(keysDir)) return { needles: out, pieceSources: sources };
   for (const f of readdirSync(keysDir).filter((x) => x.endsWith(".json"))) {
     let j: unknown;
     try {
@@ -798,11 +816,15 @@ export function ownKeyNeedles(keysDir: string): string[] {
     for (const b of bytes) {
       const secret = b.length === 64 ? b.subarray(0, 32) : b;
       out.push(secret.toString("hex"), secret.toString("base64").replace(/=+$/, ""), secret.toString("base64url"), base58(b));
+      sources.push(secret.toString("hex"), secret.toString("base64").replace(/=+$/, ""), secret.toString("base64url"), base58(b));
       // a 64-byte key pair (seed, then public key) also in each encoding as a whole
-      if (b.length === 64) out.push(base58(secret), b.toString("hex"), b.toString("base64").replace(/=+$/, ""), b.toString("base64url"));
+      if (b.length === 64) {
+        out.push(base58(secret), b.toString("hex"), b.toString("base64").replace(/=+$/, ""), b.toString("base64url"));
+        sources.push(base58(secret), b.toString("base64").slice(0, 43), b.toString("base64url").slice(0, 43));
+      }
     }
   }
-  return [...new Set(out.filter((n) => n.length >= 32))];
+  return { needles: [...new Set(out.filter((n) => n.length >= 32))], pieceSources: [...new Set(sources.filter((n) => n.length >= OWN_KEY_PIECE))] };
 }
 
 /** A needle that is hex: compared without case (upper-case hex is the same key). */
@@ -812,9 +834,7 @@ export function holdsOwnKey(text: string, needle: string): boolean {
   return isHexNeedle(needle) ? text.toLowerCase().includes(needle.toLowerCase()) : text.includes(needle);
 }
 
-/** How long a piece of the runner's key must be to stop the copy step (gateCopy): any run of 8 of its characters. */
-export const OWN_KEY_PIECE = 8;
-/** Every piece of OWN_KEY_PIECE characters of each needle, in lower case (compared without case). */
+/** Every piece of OWN_KEY_PIECE characters of each source (ownKeyMaterial), in lower case (compared without case). */
 function ownKeyPieces(needles: readonly string[]): Set<string> {
   const out = new Set<string>();
   for (const n of needles) for (let i = 0; i + OWN_KEY_PIECE <= n.length; i++) out.add(n.slice(i, i + OWN_KEY_PIECE).toLowerCase());
@@ -848,6 +868,11 @@ export interface ScanOptions {
   publicIds?: ReadonlySet<string>;
   /** Field names (made of words) the scanned JSON files use: the site prints them as text. */
   fieldNames?: ReadonlySet<string>;
+  /**
+   * The copy step only (gateCopy): the text whose every OWN_KEY_PIECE characters are a piece of the runner's key
+   * (ownKeyMaterial pieceSources). Without it, every needle in ownKeys is a source.
+   */
+  ownKeyPieces?: readonly string[];
   /** Filled with each finding's value by "<kind>:<sha256>", for the copy step to redact it. Never printed. */
   values?: Map<string, string>;
 }
@@ -897,9 +922,10 @@ export function scanText(text: string, file: string, path: string, key: string |
     for (const m of v.matchAll(AUTH_SCHEME)) if (!ownMarker(m[1]!)) add("bearer", m[1]!);
     for (const m of v.matchAll(TOKEN_SCHEME)) if (looksRandom(m[1]!)) add("bearer", m[1]!);
     for (const m of v.matchAll(URL_USERINFO)) add("url-query-secret", m[1]!, false, "url-password");
-    // Twelve or more BIP-39 words in a row: a wallet's recovery phrase.
-    for (const m of v.matchAll(/[a-z]{3,8}(?:[ ,]+[a-z]{3,8}){11,}/g)) {
-      const words = m[0].split(/[ ,]+/);
+    // Twelve or more BIP-39 words in a row: a wallet's recovery phrase. Between the words any run of white space,
+    // commas, + (a query), - (a slug) or an escaped \n, \r or \t.
+    for (const m of v.matchAll(/[a-z]{3,8}(?:(?:[\s,+-]|\\[nrt])+[a-z]{3,8}){11,}/g)) {
+      const words = m[0].split(/(?:[\s,+-]|\\[nrt])+/);
       let run = 0;
       for (const w of words) {
         run = BIP39.has(w) ? run + 1 : 0;
@@ -1373,7 +1399,7 @@ function valueSpans(readingsOf: readonly Mapped[], v: string): [number, number][
 }
 
 /** The string with the spans (merged where they overlap or touch) each replaced by one mark. */
-function redactSpans(s: string, spans: [number, number][]): string {
+function redactSpans(s: string, spans: [number, number][]): { text: string; written: string[] } {
   const merged: [number, number][] = [];
   for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0] || x[1] - y[1])) {
     const last = merged[merged.length - 1];
@@ -1381,8 +1407,8 @@ function redactSpans(s: string, spans: [number, number][]): string {
     else merged.push([a, b]);
   }
   let out = s;
-  for (const [a, b] of merged.reverse()) out = out.slice(0, a) + UNCLEAR_VALUE_REDACTION + out.slice(b);
-  return out;
+  for (const [a, b] of [...merged].reverse()) out = out.slice(0, a) + UNCLEAR_VALUE_REDACTION + out.slice(b);
+  return { text: out, written: merged.map(([a, b]) => s.slice(a, b)) };
 }
 
 export interface CopyResult {
@@ -1428,7 +1454,7 @@ export function gateCopy(raw: unknown, file: string, allow: readonly AllowEntry[
   for (const t of texts) uses.set(t.path, (uses.get(t.path) ?? 0) + 1);
   const isSeller = (path: string) => seller.has(path) && uses.get(path) === 1;
   // A piece of the runner's own key in any reading of a seller's answer stops the copy, whatever else is found.
-  const pieces = ownKeyPieces(opts.ownKeys ?? []);
+  const pieces = ownKeyPieces(opts.ownKeyPieces ?? opts.ownKeys ?? []);
   for (const t of texts.filter((x) => isSeller(x.path))) {
     for (const r of readings(t.text)) {
       const p = ownKeyPieceIn(r, pieces);
@@ -1464,27 +1490,58 @@ export function gateCopy(raw: unknown, file: string, allow: readonly AllowEntry[
   const placed = new Set<string>();
   const out = structuredClone(value) as Obj;
   const rows = out.rows as Obj[];
-  for (const path of seller) {
-    if (!isSeller(path)) continue;
-    const m = /^rows\[(\d+)\]\.(.+)$/.exec(path)!;
-    const row = rows[Number(m[1])]!;
-    const s = row[m[2]!] as string;
-    if (![...targets.keys()].some((v) => readsAs(readings(s), v))) continue;
-    const mr = mappedReadings(s);
-    const spans: [number, number][] = [];
-    for (const [v, fs] of targets) {
-      const at = valueSpans(mr, v);
-      if (at.length === 0) continue;
-      spans.push(...at);
-      for (const f of fs) {
-        unclear.set(`${path}|${f.kind}:${f.sha256}`, { path, what: "unclear-value", file, kind: f.kind, sha256: f.sha256.slice(0, 16) });
-        if (f.path === path) placed.add(`${f.kind}:${f.sha256}:${path}`);
+  /** Each text that was redacted as written (a merged span), longer than OWN_KEY_PIECE, with the findings it held. */
+  const written = new Map<string, Finding[]>();
+  const placeAll = (values: ReadonlyMap<string, Finding[]>) => {
+    for (const path of seller) {
+      if (!isSeller(path)) continue;
+      const m = /^rows\[(\d+)\]\.(.+)$/.exec(path)!;
+      const row = rows[Number(m[1])]!;
+      const s = row[m[2]!] as string;
+      if (![...values.keys()].some((v) => readsAs(readings(s), v))) continue;
+      const mr = mappedReadings(s);
+      const spans: [number, number][] = [];
+      const here: Finding[] = [];
+      for (const [v, fs] of values) {
+        const at = valueSpans(mr, v);
+        if (at.length === 0) continue;
+        spans.push(...at);
+        here.push(...fs);
+        for (const f of fs) {
+          unclear.set(`${path}|${f.kind}:${f.sha256}`, { path, what: "unclear-value", file, kind: f.kind, sha256: f.sha256.slice(0, 16) });
+          if (f.path === path) placed.add(`${f.kind}:${f.sha256}:${path}`);
+        }
       }
+      const r = redactSpans(s, spans);
+      row[m[2]!] = r.text;
+      for (const w of r.written) if (w.length > OWN_KEY_PIECE) written.set(w, [...new Set([...(written.get(w) ?? []), ...here])]);
     }
-    row[m[2]!] = redactSpans(s, spans);
-  }
+  };
+  placeAll(targets);
   const lost = blocking.filter((f) => !placed.has(`${f.kind}:${f.sha256}:${f.path}`));
   if (lost.length > 0) return stop(lost.map((f) => ({ ...f, note: "its place in the answer could not be found, so it is not redacted" })));
+
+  // The last check of values: each value redacted, and each text redacted as written with every reading of it, looked
+  // for in every reading of every string, name and number of the copy. In a seller's answer it is redacted there as
+  // well (once more), anywhere else it stops the copy. Then the copy must be clean of them.
+  const again = new Map<string, Finding[]>(targets);
+  for (const [w, fs] of written) for (const x of readings(w)) if (x.length > OWN_KEY_PIECE) again.set(x, [...(again.get(x) ?? []), ...fs]);
+  const remaining = () =>
+    allTexts(out).flatMap((t) => {
+      const rs = readings(t.text);
+      return [...again].filter(([v]) => readsAs(rs, v)).map(([v, fs]) => ({ path: t.path, v, fs }));
+    });
+  for (let round = 0; round < 2; round++) {
+    const left = remaining();
+    if (left.length === 0) break;
+    const outside = left.find((x) => !isSeller(x.path));
+    if (outside || round === 1) {
+      const x = outside ?? left[0]!;
+      const where = (x.path || "-").split(x.v).join("<the value>");
+      return stop(x.fs.map((f) => ({ ...f, note: `a value redacted in a seller's answer is still read at ${where}` })));
+    }
+    placeAll(new Map(left.map((x) => [x.v, x.fs])));
+  }
 
   // The last gate: the redacted copy is scanned as it will be written, and anything left stops it.
   const redacted = publicJson(out);
