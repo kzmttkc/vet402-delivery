@@ -1,0 +1,117 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-15_003201",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 3201
+  },
+  "issuedAt": 1792112764,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/brand-dev/v1/brand/fonts",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0xa1e9991ac8253ee4535007ceaabe999d0b9549112ddbf2cbe241af58202b02a3",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x9f7556c65392E5cBCB342010618C2b407E64A8EA",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "30000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xec3eef1bc4ad039fd24b036eee5e96d2ceaa32a00bda0913c42836c9fccfa9fa",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-10-15T02:45:26.663Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 413,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-10-15",
+    "row": "rows[21]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-15",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "TukhD2CZShWqWrfWuADjCWSpsz96fzNwXKtFSmcxEYkUCR7fRp42gBzYH23pvHyEsbzYURPmzoKSpRkH3N3qhvX",
+    "root": "0xdb44a18620314b4d7e1074d2ee47a93077e958a44eb4f154f8d2b0b3fe18134e",
+    "leafIndex": 100,
+    "proof": [
+      "0xa9b28e90d25023d6f3b44d306beddec57976433ca2e4a403716bc8ec1ad1e3bf",
+      "0x42e727147f0c7de5b6936d0be59bac334619e7ac93a5934cea65e6c3dc9d4581",
+      "0xe7ba29cc24ebf2ad5831a85898b3665ae125bced3720be6a0056ee153d56812a",
+      "0x3827f107bb0409e549bdb74fd779ffe5b62356677bf0d665d7d3fe1680728cb7",
+      "0x5f7b259a3f1f6cd152ad059059ee53fe1fb4637f4792f6c1d89107d39cfeeb27",
+      "0xfa357562f641be8691734bac8d5497bc5996adae5f4d97d69ad8bfaa54e68bcd"
+    ],
+    "count": 110,
+    "sequenceRange": [
+      3101,
+      3210
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-16T01:09:21.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x7558c7d0b010ecf119e8fb55bbcbd498917dac3b412b46516384345c8349b3ca0c0821ae470dcf4b4625c923ae24ba287d696e099c8303e967fea7a9a7f6e29d1c"
+  }
+}
