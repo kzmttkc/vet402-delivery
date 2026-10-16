@@ -8,6 +8,9 @@
  *    any field (a seller's answer, the request vet402 sent) unless PUBLIC_STREET_ADDRESSES names it.
  *  - scan: every file that would be public is read again. One finding the allow list does not name stops the
  *    commit (fail closed).
+ * The copy step (gateCopy) adds one thing between them: a value inside a seller's answer (rows[N].detail) that is
+ * only an unclear finding (opaque-40, secret-field, url-query-secret) and not on the allow list is replaced in the
+ * public copy instead of stopping it. Anything else still stops the copy (see gateCopy).
  *
  * Each string is looked at as written and as it reads after undoing what hides a value: JSON escapes
  * (\" \u0020), percent-encoding, base64 of text, and JSON inside the string. In each reading:
@@ -36,6 +39,12 @@ import { BIP39_ENGLISH } from "./bip39-english.js";
 export const SELLER_TOKEN_REDACTION = "[redacted: token the seller issued to vet402]";
 /** Response-body fields where a seller's own token can appear. A JWT anywhere else is not a known shape. */
 export const SELLER_BODY_FIELDS: readonly string[] = ["detail", "first300"];
+
+/**
+ * The replacement text for a value in a seller's answer that the gate could not tell from a secret (gateCopy).
+ * One run of characters with no space, so it reads as one value in a query, a header or a form as well.
+ */
+export const UNCLEAR_VALUE_REDACTION = "[redacted:unclear-seller-value]";
 
 /** The replacement text for a street address (same form as the token redaction). */
 export const POSTAL_ADDRESS_REDACTION = "[redacted: street address]";
@@ -79,6 +88,8 @@ export interface Finding {
   length: number;
   /** The value with letters and digits masked: enough to tell what it is, not enough to use it. */
   shape: string;
+  /** Why the copy step stopped on it rather than redacting it (gateCopy), when that is not the finding itself. */
+  note?: string;
 }
 
 export interface AllowEntry {
@@ -89,7 +100,11 @@ export interface AllowEntry {
 
 export interface Redaction {
   path: string;
-  what: "seller-token" | "local-path" | "postal-address";
+  what: "seller-token" | "local-path" | "postal-address" | "unclear-value";
+  /** unclear-value only: the copy's file name, the finding's kind and the first 16 hex of its sha256 (never the value). */
+  file?: string;
+  kind?: FindingKind;
+  sha256?: string;
 }
 
 export const sha256Hex = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -689,7 +704,7 @@ const PUBLIC_ID_NAMES = /^(?:challengeId|challenge_id)$/;
 /** URL path steps after which an on-chain id stands (/tx/<sig>, /address/<addr>). */
 const PATH_ID = /\/(?:tx|txs|transaction|transactions|address|addresses|account|accounts|token|tokens|mint|block|wallet)\/([A-Za-z0-9]{24,})/gi;
 
-const ownMarker = (v: string) => v === SELLER_TOKEN_REDACTION || v.startsWith(SELLER_TOKEN_REDACTION);
+const ownMarker = (v: string) => v === SELLER_TOKEN_REDACTION || v.startsWith(SELLER_TOKEN_REDACTION) || v === UNCLEAR_VALUE_REDACTION;
 
 /**
  * A public image URL as a seller's answer gives it (a token's image_uri, a logo): https, a host name, then path
@@ -813,15 +828,18 @@ export interface ScanOptions {
   publicIds?: ReadonlySet<string>;
   /** Field names (made of words) the scanned JSON files use: the site prints them as text. */
   fieldNames?: ReadonlySet<string>;
+  /** Filled with each finding's value by "<kind>:<sha256>", for the copy step to redact it. Never printed. */
+  values?: Map<string, string>;
 }
 
 type Add = (kind: FindingKind, v: string, known?: boolean) => void;
 
-function finder(file: string, path: string, out: Finding[]): { add: Add; flush: () => void } {
+function finder(file: string, path: string, out: Finding[], values?: Map<string, string>): { add: Add; flush: () => void } {
   const found = new Map<string, Finding>();
   const add: Add = (kind, v, known = false) => {
     const h = sha256Hex(v);
     const k = `${kind}:${h}`;
+    values?.set(k, v);
     const prev = found.get(k);
     if (prev) prev.known = prev.known || known;
     else found.set(k, { file, path, kind, known, sha256: h, length: v.length, shape: maskShape(v) });
@@ -831,7 +849,7 @@ function finder(file: string, path: string, out: Finding[]): { add: Add; flush: 
 
 /** Scan one string value. `key`/`path`: its JSON field, or null/"" for plain text. */
 export function scanText(text: string, file: string, path: string, key: string | null, out: Finding[], opts: ScanOptions = {}): void {
-  const { add, flush } = finder(file, path, out);
+  const { add, flush } = finder(file, path, out, opts.values);
   for (const needle of opts.ownKeys ?? []) if (text.includes(needle)) add("own-key", needle);
   // vet402's own field in its exact format: nothing else to look at.
   if (key !== null && ownField(path, key, text)) return flush();
@@ -990,7 +1008,7 @@ export function scanJson(value: unknown, file: string, out: Finding[], opts: Sca
     if (typeof x === "string") return scanText(x, file, path, key, out, o);
     const publicNumber = typeof x === "number" && key !== null && publicTokenValue(key, String(x));
     if (key !== null && x !== null && typeof x !== "boolean" && isSecretName(key) && !ownField(path, key, x) && !publicNumber && !(typeof x === "object" && cryptoTokenContainer(key))) {
-      const { add, flush } = finder(file, path, out);
+      const { add, flush } = finder(file, path, out, o.values);
       add("secret-field", JSON.stringify(x));
       flush();
     }
@@ -1177,6 +1195,139 @@ export function gateTree(root: string, dirs: readonly string[], allow: AllowList
   return { files, findings, blocking };
 }
 
+// ---------- the copy step: an unclear value in a seller's answer ----------
+
+/** Findings that can be a public value as well as a secret (a URL piece, an id, a link under a key-like name). */
+export const UNCLEAR_KINDS: ReadonlySet<FindingKind> = new Set<FindingKind>(["opaque-40", "secret-field", "url-query-secret"]);
+
+/**
+ * Where a remeasure result holds a seller's answer: rows[N].detail (src/remeasure/results.ts), the paid answer's
+ * first 300 characters, the seller's error text, or the refusal text that quotes the unpaid 402 answer
+ * (src/remeasure/solana.ts and tempo.ts), and rows[N].first300. These are SELLER_BODY_FIELDS, the fields redactKnown
+ * already treats as a seller's body. Nothing deeper and nothing else is: vet402's own fields (url, requestUrl, payTo,
+ * key, tx, input, answer, which holds only the answer's shape and its safe names) and the run's settings (payer,
+ * note, runs) are never redacted this way, so an unclear value there stops the copy as before.
+ */
+const SELLER_ANSWER_PATH = new RegExp(String.raw`^rows\[\d+\]\.(?:${SELLER_BODY_FIELDS.join("|")})$`);
+export const isSellerAnswerPath = (path: string) => SELLER_ANSWER_PATH.test(path);
+
+/** Whether any reading of the string the gate makes (readings) holds the value. */
+const readsAs = (rs: readonly string[], v: string) => rs.some((r) => r.includes(v));
+
+/** The forms a value is written in that read back as the value itself: as is, JSON-escaped, percent-encoded. Longest first. */
+function writtenForms(v: string): string[] {
+  const json = JSON.stringify(v).slice(1, -1);
+  const pct = encodeURIComponent(v);
+  return [...new Set([v, json, json.replace(/\//g, "\\/"), pct, pct.replace(/%20/g, "+")])].filter((f) => f !== "").sort((a, b) => b.length - a.length);
+}
+
+/** Every string, object key and number in a parsed value, with the path scanJson gives it. */
+function allTexts(x: unknown, path = "", out: { path: string; text: string }[] = []): { path: string; text: string }[] {
+  if (typeof x === "string") out.push({ path, text: x });
+  else if (typeof x === "number") out.push({ path, text: String(x) });
+  else if (Array.isArray(x)) x.forEach((v, i) => allTexts(v, `${path}[${i}]`, out));
+  else if (x && typeof x === "object")
+    for (const [k, v] of Object.entries(x)) {
+      const p = path ? `${path}.${k}` : k;
+      out.push({ path: `${p}(name)`, text: k });
+      allTexts(v, p, out);
+    }
+  return out;
+}
+
+/** The parsed value with each string in a seller's answer passed through `f`. */
+function mapSellerAnswers(x: unknown, f: (path: string, s: string) => string, path = ""): unknown {
+  if (typeof x === "string") return isSellerAnswerPath(path) ? f(path, x) : x;
+  if (Array.isArray(x)) return x.map((v, i) => mapSellerAnswers(v, f, `${path}[${i}]`));
+  if (x && typeof x === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x)) o[k] = mapSellerAnswers(v, f, path ? `${path}.${k}` : k);
+    return o;
+  }
+  return x;
+}
+
+export interface CopyResult {
+  /** The public copy (publicJson), to be written only when `blocking` is empty. */
+  text: string;
+  redactions: Redaction[];
+  /** What stops the copy. Empty: write it. */
+  blocking: Finding[];
+}
+
+/**
+ * A result file becomes its public copy. First redactKnown, then the scan of the copy as it would be written. When
+ * the only findings left that the allow list lacks are unclear ones (UNCLEAR_KINDS, not a known shape) inside a
+ * seller's answer (isSellerAnswerPath), each such value is replaced with UNCLEAR_VALUE_REDACTION in every seller's
+ * answer of the file where any reading of it holds the value, in each form it can be written in (as is,
+ * JSON-escaped, percent-encoded). An answer that still reads as the value after that (base64, HTML references) is
+ * replaced whole. Each one is said in the redactions (file, path, kind, the first 16 hex of the sha256), and the copy
+ * is scanned again, up to four times, until nothing is left.
+ *
+ * It stops instead, and writes nothing, as before when any of these holds:
+ *  - any other finding the allow list lacks: the runner's key, a known shape (a JWT, a Bearer value, a vendor key,
+ *    a private key, a key array, a local path, a street address), or an unclear finding anywhere but a seller's
+ *    answer (vet402's own fields, the run's settings)
+ *  - a reading of a seller's answer holds the runner's own key, or one of the values is a piece of it
+ *  - the same value is in any reading of a string, a name or a number outside the sellers' answers
+ * The scan and baseline modes and gateTree do not use this: the tree before a commit is judged as strictly as before.
+ */
+export function gateCopy(raw: unknown, file: string, allow: readonly AllowEntry[] | AllowList, opts: ScanOptions = {}, covered: ReadonlySet<string> = new Set()): CopyResult {
+  const known = redactKnown(raw);
+  let value = known.value;
+  const unclear = new Map<string, Redaction>();
+  const ownKeys = opts.ownKeys ?? [];
+  for (let round = 0; ; round++) {
+    const values = new Map<string, string>();
+    const text = publicJson(value);
+    const blocking = blockingFindings(scanFileText(text, file, { ...opts, values }), allow, covered);
+    const result = (stop: Finding[]): CopyResult => ({ text, redactions: [...known.redactions, ...unclear.values()], blocking: stop });
+    if (blocking.length === 0) return result([]);
+    const hard = blocking.filter((f) => f.known || !UNCLEAR_KINDS.has(f.kind) || !isSellerAnswerPath(f.path));
+    if (hard.length > 0) return result(hard);
+    if (round >= 4) return result(blocking.map((f) => ({ ...f, note: "still found after redacting it four times" })));
+
+    // Each value to redact, with the findings that name it.
+    const targets = new Map<string, Finding[]>();
+    for (const f of blocking) {
+      const v = values.get(`${f.kind}:${f.sha256}`);
+      if (v === undefined) return result([{ ...f, note: "its value could not be found to redact" }]);
+      targets.set(v, [...(targets.get(v) ?? []), f]);
+    }
+    const texts = allTexts(value).map((t) => ({ ...t, rs: readings(t.text) }));
+    // The runner's own key in any reading of a seller's answer, or a value that is a piece of it: never redacted.
+    for (const t of texts.filter((x) => isSellerAnswerPath(x.path))) {
+      const n = ownKeys.find((k) => readsAs(t.rs, k));
+      if (n !== undefined) return result([{ file, path: t.path, kind: "own-key", known: false, sha256: sha256Hex(n), length: n.length, shape: maskShape(n), note: "the runner's own key in a reading of a seller's answer" }]);
+    }
+    for (const [v, fs] of targets) {
+      if (v.length >= 8 && ownKeys.some((k) => k.includes(v))) return result(fs.map((f) => ({ ...f, note: "a piece of the runner's own key" })));
+    }
+    // The same value outside the sellers' answers: it is not only the seller's, so it stops as before.
+    for (const t of texts.filter((x) => !isSellerAnswerPath(x.path))) {
+      for (const [v, fs] of targets) {
+        // (a path names the keys on the way, and the value can be one of them: it is never printed)
+        const where = (t.path || "-").split(v).join("<the value>");
+        if (readsAs(t.rs, v)) return result(fs.map((f) => ({ ...f, note: `the same value also stands at ${where}, outside the seller's answer` })));
+      }
+    }
+    const order = [...targets].sort((a, b) => b[0].length - a[0].length);
+    value = mapSellerAnswers(value, (path, s) => {
+      const before = readings(s);
+      let out = s;
+      for (const [v, fs] of order) {
+        if (!readsAs(before, v)) continue;
+        // said for every value the answer held, also one that went with a longer value around it
+        for (const f of fs) unclear.set(`${path}|${f.kind}:${f.sha256}`, { path, what: "unclear-value", file, kind: f.kind, sha256: f.sha256.slice(0, 16) });
+        if (!readsAs(readings(out), v)) continue;
+        for (const form of writtenForms(v)) out = out.split(form).join(UNCLEAR_VALUE_REDACTION);
+        if (readsAs(readings(out), v)) out = UNCLEAR_VALUE_REDACTION;
+      }
+      return out;
+    });
+  }
+}
+
 /** One line per finding, safe to log: file, path, kind, length, masked shape, hash prefix. Never the value. */
 export const describe = (f: Finding) =>
-  `${f.file} ${f.path || "-"} ${f.kind}${f.known ? " (known shape, not redacted)" : ""} len=${f.length} shape=${f.shape} sha256=${f.sha256.slice(0, 16)}`;
+  `${f.file} ${f.path || "-"} ${f.kind}${f.known ? " (known shape, not redacted)" : ""} len=${f.length} shape=${f.shape} sha256=${f.sha256.slice(0, 16)}${f.note ? ` (${f.note})` : ""}`;

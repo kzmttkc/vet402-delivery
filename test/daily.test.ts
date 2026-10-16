@@ -27,6 +27,7 @@ import {
   POSTAL_COORD_REDACTION,
   scanFileText,
   SELLER_TOKEN_REDACTION,
+  UNCLEAR_VALUE_REDACTION,
   type Finding,
 } from "../src/daily/secret-gate.js";
 import { alnum, b64url, base58, bytes, GATE_SHAPES, hex, seeded, withDetail } from "../src/daily/gate-shapes.js";
@@ -418,16 +419,17 @@ test("gate: public ids in their exact format, words and vet402's own fields do n
   assert.ok(scan(withDetail(`{"note":"${hex(seeded(6), 64)}"}`)).length > 0);
 });
 
-test("gate: copy refuses a result with an unknown shape and writes nothing, never printing the value", () => {
+test("gate: copy refuses a result with an unknown shape outside a seller's answer and writes nothing, never printing the value", () => {
   const dir = tmp();
   const raw = JSON.parse(read(join(FIX, "remeasure-solana-2026-09-29.subset.json")));
   const secret = `${b64url(seeded(9), 33)}Q9`;
-  raw.rows[2].detail = `{"session":"${secret}","user":"vet402"}`;
+  // in the request vet402 sent, not in the seller's answer (an unclear value there is redacted: test/secret-gate-unclear.test.ts)
+  raw.rows[2].requestUrl = `https://s.example/a?session=${secret}`;
   writeFileSync(join(dir, "in.json"), JSON.stringify(raw));
   const out = join(dir, "out", "solana-2026-09-29.json");
   const r = gateCli("copy", join(dir, "in.json"), out);
   assert.equal(r.status, 3, r.stdout + r.stderr);
-  assert.match(r.stderr, /blocked: solana-2026-09-29\.json rows\[2\]\.detail secret-field/);
+  assert.match(r.stderr, /blocked: solana-2026-09-29\.json rows\[2\]\.requestUrl url-query-secret/);
   assert.ok(!existsSync(out));
   assert.ok(!r.stderr.includes(secret.slice(0, 20)), "the value is never printed");
   rmSync(dir, { recursive: true });
@@ -1323,16 +1325,39 @@ test("run.sh: Tempo over its cap after Solana: no Tempo payment, the lane halts,
   rmSync(sb.dir, { recursive: true });
 });
 
-test("run.sh: an unknown secret in a result stops the publish; nothing is copied or committed", () => {
+test("run.sh: an unknown secret in a result (outside a seller's answer) stops the publish; nothing is copied or committed", () => {
   const sb = sandbox();
-  writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", detail: `{"session":"Zq8${b64url(seeded(8), 30)}"}` }] }));
+  writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", requestUrl: `https://a.example/x?session=Zq8${b64url(seeded(8), 30)}`, detail: "{}" }] }));
   const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z") });
   assert.equal(r.status, 1, logs(sb));
   assert.match(alerts(sb), /am stopped \(dry run\): secret gate stopped the copy of solana-2026-10-01\.json/);
-  assert.match(logs(sb), /blocked: solana-2026-10-01\.json rows\[0\]\.detail secret-field/);
+  assert.match(logs(sb), /blocked: solana-2026-10-01\.json rows\[0\]\.requestUrl url-query-secret/);
   assert.ok(!existsSync(join(sb.pub, "data", "remeasure", "solana-2026-10-01.json")));
   assert.ok(!calls(sb).includes("--pay"));
   assert.equal(git(sb.pub, "status", "--porcelain"), "");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: an unclear value in a seller's answer is redacted, not a stop: published with a notice and the count in the subject, no HALT", () => {
+  const sb = sandbox();
+  // the 2026-10-16 rows[25].detail shape: a Reddit post URL whose id reads as random
+  const piece = `${b64url(seeded(1016), 24).replace(/[-_]/g, "x")}`;
+  const detail = `{"results":[{"title":"Solana validators","url":"https://www.reddit.com/r/solana/comments/${piece}/"}]}`;
+  writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  const notices = alerts(sb).split("\n").filter((l) => l.startsWith("## "));
+  assert.equal(notices.length, 1, alerts(sb));
+  assert.match(notices[0]!, /am: secret gate redacted [12] unclear value\(s\) in seller answers instead of stopping \(solana-2026-10-01\.json; paths, kinds and sha256 prefixes in the log\)/);
+  assert.match(logs(sb), /copied solana-2026-10-01\.json: .*"what":"unclear-value","file":"solana-2026-10-01\.json","kind":"opaque-40","sha256":"[0-9a-f]{16}"/);
+  const m = logs(sb).match(/commit ([0-9a-f]{40}): (.*)/);
+  assert.ok(m, logs(sb));
+  assert.match(m[2]!, /^data: 2026-10-01 remeasure on Solana \(1 rows: 1 paid, 1 settled, 1 delivered\); [12] unclear values? in seller answers? redacted$/);
+  const copy = git(sb.repo, "show", `${m[1]}:data/remeasure/solana-2026-10-01.json`);
+  assert.ok(!copy.includes(piece) && copy.includes(UNCLEAR_VALUE_REDACTION));
+  assert.match(git(sb.repo, "show", `${m[1]}:data/manifest.json`), /rows\[0\]\.detail: a value in a seller's answer that the secret gate could not tell from a secret is replaced with \[redacted\]/);
+  assert.ok(!logs(sb).includes(piece) && !alerts(sb).includes(piece));
   rmSync(sb.dir, { recursive: true });
 });
 

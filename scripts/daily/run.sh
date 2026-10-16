@@ -47,7 +47,8 @@
 # Before paying: main is pulled, the published tree passes the secret gate, no other remeasure or anchor is in
 # flight, and the dry run of the same chain fits the run cap, the month and the balance (scripts/daily/steps.ts).
 # Publishing: result files are copied into data/ through the secret gate (known shapes redacted with the wording
-# data/ already uses; anything else it finds stops the commit), data/manifest.json is updated, rank and site are
+# data/ already uses, and an unclear value inside a seller's answer, rows[N].detail, redacted and said in a notice,
+# not a stop; anything else it finds stops the commit), data/manifest.json is updated, rank and site are
 # rebuilt, typecheck and npm test run, and one commit with data/ and site/ only is pushed (the pre-push review gate
 # lets data-only commits through). Then the Pages run for that commit is awaited.
 #
@@ -554,7 +555,7 @@ remeasure() {
 }
 
 publish_remeasure() {
-  local c src day copied=() redacted=()
+  local c src day copied=() redacted=() unclear=0 unclear_in=()
   for c in solana tempo; do
     src="$RMDIR/$c-$UTC_DAY.json"
     if [ "$DRY" = 1 ] && [ ! -f "$src" ]; then
@@ -580,9 +581,17 @@ publish_remeasure() {
       return 1
     }
     log "copied $(basename "$src"): $res"
-    local reds
+    local reds counts n_other n_unclear
     reds="$(printf '%s' "$res" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(JSON.parse(s).redactions)))')"
-    [ "$reds" != "[]" ] && redacted+=("$c")
+    # "<other redactions> <unclear values>": an unclear value in a seller's answer is said apart (gateCopy).
+    counts="$(printf '%s' "$reds" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const u=r.filter(x=>x.what==="unclear-value").length;console.log(`${r.length-u} ${u}`)})')"
+    n_other="${counts% *}"
+    n_unclear="${counts#* }"
+    [ "$n_other" != 0 ] && redacted+=("$c")
+    if [ "$n_unclear" != 0 ]; then
+      unclear=$((unclear + n_unclear))
+      unclear_in+=("$(basename "$src")")
+    fi
     run "manifest for $c-$day" daily_steps manifest "$PUB/data" --file "remeasure/$c-$day.json" --day "$day" --redactions "$reds" || {
       alert "manifest update for $c-$day failed" halt
       return 1
@@ -594,10 +603,12 @@ publish_remeasure() {
     return 0
   fi
   local msg
-  msg="$(daily_steps message "$PUB/data" --day "$day" --redacted "$(IFS=,; echo "${redacted[*]:-}")")" || {
+  msg="$(daily_steps message "$PUB/data" --day "$day" --redacted "$(IFS=,; echo "${redacted[*]:-}")" --unclear "$unclear")" || {
     alert "could not write the commit message" halt
     return 1
   }
+  # Not a stop: said so a person can look at what was left out of the public copy (paths and sha256 prefixes in the log).
+  [ "$unclear" -gt 0 ] && notice "secret gate redacted $unclear unclear value(s) in seller answers instead of stopping ($(IFS=,; echo "${unclear_in[*]}"); paths, kinds and sha256 prefixes in the log)"
   publish "$msg"
 }
 

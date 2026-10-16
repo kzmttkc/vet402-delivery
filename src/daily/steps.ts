@@ -171,6 +171,8 @@ export function redactionNote(path: string, redactions: readonly Redaction[]): s
   const addresses = redactions.filter((r) => r.what === "postal-address").map((r) => r.path);
   if (addresses.length) parts.push(`${list(addresses)}: a street address (a seller's example input, or an answer that repeats it) is replaced with [redacted]`);
   if (redactions.some((r) => r.what === "local-path")) parts.push("local runner paths are shortened to ~/");
+  const unclear = [...new Set(redactions.filter((r) => r.what === "unclear-value").map((r) => r.path))];
+  if (unclear.length) parts.push(`${list(unclear)}: a value in a seller's answer that the secret gate could not tell from a secret is replaced with [redacted]`);
   return `${path} ${parts.join("; ")}`;
 }
 
@@ -216,10 +218,14 @@ export function updateManifest(
   return { text: JSON.stringify(m, null, 2) + "\n", changed: true };
 }
 
-/** The data commit's subject: what the day's remeasure files hold. */
-export function commitMessage(day: string, files: { chain: "solana" | "tempo"; result: ResultFile; redacted: boolean }[]): string {
+/**
+ * The data commit's subject: what the day's remeasure files hold. `unclear`: how many values in sellers' answers the
+ * copy step redacted because the gate could not tell them from a secret (gateCopy), counted from its redactions.
+ */
+export function commitMessage(day: string, files: { chain: "solana" | "tempo"; result: ResultFile; redacted: boolean }[], unclear = 0): string {
   const name = { solana: "Solana", tempo: "Tempo" } as const;
   const parts = files.map((f) => `${name[f.chain]} (${tally(f.result)})`);
   const red = files.some((f) => f.redacted) ? "; a seller-issued token redacted" : "";
-  return `data: ${day} remeasure on ${parts.join(" and ")}${red}`;
+  const unc = unclear === 1 ? "; 1 unclear value in a seller answer redacted" : unclear > 1 ? `; ${unclear} unclear values in seller answers redacted` : "";
+  return `data: ${day} remeasure on ${parts.join(" and ")}${red}${unc}`;
 }

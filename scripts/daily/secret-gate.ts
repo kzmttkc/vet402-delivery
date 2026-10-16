@@ -3,8 +3,10 @@
  * shape for each finding, never a value.
  *
  *   npx tsx scripts/daily/secret-gate.ts copy <result.json> <data copy> [--allow <file>] [--keys-dir <dir>]
- *       Writes the public copy (known shapes redacted) only when nothing else is found in it.
- *       stdout: one JSON line {"sha256": ..., "redactions": [...]}. Exit 3 when blocked (nothing written).
+ *       Writes the public copy (known shapes redacted, and an unclear value inside a seller's answer redacted: see
+ *       gateCopy) only when nothing else is found in it.
+ *       stdout: one JSON line {"sha256": ..., "redactions": [...]}. An unclear value redacted is
+ *       {"path", "what": "unclear-value", "file", "kind", "sha256": first 16 hex}. Exit 3 when blocked (nothing written).
  *   npx tsx scripts/daily/secret-gate.ts scan <root> [<dir> ...] [--allow <file>] [--keys-dir <dir>]
  *       Every file under <root>/<dir> (default: data site results, everything the repository publishes).
  *       Exit 3 when any finding is not allowed.
@@ -23,11 +25,10 @@ import {
   ALLOW_KIND,
   blockingFindings,
   describe,
+  gateCopy,
   gateTree,
   loadAllowList,
   ownKeyNeedles,
-  publicJson,
-  redactKnown,
   scanFileText,
   sha256Hex,
   type ScanOptions,
@@ -58,8 +59,6 @@ const scanOpts: ScanOptions = { ownKeys: keysDir ? ownKeyNeedles(resolve(keysDir
 if (cmd === "copy") {
   const [src, out] = args;
   if (!src || !out) usage("copy needs <result.json> <out>");
-  const { value, redactions } = redactKnown(JSON.parse(readFileSync(src, "utf8")));
-  const text = publicJson(value);
   // Values from whole files the list allows (copies of other public sources) are accepted here as in the tree.
   const covered = new Set<string>();
   for (const f of allow.files) {
@@ -69,7 +68,7 @@ if (cmd === "copy") {
     if (sha256Hex(t) !== f.sha256) continue;
     for (const x of scanFileText(t, f.path)) if (!x.known && x.kind !== "own-key") covered.add(`${x.kind}:${x.sha256}`);
   }
-  const block = blockingFindings(scanFileText(text, basename(out), scanOpts), allow, covered);
+  const { text, redactions, blocking: block } = gateCopy(JSON.parse(readFileSync(src, "utf8")), basename(out), allow, scanOpts, covered);
   if (block.length) {
     for (const f of block) console.error(`blocked: ${describe(f)}`);
     console.error(`secret gate: ${block.length} finding(s) in the copy of ${basename(src)}; nothing written`);

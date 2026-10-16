@@ -11,8 +11,9 @@
  *       (what it bought is published; buying resumes next month), else 4
  *   npx tsx scripts/daily/steps.ts manifest <data dir> --file remeasure/<chain>-<day>.json --day <day> --redactions <json>
  *       updates <data dir>/manifest.json for that copy (sha256 read from the file); prints changed|unchanged
- *   npx tsx scripts/daily/steps.ts message <data dir> --day <day> --redacted solana,tempo
- *       prints the data commit subject for that day's remeasure copies in <data dir>
+ *   npx tsx scripts/daily/steps.ts message <data dir> --day <day> --redacted solana,tempo [--unclear N]
+ *       prints the data commit subject for that day's remeasure copies in <data dir>. --unclear: how many unclear
+ *       values in sellers' answers the copy step redacted (said in the subject when 1 or more)
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -76,13 +77,15 @@ if (cmd === "check-plan") {
 } else if (cmd === "message") {
   const day = opt("--day");
   const redacted = (opt("--redacted") ?? "").split(",").filter(Boolean);
+  const unclear = Number(opt("--unclear") ?? "0");
   const [dataDir] = args;
   if (!day || !dataDir) usage("message needs <data dir> --day");
+  if (!Number.isInteger(unclear) || unclear < 0) usage("--unclear needs a count");
   const files = (["solana", "tempo"] as const)
     .filter((c) => existsSync(join(dataDir, "remeasure", `${c}-${day}.json`)))
     .map((c) => ({ chain: c, result: readJson(join(dataDir, "remeasure", `${c}-${day}.json`)), redacted: redacted.includes(c) }));
   if (!files.length) usage(`no remeasure copy for ${day} in ${dataDir}`);
-  console.log(commitMessage(day, files));
+  console.log(commitMessage(day, files, unclear));
 } else {
   usage("unknown command");
 }
