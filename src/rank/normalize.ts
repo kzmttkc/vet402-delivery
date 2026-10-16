@@ -11,6 +11,7 @@
 import { TRIED_CATEGORIES, type Attempt, type Chain, type ReasonCategory } from "./types.js";
 import { checkInput, inputProblem } from "../tempo/answer.js";
 import type { PlannedRequest } from "../tempo/mercator.js";
+import { cutKeepingMarks } from "../daily/marks.js";
 
 type Obj = Record<string, unknown>;
 
@@ -56,8 +57,9 @@ function is2xx(status: number | null): boolean {
   return status !== null && status >= 200 && status <= 299;
 }
 
+/** A detail kept to 200 characters, never ending inside a redaction mark (src/daily/marks.ts). */
 function cut(v: string | null): string | null {
-  return v === null ? null : v.length > 200 ? `${v.slice(0, 200)}…` : v;
+  return cutKeepingMarks(v, 200);
 }
 
 type Defaulted = "expectedPayTo" | "feedbackTx" | "service" | "detail" | "httpStatus" | "declaredMatch" | "bodyChecked";

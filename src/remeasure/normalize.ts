@@ -8,6 +8,7 @@
 import { TRIED_CATEGORIES, type Attempt, type ReasonCategory } from "../rank/types.js";
 import { inputProblem } from "../tempo/answer.js";
 import type { RemeasureRow, ResultFile } from "./results.js";
+import { cutKeepingMarks } from "../daily/marks.js";
 
 /** Not buyable right now: the seller's side of "not tried". */
 const NOT_PAYABLE = new Set([
@@ -55,7 +56,8 @@ function refusalCategory(reason: string, where: string): ReasonCategory {
 }
 
 const is2xx = (s: number | null) => s !== null && s >= 200 && s <= 299;
-const cut = (v: string | null) => (v === null ? null : v.length > 200 ? `${v.slice(0, 200)}…` : v);
+/** A detail kept to 200 characters, never ending inside a redaction mark (src/daily/marks.ts). */
+const cut = (v: string | null) => cutKeepingMarks(v, 200);
 
 function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
   if (r.chain !== "solana" && r.chain !== "tempo") throw new Error(`${where}: unknown chain "${String(r.chain)}"`);

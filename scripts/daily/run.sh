@@ -555,7 +555,7 @@ remeasure() {
 }
 
 publish_remeasure() {
-  local c src day copied=() redacted=() unclear=0 unclear_in=()
+  local c src day copied=() redacted=() unclear=0 unclear_in=() unclear_shas=""
   for c in solana tempo; do
     src="$RMDIR/$c-$UTC_DAY.json"
     if [ "$DRY" = 1 ] && [ ! -f "$src" ]; then
@@ -581,15 +581,16 @@ publish_remeasure() {
       return 1
     }
     log "copied $(basename "$src"): $res"
-    local reds counts n_other n_unclear
+    local reds counts n_other shas
     reds="$(printf '%s' "$res" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(JSON.parse(s).redactions)))')"
-    # "<other redactions> <unclear values>": an unclear value in a seller's answer is said apart (gateCopy).
-    counts="$(printf '%s' "$reds" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const u=r.filter(x=>x.what==="unclear-value").length;console.log(`${r.length-u} ${u}`)})')"
-    n_other="${counts% *}"
-    n_unclear="${counts#* }"
+    # "<other redactions> <sha256 prefixes of the unclear values, comma-separated>": an unclear value in a seller's
+    # answer is said apart (gateCopy), counted once however many places it stood in.
+    counts="$(printf '%s' "$reds" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const u=r.filter(x=>x.what==="unclear-value");console.log(`${r.length-u.length} ${u.map(x=>x.sha256).join(",")}`)})')"
+    n_other="${counts%% *}"
+    shas="${counts#* }"
     [ "$n_other" != 0 ] && redacted+=("$c")
-    if [ "$n_unclear" != 0 ]; then
-      unclear=$((unclear + n_unclear))
+    if [ -n "$shas" ]; then
+      unclear_shas="$unclear_shas,$shas"
       unclear_in+=("$(basename "$src")")
     fi
     run "manifest for $c-$day" daily_steps manifest "$PUB/data" --file "remeasure/$c-$day.json" --day "$day" --redactions "$reds" || {
@@ -602,6 +603,7 @@ publish_remeasure() {
     log "no remeasure result for $UTC_DAY: nothing to publish"
     return 0
   fi
+  unclear="$(printf '%s' "$unclear_shas" | tr ',' '\n' | grep -v '^$' | sort -u | grep -c . || true)"
   local msg
   msg="$(daily_steps message "$PUB/data" --day "$day" --redacted "$(IFS=,; echo "${redacted[*]:-}")" --unclear "$unclear")" || {
     alert "could not write the commit message" halt

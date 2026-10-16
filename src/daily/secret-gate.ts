@@ -34,22 +34,13 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BIP39_ENGLISH } from "./bip39-english.js";
+import { ENCODED_ADDRESS_REDACTION, POSTAL_ADDRESS_REDACTION, POSTAL_COORD_REDACTION, SELLER_TOKEN_REDACTION, UNCLEAR_VALUE_REDACTION } from "./marks.js";
 
-/** The replacement text for a token a seller returned to vet402 (same wording as data/ since 2026-09-28). */
-export const SELLER_TOKEN_REDACTION = "[redacted: token the seller issued to vet402]";
+// The marks this file writes live in ./marks.ts (the rank's cut keeps them whole) and are exported from here as before.
+export { POSTAL_ADDRESS_REDACTION, POSTAL_COORD_REDACTION, SELLER_TOKEN_REDACTION, UNCLEAR_VALUE_REDACTION };
 /** Response-body fields where a seller's own token can appear. A JWT anywhere else is not a known shape. */
 export const SELLER_BODY_FIELDS: readonly string[] = ["detail", "first300"];
 
-/**
- * The replacement text for a value in a seller's answer that the gate could not tell from a secret (gateCopy).
- * One run of characters with no space, so it reads as one value in a query, a header or a form as well.
- */
-export const UNCLEAR_VALUE_REDACTION = "[redacted:unclear-seller-value]";
-
-/** The replacement text for a street address (same form as the token redaction). */
-export const POSTAL_ADDRESS_REDACTION = "[redacted: street address]";
-/** The replacement text for the coordinates a seller gave next to a street address it was asked about. */
-export const POSTAL_COORD_REDACTION = "[redacted: coordinates of a street address]";
 
 /**
  * Street addresses that are public by design and stay as written: a company's published headquarters or a
@@ -90,6 +81,12 @@ export interface Finding {
   shape: string;
   /** Why the copy step stopped on it rather than redacting it (gateCopy), when that is not the finding itself. */
   note?: string;
+  /**
+   * A shape within its kind that is a secret whatever else it could be, so the copy step never redacts it and
+   * always stops: twelve BIP-39 words in a row (a recovery phrase, kind secret-field) and the password of a URL's
+   * user:password@ (kind url-query-secret). The kind stays as before for scan, baseline and the allow list.
+   */
+  sub?: "mnemonic" | "url-password";
 }
 
 export interface AllowEntry {
@@ -181,7 +178,6 @@ const isCoordValue = (v: unknown) => (typeof v === "number" && Number.isFinite(v
 /** A house number and a street name in fields of their own ({"houseNumber": "100", "streetName": "Sample Ave"}). */
 const HOUSE_NUMBER_KEYS = new Set(["housenumber", "houseno", "streetnumber", "streetno", "buildingnumber", "addressnumber"]);
 const STREET_NAME_KEYS = new Set(["street", "streetname", "road", "route", "thoroughfare", "streetline"]);
-const ENCODED_ADDRESS_REDACTION = encodeURIComponent(POSTAL_ADDRESS_REDACTION).replace(/%20/g, "+");
 const hasAddressMarker = (s: string) => s.includes(POSTAL_ADDRESS_REDACTION) || s.includes(ENCODED_ADDRESS_REDACTION);
 
 const streetKey = (s: string) => s.toLowerCase().replace(/%20|%2c/g, " ").replace(/[^a-z0-9]/g, "");
@@ -704,7 +700,8 @@ const PUBLIC_ID_NAMES = /^(?:challengeId|challenge_id)$/;
 /** URL path steps after which an on-chain id stands (/tx/<sig>, /address/<addr>). */
 const PATH_ID = /\/(?:tx|txs|transaction|transactions|address|addresses|account|accounts|token|tokens|mint|block|wallet)\/([A-Za-z0-9]{24,})/gi;
 
-const ownMarker = (v: string) => v === SELLER_TOKEN_REDACTION || v.startsWith(SELLER_TOKEN_REDACTION) || v === UNCLEAR_VALUE_REDACTION;
+// An unclear-value mark counts only whole, or whole with the "…" of a detail the rank cut right after it (./marks.ts).
+const ownMarker = (v: string) => v === SELLER_TOKEN_REDACTION || v.startsWith(SELLER_TOKEN_REDACTION) || v === UNCLEAR_VALUE_REDACTION || v === `${UNCLEAR_VALUE_REDACTION}…`;
 
 /**
  * A public image URL as a seller's answer gives it (a token's image_uri, a logo): https, a host name, then path
@@ -801,10 +798,33 @@ export function ownKeyNeedles(keysDir: string): string[] {
     for (const b of bytes) {
       const secret = b.length === 64 ? b.subarray(0, 32) : b;
       out.push(secret.toString("hex"), secret.toString("base64").replace(/=+$/, ""), secret.toString("base64url"), base58(b));
-      if (b.length === 64) out.push(base58(secret));
+      // a 64-byte key pair (seed, then public key) also in each encoding as a whole
+      if (b.length === 64) out.push(base58(secret), b.toString("hex"), b.toString("base64").replace(/=+$/, ""), b.toString("base64url"));
     }
   }
-  return out.filter((n) => n.length >= 32);
+  return [...new Set(out.filter((n) => n.length >= 32))];
+}
+
+/** A needle that is hex: compared without case (upper-case hex is the same key). */
+const isHexNeedle = (n: string) => /^[0-9a-f]+$/i.test(n);
+/** Whether the text holds the needle as written (hex in any case). */
+export function holdsOwnKey(text: string, needle: string): boolean {
+  return isHexNeedle(needle) ? text.toLowerCase().includes(needle.toLowerCase()) : text.includes(needle);
+}
+
+/** How long a piece of the runner's key must be to stop the copy step (gateCopy): any run of 8 of its characters. */
+export const OWN_KEY_PIECE = 8;
+/** Every piece of OWN_KEY_PIECE characters of each needle, in lower case (compared without case). */
+function ownKeyPieces(needles: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const n of needles) for (let i = 0; i + OWN_KEY_PIECE <= n.length; i++) out.add(n.slice(i, i + OWN_KEY_PIECE).toLowerCase());
+  return out;
+}
+/** The first piece of the runner's key in the text, compared without case, or null. */
+function ownKeyPieceIn(text: string, pieces: ReadonlySet<string>): string | null {
+  const t = text.toLowerCase();
+  for (let i = 0; i + OWN_KEY_PIECE <= t.length; i++) if (pieces.has(t.slice(i, i + OWN_KEY_PIECE))) return t.slice(i, i + OWN_KEY_PIECE);
+  return null;
 }
 
 function base58(b: Buffer): string {
@@ -832,17 +852,19 @@ export interface ScanOptions {
   values?: Map<string, string>;
 }
 
-type Add = (kind: FindingKind, v: string, known?: boolean) => void;
+type Add = (kind: FindingKind, v: string, known?: boolean, sub?: Finding["sub"]) => void;
 
 function finder(file: string, path: string, out: Finding[], values?: Map<string, string>): { add: Add; flush: () => void } {
   const found = new Map<string, Finding>();
-  const add: Add = (kind, v, known = false) => {
+  const add: Add = (kind, v, known = false, sub) => {
     const h = sha256Hex(v);
     const k = `${kind}:${h}`;
     values?.set(k, v);
     const prev = found.get(k);
-    if (prev) prev.known = prev.known || known;
-    else found.set(k, { file, path, kind, known, sha256: h, length: v.length, shape: maskShape(v) });
+    if (prev) {
+      prev.known = prev.known || known;
+      if (sub && !prev.sub) prev.sub = sub;
+    } else found.set(k, { file, path, kind, known, sha256: h, length: v.length, shape: maskShape(v), ...(sub ? { sub } : {}) });
   };
   return { add, flush: () => out.push(...found.values()) };
 }
@@ -850,7 +872,7 @@ function finder(file: string, path: string, out: Finding[], values?: Map<string,
 /** Scan one string value. `key`/`path`: its JSON field, or null/"" for plain text. */
 export function scanText(text: string, file: string, path: string, key: string | null, out: Finding[], opts: ScanOptions = {}): void {
   const { add, flush } = finder(file, path, out, opts.values);
-  for (const needle of opts.ownKeys ?? []) if (text.includes(needle)) add("own-key", needle);
+  for (const needle of opts.ownKeys ?? []) if (holdsOwnKey(text, needle)) add("own-key", needle);
   // vet402's own field in its exact format: nothing else to look at.
   if (key !== null && ownField(path, key, text)) return flush();
   // A structured field under a secret-like name: always.
@@ -874,7 +896,7 @@ export function scanText(text: string, file: string, path: string, key: string |
     }
     for (const m of v.matchAll(AUTH_SCHEME)) if (!ownMarker(m[1]!)) add("bearer", m[1]!);
     for (const m of v.matchAll(TOKEN_SCHEME)) if (looksRandom(m[1]!)) add("bearer", m[1]!);
-    for (const m of v.matchAll(URL_USERINFO)) add("url-query-secret", m[1]!);
+    for (const m of v.matchAll(URL_USERINFO)) add("url-query-secret", m[1]!, false, "url-password");
     // Twelve or more BIP-39 words in a row: a wallet's recovery phrase.
     for (const m of v.matchAll(/[a-z]{3,8}(?:[ ,]+[a-z]{3,8}){11,}/g)) {
       const words = m[0].split(/[ ,]+/);
@@ -882,7 +904,7 @@ export function scanText(text: string, file: string, path: string, key: string |
       for (const w of words) {
         run = BIP39.has(w) ? run + 1 : 0;
         if (run >= 12) {
-          add("secret-field", m[0]);
+          add("secret-field", m[0], false, "mnemonic");
           break;
         }
       }
@@ -1201,25 +1223,27 @@ export function gateTree(root: string, dirs: readonly string[], allow: AllowList
 export const UNCLEAR_KINDS: ReadonlySet<FindingKind> = new Set<FindingKind>(["opaque-40", "secret-field", "url-query-secret"]);
 
 /**
- * Where a remeasure result holds a seller's answer: rows[N].detail (src/remeasure/results.ts), the paid answer's
- * first 300 characters, the seller's error text, or the refusal text that quotes the unpaid 402 answer
- * (src/remeasure/solana.ts and tempo.ts), and rows[N].first300. These are SELLER_BODY_FIELDS, the fields redactKnown
- * already treats as a seller's body. Nothing deeper and nothing else is: vet402's own fields (url, requestUrl, payTo,
- * key, tx, input, answer, which holds only the answer's shape and its safe names) and the run's settings (payer,
- * note, runs) are never redacted this way, so an unclear value there stops the copy as before.
+ * Where a remeasure result holds a seller's answer, by the file's structure and not by how a path reads: the string
+ * under `detail` or `first300` (SELLER_BODY_FIELDS, the fields redactKnown already treats as a seller's body) of an
+ * object that is an element of the top-level `rows` list (src/remeasure/results.ts). rows[N].detail is the paid
+ * answer's first 300 characters, the seller's error text, or the refusal text that quotes the unpaid 402 answer
+ * (src/remeasure/solana.ts and tempo.ts). Nothing deeper and nothing else is: vet402's own fields (url, requestUrl,
+ * payTo, key, tx, input, answer, which holds only the answer's shape and its safe names) and the run's settings
+ * (payer, note, runs) are never redacted this way, so an unclear value there stops the copy as before.
+ * Returned as the paths scanJson gives those strings.
  */
-const SELLER_ANSWER_PATH = new RegExp(String.raw`^rows\[\d+\]\.(?:${SELLER_BODY_FIELDS.join("|")})$`);
-export const isSellerAnswerPath = (path: string) => SELLER_ANSWER_PATH.test(path);
+export function sellerAnswerPaths(value: unknown): Set<string> {
+  const out = new Set<string>();
+  if (isObj(value) && Array.isArray(value.rows)) {
+    value.rows.forEach((r, i) => {
+      if (isObj(r)) for (const k of SELLER_BODY_FIELDS) if (Object.hasOwn(r, k) && typeof r[k] === "string") out.add(`rows[${i}].${k}`);
+    });
+  }
+  return out;
+}
 
 /** Whether any reading of the string the gate makes (readings) holds the value. */
 const readsAs = (rs: readonly string[], v: string) => rs.some((r) => r.includes(v));
-
-/** The forms a value is written in that read back as the value itself: as is, JSON-escaped, percent-encoded. Longest first. */
-function writtenForms(v: string): string[] {
-  const json = JSON.stringify(v).slice(1, -1);
-  const pct = encodeURIComponent(v);
-  return [...new Set([v, json, json.replace(/\//g, "\\/"), pct, pct.replace(/%20/g, "+")])].filter((f) => f !== "").sort((a, b) => b.length - a.length);
-}
 
 /** Every string, object key and number in a parsed value, with the path scanJson gives it. */
 function allTexts(x: unknown, path = "", out: { path: string; text: string }[] = []): { path: string; text: string }[] {
@@ -1235,16 +1259,130 @@ function allTexts(x: unknown, path = "", out: { path: string; text: string }[] =
   return out;
 }
 
-/** The parsed value with each string in a seller's answer passed through `f`. */
-function mapSellerAnswers(x: unknown, f: (path: string, s: string) => string, path = ""): unknown {
-  if (typeof x === "string") return isSellerAnswerPath(path) ? f(path, x) : x;
-  if (Array.isArray(x)) return x.map((v, i) => mapSellerAnswers(v, f, `${path}[${i}]`));
-  if (x && typeof x === "object") {
-    const o: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(x)) o[k] = mapSellerAnswers(v, f, path ? `${path}.${k}` : k);
-    return o;
+/**
+ * A reading with, for each of its characters, the span [s, e) of the original string it was read from. A character
+ * that a decoding made out of several (%41, \u0041, &#65;, a base64 run) spans all of them.
+ */
+interface Mapped {
+  text: string;
+  s: number[];
+  e: number[];
+}
+const identity = (t: string): Mapped => ({ text: t, s: Array.from({ length: t.length }, (_, i) => i), e: Array.from({ length: t.length }, (_, i) => i + 1) });
+
+/** String.replace with a function, keeping each character's span: a replacement spans the whole match it stands for. */
+function mappedReplace(m: Mapped, re: RegExp, f: (match: RegExpMatchArray) => string): Mapped {
+  const out: Mapped = { text: "", s: [], e: [] };
+  let at = 0;
+  const keep = (from: number, to: number) => {
+    out.text += m.text.slice(from, to);
+    for (let i = from; i < to; i++) {
+      out.s.push(m.s[i]!);
+      out.e.push(m.e[i]!);
+    }
+  };
+  for (const x of m.text.matchAll(re)) {
+    const i = x.index!;
+    keep(at, i);
+    const rep = f(x);
+    const s = Math.min(...m.s.slice(i, i + x[0].length));
+    const e = Math.max(...m.e.slice(i, i + x[0].length));
+    out.text += rep;
+    for (let k = 0; k < rep.length; k++) {
+      out.s.push(s);
+      out.e.push(e);
+    }
+    at = i + x[0].length;
   }
-  return x;
+  keep(at, m.text.length);
+  return out;
+}
+
+// The same decodings as jsonUnescape, htmlUnescape, percentDecode and encodedTexts, step for step, with spans.
+const mappedJsonUnescape = (m: Mapped) =>
+  [
+    [/\\u([0-9a-fA-F]{4})/g, (x: RegExpMatchArray) => String.fromCharCode(parseInt(x[1]!, 16))],
+    [/\\x([0-9a-fA-F]{2})/g, (x: RegExpMatchArray) => String.fromCharCode(parseInt(x[1]!, 16))],
+    [/\\(["\\/])/g, (x: RegExpMatchArray) => x[1]!],
+    [/\\[nrt]/g, () => " "],
+  ].reduce((acc, [re, f]) => mappedReplace(acc, re as RegExp, f as (x: RegExpMatchArray) => string), m);
+const mappedHtmlUnescape = (m: Mapped) =>
+  [
+    [/&#(\d{1,7});/g, (x: RegExpMatchArray) => String.fromCodePoint(Number(x[1]))],
+    [/&#x([0-9a-fA-F]{1,6});/g, (x: RegExpMatchArray) => String.fromCodePoint(parseInt(x[1]!, 16))],
+    [/&([a-z]+);/g, (x: RegExpMatchArray) => ENTITIES[x[1]!] ?? x[0]],
+    [/[­​-‏⁠﻿]/g, () => ""],
+  ].reduce((acc, [re, f]) => mappedReplace(acc, re as RegExp, f as (x: RegExpMatchArray) => string), m);
+const mappedPercentDecode = (m: Mapped) => mappedReplace(m, /(?:%[0-9A-Fa-f]{2})+/g, (x) => percentDecode(x[0]));
+function mappedEncodedTexts(m: Mapped): Mapped[] {
+  const whole = (x: RegExpMatchArray, text: string): Mapped => {
+    const i = x.index!;
+    const s = Math.min(...m.s.slice(i, i + x[0].length));
+    const e = Math.max(...m.e.slice(i, i + x[0].length));
+    return { text, s: Array.from({ length: text.length }, () => s), e: Array.from({ length: text.length }, () => e) };
+  };
+  const out: Mapped[] = [];
+  for (const x of m.text.matchAll(/[A-Za-z0-9+/_-]{16,}={0,2}/g)) {
+    const b = Buffer.from(x[0].replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    if (b.length >= 12 && printable(b)) out.push(whole(x, b.toString("latin1")));
+  }
+  for (const x of m.text.matchAll(/(?:[0-9a-fA-F]{2}){16,}/g)) {
+    const b = Buffer.from(x[0], "hex");
+    if (printable(b)) out.push(whole(x, b.toString("latin1")));
+  }
+  return out;
+}
+
+/**
+ * readings() with spans: the same texts in the same order (test/secret-gate-unclear.test.ts holds them equal). When
+ * two ways of reading give the same text, its spans are the union of both, so redacting them leaves neither.
+ */
+export function mappedReadings(t: string): Mapped[] {
+  const seen = new Map<string, Mapped>([[t, identity(t)]]);
+  let frontier = [seen.get(t)!];
+  for (let round = 0; round < 5 && frontier.length; round++) {
+    const next: Mapped[] = [];
+    for (const v of frontier) {
+      for (const w of [mappedJsonUnescape(v), mappedHtmlUnescape(v), mappedPercentDecode(v), ...mappedEncodedTexts(v)]) {
+        const prev = seen.get(w.text);
+        if (prev) {
+          for (let i = 0; i < w.text.length; i++) {
+            prev.s[i] = Math.min(prev.s[i]!, w.s[i]!);
+            prev.e[i] = Math.max(prev.e[i]!, w.e[i]!);
+          }
+        } else if (seen.size < 64) {
+          seen.set(w.text, w);
+          next.push(w);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...seen.values()];
+}
+
+/** The spans of the original string that every reading of the value comes from, or null when one cannot be placed. */
+function valueSpans(readingsOf: readonly Mapped[], v: string): [number, number][] {
+  const out: [number, number][] = [];
+  for (const m of readingsOf) {
+    for (let i = m.text.indexOf(v); i >= 0; i = m.text.indexOf(v, i + 1)) {
+      out.push([Math.min(...m.s.slice(i, i + v.length)), Math.max(...m.e.slice(i, i + v.length))]);
+    }
+  }
+  return out;
+}
+
+/** The string with the spans (merged where they overlap or touch) each replaced by one mark. */
+function redactSpans(s: string, spans: [number, number][]): string {
+  const merged: [number, number][] = [];
+  for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0] || x[1] - y[1])) {
+    const last = merged[merged.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+    else merged.push([a, b]);
+  }
+  let out = s;
+  for (const [a, b] of merged.reverse()) out = out.slice(0, a) + UNCLEAR_VALUE_REDACTION + out.slice(b);
+  return out;
 }
 
 export interface CopyResult {
@@ -1257,75 +1395,102 @@ export interface CopyResult {
 
 /**
  * A result file becomes its public copy. First redactKnown, then the scan of the copy as it would be written. When
- * the only findings left that the allow list lacks are unclear ones (UNCLEAR_KINDS, not a known shape) inside a
- * seller's answer (isSellerAnswerPath), each such value is replaced with UNCLEAR_VALUE_REDACTION in every seller's
- * answer of the file where any reading of it holds the value, in each form it can be written in (as is,
- * JSON-escaped, percent-encoded). An answer that still reads as the value after that (base64, HTML references) is
- * replaced whole. Each one is said in the redactions (file, path, kind, the first 16 hex of the sha256), and the copy
- * is scanned again, up to four times, until nothing is left.
+ * the only findings left that the allow list lacks are unclear ones (UNCLEAR_KINDS, not a known shape, not a
+ * recovery phrase or a URL password) inside a seller's answer (sellerAnswerPaths), each such value is placed in
+ * every seller's answer of the file: each place any reading of the answer holds it is traced back to the characters
+ * of the answer it was read from (mappedReadings). All those spans of all the values are merged where they overlap
+ * or touch, and each merged span is replaced with one UNCLEAR_VALUE_REDACTION. Each value is said in the redactions
+ * (file, path, kind, the first 16 hex of the sha256). The copy is then scanned again, and any finding left the
+ * allow list lacks stops it (the last gate).
  *
  * It stops instead, and writes nothing, as before when any of these holds:
  *  - any other finding the allow list lacks: the runner's key, a known shape (a JWT, a Bearer value, a vendor key,
- *    a private key, a key array, a local path, a street address), or an unclear finding anywhere but a seller's
- *    answer (vet402's own fields, the run's settings)
- *  - a reading of a seller's answer holds the runner's own key, or one of the values is a piece of it
+ *    a private key, a key array, a local path, a street address), a recovery phrase, a URL password, or an unclear
+ *    finding anywhere but a seller's answer (vet402's own fields, the run's settings)
+ *  - a seller's answer path that another place in the file also has (a key that reads like rows[0].detail)
+ *  - a reading of a seller's answer holds a piece of the runner's own key (OWN_KEY_PIECE characters of any
+ *    encoding in ownKeyNeedles, compared without case)
  *  - the same value is in any reading of a string, a name or a number outside the sellers' answers
+ *  - a finding cannot be placed in the answer it was found in
  * The scan and baseline modes and gateTree do not use this: the tree before a commit is judged as strictly as before.
  */
 export function gateCopy(raw: unknown, file: string, allow: readonly AllowEntry[] | AllowList, opts: ScanOptions = {}, covered: ReadonlySet<string> = new Set()): CopyResult {
   const known = redactKnown(raw);
-  let value = known.value;
-  const unclear = new Map<string, Redaction>();
-  const ownKeys = opts.ownKeys ?? [];
-  for (let round = 0; ; round++) {
-    const values = new Map<string, string>();
-    const text = publicJson(value);
-    const blocking = blockingFindings(scanFileText(text, file, { ...opts, values }), allow, covered);
-    const result = (stop: Finding[]): CopyResult => ({ text, redactions: [...known.redactions, ...unclear.values()], blocking: stop });
-    if (blocking.length === 0) return result([]);
-    const hard = blocking.filter((f) => f.known || !UNCLEAR_KINDS.has(f.kind) || !isSellerAnswerPath(f.path));
-    if (hard.length > 0) return result(hard);
-    if (round >= 4) return result(blocking.map((f) => ({ ...f, note: "still found after redacting it four times" })));
-
-    // Each value to redact, with the findings that name it.
-    const targets = new Map<string, Finding[]>();
-    for (const f of blocking) {
-      const v = values.get(`${f.kind}:${f.sha256}`);
-      if (v === undefined) return result([{ ...f, note: "its value could not be found to redact" }]);
-      targets.set(v, [...(targets.get(v) ?? []), f]);
+  const value = known.value;
+  const text = publicJson(value);
+  const values = new Map<string, string>();
+  const blocking = blockingFindings(scanFileText(text, file, { ...opts, values }), allow, covered);
+  const stop = (fs: Finding[]): CopyResult => ({ text, redactions: known.redactions, blocking: fs });
+  const texts = allTexts(value);
+  const seller = sellerAnswerPaths(value);
+  // A path that two places of the file give (a key "rows[0].detail" beside the real one) is nobody's answer.
+  const uses = new Map<string, number>();
+  for (const t of texts) uses.set(t.path, (uses.get(t.path) ?? 0) + 1);
+  const isSeller = (path: string) => seller.has(path) && uses.get(path) === 1;
+  // A piece of the runner's own key in any reading of a seller's answer stops the copy, whatever else is found.
+  const pieces = ownKeyPieces(opts.ownKeys ?? []);
+  for (const t of texts.filter((x) => isSeller(x.path))) {
+    for (const r of readings(t.text)) {
+      const p = ownKeyPieceIn(r, pieces);
+      if (p !== null) return stop([{ file, path: t.path, kind: "own-key", known: false, sha256: sha256Hex(p), length: p.length, shape: maskShape(p), note: "a piece of the runner's own key in a reading of a seller's answer" }]);
     }
-    const texts = allTexts(value).map((t) => ({ ...t, rs: readings(t.text) }));
-    // The runner's own key in any reading of a seller's answer, or a value that is a piece of it: never redacted.
-    for (const t of texts.filter((x) => isSellerAnswerPath(x.path))) {
-      const n = ownKeys.find((k) => readsAs(t.rs, k));
-      if (n !== undefined) return result([{ file, path: t.path, kind: "own-key", known: false, sha256: sha256Hex(n), length: n.length, shape: maskShape(n), note: "the runner's own key in a reading of a seller's answer" }]);
-    }
-    for (const [v, fs] of targets) {
-      if (v.length >= 8 && ownKeys.some((k) => k.includes(v))) return result(fs.map((f) => ({ ...f, note: "a piece of the runner's own key" })));
-    }
-    // The same value outside the sellers' answers: it is not only the seller's, so it stops as before.
-    for (const t of texts.filter((x) => !isSellerAnswerPath(x.path))) {
-      for (const [v, fs] of targets) {
-        // (a path names the keys on the way, and the value can be one of them: it is never printed)
-        const where = (t.path || "-").split(v).join("<the value>");
-        if (readsAs(t.rs, v)) return result(fs.map((f) => ({ ...f, note: `the same value also stands at ${where}, outside the seller's answer` })));
-      }
-    }
-    const order = [...targets].sort((a, b) => b[0].length - a[0].length);
-    value = mapSellerAnswers(value, (path, s) => {
-      const before = readings(s);
-      let out = s;
-      for (const [v, fs] of order) {
-        if (!readsAs(before, v)) continue;
-        // said for every value the answer held, also one that went with a longer value around it
-        for (const f of fs) unclear.set(`${path}|${f.kind}:${f.sha256}`, { path, what: "unclear-value", file, kind: f.kind, sha256: f.sha256.slice(0, 16) });
-        if (!readsAs(readings(out), v)) continue;
-        for (const form of writtenForms(v)) out = out.split(form).join(UNCLEAR_VALUE_REDACTION);
-        if (readsAs(readings(out), v)) out = UNCLEAR_VALUE_REDACTION;
-      }
-      return out;
-    });
   }
+  if (blocking.length === 0) return { text, redactions: known.redactions, blocking: [] };
+  const hard = blocking.filter((f) => f.known || f.sub !== undefined || !UNCLEAR_KINDS.has(f.kind) || !isSeller(f.path));
+  if (hard.length > 0) {
+    const why = (f: Finding) => (f.sub === "mnemonic" ? "a recovery phrase, never redacted" : f.sub === "url-password" ? "a URL password, never redacted" : undefined);
+    return stop(hard.map((f) => (why(f) ? { ...f, note: why(f) } : f)));
+  }
+
+  // Each value to redact, with the findings that name it.
+  const targets = new Map<string, Finding[]>();
+  for (const f of blocking) {
+    const v = values.get(`${f.kind}:${f.sha256}`);
+    if (v === undefined) return stop([{ ...f, note: "its value could not be found to redact" }]);
+    targets.set(v, [...(targets.get(v) ?? []), f]);
+  }
+  // The same value outside the sellers' answers: it is not only the seller's, so it stops as before.
+  for (const t of texts.filter((x) => !isSeller(x.path))) {
+    const rs = readings(t.text);
+    for (const [v, fs] of targets) {
+      // (a path names the keys on the way, and the value can be one of them: it is never printed)
+      const where = (t.path || "-").split(v).join("<the value>");
+      if (readsAs(rs, v)) return stop(fs.map((f) => ({ ...f, note: `the same value also stands at ${where}, outside the seller's answer` })));
+    }
+  }
+
+  // Place every value in every seller's answer, merge the spans, redact them.
+  const unclear = new Map<string, Redaction>();
+  const placed = new Set<string>();
+  const out = structuredClone(value) as Obj;
+  const rows = out.rows as Obj[];
+  for (const path of seller) {
+    if (!isSeller(path)) continue;
+    const m = /^rows\[(\d+)\]\.(.+)$/.exec(path)!;
+    const row = rows[Number(m[1])]!;
+    const s = row[m[2]!] as string;
+    if (![...targets.keys()].some((v) => readsAs(readings(s), v))) continue;
+    const mr = mappedReadings(s);
+    const spans: [number, number][] = [];
+    for (const [v, fs] of targets) {
+      const at = valueSpans(mr, v);
+      if (at.length === 0) continue;
+      spans.push(...at);
+      for (const f of fs) {
+        unclear.set(`${path}|${f.kind}:${f.sha256}`, { path, what: "unclear-value", file, kind: f.kind, sha256: f.sha256.slice(0, 16) });
+        if (f.path === path) placed.add(`${f.kind}:${f.sha256}:${path}`);
+      }
+    }
+    row[m[2]!] = redactSpans(s, spans);
+  }
+  const lost = blocking.filter((f) => !placed.has(`${f.kind}:${f.sha256}:${f.path}`));
+  if (lost.length > 0) return stop(lost.map((f) => ({ ...f, note: "its place in the answer could not be found, so it is not redacted" })));
+
+  // The last gate: the redacted copy is scanned as it will be written, and anything left stops it.
+  const redacted = publicJson(out);
+  const left = blockingFindings(scanFileText(redacted, file, opts), allow, covered);
+  if (left.length > 0) return stop(left.map((f) => ({ ...f, note: "still found after redacting" })));
+  return { text: redacted, redactions: [...known.redactions, ...unclear.values()], blocking: [] };
 }
 
 /** One line per finding, safe to log: file, path, kind, length, masked shape, hash prefix. Never the value. */

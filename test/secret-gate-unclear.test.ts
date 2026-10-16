@@ -17,7 +17,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { blockingFindings, gateTree, ownKeyNeedles, readings, scanFileText, sha256Hex, UNCLEAR_VALUE_REDACTION } from "../src/daily/secret-gate.js";
+import { generateKeyPairSync } from "node:crypto";
+import { blockingFindings, gateCopy, gateTree, mappedReadings, ownKeyNeedles, readings, scanFileText, sha256Hex, UNCLEAR_VALUE_REDACTION } from "../src/daily/secret-gate.js";
+import { GATE_SHAPES } from "../src/daily/gate-shapes.js";
 import { alnum, bytes, seeded } from "../src/daily/gate-shapes.js";
 import { commitMessage, redactionNote } from "../src/daily/steps.js";
 
@@ -252,4 +254,112 @@ test("manifest note and commit subject: how many unclear values were redacted, n
   assert.equal(commitMessage("2026-10-16", [file], 0), "data: 2026-10-16 remeasure on Solana (0 rows: 0 paid, 0 settled, 0 delivered)");
   assert.equal(commitMessage("2026-10-16", [file], 1), "data: 2026-10-16 remeasure on Solana (0 rows: 0 paid, 0 settled, 0 delivered); 1 unclear value in a seller answer redacted");
   assert.equal(commitMessage("2026-10-16", [{ ...file, redacted: true }], 3), "data: 2026-10-16 remeasure on Solana (0 rows: 0 paid, 0 settled, 0 delivered); a seller-issued token redacted; 3 unclear values in seller answers redacted");
+});
+
+// ---------- the review of 89b282b0 (BLOCK): overlapping values, the runner's key pair, hard kinds, the place of an answer ----------
+
+/** Runs of 12 characters or more from `parts` still in the copy (what an overlap would leave behind). */
+const leftPieces = (text: string, parts: string[]) => parts.flatMap((p) => Array.from({ length: Math.max(0, p.length - 11) }, (_, i) => p.slice(i, i + 12))).filter((x) => text.includes(x));
+
+test("copy: overlapping findings are redacted as one span, nothing of either is left (the review's B64_RUN and OPAQUE overlap)", () => {
+  const raw = result([{ detail: `{"x":"Qw7rT2xKp9LmZ3vB8nYc/Hj4Ks8Df2Gh6Jk9L_Mn3Bv7Cx5Zq1"}` }]);
+  const c = gateCopy(raw, "solana-2026-10-16.json", []);
+  assert.deepEqual(c.blocking, []);
+  const detail = JSON.parse(c.text).rows[0].detail;
+  assert.equal(detail, `{"x":"${UNCLEAR_VALUE_REDACTION}"}`);
+  // the same with fresh random parts: whatever overlaps, no 12-character piece of them is left, and the copy scans clean
+  const r = seeded(4021);
+  for (let i = 0; i < 200; i++) {
+    const parts = [alnum(r, 10 + Math.floor(r() * 20)), alnum(r, 10 + Math.floor(r() * 20)), alnum(r, 6 + Math.floor(r() * 20))];
+    const seps = ["/", "_", "+", "-", "."];
+    const v = `${parts[0]}${seps[i % 5]}${parts[1]}${seps[(i + 2) % 5]}${parts[2]}`;
+    const raw = result([{ detail: `{"x":"${v}","y":"see ${parts[1]} here"}` }]);
+    const values = new Map<string, string>();
+    const found = blockingFindings(scanFileText(JSON.stringify(raw, null, 2), "x.json", { values }), []).map((f) => values.get(`${f.kind}:${f.sha256}`)!);
+    const out = gateCopy(raw, "x.json", []);
+    if (out.blocking.length) continue; // stopped: nothing written
+    // no 12 characters of any value the gate found are left where it was found (the y text is judged on its own)
+    assert.deepEqual(leftPieces(JSON.parse(JSON.parse(out.text).rows[0].detail).x, found), [], v);
+    assert.deepEqual(blockingFindings(scanFileText(out.text, "x.json"), []), [], v);
+  }
+});
+
+test("copy: the runner's key pair stops in any encoding inside a seller's answer (upper-case hex, base64 and base64url of the 64-byte pair, after token=, a piece of it)", () => {
+  const s = scratch();
+  const keys = join(s.dir, "keys");
+  mkdirSync(keys);
+  // a made-up ed25519 key pair in the Solana keypair file format: 64 bytes, seed then public key
+  const jwk = generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" }) as { d: string; x: string };
+  const pair = Buffer.concat([Buffer.from(jwk.d, "base64url"), Buffer.from(jwk.x, "base64url")]);
+  assert.equal(pair.length, 64);
+  writeFileSync(join(keys, "payer.json"), JSON.stringify([...pair]));
+  const seed = pair.subarray(0, 32);
+  const forms: [string, string][] = [
+    ["upper-case hex of the seed", seed.toString("hex").toUpperCase()],
+    ["hex of the pair", pair.toString("hex")],
+    ["upper-case hex of the pair", pair.toString("hex").toUpperCase()],
+    ["base64 of the pair", pair.toString("base64")],
+    ["base64url of the pair", pair.toString("base64url")],
+    ["token= then base64url of the pair", `https://x.example/cb?token=${pair.toString("base64url")}&x=1`],
+    ["token= then base64 of the pair", `token=${pair.toString("base64")}`],
+    ["a 20-character piece of the pair's base64", pair.toString("base64").slice(30, 50)],
+    ["a 20-character piece of the pair's hex", pair.toString("hex").slice(70, 90)],
+  ];
+  for (const [label, form] of forms) {
+    writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"data":{"ref":"${form}"}}` }])));
+    const c = gateCli("copy", s.inFile, s.outFile, "--keys-dir", keys, "--allow", s.allowFile);
+    assert.equal(c.status, 3, `${label}: ${c.stdout}`);
+    assert.match(c.stderr, /own-key/, label);
+    assert.ok(!existsSync(s.outFile), label);
+  }
+  rmSync(s.dir, { recursive: true });
+});
+
+test("copy: a recovery phrase (twelve BIP-39 words) and a URL password inside a seller's answer stop, never redacted", () => {
+  for (const detail of [
+    `{"v":"abandon ability able about above absent absorb abstract absurd abuse access accident"}`,
+    `{"db":"postgres://admin:plainwords@db.example.com/x"}`,
+  ]) {
+    const c = gateCopy(result([{ detail }]), "x.json", []);
+    assert.ok(c.blocking.length > 0, detail);
+  }
+});
+
+test("copy: only a detail or first300 of an element of the top-level rows list is a seller's answer, not a path that reads like one", () => {
+  const v = alnum(seeded(31), 28);
+  for (const raw of [
+    { ...result([{ detail: "ok" }]), "rows[0].detail": `{"ref":"${v}"}` },
+    { ...result([{ detail: "ok" }]), rows: [{ detail: "ok" }], other: { rows: [{ detail: `{"ref":"${v}"}` }] } },
+    { kind: "x", rows: { "0": { detail: `{"ref":"${v}"}` } } },
+    { ...result([{ meta: { detail: `{"ref":"${v}"}` } }]) },
+  ]) {
+    const c = gateCopy(raw, "x.json", []);
+    assert.ok(c.blocking.length > 0, JSON.stringify(raw).slice(0, 80));
+  }
+});
+
+test("copy: the count said is of distinct values, not of places (the same value in two answers is one)", () => {
+  const v = alnum(seeded(32), 24);
+  const c = gateCopy(result([{ detail: `{"ref":"${v}"}` }, { detail: `{"ref":"${v}"}` }]), "x.json", []);
+  assert.deepEqual(c.blocking, []);
+  const u = c.redactions.filter((x) => x.what === "unclear-value");
+  assert.equal(u.length, 2);
+  assert.equal(new Set(u.map((x) => x.sha256)).size, 1);
+});
+
+test("mappedReadings gives the same texts as readings, in the same order, and each span reads back to its character", () => {
+  const r = seeded(5150);
+  const samples = [
+    ...GATE_SHAPES.map(([, make]) => make(r)),
+    `{\\"ref\\":\\"${alnum(r, 20)}\\"}`,
+    `a%41%42%43&#65;&#x42;&amp;\u0041\x41${Buffer.from(`token=${alnum(r, 20)}`).toString("base64")}`,
+    Buffer.from(Buffer.from(`session=${alnum(r, 20)}`).toString("base64")).toString("hex"),
+  ];
+  for (const s of samples) {
+    const m = mappedReadings(s);
+    assert.deepEqual(m.map((x) => x.text), readings(s), s.slice(0, 60));
+    for (const x of m) for (let i = 0; i < x.text.length; i++) assert.ok(x.s[i]! >= 0 && x.e[i]! <= s.length && x.s[i]! < x.e[i]!, s.slice(0, 60));
+    // the first reading is the string itself, character for character
+    assert.deepEqual(m[0]!.s, [...Array(s.length).keys()]);
+  }
 });

@@ -1361,6 +1361,18 @@ test("run.sh: an unclear value in a seller's answer is redacted, not a stop: pub
   rmSync(sb.dir, { recursive: true });
 });
 
+test("run.sh: the notice and the subject count distinct values redacted (the same value in two answers is 1)", () => {
+  const sb = sandbox();
+  const v = alnum(seeded(32), 24);
+  const row = { host: "a.example", outcome: "sent", settled: true, delivered: true, detail: `{"ref":"${v}"}` };
+  writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [row, { ...row, host: "b.example" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /secret gate redacted 1 unclear value\(s\) in seller answers instead of stopping/);
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-01 remeasure on Solana \(2 rows: 2 paid, 2 settled, 2 delivered\); 1 unclear value in a seller answer redacted$/m);
+  rmSync(sb.dir, { recursive: true });
+});
+
 test("run.sh --dry-run: copies through the gate, runs the tests, commits data/ and site/ only, passes the pre-push gate, never pushes", () => {
   const sb = sandbox();
   const jwt = `eyJhbGciOiJSUzI1NiJ9.${b64url(seeded(6), 90)}`;
