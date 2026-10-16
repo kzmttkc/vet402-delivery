@@ -447,3 +447,79 @@ test("copy: no reading of any text in the written copy holds a value it redacted
     }
   }
 });
+
+// ---------- the third review (255ef157, BLOCK): the seed at any byte offset, matched as bytes ----------
+
+const B58A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const b58 = (b: Buffer) => {
+  let n = BigInt("0x" + (b.toString("hex") || "0"));
+  let out = "";
+  while (n > 0n) {
+    out = B58A[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  for (const x of b) {
+    if (x !== 0) break;
+    out = "1" + out;
+  }
+  return out;
+};
+const zw = (t: string) => t.match(/.{1,7}/g)!.join("​");
+
+test("copy: the seed stops the copy as bytes at any offset in any encoding (PKCS#8 DER, 0 to 9 bytes before it, zero-width characters, hex, base58, a 32-byte Tempo key); the public key alone does not", () => {
+  const s = scratch();
+  const r = seeded(7303);
+  // a made-up ed25519 key: its PKCS#8 DER (the seed at byte 16) and the Solana keypair file of the same key
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const der = privateKey.export({ format: "der", type: "pkcs8" }) as Buffer;
+  const seed = der.subarray(16, 48);
+  const pub = (publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(12);
+  const solKeys = join(s.dir, "sol-keys");
+  mkdirSync(solKeys);
+  writeFileSync(join(solKeys, "payer.json"), JSON.stringify([...seed, ...pub]));
+  // a made-up 32-byte Tempo access key, written the way a hex key file holds it
+  const tempo = bytes(r, 32);
+  const tempoKeys = join(s.dir, "tempo-keys");
+  mkdirSync(tempoKeys);
+  writeFileSync(join(tempoKeys, "access-key.json"), JSON.stringify({ privateKey: `0x${tempo.toString("hex")}` }));
+
+  const forms = (secret: Buffer): [string, string][] => {
+    const out: [string, string][] = [];
+    for (let k = 0; k <= 9; k++) {
+      const b = Buffer.concat([bytes(r, k), secret, bytes(r, 5)]);
+      out.push([`base64, ${k} bytes before`, b.toString("base64")], [`base64url, ${k} bytes before`, b.toString("base64url")]);
+      out.push([`base64 without padding, ${k} bytes before`, b.toString("base64").replace(/=+$/, "")]);
+      out.push([`base64 with zero-width characters, ${k} bytes before`, zw(b.toString("base64"))]);
+      out.push([`base64 with spaces, ${k} bytes before`, b.toString("base64").match(/.{1,12}/g)!.join(" ")]);
+      out.push([`hex, ${k} bytes before`, b.toString("hex")], [`HEX, ${k} bytes before`, b.toString("hex").toUpperCase()]);
+      out.push([`base58, ${k} bytes before`, b58(b)]);
+    }
+    // 8 bytes of the secret alone, at a shifted place
+    out.push(["8 bytes of the secret in base64 after 2 bytes", Buffer.concat([bytes(r, 2), secret.subarray(9, 17)]).toString("base64")]);
+    return out;
+  };
+  const cases: [string, string, string][] = [
+    ["PKCS#8 DER in base64", solKeys, der.toString("base64")],
+    ["PKCS#8 DER in base64url", solKeys, der.toString("base64url")],
+    ["PKCS#8 DER in base64 with zero-width characters", solKeys, zw(der.toString("base64"))],
+    ...forms(seed).map(([l, f]) => [`seed: ${l}`, solKeys, f] as [string, string, string]),
+    ...forms(tempo).map(([l, f]) => [`Tempo key: ${l}`, tempoKeys, f] as [string, string, string]),
+  ];
+  for (const [label, keys, form] of cases) {
+    writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"v":"${form}"}` }])));
+    const c = gateCli("copy", s.inFile, s.outFile, "--keys-dir", keys, "--allow", s.allowFile);
+    assert.equal(c.status, 3, `${label}: ${c.stdout}`);
+    assert.match(c.stderr, /own-key/, label);
+    assert.ok(!existsSync(s.outFile), label);
+  }
+  // the public key alone, at any offset and in any encoding, is the payer's address: never a stop
+  for (let k = 0; k <= 9; k++) {
+    const b = Buffer.concat([bytes(r, k), pub, bytes(r, 5)]);
+    for (const form of [b.toString("base64"), b.toString("base64url"), b.toString("hex"), b.toString("hex").toUpperCase(), b58(b), b58(pub), zw(b.toString("base64"))]) {
+      writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"v":"${form}"}` }])));
+      const c = gateCli("copy", s.inFile, s.outFile, "--keys-dir", solKeys, "--allow", s.allowFile);
+      assert.equal(c.status, 0, `public key, ${k} bytes before: ${c.stderr}`);
+    }
+  }
+  rmSync(s.dir, { recursive: true });
+});

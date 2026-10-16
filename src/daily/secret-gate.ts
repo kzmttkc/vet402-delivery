@@ -796,10 +796,11 @@ export function ownKeyNeedles(keysDir: string): string[] {
  * on, the public key's only, give no piece. Its base58 is one number of all 64 bytes, so every character holds the
  * seed and the whole of it is a source. The public key alone, in any encoding, is never a source.
  */
-export function ownKeyMaterial(keysDir: string): { needles: string[]; pieceSources: string[] } {
+export function ownKeyMaterial(keysDir: string): { needles: string[]; pieceSources: string[]; secrets: Buffer[] } {
   const out: string[] = [];
   const sources: string[] = [];
-  if (!existsSync(keysDir)) return { needles: out, pieceSources: sources };
+  const secrets: Buffer[] = [];
+  if (!existsSync(keysDir)) return { needles: out, pieceSources: sources, secrets };
   for (const f of readdirSync(keysDir).filter((x) => x.endsWith(".json"))) {
     let j: unknown;
     try {
@@ -815,6 +816,7 @@ export function ownKeyMaterial(keysDir: string): { needles: string[]; pieceSourc
     }
     for (const b of bytes) {
       const secret = b.length === 64 ? b.subarray(0, 32) : b;
+      secrets.push(Buffer.from(secret));
       out.push(secret.toString("hex"), secret.toString("base64").replace(/=+$/, ""), secret.toString("base64url"), base58(b));
       sources.push(secret.toString("hex"), secret.toString("base64").replace(/=+$/, ""), secret.toString("base64url"), base58(b));
       // a 64-byte key pair (seed, then public key) also in each encoding as a whole
@@ -824,7 +826,75 @@ export function ownKeyMaterial(keysDir: string): { needles: string[]; pieceSourc
       }
     }
   }
-  return { needles: [...new Set(out.filter((n) => n.length >= 32))], pieceSources: [...new Set(sources.filter((n) => n.length >= OWN_KEY_PIECE))] };
+  return { needles: [...new Set(out.filter((n) => n.length >= 32))], pieceSources: [...new Set(sources.filter((n) => n.length >= OWN_KEY_PIECE))], secrets: secrets.filter((x) => x.length >= OWN_KEY_BYTES) };
+}
+
+/**
+ * The runner's secret bytes are looked for as bytes, not as characters (gateCopy): a seed inside a longer value
+ * (PKCS#8 DER, where the ed25519 seed is bytes 16 to 47, or any prefix) shifts its base64 characters, so no piece of
+ * its own encoding matches, but its bytes are still there once the text is decoded. Any OWN_KEY_BYTES bytes in a row
+ * of a secret (the seed of a key pair, a 32-byte key) stop the copy. The public half of a key pair is never used.
+ */
+export const OWN_KEY_BYTES = 8;
+
+/** Every OWN_KEY_BYTES-byte window of each secret, as hex. */
+export function ownKeyWindows(secrets: readonly Uint8Array[]): Set<string> {
+  const out = new Set<string>();
+  for (const x of secrets) {
+    const b = Buffer.from(x);
+    for (let i = 0; i + OWN_KEY_BYTES <= b.length; i++) out.add(b.subarray(i, i + OWN_KEY_BYTES).toString("hex"));
+  }
+  return out;
+}
+
+const B58_RUN = /[1-9A-HJ-NP-Za-km-z]{11,}/g;
+/** base58 to bytes (leading 1s are zero bytes), or null past 400 characters. */
+function base58Bytes(t: string): Buffer | null {
+  if (t.length > 400) return null;
+  let n = 0n;
+  for (const c of t) n = n * 58n + BigInt(B58.indexOf(c));
+  let hex = n.toString(16);
+  if (hex.length % 2) hex = "0" + hex;
+  let zeros = 0;
+  while (zeros < t.length && t[zeros] === "1") zeros++;
+  return Buffer.concat([Buffer.alloc(zeros), n === 0n ? Buffer.alloc(0) : Buffer.from(hex, "hex")]);
+}
+
+/**
+ * Every byte string a text can be read as: each hex run (in any case, from its first and from its second character),
+ * each base64 or base64url run (from each of its first four characters, so whatever 3-byte group it started in, one
+ * of them is aligned), each base58 run, and each list of decimal bytes. Runs too short to hold OWN_KEY_BYTES bytes
+ * are left out.
+ */
+export function byteReadings(t: string): Buffer[] {
+  const out: Buffer[] = [];
+  for (const m of t.matchAll(/[0-9a-fA-F]{16,}/g)) for (const k of [0, 1]) out.push(Buffer.from(m[0].slice(k, k + Math.floor((m[0].length - k) / 2) * 2), "hex"));
+  for (const m of t.matchAll(/[A-Za-z0-9+/_-]{11,}={0,2}/g)) {
+    const run = m[0].replace(/=+$/, "").replace(/-/g, "+").replace(/_/g, "/");
+    for (let k = 0; k < 4 && run.length - k >= 11; k++) out.push(Buffer.from(run.slice(k, k + Math.floor((run.length - k) / 4) * 4 + ((run.length - k) % 4 >= 2 ? (run.length - k) % 4 : 0)), "base64"));
+  }
+  for (const m of t.matchAll(B58_RUN)) {
+    const b = base58Bytes(m[0]);
+    if (b) out.push(b);
+  }
+  for (const m of t.matchAll(/\d{1,3}(?:\s*,\s*\d{1,3}){7,}/g)) {
+    const xs = m[0].split(/\s*,\s*/).map(Number);
+    if (xs.every((x) => x <= 255)) out.push(Buffer.from(xs));
+  }
+  return out.filter((b) => b.length >= OWN_KEY_BYTES);
+}
+
+/** Whether any reading of the text, as written and with format characters (zero-width) and white space taken out, holds a window. */
+export function holdsOwnKeyBytes(text: string, windows: ReadonlySet<string>): boolean {
+  if (windows.size === 0) return false;
+  for (const r of readings(text)) {
+    for (const v of new Set([r, r.replace(/[\p{Cf}\s]+/gu, "")])) {
+      for (const b of byteReadings(v)) {
+        for (let i = 0; i + OWN_KEY_BYTES <= b.length; i++) if (windows.has(b.subarray(i, i + OWN_KEY_BYTES).toString("hex"))) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** A needle that is hex: compared without case (upper-case hex is the same key). */
@@ -873,6 +943,8 @@ export interface ScanOptions {
    * (ownKeyMaterial pieceSources). Without it, every needle in ownKeys is a source.
    */
   ownKeyPieces?: readonly string[];
+  /** The copy step only (gateCopy): the runner's secret bytes (ownKeyMaterial secrets), matched as bytes in every reading. */
+  ownKeySecrets?: readonly Uint8Array[];
   /** Filled with each finding's value by "<kind>:<sha256>", for the copy step to redact it. Never printed. */
   values?: Map<string, string>;
 }
@@ -1434,8 +1506,9 @@ export interface CopyResult {
  *    a private key, a key array, a local path, a street address), a recovery phrase, a URL password, or an unclear
  *    finding anywhere but a seller's answer (vet402's own fields, the run's settings)
  *  - a seller's answer path that another place in the file also has (a key that reads like rows[0].detail)
- *  - a reading of a seller's answer holds a piece of the runner's own key (OWN_KEY_PIECE characters of any
- *    encoding in ownKeyNeedles, compared without case)
+ *  - any reading of any text of the file holds OWN_KEY_BYTES bytes in a row of the runner's secret, decoded from
+ *    hex, base64, base64url, base58 or a byte list at any alignment (holdsOwnKeyBytes, the main check), or a reading
+ *    of a seller's answer holds OWN_KEY_PIECE characters of the secret's own encodings (ownKeyMaterial pieceSources)
  *  - the same value is in any reading of a string, a name or a number outside the sellers' answers
  *  - a finding cannot be placed in the answer it was found in
  * The scan and baseline modes and gateTree do not use this: the tree before a commit is judged as strictly as before.
@@ -1454,6 +1527,13 @@ export function gateCopy(raw: unknown, file: string, allow: readonly AllowEntry[
   for (const t of texts) uses.set(t.path, (uses.get(t.path) ?? 0) + 1);
   const isSeller = (path: string) => seller.has(path) && uses.get(path) === 1;
   // A piece of the runner's own key in any reading of a seller's answer stops the copy, whatever else is found.
+  // The runner's secret bytes in any reading of any text of the file, decoded from hex, base64, base58 or a byte list.
+  const windows = ownKeyWindows(opts.ownKeySecrets ?? []);
+  for (const t of texts) {
+    // (a name's path holds the name itself: it is never printed)
+    if (holdsOwnKeyBytes(t.text, windows))
+      return stop([{ file, path: t.path.split(t.text).join("<the text>"), kind: "own-key", known: false, sha256: sha256Hex(t.text), length: t.text.length, shape: maskShape(t.text), note: "the runner's secret key bytes, decoded from this text" }]);
+  }
   const pieces = ownKeyPieces(opts.ownKeyPieces ?? opts.ownKeys ?? []);
   for (const t of texts.filter((x) => isSeller(x.path))) {
     for (const r of readings(t.text)) {

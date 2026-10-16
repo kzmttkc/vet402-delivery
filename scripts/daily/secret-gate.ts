@@ -54,8 +54,8 @@ const allowFile = resolve(opt("--allow") ?? join(HERE, "secret-allow.json"));
 const keysDir = opt("--keys-dir");
 const reason = opt("--reason");
 const allow = existsSync(allowFile) ? loadAllowList(allowFile) : { allow: [], files: [] };
-const keyMaterial = keysDir ? ownKeyMaterial(resolve(keysDir)) : { needles: [], pieceSources: [] };
-const scanOpts: ScanOptions = { ownKeys: keyMaterial.needles, ownKeyPieces: keyMaterial.pieceSources };
+const keyMaterial = keysDir ? ownKeyMaterial(resolve(keysDir)) : { needles: [], pieceSources: [], secrets: [] };
+const scanOpts: ScanOptions = { ownKeys: keyMaterial.needles, ownKeyPieces: keyMaterial.pieceSources, ownKeySecrets: keyMaterial.secrets };
 
 if (cmd === "copy") {
   const [src, out] = args;
