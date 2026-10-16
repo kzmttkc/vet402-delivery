@@ -861,14 +861,22 @@ function base58Bytes(t: string): Buffer | null {
 }
 
 /**
- * Every byte string a text can be read as: each hex run (in any case, from its first and from its second character),
+ * Every byte string a text can be read as: the text itself, one byte per character (latin1), each hex run (in any
+ * case, from its first and from its second character, also with : - , white space and 0x taken out),
  * each base64 or base64url run (from each of its first four characters, so whatever 3-byte group it started in, one
- * of them is aligned), each base58 run, and each list of decimal bytes. Runs too short to hold OWN_KEY_BYTES bytes
+ * of them is aligned), each base58 run, and each list of decimal bytes (split by , : - or white space). Runs too short to hold OWN_KEY_BYTES bytes
  * are left out.
  */
 export function byteReadings(t: string): Buffer[] {
   const out: Buffer[] = [];
-  for (const m of t.matchAll(/[0-9a-fA-F]{16,}/g)) for (const k of [0, 1]) out.push(Buffer.from(m[0].slice(k, k + Math.floor((m[0].length - k) / 2) * 2), "hex"));
+  // the text itself as bytes: a seed written one byte per character (%XX, \u00XX, &#NN; and \xXX are already
+  // characters in the readings, or latin1 characters as written)
+  out.push(Buffer.from(t, "latin1"));
+  // hex with its separators and 0x prefixes taken out (ab:cd:ef, AB-CD-EF, "ab cd ef", 0xab, 0xcd)
+  const bare = t.replace(/0x/gi, "").replace(/[:\-\s,]+/g, "");
+  for (const h of new Set([t, bare])) {
+    for (const m of h.matchAll(/[0-9a-fA-F]{16,}/g)) for (const k of [0, 1]) out.push(Buffer.from(m[0].slice(k, k + Math.floor((m[0].length - k) / 2) * 2), "hex"));
+  }
   for (const m of t.matchAll(/[A-Za-z0-9+/_-]{11,}={0,2}/g)) {
     const run = m[0].replace(/=+$/, "").replace(/-/g, "+").replace(/_/g, "/");
     for (let k = 0; k < 4 && run.length - k >= 11; k++) out.push(Buffer.from(run.slice(k, k + Math.floor((run.length - k) / 4) * 4 + ((run.length - k) % 4 >= 2 ? (run.length - k) % 4 : 0)), "base64"));
@@ -877,8 +885,9 @@ export function byteReadings(t: string): Buffer[] {
     const b = base58Bytes(m[0]);
     if (b) out.push(b);
   }
-  for (const m of t.matchAll(/\d{1,3}(?:\s*,\s*\d{1,3}){7,}/g)) {
-    const xs = m[0].split(/\s*,\s*/).map(Number);
+  // decimal bytes separated by commas, colons, dashes or white space
+  for (const m of t.matchAll(/\d{1,3}(?:[:\-\s,]+\d{1,3}){7,}/g)) {
+    const xs = m[0].split(/[:\-\s,]+/).map(Number);
     if (xs.every((x) => x <= 255)) out.push(Buffer.from(xs));
   }
   return out.filter((b) => b.length >= OWN_KEY_BYTES);

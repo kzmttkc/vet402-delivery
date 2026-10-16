@@ -523,3 +523,43 @@ test("copy: the seed stops the copy as bytes at any offset in any encoding (PKCS
   }
   rmSync(s.dir, { recursive: true });
 });
+
+test("copy: the seed written byte by byte (percent, \\u00XX, &#NN;, \\xXX, latin1 characters) or as separated hex and decimal (colons, dashes, spaces, 0x lists) stops; the public key so written does not", () => {
+  const s = scratch();
+  const r = seeded(7404);
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const seed = (privateKey.export({ format: "der", type: "pkcs8" }) as Buffer).subarray(16, 48);
+  const pub = (publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(12);
+  const keys = join(s.dir, "keys");
+  mkdirSync(keys);
+  writeFileSync(join(keys, "payer.json"), JSON.stringify([...seed, ...pub]));
+  const hx = (x: number) => x.toString(16).padStart(2, "0");
+  const forms = (b: Buffer): [string, string][] => [
+    ["percent", [...b].map((x) => `%${hx(x)}`).join("")],
+    ["\\u00XX", [...b].map((x) => `\\u00${hx(x)}`).join("")],
+    ["&#NN;", [...b].map((x) => `&#${x};`).join("")],
+    ["\\xXX", [...b].map((x) => `\\x${hx(x)}`).join("")],
+    ["hex with colons", [...b].map(hx).join(":")],
+    ["HEX with dashes", [...b].map(hx).join("-").toUpperCase()],
+    ["hex with spaces", [...b].map(hx).join(" ")],
+    ["a 0x list", [...b].map((x) => `0x${hx(x)}`).join(", ")],
+    ["decimals with spaces", [...b].join(" ")],
+    ["decimals with colons", [...b].join(":")],
+  ];
+  const withPrefix = (x: Buffer) => Buffer.concat([bytes(r, 3), x, bytes(r, 2)]);
+  for (const [label, form] of forms(withPrefix(seed))) {
+    writeFileSync(s.inFile, JSON.stringify(result([{ detail: `{"v":"${form}"}` }])));
+    const c = gateCli("copy", s.inFile, s.outFile, "--keys-dir", keys, "--allow", s.allowFile);
+    assert.equal(c.status, 3, `${label}: ${c.stdout}`);
+    assert.match(c.stderr, /own-key/, label);
+  }
+  // latin1 characters as written: JSON carries them as they are (or as \u00XX for control bytes)
+  const raw = result([{ detail: `{"v":"${withPrefix(seed).toString("latin1")}"}` }]);
+  const c1 = gateCopy(raw, "x.json", [], { ownKeySecrets: [seed] });
+  assert.ok(c1.blocking.some((f) => f.kind === "own-key"), "latin1 characters");
+  for (const [label, form] of [...forms(withPrefix(pub)), ["latin1 characters", withPrefix(pub).toString("latin1")] as [string, string]]) {
+    const c = gateCopy(result([{ detail: `{"v":"${form}"}` }]), "x.json", [], { ownKeySecrets: [seed] });
+    assert.ok(!c.blocking.some((f) => f.kind === "own-key"), `public key, ${label}`);
+  }
+  rmSync(s.dir, { recursive: true });
+});
