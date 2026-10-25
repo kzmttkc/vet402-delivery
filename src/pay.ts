@@ -8,7 +8,7 @@
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired } from "@x402/core/types";
 import { atomicToUsdc } from "./constants.js";
-import { checkAccept, normalizeAccept, pickSolanaAccept, type Budget, type Refusal, type SolAccept } from "./guard.js";
+import { checkAccept, normalizeAccept, PayloadNotCreatedError, pickSolanaAccept, type Budget, type Refusal, type SolAccept } from "./guard.js";
 import type { OnChain } from "./chain.js";
 import type { TxCheck } from "./txcheck.js";
 
@@ -183,7 +183,10 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
     created = await deps.createPayment(p.paymentRequired, a);
   } catch (e) {
     deps.budget.release(res.id);
-    return { ...base, outcome: "not_sent", refusal: { refused: "payload_not_created", detail: `payload not created: ${(e as Error).message}`.slice(0, 300) } };
+    // Only the client's own build failure skips this seller. A throw after the payload exists (no transaction,
+    // accepted differs from the lock, the proxy-buy wrapper's checks) is an integrity problem and stops the run.
+    const refused = e instanceof PayloadNotCreatedError ? "payload_not_created" : "tx_check_failed";
+    return { ...base, outcome: "not_sent", refusal: { refused, detail: `payload not created: ${(e as Error).message}`.slice(0, 300) } };
   }
   const tc = await deps.checkTx(created.txBase64, a, deps.signerAddress ?? deps.payer);
   if (!tc.ok) {

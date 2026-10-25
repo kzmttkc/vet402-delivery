@@ -14,7 +14,7 @@ import {
 } from "@solana/kit";
 import { getTransferCheckedInstruction } from "@solana-program/token";
 import { MEMO_PROGRAM, PAYER_ADDRESS, SOLANA_MAINNET, USDC_MINT } from "../src/constants.js";
-import { Budget, checkAccept, type SolAccept } from "../src/guard.js";
+import { Budget, checkAccept, PayloadNotCreatedError, type SolAccept } from "../src/guard.js";
 import { payOne, type PayDeps, type PlanEntry } from "../src/pay.js";
 import { checkPaymentTransaction, usdcAta } from "../src/txcheck.js";
 
@@ -171,12 +171,25 @@ test("payOne: a payment the client cannot build is not sent, is not a tx check f
   const budget = new Budget(null);
   const { deps, counts } = depsWith(fake402([raw(accept())]), budget);
   deps.createPayment = async () => {
-    throw new Error("No network/scheme registered for x402 version: 2 which comply with the payment requirements.");
+    throw new PayloadNotCreatedError("No network/scheme registered for x402 version: 2 which comply with the payment requirements.");
   };
   const rec = await payOne(entry, deps);
   assert.equal(rec.outcome, "not_sent");
   assert.equal(rec.refusal?.refused, "payload_not_created");
   assert.match(rec.refusal!.detail, /^payload not created: No network\/scheme registered/);
+  assert.equal(counts().paidRequests, 0);
+  assert.equal(budget.spent, 0n);
+});
+
+test("payOne: any other throw while creating the payment (a check after the payload exists) is still tx_check_failed", async () => {
+  const budget = new Budget(null);
+  const { deps, counts } = depsWith(fake402([raw(accept())]), budget);
+  deps.createPayment = async () => {
+    throw new Error("payload.accepted differs from the locked accept");
+  };
+  const rec = await payOne(entry, deps);
+  assert.equal(rec.outcome, "not_sent");
+  assert.equal(rec.refusal?.refused, "tx_check_failed");
   assert.equal(counts().paidRequests, 0);
   assert.equal(budget.spent, 0n);
 });

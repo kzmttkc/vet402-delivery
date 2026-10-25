@@ -16,10 +16,14 @@ import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop
 import type { RemeasureRow } from "./results.js";
 
 /**
- * Refusals after which nothing more is attempted in this run. payload_not_created is not here: the
- * client threw before any payment existed, so it is one seller's accept and the run goes on.
+ * Refusals after which nothing more is attempted in this run. payload_not_created is not here: the x402
+ * client could not build a payment from one seller's 402, so that seller is skipped and the run goes on,
+ * unless it happens PAYLOAD_NOT_CREATED_STOP_AFTER times in a row (then the client or the RPC is the likely
+ * cause, and the run stops so the runner halts). The dry run does not build payments, so such a seller shows
+ * as would_pay there and is skipped only in the paid run.
  */
 const STOP_ON = new Set(["total_cap_reached", "purchase_count_reached", "ledger_unreadable", "tx_check_failed"]);
+export const PAYLOAD_NOT_CREATED_STOP_AFTER = 3;
 
 export function reasonOf(refused: string): string {
   return refused === "payto_mismatch" ? "pay_to_changed" : refused;
@@ -78,6 +82,7 @@ function fits(budget: RemeasureBudget) {
 /** --pay: buy each slot through payOne. Stops on a cap, a ledger problem, a rejected transaction, or SOL going down. */
 export async function paySolana(slots: readonly Slot[], pay: Omit<PayDeps, "budget" | "judge" | "dryRun">, deps: SolanaRunDeps): Promise<LoopResult> {
   const now = deps.now ?? (() => new Date());
+  let notCreatedInARow = 0;
   return runSlots(slots, {
     pacer: deps.pacer ?? new SellerPacer(),
     sleep: deps.sleep,
@@ -89,6 +94,8 @@ export async function paySolana(slots: readonly Slot[], pay: Omit<PayDeps, "budg
       const row = solanaRow(s, rec, at, budgetKey(deps.date, s.target.payTo, s.slot));
       if (rec.solDecreased) return { row, stop: `payer SOL decreased after ${s.target.host}` };
       const r = rec.refusal?.refused;
+      notCreatedInARow = r === "payload_not_created" ? notCreatedInARow + 1 : 0;
+      if (notCreatedInARow >= PAYLOAD_NOT_CREATED_STOP_AFTER) return { row, stop: `payload_not_created: ${notCreatedInARow} in a row, last ${s.target.host}` };
       return { row, stop: r && STOP_ON.has(r) ? r : null };
     },
   });

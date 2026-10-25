@@ -28,6 +28,7 @@ import { dayLedgerPath, dryRunTempo, firstBlockAtOrAfter, monthCommittedElsewher
 import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
 import type { Slot } from "../src/remeasure/loop.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
+import { PayloadNotCreatedError } from "../src/guard.js";
 import { resultFilesUpTo, runDirs, type RemeasureRow, type ResultFile } from "../src/remeasure/results.js";
 import { isMonthCapStop, runOutcome } from "../src/daily/steps.js";
 
@@ -139,7 +140,7 @@ test("solana: a payment the client cannot build skips that seller and the run go
   const pay: Omit<PayDeps, "budget"> = {
     ...w.pay,
     createPayment: async (pr, a) => {
-      if (a.payTo === P1) throw new Error("No network/scheme registered for x402 version: 2 which comply with the payment requirements.");
+      if (a.payTo === P1) throw new PayloadNotCreatedError("No network/scheme registered for x402 version: 2 which comply with the payment requirements.");
       return w.pay.createPayment(pr, a);
     },
   };
@@ -147,6 +148,49 @@ test("solana: a payment the client cannot build skips that seller and the run go
   const res = await paySolana(sel.slots, pay, { date: DATE, budget, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
   assert.equal(res.stopped, null);
   assert.deepEqual(res.rows.map((r) => [r.host, r.outcome, r.reason]).sort(), [["a.example", "not_sent", "payload_not_created"], ["c.example", "sent", "sent"]]);
+  assert.equal(w.signs.length, 1);
+  // the public row says vet402 skipped it, not the seller
+  const skipped = res.rows.find((r) => r.host === "a.example")!;
+  assert.equal(normalizeRemeasure(fileOf("solana", [skipped]), "remeasure/solana-2026-10-25")[0]!.category, "vet402_skipped");
+});
+
+test("solana: three payments in a row that the client cannot build stop the run (the client or the RPC, not three sellers)", async () => {
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" }, "b.example": { payTo: P2, amount: "10000" }, "c.example": { payTo: P3, amount: "10000" } }, ft.clock);
+  const pay: Omit<PayDeps, "budget"> = {
+    ...w.pay,
+    createPayment: async () => {
+      throw new PayloadNotCreatedError("blockhash not available");
+    },
+  };
+  const sel = selectSlots([solTarget("a.example", P1), solTarget("b.example", P2), solTarget("c.example", P3)], 1);
+  const res = await paySolana(sel.slots, pay, { date: DATE, budget: new RemeasureBudget(null), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.match(res.stopped!, /^payload_not_created: 3 in a row, last [abc]\.example$/);
+  assert.equal(res.rows.length, 3);
+  assert.equal(w.signs.length, 0);
+});
+
+test("solana: the in-a-row count resets on any other outcome (2 failures, a sale, 2 failures does not stop)", async () => {
+  const ft = fakeTime();
+  const P4 = (await generateKeyPairSigner()).address;
+  const P5 = (await generateKeyPairSigner()).address;
+  const fail = new Set([P1, P2, P4, P5]);
+  const sellers = { "a.example": { payTo: P1, amount: "10000" }, "b.example": { payTo: P2, amount: "10000" }, "c.example": { payTo: P3, amount: "10000" }, "d.example": { payTo: P4, amount: "10000" }, "e.example": { payTo: P5, amount: "10000" } };
+  const w = solWorld(sellers, ft.clock);
+  const pay: Omit<PayDeps, "budget"> = {
+    ...w.pay,
+    createPayment: async (pr, a) => {
+      if (fail.has(a.payTo)) throw new PayloadNotCreatedError("No network/scheme registered");
+      return w.pay.createPayment(pr, a);
+    },
+  };
+  const targets = [solTarget("a.example", P1), solTarget("b.example", P2), solTarget("c.example", P3), solTarget("d.example", P4), solTarget("e.example", P5)];
+  // fixed order a, b, c, d, e: two failures, the sale at c, two failures
+  const slots = [...selectSlots(targets, 1).slots].sort((x, y) => (x.target.host < y.target.host ? -1 : 1));
+  assert.deepEqual(slots.map((x) => x.target.host), ["a.example", "b.example", "c.example", "d.example", "e.example"]);
+  const res = await paySolana(slots, pay, { date: DATE, budget: new RemeasureBudget(null), now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(res.stopped, null);
+  assert.deepEqual(res.rows.map((r) => r.reason), ["payload_not_created", "payload_not_created", "sent", "payload_not_created", "payload_not_created"]);
   assert.equal(w.signs.length, 1);
 });
 

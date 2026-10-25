@@ -53,6 +53,16 @@ export interface Refusal {
   detail: string;
 }
 
+/**
+ * The x402 client threw while building the payment from the seller's 402 (2026-10-25: a v2 accept with
+ * network "solana"). Only makeCreatePayment throws this, and only around createPaymentPayload. payOne files it
+ * as payload_not_created and the run goes on. Every other throw, including the checks on a built payload, stays
+ * tx_check_failed and stops the run.
+ */
+export class PayloadNotCreatedError extends Error {
+  override name = "PayloadNotCreatedError";
+}
+
 /** Normalise one raw accept (v2 `amount`, v1 `maxAmountRequired`, v1 network "solana"). */
 export function normalizeAccept(raw: Record<string, unknown>): SolAccept {
   const extra = raw.extra && typeof raw.extra === "object" ? (raw.extra as Record<string, unknown>) : undefined;

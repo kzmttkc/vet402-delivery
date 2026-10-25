@@ -182,6 +182,7 @@ test("failureMode groups like vet402-algorand fix-first", () => {
     [{ verdict: "REFUSE", reason: "total_cap_reached" }, "vet402_limit"],
     [{ verdict: "REFUSE", reason: "already_bought" }, "vet402_limit"],
     [{ verdict: "REFUSE", reason: "tx_check_failed" }, "vet402_limit"],
+    [{ verdict: "REFUSE", reason: "payload_not_created" }, "vet402_limit"],
     [{ verdict: "REFUSE", reason: "same_payto" }, "vet402_limit"],
     [{ verdict: "REFUSE", reason: "price_changed" }, "other"],
   ];

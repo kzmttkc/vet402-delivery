@@ -10,7 +10,7 @@ import { ExactSvmScheme } from "@x402/svm/exact/client";
 import { ExactSvmSchemeV1 } from "@x402/svm/v1";
 import { toClientSvmSigner } from "@x402/svm";
 import { PAYER_ADDRESS, SOLANA_MAINNET } from "./constants.js";
-import { normalizeAccept, type SolAccept } from "./guard.js";
+import { normalizeAccept, PayloadNotCreatedError, type SolAccept } from "./guard.js";
 import type { CreatedPayment } from "./pay.js";
 
 export async function loadPayer(keyFile: string): Promise<KeyPairSigner> {
@@ -54,7 +54,12 @@ export function makeCreatePayment(signer: KeyPairSigner, rpcUrl: string) {
     client.register(SOLANA_MAINNET as never, new ExactSvmScheme(svmSigner, { rpcUrl }));
     client.registerV1("solana", new ExactSvmSchemeV1(svmSigner, { rpcUrl }));
     const http = new x402HTTPClient(client);
-    const payload = await http.createPaymentPayload(pr);
+    let payload: Awaited<ReturnType<typeof http.createPaymentPayload>>;
+    try {
+      payload = await http.createPaymentPayload(pr);
+    } catch (e) {
+      throw new PayloadNotCreatedError((e as Error).message);
+    }
     const tx = (payload.payload as { transaction?: unknown }).transaction;
     if (typeof tx !== "string") throw new Error("payload has no transaction");
     const accepted = (payload as { accepted?: Record<string, unknown> }).accepted;
