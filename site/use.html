@@ -99,7 +99,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 <p>Any language, or a browser. Optional <code>chain</code> (solana, tempo, base, algorand, arbitrum, robinhood or a CAIP-2 id) and <code>payTo</code> (the recipient in the 402 you hold). CORS is open.</p>
 <pre class="cmd">curl 'https://vet402-delivery.vercel.app/v1/check?url=https://api.xona-agent.com/token/pumpfun-trending'</pre>
 <p class="meta">The JSON starts with <code>verdict</code> and <code>why</code>; then <code>tried</code>, <code>settled</code>, <code>counted</code>, <code>answered</code>, <code>days</code>, the newest purchase and its tx, the newest signed records, and <code>asOf</code>. <code>&amp;format=html</code> gives a page instead.</p>
-<p>The answer for that URL, built by the same code from the same data as the live endpoint (rank.json of 2026-10-24):</p>
+<p>The answer for that URL, built by the same code from the same data as the live endpoint (rank.json of 2026-10-25):</p>
 <pre class="cmd">{
   &quot;verdict&quot;: &quot;avoid&quot;,
   &quot;why&quot;: &quot;vet402 paid this seller 48 times on Solana over 26 days; 0 of 48 paid calls answered (the newest failed one answered HTTP 500).&quot;,
@@ -181,11 +181,11 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
   },
   &quot;payToRecorded&quot;: null,
   &quot;asOf&quot;: {
-    &quot;rankDate&quot;: &quot;2026-10-24&quot;,
-    &quot;rankGeneratedAt&quot;: &quot;2026-10-25T04:09:42.031Z&quot;,
+    &quot;rankDate&quot;: &quot;2026-10-25&quot;,
+    &quot;rankGeneratedAt&quot;: &quot;2026-10-25T05:32:31.384Z&quot;,
     &quot;recordsPublished&quot;: 4550
   },
-  &quot;summary&quot;: &quot;api.xona-agent.com (Solana, Tempo and Base page): vet402 tried 48 purchases on solana from 2026-09-28 to 2026-10-24; 48 settled, 0 came back with an answer. Failures counted against the seller: paid_not_delivered 48. Not counted against the seller: 0 (vet402 or facilitator 0, cause unknown 0). Grade: D, rank 115. Newest purchase: 2026-10-24T03:31:50.480Z on solana, settled_error_status (HTTP 500), tx 38UcQ8TdH1Zt6GVqffdcSpLLw7Ex8HMCqRT7rXJGH8Ahft9EJqGfoYMg4SFYvZ1vsqnTkdCdMHHmKSsDAqusiY1j. Signed records published: 48 (NOT_DELIVERED 48), 48 for this exact URL; newest obs_2026-10-24_004727, its day&#39;s Merkle root is in Solana memo tx 4oM89c3kawpZCSxAYf4g14mByn3SXWuoyuV5T5cwWSaMhHNCr1hDZLhJzZgEckfTSqGn34zxd1vZHm3aXm6iuev9.&quot;,
+  &quot;summary&quot;: &quot;api.xona-agent.com (Solana, Tempo and Base page): vet402 tried 48 purchases on solana from 2026-09-28 to 2026-10-24; 48 settled, 0 came back with an answer. Failures counted against the seller: paid_not_delivered 48. Not counted against the seller: 0 (vet402 or facilitator 0, cause unknown 0). Grade: D, rank 116. Newest purchase: 2026-10-24T03:31:50.480Z on solana, settled_error_status (HTTP 500), tx 38UcQ8TdH1Zt6GVqffdcSpLLw7Ex8HMCqRT7rXJGH8Ahft9EJqGfoYMg4SFYvZ1vsqnTkdCdMHHmKSsDAqusiY1j. Signed records published: 48 (NOT_DELIVERED 48), 48 for this exact URL; newest obs_2026-10-24_004727, its day&#39;s Merkle root is in Solana memo tx 4oM89c3kawpZCSxAYf4g14mByn3SXWuoyuV5T5cwWSaMhHNCr1hDZLhJzZgEckfTSqGn34zxd1vZHm3aXm6iuev9.&quot;,
   &quot;notes&quot;: [],
   &quot;rule&quot;: &quot;pay: the 95% interval of answered / counted is at or above 0.5 (grade C&#39;s line), on 2+ days. avoid: its upper bound is below 0.5 (grade D&#39;s line), on 2+ days. Otherwise unknown. Counted = paid calls: purchases whose payment settled, answered or failed on the seller&#39;s side; a seller&#39;s 5xx with no settled payment, failures on vet402&#39;s or the facilitator&#39;s side, and failures of unknown cause are left out. No settled payment: unknown. avoid is said only after vet402 has told the seller; until then the verdict is unknown.&quot;,
   &quot;method&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/method.html&quot;

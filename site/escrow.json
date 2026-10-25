@@ -1,7 +1,7 @@
 {
   "kind": "vet402-escrow-would-refund",
   "version": 0,
-  "dataDate": "2026-10-24",
+  "dataDate": "2026-10-25",
   "definition": [
     "Counted: a purchase vet402 paid for whose payment settled, where nothing usable came back and the ranking puts the failure on the seller's side (rules settled_not_delivered and paid_not_delivered in src/rank/classify.ts: a 402 again after settling, a 5xx, no answer, another non-2xx that is not a 4xx, or a 2xx with an empty body). It is the same line as the NOT_DELIVERED verdict of the signed records (src/receipt/build.ts). An escrow that releases only on DELIVERED and returns on NOT_DELIVERED would have returned them.",
     "Not counted, shown apart: a settled purchase where the request vet402 sent was wrong (rule paid_then_4xx_vet402_input). That is vet402's mistake, not the seller's.",
@@ -45,15 +45,15 @@
     {
       "chain": "solana",
       "signedRecords": true,
-      "settled": 4065,
-      "delivered": 3928,
+      "settled": 4096,
+      "delivered": 3958,
       "wouldRefund": {
-        "purchases": 106,
-        "amountUsd": "5.290300",
+        "purchases": 107,
+        "amountUsd": "5.300300",
         "priceNotRecorded": 0,
         "byRule": {
           "settled_not_delivered": 0,
-          "paid_not_delivered": 106
+          "paid_not_delivered": 107
         }
       },
       "vet402Input": {
@@ -139,10 +139,10 @@
     }
   ],
   "totals": {
-    "settled": 4797,
+    "settled": 4828,
     "wouldRefund": {
-      "purchases": 128,
-      "amountUsd": "5.704200",
+      "purchases": 129,
+      "amountUsd": "5.714200",
       "priceNotRecorded": 0
     },
     "vet402Input": {
