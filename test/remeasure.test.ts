@@ -131,6 +131,25 @@ function fakeTime() {
   };
 }
 
+test("solana: a payment the client cannot build skips that seller and the run goes on (2026-10-25)", async () => {
+  const dir = tmp();
+  const ft = fakeTime();
+  const w = solWorld({ "a.example": { payTo: P1, amount: "10000" }, "c.example": { payTo: P2, amount: "10000" } }, ft.clock);
+  const budget = new RemeasureBudget(join(dir, "budget.json"));
+  const pay: Omit<PayDeps, "budget"> = {
+    ...w.pay,
+    createPayment: async (pr, a) => {
+      if (a.payTo === P1) throw new Error("No network/scheme registered for x402 version: 2 which comply with the payment requirements.");
+      return w.pay.createPayment(pr, a);
+    },
+  };
+  const sel = selectSlots([solTarget("a.example", P1), solTarget("c.example", P2)], 1);
+  const res = await paySolana(sel.slots, pay, { date: DATE, budget, now: ft.now, sleep: ft.sleep, pacer: ft.pacer() });
+  assert.equal(res.stopped, null);
+  assert.deepEqual(res.rows.map((r) => [r.host, r.outcome, r.reason]).sort(), [["a.example", "not_sent", "payload_not_created"], ["c.example", "sent", "sent"]]);
+  assert.equal(w.signs.length, 1);
+});
+
 test("solana: one purchase per payTo per run by default; the budget file is written before signing", async () => {
   const dir = tmp();
   const ft = fakeTime();

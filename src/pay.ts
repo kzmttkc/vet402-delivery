@@ -183,7 +183,7 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
     created = await deps.createPayment(p.paymentRequired, a);
   } catch (e) {
     deps.budget.release(res.id);
-    return { ...base, outcome: "not_sent", refusal: { refused: "tx_check_failed", detail: `payload not created: ${(e as Error).message}`.slice(0, 300) } };
+    return { ...base, outcome: "not_sent", refusal: { refused: "payload_not_created", detail: `payload not created: ${(e as Error).message}`.slice(0, 300) } };
   }
   const tc = await deps.checkTx(created.txBase64, a, deps.signerAddress ?? deps.payer);
   if (!tc.ok) {

@@ -45,6 +45,7 @@ export type RefuseReason =
   | "purchase_count_reached"
   | "already_bought"
   | "tx_check_failed"
+  | "payload_not_created"
   | "ledger_unreadable";
 
 export interface Refusal {

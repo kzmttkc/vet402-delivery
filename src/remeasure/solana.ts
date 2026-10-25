@@ -15,7 +15,10 @@ import { RM_PAID_TIMEOUT_MS } from "./constants.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
 import type { RemeasureRow } from "./results.js";
 
-/** Refusals after which nothing more is attempted in this run. */
+/**
+ * Refusals after which nothing more is attempted in this run. payload_not_created is not here: the
+ * client threw before any payment existed, so it is one seller's accept and the run goes on.
+ */
 const STOP_ON = new Set(["total_cap_reached", "purchase_count_reached", "ledger_unreadable", "tx_check_failed"]);
 
 export function reasonOf(refused: string): string {

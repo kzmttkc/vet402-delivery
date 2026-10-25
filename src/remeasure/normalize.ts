@@ -42,6 +42,8 @@ const VET402_SKIPPED = new Set([
   "already_bought",
   "ledger_unreadable",
   "tx_check_failed",
+  // The x402 client could not build a payment from the accept (2026-10-25: a v2 accept with network "solana").
+  "payload_not_created",
   "chain_spend_exceeds_ledger",
   "insufficient_balance",
   // Tempo, from 2026-10-01: the catalog example held a placeholder, so vet402 did not buy (src/remeasure/tempo.ts).

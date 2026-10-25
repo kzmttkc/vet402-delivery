@@ -107,6 +107,7 @@ const VET402_LIMIT_REASONS = new Set([
   "fee_payer_is_self",
   "ledger_unreadable",
   "tx_check_failed",
+  "payload_not_created",
   "same_payto",
 ]);
 

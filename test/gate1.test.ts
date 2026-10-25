@@ -167,6 +167,28 @@ test("payOne: a transaction that fails the read-back is not sent and the budget 
   assert.equal(budget.spent, 0n);
 });
 
+test("payOne: a payment the client cannot build is not sent, is not a tx check failure, and the budget is released", async () => {
+  const budget = new Budget(null);
+  const { deps, counts } = depsWith(fake402([raw(accept())]), budget);
+  deps.createPayment = async () => {
+    throw new Error("No network/scheme registered for x402 version: 2 which comply with the payment requirements.");
+  };
+  const rec = await payOne(entry, deps);
+  assert.equal(rec.outcome, "not_sent");
+  assert.equal(rec.refusal?.refused, "payload_not_created");
+  assert.match(rec.refusal!.detail, /^payload not created: No network\/scheme registered/);
+  assert.equal(counts().paidRequests, 0);
+  assert.equal(budget.spent, 0n);
+});
+
+test("payOne: a read-back failure is still tx_check_failed", async () => {
+  const { deps } = depsWith(fake402([raw(accept())]), new Budget(null));
+  deps.createPayment = async () => ({ headers: { "PAYMENT-SIGNATURE": "x" }, txBase64: "AAAA" });
+  deps.checkTx = async () => ({ ok: false, detail: "2 token transfers" });
+  const rec = await payOne(entry, deps);
+  assert.equal(rec.refusal?.refused, "tx_check_failed");
+});
+
 // ---------- transaction read-back ----------
 
 test("tx read-back accepts the expected transfer and rejects a wrong destination, amount or fee payer", async () => {
