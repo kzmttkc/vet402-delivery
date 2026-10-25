@@ -1,0 +1,118 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-24_004780",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 4780
+  },
+  "issuedAt": 1792894709,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/sixtyfour/enrich-lead",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0x003bfb40e35074de62a8eb055be762deff31db17669ec60a793e779a56a3d35d",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0xbB06ad903e615Cc1A50421b60D70e47b11A5677F",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "100000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xdd10800b98cec9e1d95cfcaeb39d28eff62b1783f81f69a2fdc0805368d0a4c5",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-10-24T04:10:54.478Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 1000,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-10-24",
+    "row": "rows[26]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-24",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "4oM89c3kawpZCSxAYf4g14mByn3SXWuoyuV5T5cwWSaMhHNCr1hDZLhJzZgEckfTSqGn34zxd1vZHm3aXm6iuev9",
+    "root": "0xdc860d497fdc5ce0e65852630de034de392ef4cb2881b4f9cbf071c655c687d7",
+    "leafIndex": 89,
+    "proof": [
+      "0x3b040241ba61832bc109670018c904fc47da9304e10378b5c3efc0316479f563",
+      "0xfa1dfaeda6bf95dd185afac06fc0967fbc4d9bf9528ea7fe7c1f4e2ceb0bf17f",
+      "0x62614e866c76b62e152b130934aab18ce99752e1d595eac2fad57f088a89facb",
+      "0x837907eb427ced0dca90f51fe810ca9ee2598c3fdc56c47d4976ce3505dadc84",
+      "0x97d6fe009090256c2ca53ecc14847c30ce673b7dd7f095b19acc42a831b3c5d1",
+      "0xda620376cb5449a09a478a3efc6c6114702742d501581d18efe948e223e3a1d4",
+      "0x2b75a81760129acf75a782f1dce2b9e204f5b8300e99b7e7c6a31a9064b2a47f"
+    ],
+    "count": 97,
+    "sequenceRange": [
+      4691,
+      4787
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-25T04:07:59.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x85fb2ef34bd31fb1b18f58b18cb9bbdc4c5042c1b7203e7bdacd6bade42f07ee057a1d7a42fa750301e33dd597a0d739b10a4ab4b179110fa82e611808a80c381c"
+  }
+}
