@@ -174,7 +174,7 @@ test("solana: the in-a-row count resets on any other outcome (2 failures, a sale
   const ft = fakeTime();
   const P4 = (await generateKeyPairSigner()).address;
   const P5 = (await generateKeyPairSigner()).address;
-  const fail = new Set([P1, P2, P4, P5]);
+  const fail = new Set<string>([P1, P2, P4, P5]);
   const sellers = { "a.example": { payTo: P1, amount: "10000" }, "b.example": { payTo: P2, amount: "10000" }, "c.example": { payTo: P3, amount: "10000" }, "d.example": { payTo: P4, amount: "10000" }, "e.example": { payTo: P5, amount: "10000" } };
   const w = solWorld(sellers, ft.clock);
   const pay: Omit<PayDeps, "budget"> = {
