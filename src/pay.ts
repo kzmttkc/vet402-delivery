@@ -136,6 +136,15 @@ function refused(base: Omit<PurchaseRecord, "outcome">, r: Refusal): PurchaseRec
   return { ...base, outcome: "refused", refusal: r };
 }
 
+/**
+ * The library error's own sentence, without the JSON it appends. The JSON repeats the seller's 402 and was cut at
+ * 300 characters inside a public mint, which the publish gate could not place (2026-10-25).
+ */
+export function firstSentence(message: string): string {
+  const cut = message.search(/\s[{[]/);
+  return (cut === -1 ? message : message.slice(0, cut)).trim();
+}
+
 export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseRecord> {
   const p = await probe402(entry.requestUrl, deps.fetch);
   const accept = pickSolanaAccept(p.accepts, entry.lock.payTo);
@@ -186,7 +195,7 @@ export async function payOne(entry: PlanEntry, deps: PayDeps): Promise<PurchaseR
     // Only the client's own build failure skips this seller. A throw after the payload exists (no transaction,
     // accepted differs from the lock, the proxy-buy wrapper's checks) is an integrity problem and stops the run.
     const refused = e instanceof PayloadNotCreatedError ? "payload_not_created" : "tx_check_failed";
-    return { ...base, outcome: "not_sent", refusal: { refused, detail: `payload not created: ${(e as Error).message}`.slice(0, 300) } };
+    return { ...base, outcome: "not_sent", refusal: { refused, detail: `payload not created: ${firstSentence((e as Error).message)}`.slice(0, 300) } };
   }
   const tc = await deps.checkTx(created.txBase64, a, deps.signerAddress ?? deps.payer);
   if (!tc.ok) {

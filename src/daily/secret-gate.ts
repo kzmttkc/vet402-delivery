@@ -324,6 +324,9 @@ const SECRET_SUFFIX = ["auth", "authorization", "signature", "sig", "privatekey"
  * bare "token". Credential tokens (access_token, id_token, auth_token, refresh_token, api_token, ...) never do.
  */
 const CREDENTIAL_TOKEN = /(?:access|id|auth|refresh|api|bearer|session|csrf|xsrf|oauth|jwt|secret|private|reset|verify|verification|invite|magic|push|device|client|github|slack|personal|app|user|login|signin|service|security|sas|upload|download|share|cancel|confirm|unsubscribe|notification|webhook)tokens?/;
+/** A value this short under a secret-like name is not a secret: no key, token or password fits in it. */
+export const TOO_SHORT_TO_BE_SECRET = 2;
+
 export function publicTokenValue(name: string, value: string): boolean {
   const n = foldName(name);
   const isAddress = (v: string) => base58Len(v) === 32 || /^0x[0-9a-fA-F]{40}$/.test(v);
@@ -506,8 +509,22 @@ export function isExactPublicId(t: string): boolean {
  * its checksum, an IPFS id. A 32-byte base58 value, 64 hex or 64 base58 bytes can also be a key, so those
  * need a known field (isPublicIdField) or the same value under one elsewhere in the file.
  */
+/**
+ * Public token mints that sellers and libraries print in errors and 402 bodies. A detail cut at its length limit can
+ * end inside one, which leaves a random-looking piece (2026-10-25: the Solana USDC mint cut to 34 characters).
+ */
+export const KNOWN_PUBLIC_MINTS: readonly string[] = [
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC on Solana
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT on Solana
+];
+
+/** A whole known public mint, or the start of one that is at least 16 characters long. */
+export function isKnownPublicMintPiece(t: string): boolean {
+  return t.length >= 16 && KNOWN_PUBLIC_MINTS.some((m) => m.startsWith(t));
+}
+
 function isUnambiguousPublicId(t: string): boolean {
-  return /^0x[0-9a-fA-F]{40}$/.test(t) || algorandAddress(t) || IPFS_CID.test(t);
+  return /^0x[0-9a-fA-F]{40}$/.test(t) || algorandAddress(t) || IPFS_CID.test(t) || isKnownPublicMintPiece(t);
 }
 
 /**
@@ -982,7 +999,7 @@ export function scanText(text: string, file: string, path: string, key: string |
   // vet402's own field in its exact format: nothing else to look at.
   if (key !== null && ownField(path, key, text)) return flush();
   // A structured field under a secret-like name: always.
-  if (key !== null && isSecretName(key) && text !== "" && !ownMarker(text) && !publicTokenValue(key, text)) add("secret-field", text);
+  if (key !== null && isSecretName(key) && text.length > TOO_SHORT_TO_BE_SECRET && !ownMarker(text) && !publicTokenValue(key, text)) add("secret-field", text);
   const bodyField = key !== null && SELLER_BODY_FIELDS.includes(key);
   const challengeField = key !== null && PUBLIC_ID_NAMES.test(key);
   const fileIds = opts.publicIds ?? new Set<string>();
@@ -1025,8 +1042,11 @@ export function scanText(text: string, file: string, path: string, key: string |
 
     // Values under names: secret-like names stop whatever the value; public-id names vouch for ids.
     const localIds = new Set<string>();
-    const named = (name: string, value: string, kind: FindingKind, container = false) => {
+    const named = (name: string, value: string, kind: FindingKind, container = false, cutAtEnd = false) => {
       if (isSecretName(name)) {
+        // One or two characters left where the text was cut cannot carry a usable secret. A short value that a
+        // separator ended early (password: ab,rest) is still judged.
+        if (cutAtEnd && value.length <= TOO_SHORT_TO_BE_SECRET) return;
         if (value === "" || ownMarker(value) || publicTokenValue(name, value) || (container && cryptoTokenContainer(name))) {
           if (publicTokenValue(name, value)) localIds.add(value);
           return;
@@ -1040,7 +1060,10 @@ export function scanText(text: string, file: string, path: string, key: string |
         const whole = balanced(v, m.index! + m[0].length) ?? m[3];
         if (isSecretName(m[1]!) && whole.startsWith("{") && foldName(m[1]!) === "token" && describesAsset(whole)) continue;
         named(m[1]!, whole, "secret-field", true);
-      } else named(m[1]!, m[2] ?? m[4] ?? "", "secret-field");
+      } else {
+        const val = m[2] ?? m[4] ?? "";
+        named(m[1]!, val, "secret-field", false, m.index! + m[0].length >= v.length);
+      }
     }
     for (const m of v.matchAll(SUMMARY_PAIR)) named(m[1]!, m[2]!, "secret-field");
     for (const m of v.matchAll(FORM_PAIR)) named(percentDecode(m[1]!), m[2]!, "url-query-secret");

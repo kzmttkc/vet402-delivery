@@ -2095,3 +2095,39 @@ test("records: a chain check that fails (an RPC error, or exit 3: a transfer wit
     rmSync(sb.dir, { recursive: true });
   }
 });
+
+test("gate: one or two characters left where a detail was cut are not secrets (2026-10-25 pm stopped on token_id \"2\")", () => {
+  const findings = (text: string) => blockingFindings(scanFileText(text, "data/x.json"), []).map((f) => f.kind);
+  // the real case: a seller's detail cut at 300 characters ends inside "token_id":"2
+  assert.deepEqual(findings(withDetail(`{"positions":[{"market":{"title":"Spread"},"token_id":"2`)), []);
+  assert.deepEqual(findings(withDetail(`{"ok":true,"api_key":"ab`)), []);
+  // a short value that a separator ended early is still judged (a longer secret follows it)
+  assert.ok(findings(withDetail(`password: ab,Tr0ub4dor&3`)).length > 0);
+  assert.ok(findings(withDetail(`{"password":"ab'Tr0ub4dor&3xx"}`)).length > 0);
+  // a numeric value under a credential-like token id still stops (no digits exemption)
+  assert.ok(findings(withDetail(`{"otp_token_id":"493021"}`)).includes("secret-field"));
+  // three characters and up at the cut, and a real-looking key, still stop
+  assert.ok(findings(withDetail(`{"ok":true,"api_key":"x9Z`)).includes("secret-field"));
+  assert.ok(findings(JSON.stringify({ rows: [{ access_token: "Zq8xY2kL9mN4pQ7rS1tU5vW3" }] })).includes("secret-field"));
+});
+
+test("gate: a public mint cut at the end of a detail is public, a random run of the same length is not (2026-10-25 row 40)", async () => {
+  const { isKnownPublicMintPiece } = await import("../src/daily/secret-gate.js");
+  const findings = (text: string) => blockingFindings(scanFileText(text, "data/x.json"), []).map((f) => f.kind);
+  assert.equal(isKnownPublicMintPiece("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEG"), true);
+  assert.equal(isKnownPublicMintPiece("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), true);
+  assert.equal(isKnownPublicMintPiece("EPjFWdd5Aufq"), false);
+  assert.equal(isKnownPublicMintPiece("Zq8xY2kL9mN4pQ7rS1tU5vW3aB6cD8eF0g"), false);
+  const cut = `payload not created: x. {"paymentRequirements":[{"asset":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEG`;
+  assert.ok(!findings(withDetail(cut)).includes("opaque-40"));
+  assert.ok(findings(withDetail(`{"note":"Zq8xY2kL9mN4pQ7rS1tU5vW3aB6cD8eF0g"}`)).includes("opaque-40"));
+});
+
+test("pay: a payload-not-created detail keeps the library's sentence and drops its JSON", async () => {
+  const { firstSentence } = await import("../src/pay.js");
+  assert.equal(
+    firstSentence('No network/scheme registered for x402 version: 2 which comply with the payment requirements. {"x402Version":2}'),
+    "No network/scheme registered for x402 version: 2 which comply with the payment requirements.",
+  );
+  assert.equal(firstSentence("plain message"), "plain message");
+});
