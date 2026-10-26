@@ -900,7 +900,21 @@ record_day() {
   if [ -f "$R/$day/sources.json" ]; then
     log "$day is already built in $R"
   else
-    run "build-receipts $day" in_repo "$TSX" scripts/build-receipts.ts --key "$KEYS/attest.json" --out "$R" --day "$day" || {
+    # Only the lanes that ran that day: a day whose Tempo run never happened (2026-10-25: am stopped before Tempo,
+    # pm is Solana only) has no tempo-<day>.json, and asking for it failed the whole day.
+    # A Tempo ledger without its result file means a Tempo run that did not finish writing: stop, do not drop it.
+    if [ -f "$RMDIR/tempo-ledger-$day.json" ] && [ ! -f "$RMDIR/tempo-$day.json" ]; then
+      alert "build-receipts --day $day: tempo-ledger-$day.json is there without tempo-$day.json" halt
+      return 1
+    fi
+    local chains=""
+    [ -f "$RMDIR/solana-$day.json" ] && chains="solana"
+    [ -f "$RMDIR/tempo-$day.json" ] && chains="${chains:+$chains,}tempo"
+    if [ -z "$chains" ]; then
+      log "$day has no remeasure result on Solana or Tempo: nothing to build"
+      return 0
+    fi
+    run "build-receipts $day ($chains)" in_repo "$TSX" scripts/build-receipts.ts --key "$KEYS/attest.json" --out "$R" --day "$day" --chains "$chains" --remeasure-dir "$RMDIR" || {
       alert "build-receipts --day $day failed" halt
       return 1
     }

@@ -2131,3 +2131,30 @@ test("pay: a payload-not-created detail keeps the library's sentence and drops i
   );
   assert.equal(firstSentence("plain message"), "plain message");
 });
+
+test("run.sh records: build-receipts asks only for the lanes that ran that day (2026-10-25 had no Tempo run)", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-04.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(calls(sb), /build-receipts .*--day 2026-10-04 --chains solana(\s|$)/);
+  rmSync(sb.dir, { recursive: true });
+  const both = sandbox({ records: true });
+  writeFileSync(join(both.rmdir, "solana-2026-10-04.json"), "{}");
+  writeFileSync(join(both.rmdir, "tempo-2026-10-04.json"), "{}");
+  const r2 = runSh(both, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z") });
+  assert.equal(r2.status, 0, logs(both));
+  assert.match(calls(both), /build-receipts .*--day 2026-10-04 --chains solana,tempo(\s|$)/);
+  rmSync(both.dir, { recursive: true });
+});
+
+test("run.sh records: a Tempo ledger without its result stops the day instead of building Solana only", () => {
+  const sb = sandbox({ records: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-04.json"), "{}");
+  writeFileSync(join(sb.rmdir, "tempo-ledger-2026-10-04.json"), "{}");
+  runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-05T00:17:41Z") });
+  assert.doesNotMatch(calls(sb), /build-receipts .*--day 2026-10-04/);
+  assert.match(alerts(sb), /tempo-ledger-2026-10-04\.json is there without tempo-2026-10-04\.json/);
+  assert.ok(existsSync(join(sb.state, "HALT-records")));
+  rmSync(sb.dir, { recursive: true });
+});
