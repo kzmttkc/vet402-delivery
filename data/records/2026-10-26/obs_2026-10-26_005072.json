@@ -1,0 +1,117 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-26_005072",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 5072
+  },
+  "issuedAt": 1793066794,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://onchainpulse.theaslangroupllc.com/api/facet/honeypot",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "4p2ikEMmisLAmZHkKB4BxfECD6hE2G9XkSvgPqDSspaeXGH6AZhJwaSDbVCcNMAknFo8PuryF4sCuLRvFbEmqXkm",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "985iFjbnGQ3dJcwXnfRCMSrH4Jnc3kW1N6msR64B5KX1",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "5000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0x9c035f1f46b232ccdfb80028ac4f391e20c2a150ead2f994cc0e8ba64bea02c7",
+    "params_hash": "0x126eace80a93865ffe5c781e50c2e7a1051df2f67f71a1abf97d36c6279a118c",
+    "params_salted": true,
+    "ts": "2026-10-26T15:27:44.303Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-10-26",
+    "row": "rows[231]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-26",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "4XTVgouUupRtBLafJR5X7MCuvsMtsRn2y5ePn2kr6coZRVwSDTA4eZxhYSjTQWF47C6eHcAzTPvkRCQLp4e13ZDU",
+    "root": "0xd34fb077e753faa59400f363d832597857febc084e748cb4e57e7a11003c24e9",
+    "leafIndex": 135,
+    "proof": [
+      "0x5e0d1a36a1d724430e545d83df5ba11bf1f7b3ca48df877a47f9b475a3cbc8d9",
+      "0xd855356e473fa717ba5fbd51731da5c4cedb63ca0b6bea5fe015e2b0f3b28779",
+      "0x7944ff4fc817e5dffa5787d60c580a4c0046cb38577e4cebb12bc478974df158",
+      "0xe275c07b0a2849e92ea86589dd1b898eee766489c2422ead24f9618189b125a8",
+      "0x1bf16d40f19f53f504142d53bf7fbc72f855bde56092417d5738992eff8e531b",
+      "0xf3c3e35d29f6e6ad0a8af488bea941189d01266afbb0a827906e53eb63623d6a",
+      "0xae817befffb7e9f331b5c7b22f92bef50cced2f75f12faf4cc1b976b3f04cede"
+    ],
+    "count": 176,
+    "sequenceRange": [
+      4937,
+      5112
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-27T02:10:35.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0xf61e6a068dcaea30a159cb3f6cd71179ab74d12a6b11fd23421ef1f86a25aad3428423b72b37864e624baac9cecfa8aa67004aa539e0896e4991654782c84b7f1c"
+  }
+}

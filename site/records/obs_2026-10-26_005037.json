@@ -1,0 +1,118 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-26_005037",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 5037
+  },
+  "issuedAt": 1793066794,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://pay.edge-agents.ai/v1/services/macro-tr-central-government-debt",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "U6z3Ggij6Cb484BVk6sXq1o5hmFWeSYAsUDhXkXsb7YrenAjwBvVKoUADRb33TvFJtWWYWGVBC2qnsCe3YjZJp4",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "2s11RMxZBjoFh8NJvZwA8LUKcaTRx2fHGUSSvQsM7Lib",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "10000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0xe82d00201d7a3b9b3d4303e3383dafbedf49a92fad5d1bf747db597c15716914",
+    "params_hash": "0xe5f10b2d9eebd7b3133aafd80b6b75886b3008810866186ef84089a368774bb7",
+    "params_salted": true,
+    "ts": "2026-10-26T15:21:48.271Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-10-26",
+    "row": "rows[190]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-26",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "4XTVgouUupRtBLafJR5X7MCuvsMtsRn2y5ePn2kr6coZRVwSDTA4eZxhYSjTQWF47C6eHcAzTPvkRCQLp4e13ZDU",
+    "root": "0xd34fb077e753faa59400f363d832597857febc084e748cb4e57e7a11003c24e9",
+    "leafIndex": 100,
+    "proof": [
+      "0xe33f50b583890bd513f45084d35c455c24223f58f38e643b8b404894c9718f22",
+      "0xfb4531dd73820223f708af6b81b88c42e8d45bfaa9fe458732c11b31b427f87b",
+      "0x61cc35ebe40e4a27dc654c6ba254fa3a4527c2ecfb9dffe0ffe98cd79673d933",
+      "0x9cfaebe46e5af28a3f2f43d97091858b5e003f62b04c15db22e22c1ba927754d",
+      "0x2d9bec6ccdbd600756b5fe286a29072c96ee7f3d27c4f8608ac1b21e21939b42",
+      "0xcb98e188b2e49826607e0450dff77ef4843a033441b6d6fc0c6b27751d6f5708",
+      "0x078400c4332c7ba2c7764cdf9a14b1e72cb53570b93b75d72626d1f8d95fdb70",
+      "0x6acf32abfc24ad27d55ff58c65a8f6c2ef5eac7138c751b02bed1789f8564eda"
+    ],
+    "count": 176,
+    "sequenceRange": [
+      4937,
+      5112
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-27T02:10:35.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0xeb80109178b7da96db7db930f30b65b5e63103dc7f451e5aaad4d3c6a48ebfca3b6213ebaa1479a9208f3dd528bb89439da66ed1e22ccb2f684683b1dfcafa671b"
+  }
+}
