@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-27_005190",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 5190
+  },
+  "issuedAt": 1793145990,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/linkup/search",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0xec6d9985f7dd506343cdf29dd9ff03a6d95a3ac4d821e308c5de0548ab64b578",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x1A93eD3B59ead051de453Aec3bF16957F4A2266f",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "10000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0x9d3a863262518d568ca12cac0821aec38b004ba881de04d5c24a872e653b9576",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-10-27T03:41:28.721Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 39101,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-10-27",
+    "row": "rows[7]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-27",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "2hZA9Vk8Ge6MwrrED3aCoedbbWPMBkiB5h14MNBTGShHqaDWXthxEN7o7pUKB39acN89S1Vo5vqk6SXKK9LaMFuu",
+    "root": "0x60225170c9a4d4c09bb444b622683706c8904a7fc91cde90296f2f611099c789",
+    "leafIndex": 77,
+    "proof": [
+      "0xfe9fb1a49de38dbfd0327604cc1dea90f24da42ff7628deac77a306d4f1caf28",
+      "0xb2bc031b5bf84e7e9a5b98f04183e0c9800037402308866d7dec246657c7c432",
+      "0x93f52a16f8b2cb08028299637f1a801018254e7839fc85ef338ef3ef5d0cdf30",
+      "0xdcbe790633f2075a7e3c18c7305b541b51c9221833ce327486be9022f9cfb8ea",
+      "0xd477ff3a32b580b071a3b50c32eac5df0142e38d98b3400ff2ed169b439c69c1",
+      "0x50e65d7b0de4d01cb1ebec23fa80ac27d41ddb1a0670128beab54f8d60410960",
+      "0x9dc8a8e165d64363c61c3fdb838f51bd027c7871edbb00fd1389572c4b4ce90c",
+      "0x5d9f69ec7b0e93eaedcc0120bed01c4d250676286aaa206594dfb4b6e12f4228"
+    ],
+    "count": 172,
+    "sequenceRange": [
+      5113,
+      5284
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-28T00:10:03.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x85788ff2307b17569f1e8f5435ee7087a2127b5c15c2429f65c2bb12211ed3f821b539f4894d0a04771372bf299d4c554ab23ea6be4b6171deb905224a9172641c"
+  }
+}
