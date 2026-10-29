@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-28_005373",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 5373
+  },
+  "issuedAt": 1793232419,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/brand-dev/v1/brand/fonts",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0x4488bf5fed7f8199e754d59c270e85a1632336be744260e055aae6042bd75ec2",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x9f7556c65392E5cBCB342010618C2b407E64A8EA",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "30000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xec3eef1bc4ad039fd24b036eee5e96d2ceaa32a00bda0913c42836c9fccfa9fa",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-10-28T01:58:09.945Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 413,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-10-28",
+    "row": "rows[21]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-28",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "5F2eo8XB7BdUcN2MxxtWBPJfpwYmFSh5d3h4x2iW36iGgXajDkNR1hUKXvQpSDvkyf6zNvBVhQHAwqr7Jc1SKse",
+    "root": "0xd55f645388d3a2cb7520a2cc44f60a37ea402a6d6703c6b83ceeccb2febc537a",
+    "leafIndex": 88,
+    "proof": [
+      "0x66c180c8234ec221880584e9de0544b3ffc13863876f6590d3b7dc82c58e54ba",
+      "0x2404f031bbccd346280031365a8e9114523d19eae9dceb0757fadf44b278bfb6",
+      "0xb1e4625c64dd9c7394773ac4e9a0b30346354ca053ff0c221e4ce4a52f31d416",
+      "0x187dd04c0f7e8a227f05bccb0eba7394d3b513b33110eb81f08cce101ec80afe",
+      "0x4914e2e6f1105f7f76b8786eed9084448c390beef4487e106272c4c136898a19",
+      "0x98978015ac41504085f53695848c4d8d568deed4fa54a2c474fdd7fb79452681",
+      "0x47ec909de4e79042dcc77c1a11a641c81444a0d2f2140e6425e6911fa9e3058e",
+      "0x1b2f4a242a2f56f9fea09d311aef908d8db7eef12ee4f9deb5416469aabfa65f"
+    ],
+    "count": 174,
+    "sequenceRange": [
+      5285,
+      5458
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-29T00:10:49.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x0db81b001d36de8930e83b45ae79965a176288133a0607969ec1df7d04f6c41d3ee000093b27247164a97ebe6a3aed9510d4270735260d11e6c1a38d71223db91c"
+  }
+}
