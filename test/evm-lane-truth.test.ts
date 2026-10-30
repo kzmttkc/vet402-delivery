@@ -738,11 +738,13 @@ test("rule 0: the hold is lifted when vet402 fills the input (the request change
   const last = lastPaidByListing([rec]).get(rec.resource)!;
   assert.equal(last.inputError, true);
   assert.ok((last.declaredCount ?? 0) > 0);
-  assert.equal(holdAfter4xx(last, Date.parse(rec.at) + 29 * 86_400_000), "input_unchanged_after_input_error");
+  // Day 29 after the purchase, so the hold has not lifted yet whatever the wall clock says.
+  const day29 = Date.parse(rec.at) + 29 * 86_400_000;
+  assert.equal(holdAfter4xx(last, day29), "input_unchanged_after_input_error");
   // The same {} again: not bought. Filled from the listing (chain, tokenAddress): a different request, bought.
-  const same = repairLaneRequest({ resource: QI_DEXTER.resource }, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last);
-  assert.equal(same.ok, false);
-  const filled = repairLaneRequest(QI_DEXTER as never, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last);
+  const same = repairLaneRequest({ resource: QI_DEXTER.resource }, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last, day29);
+  assert.deepEqual(same, { ok: false, reason: "input_unchanged_after_input_error", param: null });
+  const filled = repairLaneRequest(QI_DEXTER as never, { resource: QI_DEXTER.resource, method: "POST", query: null, body: {} }, "2026-10-02", last, day29);
   assert.ok(filled.ok, "filled with chain and tokenAddress: bought");
   assert.deepEqual(filled.ok && filled.request.body, { chain: "base", tokenAddress: "0xa4a2e2ca3fbfe21aed83471d28b6f65a233c6e00" });
 });
