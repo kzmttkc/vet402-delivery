@@ -1,0 +1,117 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-10-29_005596",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 5596
+  },
+  "issuedAt": 1793318842,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://scry.solanahub.de/x402/network/priority-fees-live",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "E2cUgrSA8NYzhFmmTZVAFWy81JooDzCsHNJBs5PwqYESB4t2b5Xa5g6cxcS3FcVpUy4kVU8P6LUv5RshxJk7qFa",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "CTKigV78yuErumvqm7Qor8j1hMK2oxNxdhwpVrAKV85d",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "5000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0x3b280d281d1725c5d6f5f4be771b3613f9b79b7cc089565ed535442aaf4cc6cc",
+    "params_hash": "0x87698ab39cffe2fdf373b81ab85776af1089dab7304228ec0b39584deca27625",
+    "params_salted": true,
+    "ts": "2026-10-29T14:00:03.239Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-10-29",
+    "row": "rows[246]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-10-29",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "2qcHMr8S8vrZf5DXWvrgykEzpXCbJHs7FVmkAQht62Nu4vTCQXaBtUbetpZ2FhJb8PcZw8BDo7SuGk3bn3DgrxpK",
+    "root": "0xe967658c815fb8c90bfecac0c5c60803772235245cb07190b979f06a3a6d4d4f",
+    "leafIndex": 137,
+    "proof": [
+      "0xd1deafdb6d4328d7e938c928e932a660079e31fde3a1a0c8f9db7fa17c1bccd6",
+      "0x986b71d8e1b9be77e0207175d9f77a6189a6975960fb678d03ca2e1cf0725c79",
+      "0xe4cf7ac2c5bcb0497a813c085b6e441fbc14d8ff737d7fcfb7bee81f61098dc9",
+      "0x48018891c8dc00a9b3b399f6e44862a57ee2adc0653d7a45c656e4d0ab40c899",
+      "0x159cbd448b1566cc08c66d5da3733b20412442a68869705a1cf3842d7c75eb12",
+      "0x22778a4a04c16e00ab7f8735733c2bc39b990e0a6c3f9ae181909e994c8ad0a4",
+      "0xcf30ce96a093223e261c49d3bd5a6cd3a0bf101fa12bafdf2e4f2d28bd502315"
+    ],
+    "count": 165,
+    "sequenceRange": [
+      5459,
+      5623
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-10-30T01:50:27.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0xe11da65e39050b9dc51726fbab28fd64793e6c55f055cb57d0f8c3e503014f1b72cf3aa4c6a98c7dfd05c3067ee2212d7258e2aea529abe602fbe1d6b4298c761b"
+  }
+}
