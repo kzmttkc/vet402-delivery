@@ -368,5 +368,9 @@ test("program check: passes only when the program's answer is this record's day,
   assert.equal((await programVerify(rpc, { ...entry!, account: other.account }, rec, POSTER, { simulate: never })).ok, false);
   // The index must name the record's own root for the day.
   assert.match((await programRootFromIndex(loaded.index, { anchor: { day: "2026-09-30", root: `0x${"00".repeat(32)}` } })).problem ?? "", /names root/);
-  assert.deepEqual(await programRootFromIndex(loaded.index, { anchor: { day: "2026-10-30", root: rec.anchor!.root } }), { entry: null, problem: null });
+  // A day the index does not list yet: no entry and no problem. The day is far ahead so it never becomes a real
+  // day of the tracked index (2026-10-30 was used here until the records lane listed it on 2026-10-31).
+  const unlisted = "2099-12-31";
+  assert.ok(!loaded.index.days.some((d) => d.day === unlisted));
+  assert.deepEqual(await programRootFromIndex(loaded.index, { anchor: { day: unlisted, root: rec.anchor!.root } }), { entry: null, problem: null });
 });
