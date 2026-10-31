@@ -173,7 +173,8 @@ test("Use it: the verdict first, the live answer built from the data, the hook's
   assert.ok(!use.includes("seller_not_told"), "no held mark");
   assert.ok(use.includes(escapeHtml(AVOID_TOLD_LINE)), "the same sentence for every seller: when avoid can be said");
   const line = laneVerdictLine(pub, recordsIndex, lanes, notified);
-  assert.match(line, /^As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown:/);
+  // The run date and the counts come from data/evm, which the records run rewrites (2026-09-30: 63 and 14).
+  assert.match(line, /^As of the \d{4}-\d{2}-\d{2} run, all \d+ Arbitrum One sellers are unknown and all \d+ Robinhood Chain sellers are unknown:/);
   assert.ok(use.includes(escapeHtml(line)));
 });
 

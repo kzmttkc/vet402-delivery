@@ -120,9 +120,13 @@ function withoutProgramRoots(index: RecordIndex): RecordIndex {
 test("index: 2026-09-28 to 2026-09-30 name their observation-roots account, and each is the day's PDA of the program", async () => {
   const { index } = await loadPublishedRecords(RECORDS);
   const named = index.days.filter((d) => d.programRoot).map((d) => d.day);
-  // The three backfilled days, then every day the daily records run posts (2026-10-01 on): no day from 2026-09-28 is skipped.
+  // The three backfilled days, then the days the daily records run posted (2026-10-01 on). A day whose post_root failed is
+  // published without a programRoot (scripts/daily/run.sh program_root_day, and the backfill test below), so a gap is
+  // allowed here (the backfill test below holds such a day as not posted). The index days are ascending, once each.
   assert.deepEqual(named.slice(0, 3), ["2026-09-28", "2026-09-29", "2026-09-30"]);
-  assert.deepEqual(named, index.days.map((d) => d.day).filter((d) => d >= "2026-09-28" && d <= named[named.length - 1]!));
+  const all = index.days.map((d) => d.day);
+  assert.deepEqual(all, [...new Set(all)].sort(), "index days ascending, once each");
+  assert.ok(named.every((d) => d >= "2026-09-28"));
   for (const d of index.days.filter((x) => x.programRoot)) {
     assert.equal(d.programRoot!.account, await dayRootPda(ROOTS_PROGRAM, d.day), d.day);
     assert.equal(d.programRoot!.network, ROOTS_INDEX_NETWORK);
