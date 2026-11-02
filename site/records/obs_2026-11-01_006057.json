@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-11-01_006057",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 6057
+  },
+  "issuedAt": 1793578323,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/sixtyfour/enrich-lead",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0x7f5a07650a289e63c442c342ee1cb45052456fbe3783e5aea5418f2522504dd1",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0xbB06ad903e615Cc1A50421b60D70e47b11A5677F",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "100000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xdd10800b98cec9e1d95cfcaeb39d28eff62b1783f81f69a2fdc0805368d0a4c5",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-11-01T01:44:06.370Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 241,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-11-01",
+    "row": "rows[26]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-11-01",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "2ZHrZXuGJkUGfPHdVuXcLRRM6aXxKay1z5j1QeAz5rXFqztNWBdRMMP7bT13hoqVBo3y2vGpoJgk8XpnnZh2hPEk",
+    "root": "0x7d89013afbcc9ec515d88cff8f5a23e3687dae77caca3bf8c6f7d53f10b3b0c0",
+    "leafIndex": 92,
+    "proof": [
+      "0x7f66ea43fe39b23a8195d74e2981f629d1f4a34d208c2a8bcd9a09ef6523c3d0",
+      "0x08107a5d8a4385b52fe1c129ac68d07993685e67b1cc8bde323b56e26e7a725a",
+      "0xb869c3d5b14ab9235a10b73ac42e9533428e686a9a13f5a2589f975a4d6fa055",
+      "0x557df480d0939199f062ceec4ada27ce1c2712e2d4dbe58876fdb518f9e01a95",
+      "0x8fb68fd76de201e8fb8131de4b709caedb119ad2510c1b320c70eec056be3b0f",
+      "0x21fb66bd57d95c323d1746a07d5d95ea8fe645c6956670e569e09aa0bb52e2a1",
+      "0xa4ba91233ec0f2c7183b3b275f2964b70b952f87b545ce98bdec5f970ac24153",
+      "0x7bfe314d7337131270dd389cbeba9e8009d6f4f10b04df223f01924ff90548fb"
+    ],
+    "count": 172,
+    "sequenceRange": [
+      5965,
+      6136
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-11-02T00:21:09.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0xbdaa0a3c625b56cdc11418c827921979609503546db357226f30477539477bf0409f66427d22398ed32223e61c273e9317b0f5fd5d23335c7966e562a5c52ccb1b"
+  }
+}
