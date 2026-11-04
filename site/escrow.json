@@ -1,7 +1,7 @@
 {
   "kind": "vet402-escrow-would-refund",
   "version": 0,
-  "dataDate": "2026-11-03",
+  "dataDate": "2026-11-04",
   "definition": [
     "Counted: a purchase vet402 paid for whose payment settled, where nothing usable came back and the ranking puts the failure on the seller's side (rules settled_not_delivered and paid_not_delivered in src/rank/classify.ts: a 402 again after settling, a 5xx, no answer, another non-2xx that is not a 4xx, or a 2xx with an empty body). It is the same line as the NOT_DELIVERED verdict of the signed records (src/receipt/build.ts). An escrow that releases only on DELIVERED and returns on NOT_DELIVERED would have returned them.",
     "Not counted, shown apart: a settled purchase where the request vet402 sent was wrong (rule paid_then_4xx_vet402_input). That is vet402's mistake, not the seller's.",
@@ -45,15 +45,15 @@
     {
       "chain": "solana",
       "signedRecords": true,
-      "settled": 5557,
-      "delivered": 5351,
+      "settled": 5632,
+      "delivered": 5423,
       "wouldRefund": {
-        "purchases": 157,
-        "amountUsd": "7.529300",
+        "purchases": 159,
+        "amountUsd": "7.639300",
         "priceNotRecorded": 0,
         "byRule": {
           "settled_not_delivered": 9,
-          "paid_not_delivered": 148
+          "paid_not_delivered": 150
         }
       },
       "vet402Input": {
@@ -62,16 +62,16 @@
         "priceNotRecorded": 0
       },
       "cantTell": {
-        "purchases": 49,
-        "amountUsd": "0.450000",
+        "purchases": 50,
+        "amountUsd": "0.460000",
         "priceNotRecorded": 0
       },
       "sellers": 15,
       "toldSellers": [
         {
           "seller": "api.xona-agent.com",
-          "purchases": 68,
-          "amountUsd": "6.800000"
+          "purchases": 69,
+          "amountUsd": "6.900000"
         },
         {
           "seller": "api.syraa.fun",
@@ -139,10 +139,10 @@
     }
   ],
   "totals": {
-    "settled": 6465,
+    "settled": 6540,
     "wouldRefund": {
-      "purchases": 180,
-      "amountUsd": "8.023200",
+      "purchases": 182,
+      "amountUsd": "8.133200",
       "priceNotRecorded": 0
     },
     "vet402Input": {
@@ -151,8 +151,8 @@
       "priceNotRecorded": 0
     },
     "cantTell": {
-      "purchases": 144,
-      "amountUsd": "2.934500",
+      "purchases": 145,
+      "amountUsd": "2.944500",
       "priceNotRecorded": 0
     },
     "sellers": 22,
