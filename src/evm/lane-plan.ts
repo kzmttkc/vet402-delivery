@@ -47,7 +47,7 @@ export interface PayToGroup {
   inputSkipped?: { resource: string; why: string }[];
 }
 
-function chainAccepts(l: Listing, spec: EvmChainSpec): EvmAccept[] {
+export function chainAccepts(l: Listing, spec: EvmChainSpec): EvmAccept[] {
   return (l.accepts ?? []).map((raw) => {
     const a = normalizeAccept(raw);
     const c = chainByCaip2(a.network);
@@ -65,7 +65,7 @@ export function requestOf(l: Listing): { method: "GET" | "POST"; query: Record<s
   return { method, query, body: method === "POST" ? (input.body ?? {}) : null, simple: method === "GET" };
 }
 
-const hostOf = (u: string): string => {
+export const hostOf = (u: string): string => {
   try {
     return new URL(u).host.toLowerCase();
   } catch {

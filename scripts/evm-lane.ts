@@ -2,6 +2,7 @@
  * EVM purchase lanes on Robinhood Chain and Arbitrum One, from the shared payer 0x9B59…4E51.
  *
  *   npx tsx scripts/evm-lane.ts --lane robinhood [--dry-run]     (default; throwaway signer, nothing sent)
+ *   npx tsx scripts/evm-lane.ts --lane robinhood --hosts [--run-date YYYY-MM-DD] [--dry-run|--pay]   (one purchase per host; its own ledger on the robinhood ledger; --pay requires --run-date, today's UTC date)
  *   npx tsx scripts/evm-lane.ts --lane arbitrum  [--dry-run]     (Arbitrum One + the same listings on Base)
  *   VET402_EVM_PAY=<lane> npx tsx scripts/evm-lane.ts --lane <lane> --pay
  *
@@ -13,9 +14,9 @@
  *   (lanes "arbitrum" and "base-compare", separate ledgers and caps).
  *
  * The real key (.keys/evm.json) is read only with --pay AND VET402_EVM_PAY=<lane>.
- * Outputs: results/evm/<lane>-dryrun.json (here) | with --pay, in the results directory beside the key
+ * Outputs: results/evm/<lane>-dryrun.json (here; --hosts: robinhood-hosts-dryrun.json) | with --pay, in the results directory beside the key
  * (src/evm/run-dir.ts: ~/vet402-solana/results/evm unless VET402_EVM_RESULTS_DIR is set): <lane>-purchases.jsonl,
- * <lane>-paid-run.json and the lanes' ledgers. --pay stops first when a lane's ledger holds fewer purchases than its
+ * <lane>-paid-run.json (--hosts: robinhood-hosts-paid-run.json) and the lanes' ledgers. --pay stops first when a lane's ledger holds fewer purchases than its
  * records sent (exit 5), or when a line of the records does not parse (exit 4).
  * Options: --catalogs <dir> reads catalog_cdp.json / catalog_dexter.json / catalog_payai.json instead of fetching.
  */
@@ -31,6 +32,7 @@ import { buyOneOnChain, eqAddr, probe402, type ChainBuyEntry, type ChainBuyRecor
 import { readUsdcTransfer } from "../src/evm/erc8004.js";
 import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
 import { DEXTER_DISCOVERY, STOCK_SELLER, confirmLive, groupByPayTo, laneEntries, mirrorEntries, stockEntries, type LiveChoice, type Probe } from "../src/evm/lane-plan.js";
+import { HOSTS_RUN, LEGACY_HOST_RUN_DATE, RunBudget, acquireHostRunLock, confirmLiveHosts, groupByHost, hostRunFiles, hostRunLedgerProblem, keepPlanned, laneCountCapForHostRun, pickHostEntries, type PlanRow } from "../src/evm/lane-hosts.js";
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
@@ -45,8 +47,20 @@ const arg = (n: string): string | undefined => {
 };
 const laneArg = arg("--lane");
 if (laneArg !== "robinhood" && laneArg !== "arbitrum") throw new Error("--lane robinhood | arbitrum");
+const hostsRun = argv.includes("--hosts");
+if (hostsRun && laneArg !== "robinhood") throw new Error("--hosts is only valid with --lane robinhood");
 const pay = argv.includes("--pay");
 if (pay && argv.includes("--dry-run")) throw new Error("choose one of --dry-run / --pay");
+// --run-date selects the host run's ledger. With --pay it is required and must be today's UTC date, before anything is read.
+const todayUtc = new Date().toISOString().slice(0, 10);
+if (argv.includes("--run-date") && !hostsRun) throw new Error("--run-date is only valid with --hosts");
+let runDate = todayUtc;
+if (hostsRun) {
+  if (pay && !argv.includes("--run-date")) throw new Error("--hosts --pay requires --run-date <YYYY-MM-DD> equal to today's UTC date; nothing signed");
+  if (argv.includes("--run-date")) runDate = arg("--run-date") ?? "";
+  hostRunFiles(runDate);
+  if (pay && runDate !== todayUtc) throw new Error(`--run-date ${runDate} must equal today's UTC date ${todayUtc}; nothing signed`);
+}
 if (pay) {
   const problem = payGateProblem(laneArg, process.env.VET402_EVM_PAY);
   if (problem) throw new Error(`${problem} (set only after the independent review)`);
@@ -71,6 +85,16 @@ if (pay) {
   if (behind) {
     console.error(behind);
     process.exit(5);
+  }
+  if (hostsRun) {
+    // This date's host-run ledger must hold every host purchase the records sent that day, and only one paying host run at a time.
+    const hostBehind = hostRunLedgerProblem(resultsDir, runDate);
+    if (hostBehind) {
+      console.error(hostBehind);
+      process.exit(5);
+    }
+    const releaseLock = acquireHostRunLock(resultsDir);
+    process.on("exit", releaseLock);
   }
   console.error(`[pay] results and ledgers: ${resultsDir}`);
 }
@@ -220,11 +244,18 @@ async function preflight(lane: LaneSpec, entries: ChainBuyEntry[]): Promise<void
   if (problem) throw new Error(`${problem}; nothing signed`);
 }
 
-async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<string, string>, stockRefs: Map<string, StockReference>): Promise<LaneResult> {
+async function runLane(
+  lane: LaneSpec,
+  entries: ChainBuyEntry[],
+  raw402: Map<string, string>,
+  stockRefs: Map<string, StockReference>,
+  over?: { budget?: Pick<Budget, "setBaselineIfMissing" | "reserve" | "release" | "commit" | "spent" | "count">; minAtomic?: bigint; maxPerAtomic?: bigint },
+): Promise<LaneResult> {
   const c = EVM_CHAINS[lane.chain];
   const signer: TypedDataSigner = pay ? loadEvmAccount() : privateKeyToAccount(generatePrivateKey()); // dry run: throwaway, pays nobody
   if (pay && !eqAddr(signer.address, payer)) throw new Error("key address != evm.pub");
-  const budget = new Budget(pay ? laneLedgerPath(lane, resultsDir) : null, lane.maxTotalAtomic, lane.maxCount, lane.maxPerAtomic);
+  const budget = over?.budget ?? new Budget(pay ? laneLedgerPath(lane, resultsDir) : null, lane.maxTotalAtomic, lane.maxCount, lane.maxPerAtomic);
+  const maxPerAtomic = over?.maxPerAtomic ?? lane.maxPerAtomic;
   const lastAt = new Map<string, number>();
   const perSeller = new Map<string, number>();
   const out: LaneResult["records"] = [];
@@ -232,7 +263,8 @@ async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<str
   mkdirSync(resultsDir, { recursive: true });
   for (const e of entries) {
     const k = e.lock.payTo.toLowerCase();
-    if ((perSeller.get(k) ?? 0) >= MEASURE_MAX_PER_SELLER) continue;
+    // The host run plans at most HOSTS_RUN.maxCount entries itself; a payTo behind several hosts is not cut here.
+    if (!over?.budget && (perSeller.get(k) ?? 0) >= MEASURE_MAX_PER_SELLER) continue;
     if (pay && lastAt.has(k)) {
       const wait = MEASURE_SPACING_MS - (Date.now() - lastAt.get(k)!);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -248,7 +280,8 @@ async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<str
         readAssetBalance: () => client(c).readContract({ address: c.asset, abi: erc20Abi, functionName: "balanceOf", args: [payer] }),
         verifySettlement: verifier(c),
         dryRun: !pay,
-        maxPerAtomic: lane.maxPerAtomic,
+        maxPerAtomic,
+        ...(over?.minAtomic !== undefined ? { minAtomic: over.minAtomic } : {}),
       },
       { keepSettleResponse: true, keepBodyBytes: 20_000 },
     );
@@ -274,7 +307,9 @@ async function runLane(lane: LaneSpec, entries: ChainBuyEntry[], raw402: Map<str
     entries: entries.length,
     records: out,
     wouldPayAtomic: would.toString(),
-    budget: { spentAtomic: budget.spent.toString(), count: budget.count, maxTotalAtomic: lane.maxTotalAtomic.toString(), maxPerAtomic: lane.maxPerAtomic.toString(), maxCount: lane.maxCount },
+    budget: over?.budget
+      ? { spentAtomic: budget.spent.toString(), count: budget.count, maxTotalAtomic: HOSTS_RUN.maxTotalAtomic.toString(), maxPerAtomic: HOSTS_RUN.maxPerAtomic.toString(), maxCount: HOSTS_RUN.maxCount }
+      : { spentAtomic: budget.spent.toString(), count: budget.count, maxTotalAtomic: lane.maxTotalAtomic.toString(), maxPerAtomic: lane.maxPerAtomic.toString(), maxCount: lane.maxCount },
   };
 }
 
@@ -295,6 +330,16 @@ function choiceSummary(ch: LiveChoice[]) {
  * again: with --pay the lane's ledger allows each seller once (Budget, already_bought), so an ended hold buys
  * nothing unless the ledger has been changed.
  */
+/** How many purchases the lane ledger file holds. 0 when the file is missing or unreadable. */
+function laneLedgerPurchaseCount(file: string): number {
+  try {
+    const purchases = (JSON.parse(readFileSync(file, "utf8")) as { purchases?: unknown }).purchases;
+    return Array.isArray(purchases) ? purchases.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function lastPaid(laneIds: LaneId[]): Map<string, LastPaid> {
   return lastPaidByListing(recordsRead.rows.filter((r) => laneIds.includes(r.lane as LaneId)));
 }
@@ -309,39 +354,82 @@ if (laneArg === "robinhood") {
   const rh = EVM_CHAINS.robinhood;
   const lane = LANES.robinhood;
   await checkDomain(rh);
-  const groups = groupByPayTo(cat.items, rh, { maxPerAtomic: lane.maxPerAtomic, ownHosts: OWN_HOSTS, today, lastPaid: lastPaid(["robinhood"]) });
-  const choices = await confirmLive(groups, rh, probe, { payer, maxPerAtomic: lane.maxPerAtomic });
-  const raw402 = new Map(choices.flatMap((c) => (c.chosen ? [[c.chosen.resource, c.chosen.raw402] as const] : [])));
-  let entries = laneEntries(choices, rh);
+  if (hostsRun) {
+    // One purchase per host, inside the host run's own caps. No stock entries: those stay on the plain robinhood lane.
+    const groups = groupByHost(cat.items, rh, { minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic, ownHosts: OWN_HOSTS, today: runDate, lastPaid: lastPaid(["robinhood"]) });
+    const choices = await confirmLiveHosts(groups, rh, probe, { payer, minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic });
+    const picked = pickHostEntries(choices, { maxTotalAtomic: HOSTS_RUN.maxTotalAtomic, maxCount: HOSTS_RUN.maxCount, runDate });
+    if (picked.entries.length > HOSTS_RUN.maxCount || picked.totalAtomic > HOSTS_RUN.maxTotalAtomic) {
+      throw new Error(`host run plan is ${picked.entries.length} purchases totaling ${picked.totalAtomic} atomic, above ${HOSTS_RUN.maxCount} or ${HOSTS_RUN.maxTotalAtomic}; nothing signed`);
+    }
+    if (pay) {
+      // A paying host run buys only what the plan sent before paying says (--plan <the dry run's output>).
+      const planFile = arg("--plan");
+      if (!planFile) throw new Error("--hosts --pay needs --plan <results/evm/robinhood-hosts-dryrun.json>; nothing signed");
+      const sent = (JSON.parse(readFileSync(planFile, "utf8")) as { robinhoodHosts?: { plan?: PlanRow[] } }).robinhoodHosts?.plan;
+      if (!Array.isArray(sent)) throw new Error(`${planFile} has no robinhoodHosts.plan; nothing signed`);
+      const kept = keepPlanned(picked.entries, sent);
+      for (const d of kept.dropped) console.error(`[plan] not paid: ${d.host}: ${d.why}`);
+      picked.left.push(...kept.dropped);
+      picked.entries = kept.entries;
+      picked.totalAtomic = kept.entries.reduce((n, e) => n + BigInt(e.lock.amount), 0n);
+    }
+    const raw402 = new Map(choices.flatMap((c) => (c.chosen ? [[c.chosen.resource, c.chosen.raw402] as const] : [])));
+    const plan = picked.entries.map((e) => ({ host: e.agentId.slice("host:".length), resource: e.resource, method: e.method, payTo: e.lock.payTo, amountAtomic: e.lock.amount }));
+    summary.robinhoodHosts = {
+      hostsInCatalogs: groups.length,
+      hostsWithLive402: choices.filter((c) => c.chosen).length,
+      plan,
+      planTotalAtomic: picked.totalAtomic.toString(),
+      left: picked.left,
+      choices: choices.map((c) => ({ host: c.host, chosen: c.chosen ? { resource: c.chosen.resource, liveAmount: c.chosen.liveAmount, payTo: c.chosen.payTo } : null, tried: c.tried })),
+    };
+    console.error(["host", "amount", "payTo", "resource"].join("\t"));
+    for (const row of plan) console.error([row.host, row.amountAtomic, row.payTo, row.resource].join("\t"));
+    console.error(`total\t${picked.totalAtomic}`);
+    if (pay) await preflight(lane, picked.entries);
+    const laneHeld = laneLedgerPurchaseCount(laneLedgerPath(lane, resultsDir));
+    const budget = new RunBudget(
+      new Budget(pay ? join(resultsDir, hostRunFiles(runDate).ledger) : null, HOSTS_RUN.maxTotalAtomic, HOSTS_RUN.maxCount, HOSTS_RUN.maxPerAtomic),
+      // The lane ledger takes the run's purchases on top of what it already holds, in this run only: LANES.robinhood stays as it is.
+      new Budget(pay ? laneLedgerPath(lane, resultsDir) : null, lane.maxTotalAtomic, laneCountCapForHostRun(laneHeld), lane.maxPerAtomic),
+    );
+    results.push(await runLane(lane, picked.entries, raw402, new Map(), { budget, minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic }));
+  } else {
+    const groups = groupByPayTo(cat.items, rh, { maxPerAtomic: lane.maxPerAtomic, ownHosts: OWN_HOSTS, today, lastPaid: lastPaid(["robinhood"]) });
+    const choices = await confirmLive(groups, rh, probe, { payer, maxPerAtomic: lane.maxPerAtomic });
+    const raw402 = new Map(choices.flatMap((c) => (c.chosen ? [[c.chosen.resource, c.chosen.raw402] as const] : [])));
+    let entries = laneEntries(choices, rh);
 
-  // The stock-price check replaces that seller's single census purchase (same payTo, one ticker each).
-  const stockProbe = await probe({ resource: STOCK_SELLER.resource, query: { ticker: STOCK_REFS[0]!.ticker }, method: "GET", body: null });
-  const stockAccept = stockProbe.accepts.find((a) => a.network === rh.caip2 && a.scheme === "exact" && eqAddr(a.asset, rh.asset));
-  const refs = new Map<string, StockReference>();
-  let directory: string[] = ["not read"];
-  try {
-    const dir = (await (await fetch(CHAINLINK_DIRECTORY, { signal: AbortSignal.timeout(30_000) })).json()) as { name?: string; proxyAddress?: string; heartbeat?: number }[];
-    directory = checkAgainstDirectory(STOCK_REFS, dir);
-  } catch (err) {
-    directory = [`directory unreadable: ${(err as Error).message}`];
+    // The stock-price check replaces that seller's single census purchase (same payTo, one ticker each).
+    const stockProbe = await probe({ resource: STOCK_SELLER.resource, query: { ticker: STOCK_REFS[0]!.ticker }, method: "GET", body: null });
+    const stockAccept = stockProbe.accepts.find((a) => a.network === rh.caip2 && a.scheme === "exact" && eqAddr(a.asset, rh.asset));
+    const refs = new Map<string, StockReference>();
+    let directory: string[] = ["not read"];
+    try {
+      const dir = (await (await fetch(CHAINLINK_DIRECTORY, { signal: AbortSignal.timeout(30_000) })).json()) as { name?: string; proxyAddress?: string; heartbeat?: number }[];
+      directory = checkAgainstDirectory(STOCK_REFS, dir);
+    } catch (err) {
+      directory = [`directory unreadable: ${(err as Error).message}`];
+    }
+    if (directory.length) throw new Error(`Chainlink directory disagrees with the fixed feeds: ${directory.join("; ")}`);
+    for (const r of STOCK_REFS) refs.set(r.ticker, await readStockReference(client(rh), r));
+    if (stockAccept) {
+      const stock = stockEntries(stockAccept.payTo as Address, stockAccept.amount);
+      entries = [...entries.filter((e) => !eqAddr(e.lock.payTo, stockAccept.payTo)), ...stock];
+      for (const s of stock) raw402.set(s.resource, stockProbe.raw);
+    }
+    summary.robinhood = {
+      payTosInCatalogs: groups.length,
+      payTosWithLive402: choices.filter((c) => c.chosen).length,
+      choices: choiceSummary(choices),
+      stockSeller: stockAccept ? { resource: STOCK_SELLER.resource, payTo: stockAccept.payTo, amount: stockAccept.amount } : { resource: STOCK_SELLER.resource, live402: stockProbe.status, note: "no Robinhood Chain USDG accept now" },
+      stockReferences: [...refs.values()],
+      chainlinkDirectoryCheck: "fixed feeds match the directory (name, proxy, heartbeat)",
+    };
+    if (pay) await preflight(lane, entries);
+    results.push(await runLane(lane, entries, raw402, refs));
   }
-  if (directory.length) throw new Error(`Chainlink directory disagrees with the fixed feeds: ${directory.join("; ")}`);
-  for (const r of STOCK_REFS) refs.set(r.ticker, await readStockReference(client(rh), r));
-  if (stockAccept) {
-    const stock = stockEntries(stockAccept.payTo as Address, stockAccept.amount);
-    entries = [...entries.filter((e) => !eqAddr(e.lock.payTo, stockAccept.payTo)), ...stock];
-    for (const s of stock) raw402.set(s.resource, stockProbe.raw);
-  }
-  summary.robinhood = {
-    payTosInCatalogs: groups.length,
-    payTosWithLive402: choices.filter((c) => c.chosen).length,
-    choices: choiceSummary(choices),
-    stockSeller: stockAccept ? { resource: STOCK_SELLER.resource, payTo: stockAccept.payTo, amount: stockAccept.amount } : { resource: STOCK_SELLER.resource, live402: stockProbe.status, note: "no Robinhood Chain USDG accept now" },
-    stockReferences: [...refs.values()],
-    chainlinkDirectoryCheck: "fixed feeds match the directory (name, proxy, heartbeat)",
-  };
-  if (pay) await preflight(lane, entries);
-  results.push(await runLane(lane, entries, raw402, refs));
 } else {
   const arb = EVM_CHAINS.arbitrum;
   const base = EVM_CHAINS.base;
@@ -399,7 +487,11 @@ summary.results = results;
 const text = JSON.stringify(summary, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n";
 mkdirSync(resultsDir, { recursive: true });
 // A paying run plans again from live 402s; its plan is what the published rows must be read against.
-writeFileSync(join(resultsDir, pay ? `${laneArg}-paid-run.json` : `${laneArg}-dryrun.json`), text);
+const hostsOut = runDate === LEGACY_HOST_RUN_DATE
+  ? (pay ? "robinhood-hosts-paid-run.json" : "robinhood-hosts-dryrun.json")
+  : (pay ? `robinhood-hosts-${runDate}-paid-run.json` : `robinhood-hosts-${runDate}-dryrun.json`);
+const outName = hostsRun ? hostsOut : pay ? `${laneArg}-paid-run.json` : `${laneArg}-dryrun.json`;
+writeFileSync(join(resultsDir, outName), text);
 const brief = results.map((r) => ({
   lane: r.lane,
   entries: r.entries,

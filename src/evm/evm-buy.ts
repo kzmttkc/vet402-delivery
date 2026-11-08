@@ -32,6 +32,7 @@ export interface EvmRefusal {
     | "network_mismatch"
     | "asset_mismatch"
     | "bad_amount"
+    | "price_under_floor"
     | "price_over_cap"
     | "price_raised"
     | "payto_mismatch"
@@ -74,6 +75,8 @@ export interface ChainAcceptContext {
   crossChainPayTo?: { network: string; payTo: string | null };
   /** Per-purchase cap of the lane (atomic). */
   maxPerAtomic?: bigint;
+  /** When set, a live price below this is refused. Unset on every lane but the host run. */
+  minAtomic?: bigint;
 }
 
 /** Every per-accept check. null = may go on to the budget. Pure. */
@@ -85,6 +88,7 @@ export function checkChainAccept(spec: EvmChainSpec, a: EvmAccept | null, ctx: C
   if (!eqAddr(a.asset, spec.asset)) return { refused: "asset_mismatch", detail: `asset ${a.asset} is not ${spec.label} ${spec.assetSymbol}` };
   if (!/^\d{1,18}$/.test(a.amount) || BigInt(a.amount) <= 0n) return { refused: "bad_amount", detail: `amount ${JSON.stringify(a.amount)}` };
   const amount = BigInt(a.amount);
+  if (ctx.minAtomic !== undefined && amount < ctx.minAtomic) return { refused: "price_under_floor", detail: `amount ${amount} < floor ${ctx.minAtomic}` };
   if (amount > maxPer) return { refused: "price_over_cap", detail: `amount ${amount} > per-purchase cap ${maxPer}` };
   if (ctx.lockedAmount !== undefined && amount > BigInt(ctx.lockedAmount)) return { refused: "price_raised", detail: `amount ${amount} > recorded ${ctx.lockedAmount}` };
   if (!isAddress(a.payTo)) return { refused: "payto_invalid", detail: `payTo ${a.payTo}` };
@@ -263,7 +267,7 @@ export interface ChainBuyDeps {
   fetch: typeof fetch;
   payer: Address;
   signer: TypedDataSigner;
-  budget: Budget;
+  budget: Pick<Budget, "setBaselineIfMissing" | "reserve" | "release" | "commit" | "count">;
   /** The payer's balance of the chain's token. */
   readAssetBalance: () => Promise<bigint>;
   readAgentWallet?: (agentId: string) => Promise<Address>;
@@ -273,6 +277,8 @@ export interface ChainBuyDeps {
   verifySettlement: (tx: Hex, payTo: string, amount: string) => Promise<{ ok: boolean; from?: string; reason?: string; blockNumber?: string }>;
   dryRun: boolean;
   maxPerAtomic?: bigint;
+  /** Host-run floor. Passed into checkChainAccept only when set, so the other lanes are unchanged. */
+  minAtomic?: bigint;
 }
 
 export interface SettleResponse {
@@ -485,6 +491,7 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
     ...(wallet !== undefined ? { agentWallet: wallet } : {}),
     ...(e.sameSellerOn !== undefined ? { crossChainPayTo: { network: e.sameSellerOn, payTo: payToOn(p.accepts, e.sameSellerOn, e.lock.payTo) } } : {}),
     maxPerAtomic: maxPer,
+    ...(deps.minAtomic !== undefined ? { minAtomic: deps.minAtomic } : {}),
   });
   if (r) return refuse(r);
   const accept = a!;

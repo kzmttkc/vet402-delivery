@@ -15,6 +15,7 @@ import { EVM_CHAINS, LANES, type EvmChainKey } from "./chains.js";
 import type { ChainBuyRecord, ChainCheckNote, PaymentResponseHeaderNote } from "./evm-buy.js";
 import type { CauseResult } from "./settle-cause.js";
 import { STOCK_SELLER } from "./lane-plan.js";
+import { HOSTS_RUN } from "./lane-hosts.js";
 import { notifiedSellers, type NotifiedFile } from "../receipt/publish.js";
 import { pageWithholds, rootsFileProblems, type RootsFile } from "./roots.js";
 import { rootsSection } from "./roots-site.js";
@@ -114,6 +115,8 @@ export interface LanePublic {
   payTosInCatalogs: number;
   payTosOffered: number;
   rows: LaneRow[];
+  /** Robinhood host runs (--hosts): one entry per date that sent a purchase, outside the lane's own cap. */
+  hostRuns?: { date: string; hosts: number }[];
   /**
    * Arbitrum page: the same listing bought on Base. A list with the URL in a `resource` field, not an object
    * keyed by URL: a seller's URL as a JSON key reads as a field name to the secret gate (".../token_analysis_api").
@@ -177,6 +180,8 @@ function hostOf(u: string | null): string | null {
 export function rowIsNegative(r: LaneRow): boolean {
   if (isNegative(r.status, r.cause)) return true;
   if (r.facilitatorLead) return true;
+  // Fewer settled than paid: some payment to this seller did not settle, even when the row shows a delivered one.
+  if (r.purchases !== undefined && r.settled !== undefined && r.purchases > r.settled) return true;
   if (r.skipped && !NEUTRAL_SKIPS.some((x) => x.test(r.skipped!))) return true;
   return false;
 }
@@ -193,11 +198,14 @@ export function rowSeller(r: Pick<LaneRow, "resource" | "hosts">): string | null
  */
 export function withholdUnnotified(l: LanePublic, notified: ReadonlySet<string>): LanePublic {
   const told = (seller: string | null) => seller !== null && notified.has(seller);
+  // A seller not told yet shows no purchase or settled count on a row that stays visible, all settled or not, so a
+  // missing count is never a sign that some payment to that seller did not settle.
+  const quiet = (r: LaneRow): LaneRow => (told(rowSeller(r)) || (r.purchases === undefined && r.settled === undefined) ? r : { ...r, purchases: undefined, settled: undefined });
   const rows = l.rows.map((r): LaneRow =>
     !rowIsNegative(r) || told(rowSeller(r))
-      ? r
+      ? quiet(r)
       : r.status === "not_bought_yet" || r.status === "not_offered_now" || r.status === "delivered" || r.status === "free_delivered" || r.status === "vet402_input" || r.status === "settled_vet402_input"
-        ? { ...r, facilitatorLead: null, skipped: null } // not bought, or delivered: only the lead or skip text goes
+        ? { ...quiet(r), facilitatorLead: null, skipped: null } // not bought, or delivered: the lead, the skip text and the counts go
         : r.status === "refused"
           ? { ...r, status: "not_offered_now", cause: null, facilitatorLead: null, skipped: null } // vet402 did not pay: "not bought", no reason
         : { ...r, status: "withheld", cause: null, settlementTx: null, paidRequestMs: null, relayer: null, facilitatorLead: null, skipped: null, settled: undefined, chainCheck: undefined, paymentResponseHeader: undefined },
@@ -266,6 +274,36 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
   const byPayTo = (payTo: string): Rec | undefined => mine.filter((p) => p.outcome === "sent" && (p.payTo ?? "").toLowerCase() === payTo.toLowerCase()).at(-1);
   const ofPayTo = (payTo: string): Rec[] => mine.filter((p) => (p.payTo ?? "").toLowerCase() === payTo.toLowerCase() || (p.outcome !== "sent" && p.agentId === `payto:${payTo}`));
   const rows = sec.choices.map((c) => rowFrom(c, last(c.chosen?.resource ?? null) ?? byPayTo(c.payTo), EVM_CHAINS[lane].label, ofPayTo(c.payTo)));
+  // Robinhood host run: a payTo the census did not list gets one row (the latest sent record wins), and each date is summed.
+  let hostRuns: LanePublic["hostRuns"];
+  if (lane === "robinhood") {
+    const hostSent = mine.filter((p) => p.outcome === "sent" && p.agentId.startsWith("host:"));
+    const census = new Set(sec.choices.map((c) => c.payTo.toLowerCase()));
+    const extra = new Map<string, Rec>();
+    for (const p of hostSent) {
+      const payTo = p.payTo;
+      if (!payTo || census.has(payTo.toLowerCase())) continue;
+      extra.set(payTo.toLowerCase(), p);
+    }
+    for (const p of extra.values()) {
+      const payTo = p.payTo!;
+      const choice: DryRunChoice = { payTo, catalogListings: 1, hosts: [p.agentId.slice("host:".length)], chosen: { resource: p.resource, liveAmount: p.amountAtomic ?? "" } };
+      rows.push(rowFrom(choice, last(choice.chosen?.resource ?? null) ?? byPayTo(payTo), EVM_CHAINS[lane].label, ofPayTo(payTo)));
+    }
+    const byDate = new Map<string, Rec[]>();
+    for (const p of hostSent) {
+      if (!p.inputDate) continue;
+      const list = byDate.get(p.inputDate);
+      if (list) list.push(p);
+      else byDate.set(p.inputDate, [p]);
+    }
+    const runs = [...byDate.keys()].sort().map((date) => {
+      const recs = byDate.get(date)!;
+      // Only the count of hosts: a per-run settle count, read against the rows, could name a seller vet402 has not told.
+      return { date, hosts: new Set(recs.map((p) => p.agentId.slice("host:".length))).size };
+    });
+    if (runs.length) hostRuns = runs;
+  }
   const out: LanePublic = {
     kind: "vet402-evm-lane",
     lane,
@@ -276,6 +314,7 @@ export function buildLanePublic(lane: "robinhood" | "arbitrum", dry: Record<stri
     payTosInCatalogs: sec.payTosInCatalogs,
     payTosOffered: sec.payTosWithLive402,
     rows,
+    ...(hostRuns ? { hostRuns } : {}),
   };
   if (lane === "arbitrum") {
     out.compare = [];
@@ -428,8 +467,11 @@ function stockTable(l: LanePublic): string {
 
 function limits(l: LanePublic): string {
   const lane = LANES[l.lane];
-  return `<h2 id="money">How vet402 pays for this</h2>
+  const body = `<h2 id="money">How vet402 pays for this</h2>
 <p>vet402 pays from one wallet, 0x9B59…4E51, the same on every EVM chain it buys on, with the seller's own x402 402: exact scheme, EIP-3009 transferWithAuthorization only (no Permit2, no approve), to the payTo the 402 named when vet402 planned the purchase, never more than that price. On this chain: at most ${escapeHtml(money(lane.maxPerAtomic.toString(), EVM_CHAINS[l.lane].assetSymbol))} a purchase, ${escapeHtml(money(lane.maxTotalAtomic.toString(), EVM_CHAINS[l.lane].assetSymbol))} in total and ${lane.maxCount} purchases, in a ledger of its own. The facilitator the seller chose submits the payment and pays its gas.</p>`;
+  if (l.lane !== "robinhood" || !l.hostRuns?.length) return body;
+  const more = l.hostRuns.map((h) => `<p>On ${escapeHtml(h.date)} vet402 also bought one item from each of ${escapeHtml(h.hosts)} hosts, outside the ${escapeHtml(LANES.robinhood.maxCount)}-purchase lane cap, with a cap of its own: at most ${escapeHtml(money(HOSTS_RUN.maxPerAtomic.toString(), "USDG"))} a purchase and ${escapeHtml(money(HOSTS_RUN.maxTotalAtomic.toString(), "USDG"))} in total.</p>`).join("\n");
+  return `${body}\n${more}`;
 }
 
 function anchorSection(l: LanePublic): string {
