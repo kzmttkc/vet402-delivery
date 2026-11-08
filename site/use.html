@@ -93,7 +93,7 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
 </ul>
 <p class="meta">Counted calls are paid calls: purchases whose payment settled, then answered or failed on the seller's side. A seller's 5xx with no settled payment is not a paid call, and with no settled payment the verdict is unknown. Failures that may be vet402's or the facilitator's, or whose cause cannot be told, never count. A payTo vet402 never paid turns pay into unknown. avoid is said only after vet402 has told the seller; until then the verdict is unknown.</p>
 <p class="meta">On Robinhood Chain and Arbitrum, a purchase whose result is held until the seller is told is never used: the verdict comes from the published purchases, and the answer adds <code>heldPurchases</code> and <code>heldNote</code>. A seller with nothing but held purchases is unknown. <a href="https://github.com/kzmttkc/vet402-delivery/blob/main/packages/check/src/verdict.ts" rel="noopener noreferrer nofollow">The rule in code</a></p>
-<p class="meta">As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 14 Robinhood Chain sellers are unknown: vet402 bought from them in one run, on one day, which is too little to say pay or avoid.</p>
+<p class="meta">As of the 2026-09-30 run, all 63 Arbitrum One sellers are unknown and all 18 Robinhood Chain sellers are unknown: vet402 bought from them in one run, on one day, which is too little to say pay or avoid.</p>
 
 <h2 id="http">HTTP: GET /v1/check</h2>
 <p>Any language, or a browser. Optional <code>chain</code> (solana, tempo, base, algorand, arbitrum, robinhood or a CAIP-2 id) and <code>payTo</code> (the recipient in the 402 you hold). CORS is open.</p>
@@ -132,11 +132,27 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
   },
   &quot;sellerPage&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/seller/api.xona-agent.com.html&quot;,
   &quot;records&quot;: {
-    &quot;published&quot;: 74,
+    &quot;published&quot;: 76,
     &quot;byVerdict&quot;: {
-      &quot;NOT_DELIVERED&quot;: 74
+      &quot;NOT_DELIVERED&quot;: 76
     },
     &quot;newest&quot;: [
+      {
+        &quot;id&quot;: &quot;obs_2026-11-07_007042&quot;,
+        &quot;day&quot;: &quot;2026-11-07&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-07_007042.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-07_007042.html&quot;,
+        &quot;anchorTx&quot;: &quot;2K4xVUejdkRKKe4haG5DU1YBM6jd5Dxd89nUeTCseU4ZQyhvwUgkKiGwwa1s84WzVFvyCnQnBQLDX4NnTW6KpCCg&quot;
+      },
+      {
+        &quot;id&quot;: &quot;obs_2026-11-07_006967&quot;,
+        &quot;day&quot;: &quot;2026-11-07&quot;,
+        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
+        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-07_006967.json&quot;,
+        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-07_006967.html&quot;,
+        &quot;anchorTx&quot;: &quot;2K4xVUejdkRKKe4haG5DU1YBM6jd5Dxd89nUeTCseU4ZQyhvwUgkKiGwwa1s84WzVFvyCnQnBQLDX4NnTW6KpCCg&quot;
+      },
       {
         &quot;id&quot;: &quot;obs_2026-11-06_006894&quot;,
         &quot;day&quot;: &quot;2026-11-06&quot;,
@@ -160,32 +176,16 @@ pre.cmd{white-space:pre-wrap;background:var(--card);border:1px solid var(--line)
         &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-05_006741.json&quot;,
         &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-05_006741.html&quot;,
         &quot;anchorTx&quot;: &quot;65EzPRpgbkyCXHDaa9Z4cBB9HJdWiZWA462st7cX6hC7G1fhG5S8Bzjd5gf2pVBgMU5quLG8ngYdXVS71GzMb48F&quot;
-      },
-      {
-        &quot;id&quot;: &quot;obs_2026-11-05_006643&quot;,
-        &quot;day&quot;: &quot;2026-11-05&quot;,
-        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
-        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-05_006643.json&quot;,
-        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-05_006643.html&quot;,
-        &quot;anchorTx&quot;: &quot;65EzPRpgbkyCXHDaa9Z4cBB9HJdWiZWA462st7cX6hC7G1fhG5S8Bzjd5gf2pVBgMU5quLG8ngYdXVS71GzMb48F&quot;
-      },
-      {
-        &quot;id&quot;: &quot;obs_2026-11-04_006569&quot;,
-        &quot;day&quot;: &quot;2026-11-04&quot;,
-        &quot;verdict&quot;: &quot;NOT_DELIVERED&quot;,
-        &quot;json&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-04_006569.json&quot;,
-        &quot;page&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/records/obs_2026-11-04_006569.html&quot;,
-        &quot;anchorTx&quot;: &quot;3y8FtYrQisyBRocamXtaJdgT7RH561KYRQgsU8jLpQasheZRdpK1secT5My4zAgXrT9U1xzNPnx65wwLE69yxaC7&quot;
       }
     ]
   },
   &quot;payToRecorded&quot;: null,
   &quot;asOf&quot;: {
     &quot;rankDate&quot;: &quot;2026-11-07&quot;,
-    &quot;rankGeneratedAt&quot;: &quot;2026-11-07T20:30:01.880Z&quot;,
-    &quot;recordsPublished&quot;: 6595
+    &quot;rankGeneratedAt&quot;: &quot;2026-11-08T04:55:55.395Z&quot;,
+    &quot;recordsPublished&quot;: 6739
   },
-  &quot;summary&quot;: &quot;api.xona-agent.com (Solana, Tempo and Base page): vet402 tried 76 purchases on solana from 2026-09-28 to 2026-11-07; 76 settled, 0 came back with an answer. Failures counted against the seller: paid_not_delivered 76. Not counted against the seller: 0 (vet402 or facilitator 0, cause unknown 0). Grade: D, rank 116. Newest purchase: 2026-11-07T16:56:41.717Z on solana, settled_error_status (HTTP 500), tx 2beDipuwJCeJrSPZ5rZ2N6ZVfi4iRMiEx8H5Js4tERpAayg1W8eVicTuCj418Ff3PAVzYEauAiwheSTGmTUTWmnV. Signed records published: 74 (NOT_DELIVERED 74), 74 for this exact URL; newest obs_2026-11-06_006894, its day&#39;s Merkle root is in Solana memo tx FVwoeCSGKsN82jbrDQxZ9d8vCnsy87qhZT3VNSGaNLp6Wn5pT6gcsAMmjb2Kz7j2RimS9GpT3vgYDToLVeSzLB3.&quot;,
+  &quot;summary&quot;: &quot;api.xona-agent.com (Solana, Tempo and Base page): vet402 tried 76 purchases on solana from 2026-09-28 to 2026-11-07; 76 settled, 0 came back with an answer. Failures counted against the seller: paid_not_delivered 76. Not counted against the seller: 0 (vet402 or facilitator 0, cause unknown 0). Grade: D, rank 116. Newest purchase: 2026-11-07T16:56:41.717Z on solana, settled_error_status (HTTP 500), tx 2beDipuwJCeJrSPZ5rZ2N6ZVfi4iRMiEx8H5Js4tERpAayg1W8eVicTuCj418Ff3PAVzYEauAiwheSTGmTUTWmnV. Signed records published: 76 (NOT_DELIVERED 76), 76 for this exact URL; newest obs_2026-11-07_007042, its day&#39;s Merkle root is in Solana memo tx 2K4xVUejdkRKKe4haG5DU1YBM6jd5Dxd89nUeTCseU4ZQyhvwUgkKiGwwa1s84WzVFvyCnQnBQLDX4NnTW6KpCCg.&quot;,
   &quot;notes&quot;: [],
   &quot;rule&quot;: &quot;pay: the 95% interval of answered / counted is at or above 0.5 (grade C&#39;s line), on 2+ days. avoid: its upper bound is below 0.5 (grade D&#39;s line), on 2+ days. Otherwise unknown. Counted = paid calls: purchases whose payment settled, answered or failed on the seller&#39;s side; a seller&#39;s 5xx with no settled payment, failures on vet402&#39;s or the facilitator&#39;s side, and failures of unknown cause are left out. No settled payment: unknown. avoid is said only after vet402 has told the seller; until then the verdict is unknown.&quot;,
   &quot;method&quot;: &quot;https://kzmttkc.github.io/vet402-delivery/method.html&quot;
