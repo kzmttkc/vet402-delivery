@@ -767,9 +767,11 @@ records_lane() {
   done
   [ -z "$days" ] || msg="records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
   [ -z "$evm_lanes" ] || evm_pages "$evm_lanes"
-  # evm_root_days judged the roots file against the lane pages on main. A lane page made this run can withhold
-  # what that roots file shows, so the roots file is written again against the new page before the site is built.
-  if [ -z "$evm_days" ] && [ -n "$evm_lanes" ] && [ -f "$CONF/evm-roots-enabled" ]; then
+  # A lane page made in this run can withhold what the roots file on main shows (evm_root_days, when it runs, judges that
+  # file against the pages on main). So the roots file is written again against this run's pages before the site is
+  # built: with evm-roots-enabled, and also without it when data/evm/roots is on main (evm-roots-publish only writes
+  # files, it sends nothing; a lane with no sent day in results/evm/anchors gets no roots file from it).
+  if [ -z "$evm_days" ] && [ -n "$evm_lanes" ] && { [ -f "$CONF/evm-roots-enabled" ] || [ -d "$PUB/data/evm/roots" ]; }; then
     evm_roots "refresh -"
     [ -z "$($GIT -C "$PUB" status --porcelain -- data/evm/roots)" ] || msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots judged again with today's rules"
   fi

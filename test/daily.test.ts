@@ -2008,6 +2008,36 @@ test("records: a lane with no purchases file is not asked", () => {
   rmSync(sb.dir, { recursive: true });
 });
 
+test("records: with no new EVM day, the roots file is still written again against the lane pages made in the same run, before the site is built", () => {
+  // 2026-11-08: a lane page made by a new rule withheld a row the roots file on main showed, evm_root_days judged the
+  // roots file against the page on main, and build-site stopped on the mismatch. The roots file now follows this run's pages.
+  const sb = evmBox();
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", ...pageCalls(sb), "evm-roots-publish"]);
+  const lg = logs(sb);
+  assert.ok(lg.indexOf("> data/evm/roots") >= 0 && lg.indexOf("> data/evm/roots") < lg.indexOf("> build site/"), "roots written before the site is built");
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: without evm-roots-enabled, a roots file published on main is still written again against the lane pages of the run", () => {
+  const sb = evmBox({ enabled: false });
+  writeFileSync(join(sb.rmdir, "solana-2026-09-30.json"), "{}");
+  // A roots file published on main (written while the flag was on).
+  mkdirSync(join(sb.repo, "data", "evm", "roots"), { recursive: true });
+  writeFileSync(join(sb.repo, "data", "evm", "roots", "robinhood.json"), "{}\n");
+  git(sb.repo, "add", "data/evm/roots/robinhood.json");
+  git(sb.repo, "commit", "-q", "-m", "roots");
+  git(sb.repo, "push", "-q", "origin", "HEAD:main");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-01T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.deepEqual(evmCalls(sb).filter((l) => !l.includes("--open-days")), [...pageCalls(sb), "evm-roots-publish"], "the roots file follows this run's pages");
+  assert.ok(!evmCalls(sb).some((l) => l.startsWith("evm-anchor") && l.includes("--send")), "nothing sent");
+  rmSync(sb.dir, { recursive: true });
+});
+
 test("records: with no day to write, a published roots file that today's rules judge differently is written again (and only then)", () => {
   const sb = evmBox();
   const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:10:00Z"), FAKE_EVM_REFRESH: "1" });
