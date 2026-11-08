@@ -21,7 +21,7 @@ import type { Signer } from "../src/tempo/chain.js";
 import { aggregate, rank } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 import { RemeasureBudget, budgetKey } from "../src/remeasure/budget.js";
-import { RM_PROD_DIR, RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_SOLANA_MAX_PER_RUN_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
+import { RM_PROD_DIR, RM_QUARANTINED, RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_SOLANA_MAX_PER_RUN_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
 import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
 import { dryRunSolana, paySolana } from "../src/remeasure/solana.js";
 import { dayLedgerPath, dryRunTempo, firstBlockAtOrAfter, monthCommittedElsewhere, payTempo, type TempoChainView } from "../src/remeasure/tempo.js";
@@ -57,7 +57,8 @@ test("targets: settled purchases only, one slot per payTo, cheapest resource fir
   // 72: the census's 70 settled purchases plus goflightlabs and modal, found settled on chain by the chain check (2026-09-30)
   assert.equal(tem.length, 72);
   const ts = selectSlots(tem, 1);
-  assert.equal(ts.payTos, 35);
+  // 35 payTos, less graph.codex.io (RM_QUARANTINED since 2026-11-07)
+  assert.equal(ts.payTos, 34);
   // their recipient (the mpp.tempo.xyz proxy) already had a slot; its cheapest resource is now modal (100 atomic)
   assert.equal(ts.slots.find((x) => x.target.payTo === "0xca4e835f803cb0b7c428222b3a3b98518d4779fe")!.target.service, "modal");
   // the payTo that fronts 28 services gets one slot, always the same (cheapest, then URL)
@@ -80,6 +81,19 @@ test("targets: vet402's own hosts and payers are never selected; slots go round 
   assert.deepEqual(new Set(s.slots.slice(0, 2).map((x) => x.target.payTo)), new Set([P2, P3]));
   // P2: c (cheaper) then b then c again
   assert.deepEqual(s.slots.filter((x) => x.target.payTo === P2).map((x) => x.target.host), ["c.example", "b.example", "c.example"]);
+});
+
+test("targets: a quarantined seller is left out and listed with its reason", () => {
+  const tem = tempoFromLedger(read("tempo/ledger.json"), read("tempo/census-plan-2026-09-28.json"), "t");
+  const q = RM_QUARANTINED.find((x) => x.chain === "tempo")!;
+  const codex = tem.filter((t) => t.payTo === q.payTo);
+  assert.ok(codex.length > 0 && codex.every((t) => t.host === "graph.codex.io"));
+  const s = selectSlots(tem, 1);
+  assert.ok(s.slots.every((x) => x.target.payTo !== q.payTo));
+  assert.equal(s.excluded.filter((e) => e.reason === "quarantined" && e.payTo === q.payTo).length, codex.length);
+  // the same address on another chain is not affected
+  const other = selectSlots([{ ...codex[0]!, chain: "solana" }], 1);
+  assert.equal(other.slots.length, 1);
 });
 
 // ---------- Solana: fake sellers ----------

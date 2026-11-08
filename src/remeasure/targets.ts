@@ -11,7 +11,7 @@ import { OWN_HOSTS, PAYER_ADDRESS, SOLANA_MAINNET, USDC_MINT } from "../constant
 import type { PlanEntry as SolanaPlanEntry } from "../pay.js";
 import type { PlanEntry as TempoPlanEntry } from "../tempo/census.js";
 import { PAYER_ADDRESS as TEMPO_PAYER, normAddr } from "../tempo/constants.js";
-import type { RemeasureChain } from "./constants.js";
+import { RM_QUARANTINED, type RemeasureChain } from "./constants.js";
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -159,7 +159,7 @@ export interface Selection {
 }
 
 /**
- * Remove vet402's own hosts and addresses and duplicates (same payTo and URL), then give each payTo
+ * Remove vet402's own hosts and addresses, quarantined sellers (RM_QUARANTINED) and duplicates (same payTo and URL), then give each payTo
  * `perPayTo` slots. A payTo with several resources gets them in a fixed order (cheapest first, then URL),
  * so the same resource is measured every day and piles up counted purchases; slot i takes resource
  * i mod n.
@@ -167,6 +167,7 @@ export interface Selection {
 export function selectSlots(targets: readonly Target[], perPayTo: number): Selection {
   if (!Number.isInteger(perPayTo) || perPayTo < 1) throw new Error(`perPayTo ${perPayTo}`);
   const own = new Set([PAYER_ADDRESS, normAddr(TEMPO_PAYER)]);
+  const quarantined = new Set(RM_QUARANTINED.map((q) => `${q.chain} ${normAddr(q.payTo)}`));
   const excluded: Selection["excluded"] = [];
   const byPayTo = new Map<string, Target[]>();
   const seen = new Set<string>();
@@ -177,6 +178,10 @@ export function selectSlots(targets: readonly Target[], perPayTo: number): Selec
     }
     if (own.has(t.payTo)) {
       excluded.push({ url: t.url, payTo: t.payTo, reason: "own_payto" });
+      continue;
+    }
+    if (quarantined.has(`${t.chain} ${t.payTo}`)) {
+      excluded.push({ url: t.url, payTo: t.payTo, reason: "quarantined" });
       continue;
     }
     const k = `${t.chain} ${t.payTo} ${t.requestUrl} ${t.service ?? ""}`;

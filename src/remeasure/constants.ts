@@ -50,4 +50,18 @@ export const RM_MAX_PER_PAYTO = MEASURE_MAX_PER_SELLER;
 export const RM_PROD_DIR = TEMPO_KEY_LEDGERS.remeasureDir;
 
 /** Printed on every result file. */
+/**
+ * Sellers left out of the repeat purchases until a person has looked again. A quarantined seller is listed in
+ * the run's `excluded` with reason "quarantined", so the day's file still says who was not bought and why.
+ * Remove the line once a dry run against that seller shows the credential would be accepted.
+ */
+export const RM_QUARANTINED: readonly { chain: RemeasureChain; payTo: string; since: string; why: string }[] = [
+  {
+    chain: "tempo",
+    payTo: "0xc12b5d802da90d14a8b35dec1cfb6fd5ceede60b",
+    since: "2026-11-07",
+    why: "graph.codex.io: its 402 asks for its own transfer memo, mppx (0.11 and later) sends the challenge-bound attribution memo, so the seller answers verification-failed and nothing is broadcast. Stopped the Tempo lane on 2026-11-07 and 2026-11-08",
+  },
+];
+
 export const RM_NOTE = "Repeat test purchase by vet402 from a seller it paid before. Not organic demand.";
