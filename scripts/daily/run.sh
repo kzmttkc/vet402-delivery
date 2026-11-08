@@ -767,6 +767,12 @@ records_lane() {
   done
   [ -z "$days" ] || msg="records: $(echo $days | tr ' ' ',') delivery records and each day's root$([ "$DRY" = 1 ] && echo ' (simulated anchor)' || echo ', anchored on Solana')"
   [ -z "$evm_lanes" ] || evm_pages "$evm_lanes"
+  # evm_root_days judged the roots file against the lane pages on main. A lane page made this run can withhold
+  # what that roots file shows, so the roots file is written again against the new page before the site is built.
+  if [ -z "$evm_days" ] && [ -n "$evm_lanes" ] && [ -f "$CONF/evm-roots-enabled" ]; then
+    evm_roots "refresh -"
+    [ -z "$($GIT -C "$PUB" status --porcelain -- data/evm/roots)" ] || msg="${msg:+$msg; }$([ -z "$msg" ] && echo 'records: ')EVM daily roots judged again with today's rules"
+  fi
   if [ -n "$evm_days" ]; then
     evm_roots "$evm_days"
     if [ "$evm_days" = "refresh -" ]; then

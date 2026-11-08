@@ -2017,7 +2017,8 @@ test("records: with no day to write, a published roots file that today's rules j
   const before = evmCalls(sb).length;
   const r2 = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-02T00:20:00Z"), FAKE_EVM_REFRESH: "1" });
   assert.equal(r2.status, 0, logs(sb));
-  assert.deepEqual(evmCalls(sb).slice(before).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", ...pageCalls(sb)], "nothing to judge again");
+  // The roots file is written again against the lane pages made in this run; unchanged, it adds nothing to commit.
+  assert.deepEqual(evmCalls(sb).slice(before).filter((l) => !l.includes("--open-days")), ["evm-roots-publish --check", ...pageCalls(sb), "evm-roots-publish"], "judged against this run's pages, nothing new");
   assert.match(logs(sb), /no closed day with purchases waits for its records, and the EVM lane pages are unchanged/);
   rmSync(sb.dir, { recursive: true });
 });
