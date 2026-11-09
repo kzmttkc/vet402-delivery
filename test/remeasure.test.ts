@@ -17,7 +17,7 @@ import { mppChallengesFromHeader, tempoChargeRequest } from "../src/tempo/challe
 import { Ledger, type LedgerEntry } from "../src/tempo/ledger.js";
 import { payOne as tempoPayOne, type PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
 import { DAY_LEDGER_INDEX, accountedOutflow, assertCensusLedger, entryOutflow, registerDayLedger, unaccountedChainSpent, TEMPO_KEY_LEDGERS, type KeyLedgerSet } from "../src/tempo/key-ledgers.js";
-import type { Signer } from "../src/tempo/chain.js";
+import { READ_RETRY, type Signer } from "../src/tempo/chain.js";
 import { aggregate, rank } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 import { RemeasureBudget, budgetKey } from "../src/remeasure/budget.js";
@@ -26,7 +26,7 @@ import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type T
 import { dryRunSolana, paySolana } from "../src/remeasure/solana.js";
 import { dayLedgerPath, dryRunTempo, firstBlockAtOrAfter, monthCommittedElsewhere, payTempo, type TempoChainView } from "../src/remeasure/tempo.js";
 import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
-import type { Slot } from "../src/remeasure/loop.js";
+import { endLoop, type Slot } from "../src/remeasure/loop.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
 import { PayloadNotCreatedError } from "../src/guard.js";
 import { resultFilesUpTo, runDirs, type RemeasureRow, type ResultFile } from "../src/remeasure/results.js";
@@ -94,6 +94,21 @@ test("targets: a quarantined seller is left out and listed with its reason", () 
   // the same address on another chain is not affected
   const other = selectSlots([{ ...codex[0]!, chain: "solana" }], 1);
   assert.equal(other.slots.length, 1);
+});
+
+test("endLoop: a loop that throws ends with its recorded rows and a named stop; a loop that ends is passed through", async () => {
+  const row = { outcome: "sent" } as unknown as RemeasureRow;
+  const failed = await endLoop(Promise.reject(new Error("HTTP request failed.\nURL: https://rpc.tempo.xyz/")), () => [row]);
+  assert.deepEqual(failed.rows, [row]);
+  assert.equal(failed.stopped, "loop_error: HTTP request failed.");
+  const ok = { rows: [row], skipped: [], stopped: null };
+  assert.equal(await endLoop(Promise.resolve(ok), () => []), ok);
+});
+
+test("tempo read client: retries a reset connection for about half a minute before it gives up", () => {
+  assert.equal(READ_RETRY.retryCount, 5);
+  // viem waits retryDelay * 2^n before retry n+1: 1 + 2 + 4 + 8 + 16 seconds
+  assert.equal([0, 1, 2, 3, 4].reduce((s, n) => s + READ_RETRY.retryDelay * 2 ** n, 0), 31_000);
 });
 
 // ---------- Solana: fake sellers ----------

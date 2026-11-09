@@ -15,8 +15,15 @@ export const CENSUS_START_BLOCK = 41_600_000n;
 const LOG_RANGE = 99_999n;
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 amount)");
 
+/**
+ * Reads only (this client never sends a transaction). A reset or refused connection to the public RPC used to end
+ * the whole --pay run after one retry (2026-10-16, 2026-10-19, 2026-11-09): five retries, 1 s doubling each time
+ * (about 31 s of waiting), ride out a short outage.
+ */
+export const READ_RETRY = { retryCount: 5, retryDelay: 1_000 } as const;
+
 export function publicClient(rpc = TEMPO_RPC_URL) {
-  return createPublicClient({ chain: tempoChain, transport: http(rpc, { timeout: 15_000, retryCount: 1 }) });
+  return createPublicClient({ chain: tempoChain, transport: http(rpc, { timeout: 15_000, ...READ_RETRY }) });
 }
 
 export async function assertMainnet(rpc = TEMPO_RPC_URL): Promise<void> {

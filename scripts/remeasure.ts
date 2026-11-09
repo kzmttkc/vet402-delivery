@@ -49,7 +49,7 @@ import {
 import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
 import { readResultFile, resultPath, runDirs, writeJsonAtomic, type RemeasureRow, type RunInfo } from "../src/remeasure/results.js";
 import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
-import type { LoopResult } from "../src/remeasure/loop.js";
+import { endLoop, type LoopResult } from "../src/remeasure/loop.js";
 import { readBook } from "../src/inputs/book.js";
 import { repairTargets, type RepairLine } from "../src/inputs/repair.js";
 
@@ -207,7 +207,8 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>, targets: Target[
     result.runs.push(run);
     const save = () => writeJsonAtomic(file, result);
     save();
-    const res = await paySolana(
+    const runRows: RemeasureRow[] = [];
+    const res = await endLoop(paySolana(
       slotsAll.slots,
       {
         fetch,
@@ -218,8 +219,8 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>, targets: Target[
         waitForSettlement: (sig: string | null, memo: string | null, payTo: string) =>
           waitForSettlement({ rpc, signature: sig, memo, payer: PAYER_ADDRESS, payerUsdcAta: payerAta, payTo }),
       },
-      { date: DATE, budget, sleep: realSleep, onRow: (r) => (result.rows.push(r), save(), logRow(r)) },
-    );
+      { date: DATE, budget, sleep: realSleep, onRow: (r) => (runRows.push(r), result.rows.push(r), save(), logRow(r)) },
+    ), () => runRows);
     run.endedAt = new Date().toISOString();
     run.stopped = res.stopped;
     save();
@@ -308,7 +309,8 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
     result.runs.push(run);
     const save = () => writeJsonAtomic(file, result);
     save();
-    const res = await payTempo(
+    const runRows: RemeasureRow[] = [];
+    const res = await endLoop(payTempo(
       slotsAll.slots,
       {
         fetchImpl: fetch,
@@ -320,8 +322,8 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
         findTx: { head: () => tchain.headBlock(), search: (e, from) => tchain.findPayerTransfers(e, from), known: () => keyLedgerTxs(TEMPO_KEY_LEDGERS, TEMPO_PAYER).known },
       },
       // payOne's chain check: outflow since the census start <= this day ledger + every other ledger of the key.
-      { date: DATE, ledger, keyLedgers: TEMPO_KEY_LEDGERS, chain: chainView, monthElsewhere, sleep: realSleep, onRow: (r) => (result.rows.push(r), save(), logRow(r)) },
-    );
+      { date: DATE, ledger, keyLedgers: TEMPO_KEY_LEDGERS, chain: chainView, monthElsewhere, sleep: realSleep, onRow: (r) => (runRows.push(r), result.rows.push(r), save(), logRow(r)) },
+    ), () => runRows);
     run.endedAt = new Date().toISOString();
     run.stopped = res.stopped;
     save();

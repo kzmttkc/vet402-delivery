@@ -554,11 +554,30 @@ remeasure() {
   fi
 }
 
-publish_remeasure() {
-  local c src day copied=() redacted=() unclear=0 unclear_in=() unclear_shas=""
+# Closed UTC days of the last 7 whose remeasure result is in $RMDIR but whose copy is not in the publish tree. A pay
+# run that stopped before its publish leaves its day there when the stop is cleared on a later UTC day, and the
+# records run then refuses that day ("payment tx is not a purchase in data/", 2026-11-08). Oldest first.
+unpublished_days() {
+  local f d c since
+  since="$(/bin/date -u -r "$((NOW - 7 * 86400))" +%Y-%m-%d)"
+  for f in "$RMDIR"/solana-????-??-??.json "$RMDIR"/tempo-????-??-??.json; do
+    [ -f "$f" ] || continue
+    d="$(basename "$f" .json)"
+    c="${d%%-*}"
+    d="${d#*-}"
+    [[ "$d" < "$UTC_DAY" ]] || continue
+    [[ "$d" < "$since" ]] && continue
+    [ -f "$PUB/data/remeasure/$c-$d.json" ] || echo "$d"
+  done | sort -u
+}
+
+# copy_day <day>: each chain's result for that day through the secret gate into the publish tree, with its manifest
+# entry. Appends to the caller's copied_days, redacted (day:chain) and unclear_shas (day:sha) lists.
+copy_day() {
+  local day="$1" c src copied_any=0
   for c in solana tempo; do
-    src="$RMDIR/$c-$UTC_DAY.json"
-    if [ "$DRY" = 1 ] && [ ! -f "$src" ]; then
+    src="$RMDIR/$c-$day.json"
+    if [ "$DRY" = 1 ] && [ "$day" = "$UTC_DAY" ] && [ ! -f "$src" ]; then
       # Nothing was paid today: a made-up copy of the newest day, dated today, goes through the same publish
       # (gate, manifest, rank, site, typecheck, tests) so a new day's publish is tried before a real one.
       local newest
@@ -572,43 +591,69 @@ publish_remeasure() {
       src="$STATE/sim/$c-$UTC_DAY.json"
       log "dry run: $c has no result for $UTC_DAY; publishing a made-up copy of $nday dated $UTC_DAY"
     fi
-    [ -n "$src" ] && [ -f "$src" ] || continue
-    day="$(basename "$src" .json)"
-    day="${day#"$c"-}"
+    [ -f "$src" ] || continue
     local res
     res="$(gate copy "$src" "$PUB/data/remeasure/$c-$day.json")" || {
       alert "secret gate stopped the copy of $(basename "$src") (see log); nothing published" halt
       return 1
     }
     log "copied $(basename "$src"): $res"
-    local reds counts n_other shas
+    local reds counts n_other shas sha
     reds="$(printf '%s' "$res" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(JSON.parse(s).redactions)))')"
     # "<other redactions> <sha256 prefixes of the unclear values, comma-separated>": an unclear value in a seller's
     # answer is said apart (gateCopy), counted once however many places it stood in.
     counts="$(printf '%s' "$reds" | $NODE -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const u=r.filter(x=>x.what==="unclear-value");console.log(`${r.length-u.length} ${u.map(x=>x.sha256).join(",")}`)})')"
     n_other="${counts%% *}"
     shas="${counts#* }"
-    [ "$n_other" != 0 ] && redacted+=("$c")
+    [ "$n_other" != 0 ] && redacted+=("$day:$c")
     if [ -n "$shas" ]; then
-      unclear_shas="$unclear_shas,$shas"
+      for sha in $(printf '%s' "$shas" | tr ',' ' '); do unclear_shas+=("$day:$sha"); done
       unclear_in+=("$(basename "$src")")
     fi
     run "manifest for $c-$day" daily_steps manifest "$PUB/data" --file "remeasure/$c-$day.json" --day "$day" --redactions "$reds" || {
       alert "manifest update for $c-$day failed" halt
       return 1
     }
-    copied+=("$c")
+    copied_any=1
   done
-  if [ ${#copied[@]} -eq 0 ]; then
+  [ "$copied_any" = 1 ] && copied_days+=("$day")
+  return 0
+}
+
+# day_message <day>: the data commit subject for one day, from that day's own redactions.
+day_message() {
+  local d="$1" e chains="" unclear
+  for e in "${redacted[@]:-}"; do [ "${e%%:*}" = "$d" ] && chains="${chains:+$chains,}${e#*:}"; done
+  unclear="$(for e in "${unclear_shas[@]:-}"; do [ "${e%%:*}" = "$d" ] && echo "${e#*:}"; done | sort -u | grep -c . || true)"
+  daily_steps message "$PUB/data" --day "$d" --redacted "$chains" --unclear "$unclear"
+}
+
+publish_remeasure() {
+  local copied_days=() redacted=() unclear_shas=() unclear_in=() back d
+  # Days a stopped run left unpublished first, so the manifest ends on today.
+  back="$(unpublished_days)"
+  for d in $back; do
+    log "$d: its remeasure result was never published (a stop before its publish); published now"
+    copy_day "$d" || return 1
+  done
+  copy_day "$UTC_DAY" || return 1
+  if [ ${#copied_days[@]} -eq 0 ]; then
     log "no remeasure result for $UTC_DAY: nothing to publish"
     return 0
   fi
-  unclear="$(printf '%s' "$unclear_shas" | tr ',' '\n' | grep -v '^$' | sort -u | grep -c . || true)"
-  local msg
-  msg="$(daily_steps message "$PUB/data" --day "$day" --redacted "$(IFS=,; echo "${redacted[*]:-}")" --unclear "$unclear")" || {
-    alert "could not write the commit message" halt
-    return 1
-  }
+  # The subject is the newest day's; each earlier day follows as its own paragraph.
+  local msg="" one i
+  for ((i = ${#copied_days[@]} - 1; i >= 0; i--)); do
+    one="$(day_message "${copied_days[$i]}")" || {
+      alert "could not write the commit message" halt
+      return 1
+    }
+    msg="${msg:+$msg
+
+}$one"
+  done
+  local unclear
+  unclear="$(for d in "${unclear_shas[@]:-}"; do [ -n "$d" ] && echo "$d"; done | sort -u | grep -c . || true)"
   # Not a stop: said so a person can look at what was left out of the public copy (paths and sha256 prefixes in the log).
   [ "$unclear" -gt 0 ] && notice "secret gate redacted $unclear unclear value(s) in seller answers instead of stopping ($(IFS=,; echo "${unclear_in[*]}"); paths, kinds and sha256 prefixes in the log)"
   publish "$msg"
@@ -719,6 +764,16 @@ open_record_days() {
     [[ "$d" < "$UTC_DAY" ]] || continue
     # Done = anchored and on main. Anchored but not published (the publish failed): published again, not re-anchored.
     if [ -f "$RECEIPTS/$d/anchor-sent.json" ] && grep -q '"status": *"sent"' "$RECEIPTS/$d/anchor-sent.json" && [ -d "$REPO/data/records/$d" ]; then continue; fi
+    # A day whose purchases are not on main yet (its pay run stopped before the publish) is recorded after the next
+    # pay run publishes it (unpublished_days): publish-records would refuse every one of its records.
+    local c waits=""
+    for c in solana tempo; do
+      [ -f "$RMDIR/$c-$d.json" ] && [ ! -f "$REPO/data/remeasure/$c-$d.json" ] && waits="${waits:+$waits, }$c"
+    done
+    if [ -n "$waits" ]; then
+      log "$d: its $waits purchases are not in data/remeasure on main yet; recorded after the next pay run publishes them" >&2
+      continue
+    fi
     echo "$d"
   done
 }

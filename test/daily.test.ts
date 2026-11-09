@@ -1078,6 +1078,13 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
     for (const [name, body] of Object.entries(FAKE_RECORDS)) writeFileSync(join(seed, "scripts", name), body);
   }
   mkdirSync(join(seed, "data", "remeasure"), { recursive: true });
+  if (opts.records) {
+    // Every day's purchases are already on main, as after a normal pay run; a test removes one to see a day wait.
+    for (let t = Date.parse("2026-09-25T00:00:00Z"); t <= Date.parse("2026-11-15T00:00:00Z"); t += 86_400_000) {
+      const d = new Date(t).toISOString().slice(0, 10);
+      for (const c of ["solana", "tempo"]) writeFileSync(join(seed, "data", "remeasure", `${c}-${d}.json`), "{}\n");
+    }
+  }
   writeFileSync(
     join(seed, "data", "manifest.json"),
     JSON.stringify({ kind: "vet402-rank-inputs", date: "2026-09-29", files: [{ label: "cdp/discovery-2026-09-28", path: "cdp/discovery-2026-09-28.json", sha256: "0".repeat(64), source: "https://example.com/discovery", note: "Projection." }] }, null, 2) + "\n",
@@ -1325,6 +1332,19 @@ test("run.sh: Tempo over its cap after Solana: no Tempo payment, the lane halts,
   rmSync(sb.dir, { recursive: true });
 });
 
+test("run.sh publish: a day a stopped run left unpublished goes out with today, oldest first, each day its own message; older than 7 days is left", () => {
+  const sb = sandbox();
+  const result = (d: string) => JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: d, runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] });
+  for (const d of ["2026-09-20", "2026-10-01", "2026-10-02"]) writeFileSync(join(sb.rmdir, `solana-${d}.json`), result(d));
+  const r = runSh(sb, ["publish", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-02T01:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /2026-10-01: its remeasure result was never published \(a stop before its publish\); published now/);
+  assert.ok(!logs(sb).includes("2026-09-20: its remeasure result"), "a day older than 7 days is not picked up");
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-02 remeasure on Solana \(1 rows: 1 paid, 1 settled, 1 delivered\)$/m);
+  assert.match(logs(sb), /^data: 2026-10-01 remeasure on Solana \(1 rows: 1 paid, 1 settled, 1 delivered\)$/m);
+  rmSync(sb.dir, { recursive: true });
+});
+
 test("run.sh: an unknown secret in a result (outside a seller's answer) stops the publish; nothing is copied or committed", () => {
   const sb = sandbox();
   writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", requestUrl: `https://a.example/x?session=Zq8${b64url(seeded(8), 30)}`, detail: "{}" }] }));
@@ -1454,6 +1474,21 @@ test("records: without records-enabled, the open days (oldest first, at most 3) 
   assert.ok(!calls(sb).includes("2026-10-03"), "the open UTC day is left alone");
   assert.equal(git(sb.origin, "rev-parse", "main"), originBefore, "nothing pushed");
   assert.ok(!existsSync(join(sb.receipts, "2026-09-30")), "the real records folder is untouched");
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("records: a day whose purchases are not on main yet waits for the next pay run instead of halting; the other days are recorded", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  git(sb.repo, "rm", "-q", "data/remeasure/solana-2026-10-01.json");
+  git(sb.repo, "commit", "-q", "-m", "2026-10-01 never published");
+  git(sb.repo, "push", "-q", "origin", "main");
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /2026-10-01: its solana purchases are not in data\/remeasure on main yet; recorded after the next pay run publishes them/);
+  assert.match(logs(sb), /days to record \(oldest first, at most 3\): 2026-09-30 2026-10-02$/m);
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
+  assert.ok(!calls(sb).includes("--day 2026-10-01"), "the waiting day is not built");
   rmSync(sb.dir, { recursive: true });
 });
 

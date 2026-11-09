@@ -38,6 +38,21 @@ export interface LoopResult {
   stopped: string | null;
 }
 
+/**
+ * A --pay loop that throws (an RPC still failing after its retries) still ends with a result: the rows it already
+ * recorded, and a stop that names the error. The caller then gives the run an end and runs the chain check, so the
+ * runner reads a stop with the chain checked instead of a run with no end.
+ */
+export async function endLoop(loop: Promise<LoopResult>, rowsSoFar: () => readonly RemeasureRow[]): Promise<LoopResult> {
+  try {
+    return await loop;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`the --pay loop failed: ${message}`);
+    return { rows: [...rowsSoFar()], skipped: [], stopped: `loop_error: ${message.split("\n")[0]}` };
+  }
+}
+
 export const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function runSlots(slots: readonly Slot[], deps: LoopDeps): Promise<LoopResult> {
