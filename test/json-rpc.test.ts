@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { jsonRpc } from "../src/chain.js";
+import { jsonRpc, rpcTimeoutMs } from "../src/chain.js";
 
 const ok = (result: unknown) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
 
@@ -42,4 +42,10 @@ test("jsonRpc: four failed tries give up with the last reason", async () => {
   const r = fake([() => new Response("slow down", { status: 429 })]);
   await assert.rejects(jsonRpc("https://rpc.example", r.f, 0)("getBalance", []), /rpc getBalance: rate limited/);
   assert.equal(r.calls(), 4);
+});
+
+test("jsonRpc: the slow history query on a busy address gets 60 s a try, every other method 20 s", () => {
+  assert.equal(rpcTimeoutMs("getSignaturesForAddress"), 60_000);
+  assert.equal(rpcTimeoutMs("getTransaction"), 20_000);
+  assert.equal(rpcTimeoutMs("sendTransaction"), 20_000);
 });

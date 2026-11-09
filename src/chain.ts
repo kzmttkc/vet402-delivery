@@ -12,6 +12,15 @@ export type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
  * Not retried: an answer with a JSON-RPC error, which says what the node decided. A send that is tried again
  * carries the same signed bytes, so the chain takes it at most once.
  */
+/**
+ * How long one try may wait for its answer. getSignaturesForAddress on a busy address is slow on the public RPC:
+ * the payer, which also signs the daily anchor, took 23 s for 100 and 31 s for 1,000 signatures (2026-11-09), so
+ * the 20 s every other method gets made verify-receipt fail on every try and halted the records run.
+ */
+export function rpcTimeoutMs(method: string): number {
+  return method === "getSignaturesForAddress" ? 60_000 : 20_000;
+}
+
 export function jsonRpc(url: string, fetchImpl: typeof fetch = fetch, waitMs = 1500): Rpc {
   let id = 0;
   return async (method, params) => {
@@ -24,7 +33,7 @@ export function jsonRpc(url: string, fetchImpl: typeof fetch = fetch, waitMs = 1
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }),
-          signal: AbortSignal.timeout(20_000),
+          signal: AbortSignal.timeout(rpcTimeoutMs(method)),
         });
       } catch (e) {
         last = `rpc ${method}: ${e instanceof Error ? e.message : String(e)}`;
