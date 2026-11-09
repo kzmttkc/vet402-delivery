@@ -6,25 +6,39 @@ import { MEMO_PROGRAM, USDC_MINT } from "./constants.js";
 
 export type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
 
-export function jsonRpc(url: string, fetchImpl: typeof fetch = fetch): Rpc {
+/**
+ * Four tries, 1.5 s more wait before each next one. Retried: 429, a 502/503/504, and a request that never got an
+ * answer (a timeout or a dropped connection: 2026-11-09, one anchor read timed out and the records run halted).
+ * Not retried: an answer with a JSON-RPC error, which says what the node decided. A send that is tried again
+ * carries the same signed bytes, so the chain takes it at most once.
+ */
+export function jsonRpc(url: string, fetchImpl: typeof fetch = fetch, waitMs = 1500): Rpc {
   let id = 0;
   return async (method, params) => {
+    let last = `rpc ${method}: rate limited`;
     for (let attempt = 0; attempt < 4; attempt++) {
-      const res = await fetchImpl(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }),
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (res.status === 429) {
-        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      if (attempt > 0) await new Promise((r) => setTimeout(r, waitMs * attempt));
+      let res: Response;
+      try {
+        res = await fetchImpl(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }),
+          signal: AbortSignal.timeout(20_000),
+        });
+      } catch (e) {
+        last = `rpc ${method}: ${e instanceof Error ? e.message : String(e)}`;
+        continue;
+      }
+      if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
+        last = res.status === 429 ? `rpc ${method}: rate limited` : `rpc ${method}: HTTP ${res.status}`;
         continue;
       }
       const body = (await res.json()) as { result?: unknown; error?: { message?: string } };
       if (body.error) throw new Error(`rpc ${method}: ${body.error.message ?? "error"}`);
       return body.result;
     }
-    throw new Error(`rpc ${method}: rate limited`);
+    throw new Error(last);
   };
 }
 
