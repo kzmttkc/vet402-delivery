@@ -15,11 +15,12 @@ import type { PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
 import { registerDayLedger, type KeyLedgerSet } from "../src/tempo/key-ledgers.js";
 import type { Signer } from "../src/tempo/chain.js";
 import type { PlannedRequest } from "../src/tempo/mercator.js";
-import { bodyShape, checkInput, inputProblem, publishableField } from "../src/tempo/answer.js";
+import { bodyShape, checkInput, inputProblem, lacksCatalogInput, publishableField } from "../src/tempo/answer.js";
 import { classifyFailure, FAULT_RULES, INPUT_RULE_IDS } from "../src/rank/classify.js";
 import type { Attempt } from "../src/rank/types.js";
 import { annotateTempoInput, normalizeTempoLedger } from "../src/rank/normalize.js";
 import { RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
+import type { PlanEntry as TempoPlanEntry } from "../src/tempo/census.js";
 import { selectSlots, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
 import { dayLedgerPath, dryRunTempo, payTempo, type TempoChainView } from "../src/remeasure/tempo.js";
 import { normalizeRemeasure } from "../src/remeasure/normalize.js";
@@ -27,7 +28,7 @@ import type { RemeasureRow, ResultFile } from "../src/remeasure/results.js";
 import { scanJson, type Finding } from "../src/daily/secret-gate.js";
 
 const DATA = join(import.meta.dirname, "..", "data");
-const plan = JSON.parse(readFileSync(join(DATA, "tempo", "census-plan-2026-09-28.json"), "utf8")) as { plan: { serviceId: string; request: PlannedRequest }[] };
+const plan = JSON.parse(readFileSync(join(DATA, "tempo", "census-plan-2026-09-28.json"), "utf8")) as { plan: TempoPlanEntry[] };
 const reqOf = (id: string) => plan.plan.find((p) => p.serviceId === id)!.request;
 
 // ---------- what vet402 sent ----------
@@ -44,6 +45,13 @@ test("input: the catalog's type names and notes are placeholders; real examples 
   assert.deepEqual([serp.source, serp.placeholders, serp.missingRequired], ["none", [], null]);
   // required list, when the caller has one
   assert.deepEqual(checkInput({ url: "https://s.example/x?a=1", body: null, inputSource: "mercator_example" }, ["a", "b"]).missingRequired, ["b"]);
+});
+
+test("lacksCatalogInput: no example on a body call, or on a GET with no query", () => {
+  assert.equal(lacksCatalogInput(reqOf("orth-leadsforge")), true);
+  assert.equal(lacksCatalogInput(reqOf("orth-andi")), false);
+  assert.equal(lacksCatalogInput({ url: "https://s.example/m", method: "POST", body: "{}", inputSource: "none" }), true);
+  assert.equal(lacksCatalogInput({ url: "https://s.example/m", method: "POST", body: '{"q":"x"}', inputSource: "mercator_example" }), false);
 });
 
 test("input problem: placeholder, missing required, or no input with an answer that says the input was wrong", () => {
@@ -198,18 +206,73 @@ test("remeasure tempo: a paid 2xx records the answer's shape; a whitespace body 
   assert.equal(blank.category, "settled_empty_body");
 });
 
-test("remeasure tempo: a paid 4xx whose answer says the input was wrong, after vet402 sent no input, goes to vet402's side (400, 404, 422 only)", async () => {
+test("remeasure tempo: no cataloged input is not bought when the census already got 400, 404 or 422", async () => {
   const e = env(() => new Response('{"error":"q is required"}', { status: 400 }));
   const t = target("search", { method: "GET", body: null, contentType: null, inputSource: "none" });
+  t.tempo!.censusHttpStatus = 400;
   const r = (await e.run([t])).rows[0]!;
-  assert.deepEqual([r.outcome, r.settled, r.httpStatus, r.answer?.inputError, r.answer?.fields], ["sent", true, 400, ["required"], ["error"]]);
-  assert.ok(!JSON.stringify(r).includes("q is required"), "the answer's text is not kept");
+  assert.deepEqual([e.signs(), e.paidCalls(), r.outcome, r.reason, r.detail, r.tx, r.answer], [0, 0, "refused", "no_input_example", "no cataloged input for a request that needs parameters", null, null]);
   const a = normalizeRemeasure(file([r]), "x")[0]!;
-  assert.equal(a.inputProblem, "no_input_sent");
-  assert.deepEqual(classifyFailure(a), { fault: "vet402_or_facilitator", rule: "paid_then_4xx_vet402_input" });
-  // the same 4xx after the catalog's real example stays can't tell
-  const withExample = normalizeRemeasure(file([{ ...r, input: { source: "mercator_example", placeholders: [], missingRequired: null } }]), "x")[0]!;
-  assert.deepEqual(classifyFailure(withExample), { fault: "unknown", rule: "paid_then_4xx" });
+  assert.deepEqual([a.tried, a.category], [false, "vet402_skipped"]);
+  for (const st of [404, 422]) {
+    const t2 = { ...t, tempo: { ...t.tempo!, censusHttpStatus: st } };
+    assert.equal((await e.run([t2])).rows.at(-1)!.reason, "no_input_example", `${st}`);
+  }
+  assert.equal((await e.run([{ ...t, tempo: { ...t.tempo!, censusHttpStatus: 200 } }])).rows.at(-1)!.outcome, "sent", "a parameterless GET that already delivered is still measured");
+});
+
+test("record copy: orth-leadsforge from the census plan is not bought again after a census 400", async () => {
+  const e = env(() => new Response('{"message":"required"}', { status: 400 }));
+  const pe = plan.plan.find((p) => p.serviceId === "orth-leadsforge")!;
+  const payTo = pe.lockedRecipient.toLowerCase();
+  const t: Target = {
+    chain: "tempo",
+    host: "mpp.orthogonal.com",
+    service: "orth-leadsforge",
+    url: pe.request.url,
+    requestUrl: pe.request.url,
+    payTo,
+    amountAtomic: pe.lockedAmount,
+    from: "orth-leadsforge",
+    tempo: { plan: pe, feeReserveAtomic: FEE_RESERVE_ATOMIC.toString(), censusHttpStatus: 400 },
+  };
+  const r = (await e.run([t])).rows[0]!;
+  assert.deepEqual([e.signs(), r.outcome, r.reason, lacksCatalogInput(pe.request)], [0, "refused", "no_input_example", true]);
+});
+
+test("remeasure tempo: a POST with no cataloged body is not bought, even when the census delivered once", async () => {
+  const e = env(() => new Response('{"ok":true}', { status: 200 }));
+  const t = target("jobs", { method: "POST", body: "{}", contentType: "application/json", inputSource: "none" });
+  t.tempo!.censusHttpStatus = 400;
+  const r = (await e.run([t])).rows[0]!;
+  assert.deepEqual([e.signs(), r.outcome, r.reason], [0, "refused", "no_input_example"]);
+});
+
+test("classify: a historical paid 4xx with no catalog input is vet402's side (records before inputPayRefusal)", () => {
+  const r = {
+    chain: "tempo" as const,
+    source: "t",
+    host: "s.example",
+    service: "s",
+    url: "https://s.example/x",
+    payTo: "0x1",
+    expectedPayTo: "0x1",
+    at: "2026-10-01T00:00:00.000Z",
+    tried: true,
+    settled: true,
+    delivered: false,
+    category: "settled_error_status" as const,
+    rawReason: "sent/http 400",
+    detail: null,
+    tx: "0x1",
+    priceUsdc: "0.010000",
+    httpStatus: 400,
+    declaredMatch: null,
+    bodyChecked: true,
+    feedbackTx: null,
+    inputProblem: "no_input_sent" as const,
+  };
+  assert.deepEqual(classifyFailure(r), { fault: "vet402_or_facilitator", rule: "paid_then_4xx_vet402_input" });
 });
 
 test("remeasure tempo: the new fields pass the secret gate (no finding), even with secret-like names in the answer", async () => {

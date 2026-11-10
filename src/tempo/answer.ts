@@ -187,6 +187,26 @@ export const INPUT_REJECT_STATUSES: ReadonlySet<number> = new Set([400, 404, 422
 
 export type InputProblem = "placeholder_input" | "missing_required" | "no_input_sent";
 
+const BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
+
+/**
+ * True when vet402 would send no catalog-declared input: the census left `inputSource` at "none" and the
+ * request has no query (GET/DELETE) or an empty JSON body (POST/PUT/PATCH).
+ */
+export function lacksCatalogInput(req: Pick<PlannedRequest, "url" | "method" | "body" | "inputSource">): boolean {
+  if (req.inputSource === "mercator_example" || req.inputSource === "vet402_filled") return false;
+  const method = req.method.toUpperCase();
+  if (BODY_METHODS.has(method)) {
+    const b = req.body?.trim();
+    return b === undefined || b === "" || b === "{}" || b === "[]";
+  }
+  try {
+    return new URL(req.url).searchParams.toString() === "";
+  } catch {
+    return true;
+  }
+}
+
 export function inputProblem(input: InputCheck | null | undefined, body: Pick<BodyShape, "inputError"> | null | undefined): InputProblem | null {
   if (!input) return null;
   if (input.placeholders.length > 0) return "placeholder_input";
