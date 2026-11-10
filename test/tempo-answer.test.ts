@@ -116,20 +116,21 @@ function target(service: string, request: Omit<PlannedRequest, "url">, path = `/
 }
 
 /** A seller answering each paid request with `paid(url)`; every paid request moves 6000 + a 30 fee. */
-function env(paid: (url: string) => Response) {
+function env(paid: (url: string) => Response, charge: { recipient: string; amount: string } = { recipient: SELLER, amount: "6000" }) {
   const root = mkdtempSync(join(tmpdir(), "rm-ans-"));
   const set: KeyLedgerSet = { census: join(root, "census", "tempo-ledger.json"), remeasureDir: join(root, "rm") };
   new Ledger(set.census, throwaway.address, 2_500_000n);
   const chain = { total: 0n };
+  const paidAtomic = BigInt(charge.amount) + 30n;
   let signs = 0;
   let paidCalls = 0;
   const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
     if (new Headers(init?.headers).get("authorization")) {
       paidCalls++;
-      chain.total += 6030n;
+      chain.total += paidAtomic;
       return paid(url);
     }
-    return new Response("{}", { status: 402, headers: { "www-authenticate": challenge(SELLER, "6000") } });
+    return new Response("{}", { status: 402, headers: { "www-authenticate": challenge(charge.recipient, charge.amount) } });
   };
   const signer: Signer = {
     address: throwaway.address,
@@ -223,9 +224,9 @@ test("remeasure tempo: no cataloged input is not bought when the census already 
 });
 
 test("record copy: orth-leadsforge from the census plan is not bought again after a census 400", async () => {
-  const e = env(() => new Response('{"message":"required"}', { status: 400 }));
   const pe = plan.plan.find((p) => p.serviceId === "orth-leadsforge")!;
   const payTo = pe.lockedRecipient.toLowerCase();
+  const e = env(() => new Response('{"message":"required"}', { status: 400 }), { recipient: pe.lockedRecipient, amount: pe.lockedAmount });
   const t: Target = {
     chain: "tempo",
     host: "mpp.orthogonal.com",
@@ -244,7 +245,7 @@ test("record copy: orth-leadsforge from the census plan is not bought again afte
 test("remeasure tempo: a POST with no cataloged body is not bought, even when the census delivered once", async () => {
   const e = env(() => new Response('{"ok":true}', { status: 200 }));
   const t = target("jobs", { method: "POST", body: "{}", contentType: "application/json", inputSource: "none" });
-  t.tempo!.censusHttpStatus = 400;
+  t.tempo!.censusHttpStatus = 200;
   const r = (await e.run([t])).rows[0]!;
   assert.deepEqual([e.signs(), r.outcome, r.reason], [0, "refused", "no_input_example"]);
 });
