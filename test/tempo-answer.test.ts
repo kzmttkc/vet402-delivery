@@ -15,7 +15,7 @@ import type { PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
 import { registerDayLedger, type KeyLedgerSet } from "../src/tempo/key-ledgers.js";
 import type { Signer } from "../src/tempo/chain.js";
 import type { PlannedRequest } from "../src/tempo/mercator.js";
-import { bodyShape, checkInput, inputProblem, lacksCatalogInput, publishableField } from "../src/tempo/answer.js";
+import { bodyShape, checkInput, inputProblem, publishableField } from "../src/tempo/answer.js";
 import { classifyFailure, FAULT_RULES, INPUT_RULE_IDS } from "../src/rank/classify.js";
 import type { Attempt } from "../src/rank/types.js";
 import { annotateTempoInput, normalizeTempoLedger } from "../src/rank/normalize.js";
@@ -47,7 +47,8 @@ test("input: the catalog's type names and notes are placeholders; real examples 
   assert.deepEqual(checkInput({ url: "https://s.example/x?a=1", body: null, inputSource: "mercator_example" }, ["a", "b"]).missingRequired, ["b"]);
 });
 
-test("lacksCatalogInput: no example on a body call, or on a GET with no query", () => {
+test("lacksCatalogInput: no example on a body call, or on a GET with no query", async () => {
+  const { lacksCatalogInput } = await import("../src/tempo/answer.js");
   assert.equal(lacksCatalogInput(reqOf("orth-leadsforge")), true);
   assert.equal(lacksCatalogInput(reqOf("orth-andi")), false);
   assert.equal(lacksCatalogInput({ url: "https://s.example/m", method: "POST", body: "{}", inputSource: "none" }), true);
@@ -237,7 +238,7 @@ test("record copy: orth-leadsforge from the census plan is not bought again afte
     tempo: { plan: pe, feeReserveAtomic: FEE_RESERVE_ATOMIC.toString(), censusHttpStatus: 400 },
   };
   const r = (await e.run([t])).rows[0]!;
-  assert.deepEqual([e.signs(), r.outcome, r.reason, lacksCatalogInput(pe.request)], [0, "refused", "no_input_example", true]);
+  assert.deepEqual([e.signs(), r.outcome, r.reason], [0, "refused", "no_input_example"]);
 });
 
 test("remeasure tempo: a POST with no cataloged body is not bought, even when the census delivered once", async () => {

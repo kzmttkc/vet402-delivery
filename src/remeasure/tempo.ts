@@ -29,7 +29,7 @@ import type { FetchLike } from "../tempo/mercator.js";
 import { CENSUS_START_BLOCK, publicClient, usdcOutflowSinceStart } from "../tempo/chain.js";
 import { assertDayLedgersPresent, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
 import type { PlanEntry } from "../tempo/census.js";
-import { checkInput, INPUT_REJECT_STATUSES, lacksCatalogInput, type InputCheck } from "../tempo/answer.js";
+import { checkInput, INPUT_REJECT_STATUSES, type InputCheck } from "../tempo/answer.js";
 import { RM_PAID_TIMEOUT_MS, RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
 import { budgetKey } from "./budget.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
@@ -123,26 +123,17 @@ export function targetInput(s: Slot): InputCheck | null {
   }
 }
 
-export type InputPayRefusal = { refused: "placeholder_input" | "no_input_example"; detail: string };
-
 /**
- * Vet402's own skip before payOne: requests the census already showed were vet402's mistake, or a call that
- * needs input but carries none. payOne is unchanged.
+ * A slot whose request carries a placeholder (`{"ip":"string"}`, `"<from x/y>"`, a `*` path) and whose settled
+ * census purchase of the same request got 400, 404 or 422 back is not bought again: vet402 already knows the
+ * seller cannot answer it, and another failure would say nothing about the seller. Recorded as refused,
+ * `placeholder_input` (vet402's own skip, never the seller's). Any other census answer (2xx, a search for
+ * "string"; 402; 401; 5xx) is still bought and measured. Checked before payOne; payOne is unchanged.
  */
-export function inputPayRefusal(s: Slot, input: InputCheck | null): InputPayRefusal | null {
-  const req = s.target.tempo?.plan.request;
-  if (!req) return null;
+function placeholderRefusal(s: Slot, input: InputCheck | null): { refused: "placeholder_input"; detail: string } | null {
   const census = s.target.tempo?.censusHttpStatus ?? null;
-  if (input && input.placeholders.length > 0 && census !== null && INPUT_REJECT_STATUSES.has(census)) {
-    return { refused: "placeholder_input", detail: `placeholders: ${input.placeholders.join(", ")}` };
-  }
-  if (!lacksCatalogInput(req)) return null;
-  const bodyCall = !["GET", "DELETE", "HEAD"].includes(req.method.toUpperCase());
-  if (bodyCall) return { refused: "no_input_example", detail: "no cataloged input for a request that needs a body" };
-  if (census !== null && INPUT_REJECT_STATUSES.has(census)) {
-    return { refused: "no_input_example", detail: "no cataloged input for a request that needs parameters" };
-  }
-  return null;
+  if (!input || input.placeholders.length === 0 || census === null || !INPUT_REJECT_STATUSES.has(census)) return null;
+  return { refused: "placeholder_input", detail: `placeholders: ${input.placeholders.join(", ")}` };
 }
 
 export function tempoRow(
@@ -252,7 +243,7 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
     attempt: async (s): Promise<AttemptResult> => {
       const at = now().toISOString();
       const entry = entryFor(s, deps.date);
-      const skip = inputPayRefusal(s, targetInput(s));
+      const skip = placeholderRefusal(s, targetInput(s));
       if (skip) return { row: tempoRow(s, { result: "refused", refusal: skip }, at, { key: entry.serviceId, livePayTo: null, amountAtomic: null }), stop: null };
       const o = await payOne(entry, { ...pay, paidTimeoutMs: pay.paidTimeoutMs ?? RM_PAID_TIMEOUT_MS, ledger: deps.ledger, chainSpent });
       const row = tempoRow(s, o, at, { key: entry.serviceId, livePayTo: null, amountAtomic: o.result === "refused" ? null : paidAmount(deps.ledger, entry.serviceId) });
@@ -284,7 +275,7 @@ export async function dryRunTempo(
     attempt: async (s): Promise<AttemptResult> => {
       const entry = entryFor(s, deps.date);
       const key = entry.serviceId;
-      const skip = inputPayRefusal(s, targetInput(s));
+      const skip = placeholderRefusal(s, targetInput(s));
       if (skip) return { row: tempoRow(s, { result: "refused", refusal: skip }, now().toISOString(), { key, livePayTo: null, amountAtomic: null }), stop: null };
       const k = `${entry.request.method} ${entry.request.url} ${entry.request.body ?? ""}`;
       let p = probes.get(k);
