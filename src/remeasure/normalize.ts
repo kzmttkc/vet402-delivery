@@ -48,6 +48,8 @@ const VET402_SKIPPED = new Set([
   "insufficient_balance",
   // Tempo, from 2026-10-01: the catalog example held a placeholder, so vet402 did not buy (src/remeasure/tempo.ts).
   "placeholder_input",
+  // Tempo: payable, but Mercator declared no input for a call that needs one (src/remeasure/tempo.ts inputPayRefusal).
+  "no_input_example",
 ]);
 
 function refusalCategory(reason: string, where: string): ReasonCategory {
