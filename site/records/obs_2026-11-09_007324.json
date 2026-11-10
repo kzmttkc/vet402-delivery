@@ -1,0 +1,117 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-11-09_007324",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 7324
+  },
+  "issuedAt": 1794282948,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://api.oblique.markets/api/v1/paid/solana-priority-fee",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "5W3Y9umd2Uz4CbnucrKcMnd4wZ768pc2WhsVCN3sBHtnhjAiWq7WaauiS9gsPzp2UdDLUBTiiQQ4tQ1pwchnnK9V",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "GYyTRmt317JafPHXPnM54Fsvsma5GnS9wm6qGMqaykdS",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "2000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0x56deddb0932782399008c4e7d4ca8d71522676e2484e93cfec15017eda8bf8bc",
+    "params_hash": "0x596ddcbd83c67aa28f3d8406f5a6423276d096c51169d523c36f02367de49858",
+    "params_salted": true,
+    "ts": "2026-11-09T16:59:50.291Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-11-09",
+    "row": "rows[264]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-11-09",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "4ayPmSc8oSjUsqnbfYeje95WVHqCVSy4v8gVLchMiJyDkvt1s14pEKUvdHjsVVVP2hFhuPKFJ9MPLNqYq5PiVkrw",
+    "root": "0xa7497371371b23e42977d2cb9ac658e8ffd453896bbf2148d23204df09fd0415",
+    "leafIndex": 156,
+    "proof": [
+      "0xab67953b8daca38115572a5e22b65927556d5226d93d6dd6bc25edec7d01d346",
+      "0x0e3d344875da2d964002455fad6fe77af903ca2f0fc947a9754e9f9f8f11c899",
+      "0x5fc1704d3a7c4c4f38504dbddcbc4d710c87aab0395198a980f61b74aeaad0e1",
+      "0xfc47fe1627f242b98d2e966c60d96c56eec1f55e45a3aab3ccbf70f1ce4e3a6e",
+      "0x8f0d6a4d86e27dcf11fcfcefc9e5962d6ca8b054ad01a06d011931df91c4f3e5",
+      "0x6c7396020bba464bbe323c72cbbf555849d5396b086d5266e8f93db8f907fea0",
+      "0x19bae4a74b1e176afba01bafac3545e8d89cb6113230589391513ce51244a414"
+    ],
+    "count": 167,
+    "sequenceRange": [
+      7168,
+      7334
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-11-10T04:04:52.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x6e220f25ba277c1f45752eacb862e0b9c70aa34708b29bd70c5903d0d49cf2e931a7f8c78e3e9bcb54b293f86d107358fde9141416a5100c43c10d5452deec5b1c"
+  }
+}
