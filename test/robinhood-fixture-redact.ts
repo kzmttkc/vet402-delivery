@@ -13,7 +13,7 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export function redactEvmPurchaseRecord(raw: Record<string, unknown>): Record<string, unknown> {
   const o = structuredClone(raw) as Record<string, unknown>;
   delete o.authorization;
-  scrubLongHex(o);
+  scrubLongHex(o as Json);
   return o;
 }
 
@@ -24,7 +24,7 @@ function scrubLongHex(v: Json): void {
   if (Array.isArray(v)) {
     for (let i = 0; i < v.length; i++) {
       if (typeof v[i] === "string") v[i] = (v[i] as string).replace(LONG_HEX, "[redacted]");
-      else scrubLongHex(v[i]);
+      else if (v[i] !== undefined) scrubLongHex(v[i] as Json);
     }
     return;
   }
