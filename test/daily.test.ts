@@ -1536,6 +1536,25 @@ test("records: a day whose purchases are not on main yet waits for the next pay 
   rmSync(sb.dir, { recursive: true });
 });
 
+test("records: a day whose public copy has fewer rows than the result waits for the next pay run instead of halting (am published, pm stopped before publish)", () => {
+  const sb = recordsBox();
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");
+  const day = "2026-10-01";
+  mkdirSync(join(sb.repo, "data", "remeasure"), { recursive: true });
+  writeFileSync(join(sb.repo, "data", "remeasure", `solana-${day}.json`), solanaResult(day, 1));
+  git(sb.repo, "add", `data/remeasure/solana-${day}.json`);
+  git(sb.repo, "commit", "-q", "-m", "2026-10-01 am publish (1 row)");
+  git(sb.repo, "push", "-q", "origin", "main");
+  writeFileSync(join(sb.rmdir, `solana-${day}.json`), solanaResult(day, 2));
+  const r = runSh(sb, ["records"], { VET402_DAILY_NOW: at("2026-10-03T00:10:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /2026-10-01: its solana purchases are not in data\/remeasure on main yet; recorded after the next pay run publishes them/);
+  assert.match(logs(sb), /days to record \(oldest first, at most 3\): 2026-09-30 2026-10-02$/m);
+  assert.ok(!existsSync(join(sb.state, "HALT-records")), "no HALT");
+  assert.ok(!calls(sb).includes("--day 2026-10-01"), "the waiting day is not built");
+  rmSync(sb.dir, { recursive: true });
+});
+
 test("records: with records-enabled, each open day is built, verified, anchored with --send once, then one publish", () => {
   const sb = recordsBox();
   writeFileSync(join(sb.home, ".config", "vet402-daily", "records-enabled"), "");

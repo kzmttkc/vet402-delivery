@@ -774,7 +774,8 @@ wait_pages() {
 
 # Closed UTC days with remeasure purchases whose root is not anchored yet, or not published yet, oldest first.
 open_record_days() {
-  local f d
+  local f d since
+  since="$(/bin/date -u -r "$((NOW - 7 * 86400))" +%Y-%m-%d)"
   for f in "$RMDIR"/solana-????-??-??.json "$RMDIR"/tempo-????-??-??.json; do
     [ -f "$f" ] || continue
     d="$(basename "$f" .json)"
@@ -784,10 +785,19 @@ open_record_days() {
     # Done = anchored and on main. Anchored but not published (the publish failed): published again, not re-anchored.
     if [ -f "$RECEIPTS/$d/anchor-sent.json" ] && grep -q '"status": *"sent"' "$RECEIPTS/$d/anchor-sent.json" && [ -d "$REPO/data/records/$d" ]; then continue; fi
     # A day whose purchases are not on main yet (its pay run stopped before the publish) is recorded after the next
-    # pay run publishes it (unpublished_days): publish-records would refuse every one of its records.
-    local c waits=""
+    # pay run publishes it (unpublished_days): publish-records would refuse every one of its records. A copy on main with
+    # fewer rows than the result (am published, pm stopped before publish) waits the same way, but only inside the last
+    # 7 closed days (unpublished_days): older days are not held for a republish that may never come.
+    local c waits="" pub
     for c in solana tempo; do
-      [ -f "$RMDIR/$c-$d.json" ] && [ ! -f "$REPO/data/remeasure/$c-$d.json" ] && waits="${waits:+$waits, }$c"
+      [ -f "$RMDIR/$c-$d.json" ] || continue
+      pub="$REPO/data/remeasure/$c-$d.json"
+      if [ ! -f "$pub" ]; then
+        waits="${waits:+$waits, }$c"
+      elif [[ ! "$d" < "$since" ]] &&
+        $NODE -e 'const fs=require("fs");const n=p=>((JSON.parse(fs.readFileSync(p,"utf8"))).rows||[]).length;process.exit(n(process.argv[1])>n(process.argv[2])?0:1)' "$RMDIR/$c-$d.json" "$pub"; then
+        waits="${waits:+$waits, }$c"
+      fi
     done
     if [ -n "$waits" ]; then
       log "$d: its $waits purchases are not in data/remeasure on main yet; recorded after the next pay run publishes them" >&2
