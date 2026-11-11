@@ -1345,6 +1345,52 @@ test("run.sh publish: a day a stopped run left unpublished goes out with today, 
   rmSync(sb.dir, { recursive: true });
 });
 
+/** Morning run published; pm stopped before publish and left more rows in the result file than on main. */
+const solanaResult = (day: string, n: number) =>
+  JSON.stringify({
+    kind: "vet402-remeasure",
+    chain: "solana",
+    date: day,
+    runs: [],
+    rows: Array.from({ length: n }, (_, i) => ({ host: `host-${i}.example`, outcome: "sent", settled: true, delivered: true, detail: "{}" })),
+  });
+
+function seedPublishedRemeasure(sb: Sandbox, day: string, n: number) {
+  mkdirSync(join(sb.repo, "data", "remeasure"), { recursive: true });
+  writeFileSync(join(sb.repo, "data", "remeasure", `solana-${day}.json`), solanaResult(day, n));
+  git(sb.repo, "add", `data/remeasure/solana-${day}.json`);
+  git(sb.repo, "commit", "-q", "-m", `data: ${day} remeasure on main (${n} rows)`);
+  git(sb.repo, "push", "-q", "origin", "main");
+}
+
+test("run.sh publish: republishes a closed day when the result has more rows than the public copy (am published, pm stopped before publish)", () => {
+  const sb = sandbox();
+  const day = "2026-10-01";
+  seedPublishedRemeasure(sb, day, 1);
+  writeFileSync(join(sb.rmdir, `solana-${day}.json`), solanaResult(day, 2));
+  writeFileSync(join(sb.rmdir, "solana-2026-10-02.json"), solanaResult("2026-10-02", 1));
+  const r = runSh(sb, ["publish", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-02T13:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(logs(sb), /2026-10-01: the published remeasure copy has fewer rows than the result; published now/);
+  assert.match(logs(sb), /^data: 2026-10-01 remeasure on Solana \(2 rows: 2 paid, 2 settled, 2 delivered\)$/m);
+  const pubCopy = read(join(sb.pub, "data", "remeasure", `solana-${day}.json`));
+  assert.equal(JSON.parse(pubCopy).rows.length, 2);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh publish: does not republish a closed day when the result and the public copy have the same row count", () => {
+  const sb = sandbox();
+  const day = "2026-10-01";
+  seedPublishedRemeasure(sb, day, 2);
+  writeFileSync(join(sb.rmdir, `solana-${day}.json`), solanaResult(day, 2));
+  const r = runSh(sb, ["publish", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-02T13:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!logs(sb).includes(`${day}: the published remeasure copy has fewer rows`));
+  assert.ok(!logs(sb).includes(`${day}: its remeasure result was never published`));
+  assert.equal(git(sb.pub, "status", "--porcelain"), "");
+  rmSync(sb.dir, { recursive: true });
+});
+
 test("run.sh: an unknown secret in a result (outside a seller's answer) stops the publish; nothing is copied or committed", () => {
   const sb = sandbox();
   writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", requestUrl: `https://a.example/x?session=Zq8${b64url(seeded(8), 30)}`, detail: "{}" }] }));
