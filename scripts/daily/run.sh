@@ -554,11 +554,12 @@ remeasure() {
   fi
 }
 
-# Closed UTC days of the last 7 whose remeasure result is in $RMDIR but whose copy is not in the publish tree. A pay
-# run that stopped before its publish leaves its day there when the stop is cleared on a later UTC day, and the
-# records run then refuses that day ("payment tx is not a purchase in data/", 2026-11-08). Oldest first.
+# Closed UTC days of the last 7 whose remeasure result is in $RMDIR but whose copy is not in the publish tree, or whose
+# copy has fewer rows than the result (am published, pm stopped before publish, 2026-11-10). A pay run that stopped
+# before its publish leaves its day there when the stop is cleared on a later UTC day, and the records run then refuses
+# that day ("payment tx is not a purchase in data/", 2026-11-08). Oldest first.
 unpublished_days() {
-  local f d c since
+  local f d c since pub
   since="$(/bin/date -u -r "$((NOW - 7 * 86400))" +%Y-%m-%d)"
   for f in "$RMDIR"/solana-????-??-??.json "$RMDIR"/tempo-????-??-??.json; do
     [ -f "$f" ] || continue
@@ -567,7 +568,9 @@ unpublished_days() {
     d="${d#*-}"
     [[ "$d" < "$UTC_DAY" ]] || continue
     [[ "$d" < "$since" ]] && continue
-    [ -f "$PUB/data/remeasure/$c-$d.json" ] || echo "$d"
+    pub="$PUB/data/remeasure/$c-$d.json"
+    [ -f "$pub" ] || echo "$d"
+    [ -f "$pub" ] && $NODE -e 'const fs=require("fs");const n=p=>((JSON.parse(fs.readFileSync(p,"utf8"))).rows||[]).length;process.exit(n(process.argv[1])>n(process.argv[2])?0:1)' "$f" "$pub" && echo "$d"
   done | sort -u
 }
 
@@ -633,8 +636,24 @@ publish_remeasure() {
   # Days a stopped run left unpublished first, so the manifest ends on today.
   back="$(unpublished_days)"
   for d in $back; do
-    log "$d: its remeasure result was never published (a stop before its publish); published now"
-    copy_day "$d" || return 1
+    local need=0 miss=""
+    for c in solana tempo; do
+      if [ ! -f "$PUB/data/remeasure/$c-$d.json" ] && [ -f "$RMDIR/$c-$d.json" ]; then
+        need=1
+        miss="${miss:+$miss, }$c"
+      elif [ -f "$PUB/data/remeasure/$c-$d.json" ] && [ -f "$RMDIR/$c-$d.json" ] &&
+        $NODE -e 'const fs=require("fs");const n=p=>((JSON.parse(fs.readFileSync(p,"utf8"))).rows||[]).length;process.exit(n(process.argv[1])>n(process.argv[2])?0:1)' "$RMDIR/$c-$d.json" "$PUB/data/remeasure/$c-$d.json"; then
+        need=1
+      fi
+    done
+    if [ "$need" = 1 ]; then
+      if [ -n "$miss" ]; then
+        log "$d: its remeasure result was never published (a stop before its publish); published now"
+      else
+        log "$d: the published remeasure copy has fewer rows than the result; published now"
+      fi
+      copy_day "$d" || return 1
+    fi
   done
   copy_day "$UTC_DAY" || return 1
   if [ ${#copied_days[@]} -eq 0 ]; then
