@@ -20,16 +20,25 @@ export const HOSTS_RUN = { ledger: "robinhood-hosts-ledger.json", minAtomic: 4_4
 
 /** The first paying host run. Its ledger file and per-host keys keep the names written that day. */
 export const LEGACY_HOST_RUN_DATE = "2026-11-08";
+export const POLYGON_LEGACY_HOST_RUN_DATE = "2026-11-10";
 
-export function hostLedgerKey(host: string): string {
-  return `robinhood-host:${host.toLowerCase()}`;
+export type HostRunKind = "robinhood" | "polygon";
+
+function hostRunPrefix(kind: HostRunKind): string {
+  return kind === "robinhood" ? "robinhood" : "polygon";
+}
+
+export function hostLedgerKey(host: string, kind: HostRunKind = "robinhood"): string {
+  return `${hostRunPrefix(kind)}-host:${host.toLowerCase()}`;
 }
 
 /** The run ledger file and the per-host ledger key for one host-run date. */
-export function hostRunFiles(date: string): { ledger: string; key: (host: string) => string } {
+export function hostRunFiles(date: string, kind: HostRunKind = "robinhood"): { ledger: string; key: (host: string) => string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`not a host run date: ${JSON.stringify(date)}`);
-  if (date === LEGACY_HOST_RUN_DATE) return { ledger: HOSTS_RUN.ledger, key: hostLedgerKey };
-  return { ledger: `robinhood-hosts-${date}-ledger.json`, key: (host) => `${hostLedgerKey(host)}:${date}` };
+  const legacy = kind === "robinhood" ? LEGACY_HOST_RUN_DATE : POLYGON_LEGACY_HOST_RUN_DATE;
+  const baseLedger = kind === "robinhood" ? HOSTS_RUN.ledger : "polygon-hosts-ledger.json";
+  if (date === legacy) return { ledger: baseLedger, key: (host) => hostLedgerKey(host, kind) };
+  return { ledger: `${hostRunPrefix(kind)}-hosts-${date}-ledger.json`, key: (host) => `${hostLedgerKey(host, kind)}:${date}` };
 }
 
 export interface HostGroup {
@@ -137,7 +146,7 @@ export async function confirmLiveHosts(
 }
 
 /** Pure. Cheapest confirmed host first. The lock takes the live price when it is lower, never higher. A host that would cross the total is left out and a later one may still fit. */
-export function pickHostEntries(choices: HostChoice[], opts: { maxTotalAtomic: bigint; maxCount: number; runDate?: string }): { entries: ChainBuyEntry[]; totalAtomic: bigint; left: { host: string; why: string }[] } {
+export function pickHostEntries(choices: HostChoice[], opts: { maxTotalAtomic: bigint; maxCount: number; runDate?: string; hostRunKind?: HostRunKind }): { entries: ChainBuyEntry[]; totalAtomic: bigint; left: { host: string; why: string }[] } {
   const ranked = choices.flatMap((c) => {
     if (!c.chosen) return [];
     const amount = BigInt(c.chosen.liveAmount) < BigInt(c.chosen.amount) ? c.chosen.liveAmount : c.chosen.amount;
@@ -172,7 +181,7 @@ export function pickHostEntries(choices: HostChoice[], opts: { maxTotalAtomic: b
       ...(o.declaration.required.length ? { requiredParams: o.declaration.required } : {}),
       ...(o.declaration.from.length ? { declaredFrom: o.declaration.from } : {}),
       ...(o.declaration.requiredFrom.length ? { requiredFrom: o.declaration.requiredFrom } : {}),
-      ledgerKey: hostRunFiles(opts.runDate ?? LEGACY_HOST_RUN_DATE).key(c.host),
+      ledgerKey: hostRunFiles(opts.runDate ?? LEGACY_HOST_RUN_DATE, opts.hostRunKind ?? "robinhood").key(c.host),
       lock: { payTo: o.payTo, amount: c.amount },
     });
   }
@@ -280,8 +289,8 @@ export function laneCountCapForHostRun(laneHeld: number): number {
  * than that date's run ledger, or the ledger is missing while they hold any. A row with no inputDate belongs to
  * the first run. A run ledger that was deleted or moved would otherwise give the run its whole total and count back.
  */
-export function hostRunLedgerProblem(dir: string, date: string = LEGACY_HOST_RUN_DATE): string | null {
-  const rec = join(dir, "robinhood-purchases.jsonl");
+export function hostRunLedgerProblem(dir: string, date: string = LEGACY_HOST_RUN_DATE, kind: HostRunKind = "robinhood"): string | null {
+  const rec = join(dir, kind === "robinhood" ? "robinhood-purchases.jsonl" : "polygon-purchases.jsonl");
   if (!existsSync(rec)) return null;
   let sent = 0;
   for (const l of readFileSync(rec, "utf8").split("\n")) {
@@ -290,13 +299,14 @@ export function hostRunLedgerProblem(dir: string, date: string = LEGACY_HOST_RUN
       const r = JSON.parse(l) as { agentId?: string; outcome?: string; inputDate?: string | null };
       const hostSent = r.outcome === "sent" && typeof r.agentId === "string" && r.agentId.startsWith("host:");
       // A row with no inputDate is the first run, before the date was written on it.
-      if (hostSent && (r.inputDate === date || (r.inputDate == null && date === LEGACY_HOST_RUN_DATE))) sent++;
+      const legacy = kind === "robinhood" ? LEGACY_HOST_RUN_DATE : POLYGON_LEGACY_HOST_RUN_DATE;
+      if (hostSent && (r.inputDate === date || (r.inputDate == null && date === legacy))) sent++;
     } catch {
       sent++; // an unreadable line may be a host purchase: count it, so a short run ledger still stops the run
     }
   }
   if (!sent) return null;
-  const ledger = join(dir, hostRunFiles(date).ledger);
+  const ledger = join(dir, hostRunFiles(date, kind).ledger);
   if (!existsSync(ledger)) return `ALERT ${rec} has ${sent} host-run purchase(s) sent, but ${ledger} does not exist`;
   let held = -1;
   try {
@@ -309,8 +319,8 @@ export function hostRunLedgerProblem(dir: string, date: string = LEGACY_HOST_RUN
 }
 
 /** One paying host run at a time: the run ledger has no file lock of its own. Throws when another run holds it. */
-export function acquireHostRunLock(dir: string): () => void {
-  const file = join(dir, "robinhood-hosts.lock");
+export function acquireHostRunLock(dir: string, kind: HostRunKind = "robinhood"): () => void {
+  const file = join(dir, `${hostRunPrefix(kind)}-hosts.lock`);
   let fd: number;
   try {
     fd = openSync(file, "wx");

@@ -8,7 +8,7 @@
  */
 import { getAddress, type Address } from "viem";
 
-export type EvmChainKey = "base" | "arbitrum" | "robinhood";
+export type EvmChainKey = "base" | "arbitrum" | "robinhood" | "polygon";
 
 export interface EvmChainSpec {
   key: EvmChainKey;
@@ -36,6 +36,8 @@ export interface EvmChainSpec {
   /** @x402/evm lists this asset as the chain's default (then its USD spend cap applies). */
   libraryDefaultAsset: boolean;
   explorerTx: string;
+  /** The chain's native token, which pays the daily root tx. */
+  nativeSymbol: string;
   /** The daily root tx: above this gas limit or this total fee (gas x maxFeePerGas, wei) nothing is signed. */
   anchorMaxGas: bigint;
   anchorMaxFeeWei: bigint;
@@ -58,6 +60,7 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     domain: { name: "USD Coin", version: "2" },
     libraryDefaultAsset: true,
     explorerTx: "https://basescan.org/tx/",
+    nativeSymbol: "ETH",
     anchorMaxGas: 60_000n,
     anchorMaxFeeWei: 10_000_000_000_000n,
   },
@@ -77,9 +80,31 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     domain: { name: "USD Coin", version: "2" },
     libraryDefaultAsset: true,
     explorerTx: "https://arbiscan.io/tx/",
+    nativeSymbol: "ETH",
     // 2026-09-30 quote: 23,914 gas x 0.02004 gwei = 4.79e11 wei. The cap is about 20x that.
     anchorMaxGas: 60_000n,
     anchorMaxFeeWei: 10_000_000_000_000n,
+  },
+  polygon: {
+    key: "polygon",
+    label: "Polygon",
+    caip2: "eip155:137",
+    chainId: 137,
+    v1Names: ["polygon", "polygon-pos"],
+    rpc: "https://polygon.drpc.org",
+    rpcEnv: "POLYGON_RPC_URL",
+    receiptRpc: "https://polygon.drpc.org",
+    receiptRpcEnv: "POLYGON_RECEIPT_RPC_URL",
+    asset: getAddress("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"),
+    assetSymbol: "USDC",
+    assetDecimals: 6,
+    domain: { name: "USD Coin", version: "2" },
+    libraryDefaultAsset: true,
+    explorerTx: "https://polygonscan.com/tx/",
+    nativeSymbol: "POL",
+    // 2026-11-11 eth_gasPrice 206.1 gwei (polygon-bor-rpc.publicnode.com, block 97,130,027): 60,000 gas x 2,000 gwei = 0.12 POL, about 10x that.
+    anchorMaxGas: 60_000n,
+    anchorMaxFeeWei: 120_000_000_000_000_000n,
   },
   robinhood: {
     key: "robinhood",
@@ -98,6 +123,7 @@ export const EVM_CHAINS: Record<EvmChainKey, EvmChainSpec> = {
     domain: { name: "Global Dollar", version: "1" },
     libraryDefaultAsset: false,
     explorerTx: "https://robinhoodchain.blockscout.com/tx/",
+    nativeSymbol: "ETH",
     // 2026-09-30 quote: 23,686 gas x 0.023712 gwei = 5.62e11 wei. The cap is about 18x that.
     anchorMaxGas: 60_000n,
     anchorMaxFeeWei: 10_000_000_000_000n,
@@ -108,7 +134,7 @@ export function chainByCaip2(network: string): EvmChainSpec | null {
   return Object.values(EVM_CHAINS).find((c) => c.caip2 === network || c.v1Names.includes(network)) ?? null;
 }
 
-export type LaneId = "robinhood" | "arbitrum" | "base-compare";
+export type LaneId = "robinhood" | "arbitrum" | "base-compare" | "polygon";
 
 /**
  * A purchase lane: one chain, one ledger, its own caps. The existing Base lane (scripts/base-buy.ts,
@@ -123,29 +149,47 @@ export interface LaneSpec {
   maxCount: number;
   /** --pay also needs this value in VET402_EVM_PAY (comma-separated). One value per lane, so allowing one lane never allows another. */
   payGate: string;
-  /** The lane's purchases get a daily root on its chain (scripts/evm-anchor.ts), so a paying run needs ETH for it. */
+  /** The lane's purchases get a daily root on its chain (scripts/evm-anchor.ts), so a paying run needs the native token for it. */
   anchored: boolean;
 }
 
+export type EvmLaneRun = "robinhood" | "arbitrum" | "polygon";
+
 /** Which lanes a --pay run touches. The Arbitrum run buys on Arbitrum AND on Base (the side-by-side). */
-export const RUN_LANES: Record<"robinhood" | "arbitrum", LaneId[]> = { robinhood: ["robinhood"], arbitrum: ["arbitrum", "base-compare"] };
+export const RUN_LANES: Record<EvmLaneRun, LaneId[]> = {
+  robinhood: ["robinhood"],
+  arbitrum: ["arbitrum", "base-compare"],
+  polygon: ["polygon"],
+};
 
 /** Pure. null when every lane the run pays on is named in VET402_EVM_PAY; else what is missing. */
-/** Pure. Why a paying run must not start on this lane, or null: token for the planned total, ETH for one anchor. */
-export function fundingProblem(lane: LaneSpec, plannedAtomic: bigint, assetAtomic: bigint, ethWei: bigint): string | null {
+/**
+ * Pure. Why a paying run must not start on this lane, or null: token for the planned total, and the native token
+ * (ETH, or POL on Polygon, where the payer pays the daily root and its fee is on the POL ledger) for one anchor.
+ */
+export function fundingProblem(lane: LaneSpec, plannedAtomic: bigint, assetAtomic: bigint, nativeWei: bigint): string | null {
   const c = EVM_CHAINS[lane.chain];
   const capped = plannedAtomic > lane.maxTotalAtomic ? lane.maxTotalAtomic : plannedAtomic;
   if (assetAtomic < capped) return `lane ${lane.id}: ${c.assetSymbol} balance ${assetAtomic} < planned ${capped}`;
-  if (lane.anchored && ethWei < c.anchorMaxFeeWei) return `lane ${lane.id}: ETH ${ethWei} wei < ${c.anchorMaxFeeWei} wei kept for the daily root on ${c.label}`;
+  if (lane.anchored && nativeWei < c.anchorMaxFeeWei) {
+    return `lane ${lane.id}: ${c.nativeSymbol} ${nativeWei} wei < ${c.anchorMaxFeeWei} wei kept for the daily root on ${c.label}`;
+  }
   return null;
 }
 
-export function payGateProblem(run: "robinhood" | "arbitrum", env: string | undefined): string | null {
+export function payGateProblem(run: EvmLaneRun, env: string | undefined): string | null {
   const allowed = new Set((env ?? "").split(",").map((x) => x.trim()).filter(Boolean));
   const need = RUN_LANES[run].map((l) => LANES[l].payGate);
   const missing = need.filter((g) => !allowed.has(g));
   return missing.length ? `--pay --lane ${run} pays on ${need.join(" and ")}; VET402_EVM_PAY must name each (missing: ${missing.join(", ")}). Example: VET402_EVM_PAY=${need.join(",")}` : null;
 }
+
+/** Pure. Before a deposit request: the chain must appear in wallet_registry.json chains. */
+export function fundingRegistryGate(caip2: string, registeredChains: readonly string[]): string | null {
+  if (registeredChains.includes(caip2)) return null;
+  return `wallet_registry.json has no ${caip2}; do not request a deposit until the chain is registered`;
+}
+
 
 export const LANES: Record<LaneId, LaneSpec> = {
   /** Every payTo that declares Robinhood Chain in its live 402, once, plus the stock-data check. */
@@ -154,4 +198,6 @@ export const LANES: Record<LaneId, LaneSpec> = {
   arbitrum: { id: "arbitrum", chain: "arbitrum", ledger: "results/evm/arbitrum-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 2_000_000n, maxCount: 90, payGate: "arbitrum", anchored: true },
   /** The same payTo and endpoint on Base, the same UTC day, for the side-by-side table. */
   "base-compare": { id: "base-compare", chain: "base", ledger: "results/evm/base-compare-ledger.json", maxPerAtomic: 100_000n, maxTotalAtomic: 1_500_000n, maxCount: 81, payGate: "base-compare", anchored: false },
+  /** Ten hosts, cheapest first, 0.06 USDC total ceiling (HOSTS_RUN copy). Monad is not this lane while 3.11.0 is FAIL. */
+  polygon: { id: "polygon", chain: "polygon", ledger: "results/evm/polygon-ledger.json", maxPerAtomic: 10_000n, maxTotalAtomic: 60_000n, maxCount: 10, payGate: "polygon", anchored: true },
 };

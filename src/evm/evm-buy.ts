@@ -20,6 +20,8 @@ import { getAddress, isAddress, isAddressEqual, verifyTypedData, type Address, t
 import { MAX_PER_PURCHASE_ATOMIC, atomicToUsdc } from "../constants.js";
 import { normalizeAccept, type Budget, type SolAccept } from "../guard.js";
 import type { EvmChainSpec } from "./chains.js";
+import { evmOutflowExceedsLedger } from "./evm-ledger-guard.js";
+import { isPolygonSpec, monadPurchaseBlockedReason, namesMonad } from "./311-memo.js";
 
 export const MAX_TIMEOUT_SECONDS = 3600;
 
@@ -48,7 +50,9 @@ export interface EvmRefusal {
     | "already_bought"
     | "payload_check_failed"
     | "ledger_unreadable"
-    | "insufficient_balance";
+    | "insufficient_balance"
+    | "signing_blocked"
+    | "chain_spend_exceeds_ledger";
   detail: string;
 }
 
@@ -188,8 +192,29 @@ function usdCap(atomic: bigint): string {
   return `$${atomicToUsdc(atomic).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
+export interface CreateChainPaymentOpts {
+  /** Polygon 3.11: signing is blocked unless this returns null. */
+  signGate?: () => string | null | Promise<string | null>;
+}
+
 /** Build the x402 payment for exactly `accept`, then read it back and verify the signature against the payer. */
-export async function createChainPayment(spec: EvmChainSpec, signer: TypedDataSigner, pr: PaymentRequired, accept: EvmAccept, maxPerAtomic: bigint = MAX_PER_PURCHASE_ATOMIC): Promise<CreatedEvmPayment> {
+export async function createChainPayment(
+  spec: EvmChainSpec,
+  signer: TypedDataSigner,
+  pr: PaymentRequired,
+  accept: EvmAccept,
+  maxPerAtomic: bigint = MAX_PER_PURCHASE_ATOMIC,
+  opts: CreateChainPaymentOpts = {},
+): Promise<CreatedEvmPayment> {
+  if (namesMonad(accept) || namesMonad(spec)) {
+    const monad = monadPurchaseBlockedReason();
+    if (monad) throw new Error(monad);
+  }
+  if (isPolygonSpec(spec) || accept.network === "eip155:137") {
+    if (!opts.signGate) throw new Error("polygon EIP-3009 signing is blocked until 3.11 pay gates pass");
+    const block = await opts.signGate();
+    if (block) throw new Error(block);
+  }
   const fenced = fencedChainSigner(spec, signer, { payTo: accept.payTo, amount: accept.amount, maxPerAtomic });
   const client = new x402Client((_v, reqs) => {
     const hit = (reqs as unknown as Record<string, unknown>[]).find((r) => sameAccept(r, accept));
@@ -279,6 +304,27 @@ export interface ChainBuyDeps {
   maxPerAtomic?: bigint;
   /** Host-run floor. Passed into checkChainAccept only when set, so the other lanes are unchanged. */
   minAtomic?: bigint;
+  /** When set, checked immediately before any EIP-3009 signature. */
+  beforeSign?: () => string | null | Promise<string | null>;
+  /** Shared payer: on-chain outflow vs ledger committed, checked before signing. */
+  outflowCheck?:
+    | { ledgerCommitted: bigint; chainSpent: bigint }
+    | (() => { ledgerCommitted: bigint; chainSpent: bigint } | Promise<{ ledgerCommitted: bigint; chainSpent: bigint }>);
+}
+
+/**
+ * Paying runs stop the lane at the first outflow beyond the ledger or the first blocked signature gate (Tempo stop,
+ * approval, registry, unreadable outflow): those hold for every later entry too, so nothing more is signed.
+ */
+export function evmLaneStopsAfterRecord(rec: Pick<ChainBuyRecord, "refusal">, paying: boolean): boolean {
+  return paying && (rec.refusal?.refused === "chain_spend_exceeds_ledger" || rec.refusal?.refused === "signing_blocked");
+}
+
+async function resolveOutflowCheck(
+  check: ChainBuyDeps["outflowCheck"],
+): Promise<{ ledgerCommitted: bigint; chainSpent: bigint } | undefined> {
+  if (!check) return undefined;
+  return typeof check === "function" ? await check() : check;
 }
 
 export interface SettleResponse {
@@ -463,6 +509,11 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
   };
   const refuse = (r: EvmRefusal): ChainBuyRecord => ({ ...rec, outcome: "refused", refusal: r });
   const maxPer = deps.maxPerAtomic ?? MAX_PER_PURCHASE_ATOMIC;
+  // 3.11.0 FAIL: Monad is not bought, not even in a dry run, before anything is read.
+  if (namesMonad(spec)) {
+    const monad = monadPurchaseBlockedReason();
+    if (monad) return refuse({ refused: "signing_blocked", detail: monad });
+  }
 
   // agentWallet re-read now: the lock is what the chain says at pay time, not what a file said earlier.
   let wallet: Address | undefined;
@@ -509,16 +560,45 @@ export async function buyOneOnChain(spec: EvmChainSpec, e: ChainBuyEntry, deps: 
     if (!deps.dryRun) return refuse({ refused: "insufficient_balance", detail: `${spec.assetSymbol} balance ${bal} < price ${accept.amount}` });
     rec.balanceShort = true;
   }
+  // Outflow on chain against what the ledger committed, read before this purchase is reserved (Tempo payOne order).
+  // A paying Polygon purchase has no way around it: without the check, or when it cannot be read, nothing is signed.
+  if (isPolygonSpec(spec) && !deps.dryRun && !deps.outflowCheck) {
+    return refuse({ refused: "signing_blocked", detail: "Polygon --pay needs the on-chain outflow check against the Polygon ledger" });
+  }
+  let outflow: { ledgerCommitted: bigint; chainSpent: bigint } | undefined;
+  try {
+    outflow = await resolveOutflowCheck(deps.outflowCheck);
+  } catch (err) {
+    return refuse({ refused: "signing_blocked", detail: `on-chain outflow unreadable: ${(err as Error).message}`.slice(0, 300) });
+  }
+  if (outflow) {
+    const out = evmOutflowExceedsLedger(outflow.ledgerCommitted, outflow.chainSpent);
+    if (out) return refuse({ refused: "chain_spend_exceeds_ledger", detail: out });
+  }
   deps.budget.setBaselineIfMissing(bal);
   // One purchase per seller: the default ledger key is the payTo, so two listings on one wallet cannot both buy.
   const key = e.ledgerKey ?? `${spec.key}-payto:${accept.payTo.toLowerCase()}`;
   const res = deps.budget.reserve(BigInt(accept.amount), key, bal);
   if ("refused" in res) return refuse({ refused: res.refused as EvmRefusal["refused"], detail: res.detail });
 
+  if (deps.beforeSign) {
+    const gate = await deps.beforeSign();
+    if (gate) {
+      deps.budget.release(res.id);
+      const refused: EvmRefusal["refused"] = gate.includes("chain_spend_exceeds_ledger") ? "chain_spend_exceeds_ledger" : "signing_blocked";
+      return refuse({ refused, detail: gate });
+    }
+  }
+
+  if (isPolygonSpec(spec) && deps.dryRun) {
+    deps.budget.commit(res.id);
+    return { ...rec, outcome: "would_pay" };
+  }
+
   // ---- from here a signature may exist ----
   let created: CreatedEvmPayment;
   try {
-    created = await createChainPayment(spec, deps.signer, p.pr, accept, maxPer);
+    created = await createChainPayment(spec, deps.signer, p.pr, accept, maxPer, deps.beforeSign ? { signGate: deps.beforeSign } : {});
   } catch (err) {
     deps.budget.release(res.id);
     return { ...rec, outcome: "not_sent", refusal: { refused: "payload_check_failed", detail: (err as Error).message.slice(0, 300) } };

@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { publicPage, renderPublicSite, siteSlugs } from "../src/rank/html.js";
 import { loadPublishedRecords } from "../src/receipt/publish.js";
 import { loadLanePublic } from "../src/evm/site.js";
+import { assertPublicPagesChainCounts, publishedEvmPurchaseChains } from "../src/evm/published-purchase-chains.js";
 import { recordsBySeller, renderRecordsSite } from "../src/receipt/site.js";
 import type { RankReport } from "../src/rank/report.js";
 import { renderEscrowPage, type DevnetRun } from "../src/escrow/page.js";
@@ -66,6 +67,8 @@ const devnetFile = join(ROOT, "solana-program", "escrow-devnet.json");
 const devnet = existsSync(devnetFile) ? (JSON.parse(readFileSync(devnetFile, "utf8")) as DevnetRun) : null;
 pages.set("escrow.html", renderEscrowPage(escrowReport, devnet));
 jsonFiles.set("escrow.json", JSON.stringify(escrowReport, null, 2) + "\n");
+// 3.11-5: no page states a purchase-chain count the public ledger does not hold (11, or 12 before Monad and Polygon).
+assertPublicPagesChainCounts(pages, publishedEvmPurchaseChains(join(ROOT, "data")));
 rmSync(outDir, { recursive: true, force: true });
 for (const [rel, body] of [...pages, ...jsonFiles]) {
   const p = join(outDir, rel);

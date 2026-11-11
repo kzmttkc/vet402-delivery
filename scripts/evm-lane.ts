@@ -4,6 +4,14 @@
  *   npx tsx scripts/evm-lane.ts --lane robinhood [--dry-run]     (default; throwaway signer, nothing sent)
  *   npx tsx scripts/evm-lane.ts --lane robinhood --hosts [--run-date YYYY-MM-DD] [--dry-run|--pay]   (one purchase per host; its own ledger on the robinhood ledger; --pay requires --run-date, today's UTC date)
  *   npx tsx scripts/evm-lane.ts --lane arbitrum  [--dry-run]     (Arbitrum One + the same listings on Base)
+ *   npx tsx scripts/evm-lane.ts --lane polygon --hosts [--dry-run|--pay --run-date YYYY-MM-DD --plan <dry run>]   (3.11; --pay stops,
+ *     exit 8, before the key unless: Polygon USDC Transfer logs out of the payer since POLYGON_OUTFLOW_START_BLOCK are within the
+ *     Polygon ledger, the owner approval record matches the planned total, the legal-check and independent SHIP files match
+ *     their canonical copies in VET402_REVIEW_DIR, eip155:137 is in the wallet registry (VET402_WALLET_REGISTRY), neither
+ *     HALT-pay nor Tempo's last stop is set, every Polygon transaction from the payer (its POL fees) is on the POL ledger
+ *     (results/evm/polygon-pol-ledger.json), the payer holds POL for one daily root, and Polygon has a daily-root path
+ *     (src/evm/polygon-anchor.ts).
+ *     --lane monad exits 7: 3.11.0 is FAIL)
  *   VET402_EVM_PAY=<lane> npx tsx scripts/evm-lane.ts --lane <lane> --pay
  *
  * robinhood: every payTo that the CDP / Dexter / PayAI catalogs list with an exact USDG accept on Robinhood
@@ -22,17 +30,31 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createPublicClient, erc20Abi, hashDomain, http, parseAbi, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, erc20Abi, hashDomain, http, parseAbi, parseAbiItem, type Address, type Hex, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { CDP_DISCOVERY, MEASURE_MAX_PER_SELLER, MEASURE_SPACING_MS, OWN_HOSTS, PAYAI_DISCOVERY, atomicToUsdc } from "../src/constants.js";
 import { fetchCatalog, type Listing } from "../src/discovery.js";
 import { Budget } from "../src/guard.js";
 import { EVM_CHAINS, LANES, RUN_LANES, fundingProblem, payGateProblem, type EvmChainSpec, type LaneId, type LaneSpec } from "../src/evm/chains.js";
-import { buyOneOnChain, eqAddr, probe402, type ChainBuyEntry, type ChainBuyRecord, type TypedDataSigner } from "../src/evm/evm-buy.js";
+import {
+  walletRegistryPath,
+  monadFundingGateProblem,
+  parsePolygonOwnerApproval,
+  polygonGatePaths,
+  polygonPayGateProblem,
+  readTextIfExists,
+  walletRegistryChainsFromRegistryJson,
+} from "../src/evm/evm-pay-gates.js";
+import { buyOneOnChain, eqAddr, evmLaneStopsAfterRecord, probe402, type ChainBuyDeps, type ChainBuyEntry, type ChainBuyRecord, type TypedDataSigner } from "../src/evm/evm-buy.js";
+import { laneLedgerCommitted, polygonLogsRpc, polygonOutflowScanner, POLYGON_OUTFLOW_START_BLOCK } from "../src/evm/evm-shared-payer-outflow.js";
+import { measurePolygonPolSpend, polLedgerEntriesFromFile, polSpendReaderFromClients, POLYGON_POL_LEDGER_FILE } from "../src/evm/polygon-anchor.js";
+import { MONAD_CAIP2, monadPurchaseBlockedReason } from "../src/evm/311-memo.js";
+import { resolveSharedEvmTempoStop } from "../src/evm/tempo-evm-payer-stop.js";
+import { homedir } from "node:os";
 import { readUsdcTransfer } from "../src/evm/erc8004.js";
 import { loadEvmAccount, readPublicAddress } from "../src/evm/key.js";
 import { DEXTER_DISCOVERY, STOCK_SELLER, confirmLive, groupByPayTo, laneEntries, mirrorEntries, stockEntries, type LiveChoice, type Probe } from "../src/evm/lane-plan.js";
-import { HOSTS_RUN, LEGACY_HOST_RUN_DATE, RunBudget, acquireHostRunLock, confirmLiveHosts, groupByHost, hostRunFiles, hostRunLedgerProblem, keepPlanned, laneCountCapForHostRun, pickHostEntries, type PlanRow } from "../src/evm/lane-hosts.js";
+import { HOSTS_RUN, LEGACY_HOST_RUN_DATE, POLYGON_LEGACY_HOST_RUN_DATE, RunBudget, acquireHostRunLock, confirmLiveHosts, groupByHost, hostRunFiles, hostRunLedgerProblem, keepPlanned, laneCountCapForHostRun, pickHostEntries, type HostRunKind, type PlanRow } from "../src/evm/lane-hosts.js";
 import { classifyRecord, predictFacilitator } from "../src/evm/settle-cause.js";
 import { checkLaneFiles } from "../src/evm/chaincheck-run.js";
 import { lastPaidByListing, type LastPaid } from "../src/evm/lane-input.js";
@@ -46,9 +68,16 @@ const arg = (n: string): string | undefined => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 const laneArg = arg("--lane");
-if (laneArg !== "robinhood" && laneArg !== "arbitrum") throw new Error("--lane robinhood | arbitrum");
+// 3.11.0 is FAIL (src/evm/311-memo.ts): Monad has no lane. Stop before anything is read.
+if (laneArg === "monad" || laneArg === MONAD_CAIP2) {
+  console.error(`${monadPurchaseBlockedReason() ?? "Monad has no purchase lane in this script yet"}; nothing read, nothing signed`);
+  process.exit(7);
+}
+if (laneArg !== "robinhood" && laneArg !== "arbitrum" && laneArg !== "polygon") throw new Error("--lane robinhood | arbitrum | polygon");
 const hostsRun = argv.includes("--hosts");
-if (hostsRun && laneArg !== "robinhood") throw new Error("--hosts is only valid with --lane robinhood");
+if (hostsRun && laneArg !== "robinhood" && laneArg !== "polygon") throw new Error("--hosts is only valid with --lane robinhood | polygon");
+const hostRunKind: HostRunKind = laneArg === "polygon" ? "polygon" : "robinhood";
+const hostRunLegacyDate = hostRunKind === "polygon" ? POLYGON_LEGACY_HOST_RUN_DATE : LEGACY_HOST_RUN_DATE;
 const pay = argv.includes("--pay");
 if (pay && argv.includes("--dry-run")) throw new Error("choose one of --dry-run / --pay");
 // --run-date selects the host run's ledger. With --pay it is required and must be today's UTC date, before anything is read.
@@ -58,7 +87,7 @@ let runDate = todayUtc;
 if (hostsRun) {
   if (pay && !argv.includes("--run-date")) throw new Error("--hosts --pay requires --run-date <YYYY-MM-DD> equal to today's UTC date; nothing signed");
   if (argv.includes("--run-date")) runDate = arg("--run-date") ?? "";
-  hostRunFiles(runDate);
+  hostRunFiles(runDate, hostRunKind);
   if (pay && runDate !== todayUtc) throw new Error(`--run-date ${runDate} must equal today's UTC date ${todayUtc}; nothing signed`);
 }
 if (pay) {
@@ -88,12 +117,12 @@ if (pay) {
   }
   if (hostsRun) {
     // This date's host-run ledger must hold every host purchase the records sent that day, and only one paying host run at a time.
-    const hostBehind = hostRunLedgerProblem(resultsDir, runDate);
+    const hostBehind = hostRunLedgerProblem(resultsDir, runDate, hostRunKind);
     if (hostBehind) {
       console.error(hostBehind);
       process.exit(5);
     }
-    const releaseLock = acquireHostRunLock(resultsDir);
+    const releaseLock = acquireHostRunLock(resultsDir, hostRunKind);
     process.on("exit", releaseLock);
   }
   console.error(`[pay] results and ledgers: ${resultsDir}`);
@@ -249,7 +278,13 @@ async function runLane(
   entries: ChainBuyEntry[],
   raw402: Map<string, string>,
   stockRefs: Map<string, StockReference>,
-  over?: { budget?: Pick<Budget, "setBaselineIfMissing" | "reserve" | "release" | "commit" | "spent" | "count">; minAtomic?: bigint; maxPerAtomic?: bigint },
+  over?: {
+    budget?: Pick<Budget, "setBaselineIfMissing" | "reserve" | "release" | "commit" | "spent" | "count">;
+    minAtomic?: bigint;
+    maxPerAtomic?: bigint;
+    beforeSign?: ChainBuyDeps["beforeSign"];
+    outflowCheck?: ChainBuyDeps["outflowCheck"];
+  },
 ): Promise<LaneResult> {
   const c = EVM_CHAINS[lane.chain];
   const signer: TypedDataSigner = pay ? loadEvmAccount() : privateKeyToAccount(generatePrivateKey()); // dry run: throwaway, pays nobody
@@ -282,6 +317,8 @@ async function runLane(
         dryRun: !pay,
         maxPerAtomic,
         ...(over?.minAtomic !== undefined ? { minAtomic: over.minAtomic } : {}),
+        ...(over?.beforeSign ? { beforeSign: over.beforeSign } : {}),
+        ...(over?.outflowCheck ? { outflowCheck: over.outflowCheck } : {}),
       },
       { keepSettleResponse: true, keepBodyBytes: 20_000 },
     );
@@ -300,6 +337,7 @@ async function runLane(
     }
     out.push(row);
     if (pay) appendFileSync(join(resultsDir, `${lane.id}-purchases.jsonl`), JSON.stringify(row) + "\n");
+    if (evmLaneStopsAfterRecord(rec, pay)) break;
   }
   return {
     lane: lane.id,
@@ -349,8 +387,139 @@ const cat = await catalogs();
 const today = new Date().toISOString().slice(0, 10);
 const summary: Record<string, unknown> = { generatedAt: new Date().toISOString(), mode: pay ? "pay" : "dry-run", lane: laneArg, payer, catalogs: cat.sources };
 const results: LaneResult[] = [];
+/** wallet_registry.json chains, read by the Polygon run (the deposit line below depends on it). */
+let polygonRegisteredChains: string[] | null = null;
 
-if (laneArg === "robinhood") {
+if (laneArg === "polygon") {
+  if (!hostsRun) throw new Error("--lane polygon requires --hosts (trial buys are host runs only while Monad 3.11.0 is FAIL)");
+  const pg = EVM_CHAINS.polygon;
+  const lane = LANES.polygon;
+  await checkDomain(pg);
+  const groups = groupByHost(cat.items, pg, { minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic, ownHosts: OWN_HOSTS, today: runDate, lastPaid: lastPaid(["polygon"]) });
+  const choices = await confirmLiveHosts(groups, pg, probe, { payer, minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic });
+  const picked = pickHostEntries(choices, { maxTotalAtomic: HOSTS_RUN.maxTotalAtomic, maxCount: HOSTS_RUN.maxCount, runDate, hostRunKind: "polygon" });
+  if (picked.entries.length > HOSTS_RUN.maxCount || picked.totalAtomic > HOSTS_RUN.maxTotalAtomic) {
+    throw new Error(`host run plan is ${picked.entries.length} purchases totaling ${picked.totalAtomic} atomic, above ${HOSTS_RUN.maxCount} or ${HOSTS_RUN.maxTotalAtomic}; nothing signed`);
+  }
+  if (pay) {
+    const planFile = arg("--plan");
+    if (!planFile) throw new Error("--hosts --pay needs --plan <results/evm/polygon-hosts-dryrun.json>; nothing signed");
+    const sent = (JSON.parse(readFileSync(planFile, "utf8")) as { polygonHosts?: { plan?: PlanRow[] } }).polygonHosts?.plan;
+    if (!Array.isArray(sent)) throw new Error(`${planFile} has no polygonHosts.plan; nothing signed`);
+    const kept = keepPlanned(picked.entries, sent);
+    for (const d of kept.dropped) console.error(`[plan] not paid: ${d.host}: ${d.why}`);
+    picked.left.push(...kept.dropped);
+    picked.entries = kept.entries;
+    picked.totalAtomic = kept.entries.reduce((n, e) => n + BigInt(e.lock.amount), 0n);
+  }
+  const raw402 = new Map(choices.flatMap((c) => (c.chosen ? [[c.chosen.resource, c.chosen.raw402] as const] : [])));
+  const plan = picked.entries.map((e) => ({ host: e.agentId.slice("host:".length), resource: e.resource, method: e.method, payTo: e.lock.payTo, amountAtomic: e.lock.amount }));
+  summary.polygonHosts = {
+    hostsInCatalogs: groups.length,
+    hostsWithLive402: choices.filter((c) => c.chosen).length,
+    plan,
+    planTotalAtomic: picked.totalAtomic.toString(),
+    left: picked.left,
+    choices: choices.map((c) => ({ host: c.host, chosen: c.chosen ? { resource: c.chosen.resource, liveAmount: c.chosen.liveAmount, payTo: c.chosen.payTo } : null, tried: c.tried })),
+  };
+  console.error(["host", "amount", "payTo", "resource"].join("\t"));
+  for (const row of plan) console.error([row.host, row.amountAtomic, row.payTo, row.resource].join("\t"));
+  console.error(`total\t${picked.totalAtomic}`);
+  const gatePaths = polygonGatePaths(resultsDir);
+  let registeredChains: string[] = [];
+  try {
+    const registry = walletRegistryPath();
+    registeredChains = registry ? walletRegistryChainsFromRegistryJson(readFileSync(registry, "utf8")) : [];
+  } catch {
+    registeredChains = [];
+  }
+  polygonRegisteredChains = registeredChains;
+  const legalMemo = readTextIfExists(gatePaths.legalCheck);
+  const reviewShip = readTextIfExists(gatePaths.reviewShip);
+  const reviewShipCanonical = readTextIfExists(gatePaths.reviewShipCanonical);
+  const legalCheckCanonical = readTextIfExists(gatePaths.legalCheckCanonical);
+  const stateDir = process.env.VET402_STATE_DIR ?? join(homedir(), "vet402-solana/state");
+  const polyClient = client(pg);
+  // USDC out of the payer on Polygon, from the Transfer logs since POLYGON_OUTFLOW_START_BLOCK (not a balance difference).
+  const transfer = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+  const logsClient = createPublicClient({ transport: http(polygonLogsRpc()) }) as PublicClient;
+  const polygonOutflow = polygonOutflowScanner({
+    head: () => logsClient.getBlockNumber(),
+    outflow: async (fromBlock, toBlock) => {
+      const logs = await logsClient.getLogs({ address: pg.asset, event: transfer, args: { from: payer }, fromBlock, toBlock });
+      return logs.reduce((n, l) => n + (l.args.value ?? 0n), 0n);
+    },
+  });
+  // Only the Polygon lane's ledger: the Robinhood, Arbitrum and Tempo ledgers are other assets on other chains.
+  const polygonLedgerCommitted = () => laneLedgerCommitted(resultsDir, "polygon");
+  // POL that left the payer (the daily-root fees it pays) against the POL ledger, from its nonce and the receipts.
+  const polReader = polSpendReaderFromClients(polyClient, receiptClient(pg), payer);
+  const polSpendNow = () => measurePolygonPolSpend(polReader, polLedgerEntriesFromFile(readTextIfExists(join(resultsDir, POLYGON_POL_LEDGER_FILE))), payer);
+  /** Every stop before a Polygon signature, read again from disk and chain each time. */
+  const payGate = async (): Promise<string | null> => {
+    let chainSpent: bigint;
+    try {
+      chainSpent = await polygonOutflow();
+    } catch (err) {
+      return `Polygon USDC outflow unreadable (${(err as Error).message.slice(0, 200)})`;
+    }
+    let polSpend: Awaited<ReturnType<typeof polSpendNow>>;
+    try {
+      polSpend = await polSpendNow();
+    } catch (err) {
+      return `Polygon POL outflow unreadable (${(err as Error).message.slice(0, 200)})`;
+    }
+    return polygonPayGateProblem({
+      plannedTotalAtomic: picked.totalAtomic,
+      ownerApproval: parsePolygonOwnerApproval(readTextIfExists(gatePaths.ownerApproval) ?? ""),
+      env: process.env as Record<string, string | undefined>,
+      legalCheckMemo: legalMemo,
+      reviewShip,
+      reviewShipCanonical,
+      legalCheckCanonical,
+      registeredChains,
+      ...resolveSharedEvmTempoStop({ repoStateDir: stateDir }),
+      paying: true,
+      ledgerCommitted: polygonLedgerCommitted(),
+      chainSpent,
+      polSpend,
+    });
+  };
+  if (pay) {
+    // Before the preflight, the key and any signature: a stop here ends the run (exit 8).
+    const stop = await payGate();
+    if (stop) {
+      console.error(`${stop}; nothing signed`);
+      process.exit(8);
+    }
+    await preflight(lane, picked.entries);
+  } else {
+    // The dry run says what a paying run would stop on now. It reads the same files and logs, and signs nothing.
+    const wouldStop = await payGate();
+    (summary.polygonHosts as Record<string, unknown>).payWouldStopOn = wouldStop;
+    (summary.polygonHosts as Record<string, unknown>).outflowSinceBlock = POLYGON_OUTFLOW_START_BLOCK.toString();
+    console.error(`[gate] a paying run would ${wouldStop ? `stop: ${wouldStop}` : "pass the 3.11 gates"}`);
+  }
+  const laneHeld = laneLedgerPurchaseCount(laneLedgerPath(lane, resultsDir));
+  const laneBudgetFile = pay ? laneLedgerPath(lane, resultsDir) : null;
+  const laneBudget = new Budget(laneBudgetFile, lane.maxTotalAtomic, laneCountCapForHostRun(laneHeld), lane.maxPerAtomic);
+  const budget = new RunBudget(
+    new Budget(pay ? join(resultsDir, hostRunFiles(runDate, "polygon").ledger) : null, HOSTS_RUN.maxTotalAtomic, HOSTS_RUN.maxCount, HOSTS_RUN.maxPerAtomic),
+    laneBudget,
+  );
+  // Each purchase: the outflow against the Polygon ledger before it is reserved, then every gate again before the signature.
+  const beforeSign = pay ? payGate : undefined;
+  const outflowCheck = pay ? async () => ({ ledgerCommitted: polygonLedgerCommitted(), chainSpent: await polygonOutflow() }) : undefined;
+  results.push(
+    await runLane(lane, picked.entries, raw402, new Map(), {
+      budget,
+      minAtomic: HOSTS_RUN.minAtomic,
+      maxPerAtomic: HOSTS_RUN.maxPerAtomic,
+      ...(beforeSign ? { beforeSign } : {}),
+      ...(outflowCheck ? { outflowCheck } : {}),
+    }),
+  );
+} else if (laneArg === "robinhood") {
   const rh = EVM_CHAINS.robinhood;
   const lane = LANES.robinhood;
   await checkDomain(rh);
@@ -358,7 +527,7 @@ if (laneArg === "robinhood") {
     // One purchase per host, inside the host run's own caps. No stock entries: those stay on the plain robinhood lane.
     const groups = groupByHost(cat.items, rh, { minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic, ownHosts: OWN_HOSTS, today: runDate, lastPaid: lastPaid(["robinhood"]) });
     const choices = await confirmLiveHosts(groups, rh, probe, { payer, minAtomic: HOSTS_RUN.minAtomic, maxPerAtomic: HOSTS_RUN.maxPerAtomic });
-    const picked = pickHostEntries(choices, { maxTotalAtomic: HOSTS_RUN.maxTotalAtomic, maxCount: HOSTS_RUN.maxCount, runDate });
+    const picked = pickHostEntries(choices, { maxTotalAtomic: HOSTS_RUN.maxTotalAtomic, maxCount: HOSTS_RUN.maxCount, runDate, hostRunKind: "robinhood" });
     if (picked.entries.length > HOSTS_RUN.maxCount || picked.totalAtomic > HOSTS_RUN.maxTotalAtomic) {
       throw new Error(`host run plan is ${picked.entries.length} purchases totaling ${picked.totalAtomic} atomic, above ${HOSTS_RUN.maxCount} or ${HOSTS_RUN.maxTotalAtomic}; nothing signed`);
     }
@@ -390,7 +559,7 @@ if (laneArg === "robinhood") {
     if (pay) await preflight(lane, picked.entries);
     const laneHeld = laneLedgerPurchaseCount(laneLedgerPath(lane, resultsDir));
     const budget = new RunBudget(
-      new Budget(pay ? join(resultsDir, hostRunFiles(runDate).ledger) : null, HOSTS_RUN.maxTotalAtomic, HOSTS_RUN.maxCount, HOSTS_RUN.maxPerAtomic),
+      new Budget(pay ? join(resultsDir, hostRunFiles(runDate, "robinhood").ledger) : null, HOSTS_RUN.maxTotalAtomic, HOSTS_RUN.maxCount, HOSTS_RUN.maxPerAtomic),
       // The lane ledger takes the run's purchases on top of what it already holds, in this run only: LANES.robinhood stays as it is.
       new Budget(pay ? laneLedgerPath(lane, resultsDir) : null, lane.maxTotalAtomic, laneCountCapForHostRun(laneHeld), lane.maxPerAtomic),
     );
@@ -480,6 +649,8 @@ for (const r of results) {
     balanceEthWei: b.ethWei,
     shortfallAtomic: (need > 0n ? need : 0n).toString(),
     purchases: r.records.filter((x) => x.outcome === "would_pay" || x.outcome === "sent").length,
+    // 3.11-4: a deposit is asked only for a chain in wallet_registry.json, after funding_need_check.py; never Monad while FAIL.
+    ...(r.lane === "polygon" ? { depositRequest: monadFundingGateProblem(c.caip2, polygonRegisteredChains ?? []) ?? "registered: ask only after funding_need_check.py writes latest.json" } : {}),
   };
 }
 summary.funding = funding;
@@ -487,9 +658,9 @@ summary.results = results;
 const text = JSON.stringify(summary, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n";
 mkdirSync(resultsDir, { recursive: true });
 // A paying run plans again from live 402s; its plan is what the published rows must be read against.
-const hostsOut = runDate === LEGACY_HOST_RUN_DATE
-  ? (pay ? "robinhood-hosts-paid-run.json" : "robinhood-hosts-dryrun.json")
-  : (pay ? `robinhood-hosts-${runDate}-paid-run.json` : `robinhood-hosts-${runDate}-dryrun.json`);
+const hostsOut = runDate === hostRunLegacyDate
+  ? (pay ? `${hostRunKind}-hosts-paid-run.json` : `${hostRunKind}-hosts-dryrun.json`)
+  : (pay ? `${hostRunKind}-hosts-${runDate}-paid-run.json` : `${hostRunKind}-hosts-${runDate}-dryrun.json`);
 const outName = hostsRun ? hostsOut : pay ? `${laneArg}-paid-run.json` : `${laneArg}-dryrun.json`;
 writeFileSync(join(resultsDir, outName), text);
 const brief = results.map((r) => ({
