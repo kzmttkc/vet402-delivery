@@ -9,6 +9,7 @@
  * Leaves come from https://vet402.com/api/v1/observatory/export.csv (network eip155:42220).
  * record(day, root, n) uses day = that week's Sunday (dayNumber). --send uses the DeliveryRoots key
  * (src/evm/key.ts ROOTS_POSTER_ADDRESS), never the payer wallet.
+ * RPC defaults to https://forno.celo.org. VET402_CELO_RPC_URL replaces it; CELO_RPC_URL is the next fallback.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -43,7 +44,7 @@ if (send && resolve(anchorsDir) !== resolve(DEFAULT_ANCHORS)) throw new Error(`-
 
 const poster = ROOTS_POSTER_ADDRESS;
 const registry = CELO_CHAIN.registry;
-const rpc = process.env[CELO_CHAIN.rpcEnv] ?? CELO_CHAIN.rpc;
+const rpc = process.env.VET402_CELO_RPC_URL ?? process.env[CELO_CHAIN.rpcEnv] ?? CELO_CHAIN.rpc;
 const client = createPublicClient({ transport: http(rpc) }) as PublicClient;
 
 const writePrivate = (f: string, text: string): void => {
@@ -241,7 +242,17 @@ const hash = await wallet.sendTransaction({
 });
 writePrivate(sentFile, JSON.stringify({ ...sending, hash, at: new Date().toISOString() }, null, 2) + "\n");
 const rc = await client.waitForTransactionReceipt({ hash });
-const back = rc.status === "success" ? await client.readContract({ address: registry, abi: deliveryRootsReadAbi, functionName: "rootOf", args: [dayN] }) : null;
+// Read at the receipt's block and retry: a load balanced RPC can answer from a node that has not seen the block yet.
+async function readBack(): Promise<string | null> {
+  if (rc.status !== "success") return null;
+  for (let i = 0; i < 6; i++) {
+    const v = await client.readContract({ address: registry, abi: deliveryRootsReadAbi, functionName: "rootOf", args: [dayN], blockNumber: rc.blockNumber }).catch(() => null);
+    if (v && /[1-9a-f]/i.test(v.slice(2))) return v;
+    await new Promise((res) => setTimeout(res, 5000));
+  }
+  return null;
+}
+const back = await readBack();
 const ok = back !== null && back.toLowerCase() === r.root.toLowerCase();
 writePrivate(sentFile, JSON.stringify({ ...sending, status: ok ? "sent" : "failed", hash, block: rc.blockNumber.toString(), at: new Date().toISOString() }, null, 2) + "\n");
 console.log(`${ok ? "sent" : "FAILED"} ${CELO_CHAIN.explorerTx}${hash}`);

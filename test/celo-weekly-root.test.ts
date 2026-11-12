@@ -4,10 +4,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { recordDigest } from "../src/evm/evm-anchor.js";
+import { ROOTS_POSTER_ADDRESS } from "../src/evm/key.js";
+import { runtimeWithWriter } from "../src/evm/roots.js";
 import { verifyInclusion } from "../src/receipt/merkle.js";
 import {
   amountFromExport,
@@ -29,6 +33,86 @@ import { getAddress, type Hex } from "viem";
 const ROOT = new URL("..", import.meta.url).pathname;
 const FIXTURE = join(ROOT, "test/fixtures/celo-weekly-export.csv");
 const TX = (b: string) => (`0x${b.repeat(64)}`.slice(0, 66)) as Hex;
+const CLOSED = String(Date.parse("2026-11-09T00:00:01Z") / 1000);
+const ZERO_ROOT = `0x${"0".repeat(64)}`;
+
+/** A Celo JSON-RPC that is not forno. rootOf is the zero root, so a week looks open. */
+function fakeCeloRpc(): Promise<{ url: string; calls: string[]; close: () => Promise<void> }> {
+  const calls: string[] = [];
+  const code = runtimeWithWriter(ROOTS_POSTER_ADDRESS);
+  const server = createServer(async (req, res) => {
+    const msg = JSON.parse(await readBody(req)) as { id?: number; method?: string } | { id?: number; method?: string }[];
+    const one = (m: { id?: number; method?: string }) => {
+      const method = m.method ?? "";
+      calls.push(method);
+      try {
+        return { jsonrpc: "2.0", id: m.id ?? null, result: celoRpcResult(method, code) };
+      } catch (err) {
+        return { jsonrpc: "2.0", id: m.id ?? null, error: { code: -32601, message: (err as Error).message } };
+      }
+    };
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(Array.isArray(msg) ? msg.map(one) : one(msg)));
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      resolve({ url, calls, close: () => closeServer(server) });
+    });
+  });
+}
+
+function celoRpcResult(method: string, code: string): string {
+  switch (method) {
+    case "eth_chainId":
+      return "0xa4ec";
+    case "eth_call":
+      return ZERO_ROOT;
+    case "eth_estimateGas":
+      return "0x186a0";
+    case "eth_gasPrice":
+      return "0x5f5e100";
+    case "eth_getBalance":
+      return "0xde0b6b3a7640000";
+    case "eth_getCode":
+      return code;
+    default:
+      throw new Error(`${method} not served`);
+  }
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+}
+
+/** Child env points the script at `rpc` and drops a parent CELO_RPC_URL so forno is not used. Async so the fake RPC can answer. */
+function spawnRoot(args: string[], rpc: string, opts: { cwd?: string; anchorSend?: boolean } = {}): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const env: NodeJS.ProcessEnv = { ...process.env, VET402_CELO_RPC_URL: rpc, VET402_DAILY_NOW: CLOSED };
+  delete env.CELO_RPC_URL;
+  if (opts.anchorSend) env.VET402_ANCHOR_SEND = "celo";
+  else delete env.VET402_ANCHOR_SEND;
+  return new Promise((resolve, reject) => {
+    const child = spawn("npx", ["tsx", join(ROOT, "scripts/celo-weekly-root.ts"), ...args], { cwd: opts.cwd ?? ROOT, env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => { stdout += d; });
+    child.stderr.on("data", (d: string) => { stderr += d; });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}
 
 test("amountAtomic uses confirmed_units only when positive", () => {
   assert.equal(amountFromExport({ confirmed_units: "100", spent_units: "200" } as Parameters<typeof amountFromExport>[0]), "100");
@@ -72,29 +156,30 @@ test("lastClosedWeekSunday matches fixture week", () => {
   assert.equal(lastClosedWeekSunday(new Date("2026-11-09T00:00:01Z")), "2026-11-08");
 });
 
-test("plan without --send writes plan and salts; --send without VET402_ANCHOR_SEND refuses", () => {
+test("plan without --send writes plan and salts; --send without VET402_ANCHOR_SEND refuses", async () => {
+  const fake = await fakeCeloRpc();
   const dir = mkdtempSync(join(tmpdir(), "celo-plan-"));
-  const anchors = join(dir, "anchors");
-  const r1 = spawnSync("npx", ["tsx", join(ROOT, "scripts/celo-weekly-root.ts"), "--csv", FIXTURE, "--week", "2026-11-08", "--anchors-dir", anchors], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: { ...process.env, VET402_DAILY_NOW: String(Date.parse("2026-11-09T00:00:01Z") / 1000) },
-  });
-  assert.equal(r1.status, 0, r1.stderr);
-  const plan = JSON.parse(r1.stdout);
-  assert.equal(plan.n, 3);
-  assert.ok(existsSync(join(anchors, "celo-week-2026-11-08.plan.json")));
-  assert.ok(existsSync(join(anchors, "celo-week-2026-11-08.salts.json")));
-  const r2 = spawnSync("npx", ["tsx", join(ROOT, "scripts/celo-weekly-root.ts"), "--csv", FIXTURE, "--week", "2026-11-08", "--send", "--anchors-dir", anchors], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: { ...process.env, VET402_DAILY_NOW: String(Date.parse("2026-11-09T00:00:01Z") / 1000) },
-  });
-  assert.match(r2.stderr + r2.stdout, /VET402_ANCHOR_SEND=celo/);
-  rmSync(dir, { recursive: true });
+  try {
+    const anchors = join(dir, "anchors");
+    const r1 = await spawnRoot(["--csv", FIXTURE, "--week", "2026-11-08", "--anchors-dir", anchors], fake.url);
+    assert.equal(r1.status, 0, r1.stderr);
+    const plan = JSON.parse(r1.stdout);
+    assert.equal(plan.n, 3);
+    assert.equal(plan.state, "open");
+    assert.ok(plan.quote);
+    assert.ok(fake.calls.includes("eth_call"));
+    assert.ok(!fake.calls.some((m) => m === "eth_sendRawTransaction" || m === "eth_sendTransaction"));
+    assert.ok(existsSync(join(anchors, "celo-week-2026-11-08.plan.json")));
+    assert.ok(existsSync(join(anchors, "celo-week-2026-11-08.salts.json")));
+    const r2 = await spawnRoot(["--csv", FIXTURE, "--week", "2026-11-08", "--send", "--anchors-dir", anchors], fake.url);
+    assert.match(r2.stderr + r2.stdout, /VET402_ANCHOR_SEND=celo/);
+  } finally {
+    rmSync(dir, { recursive: true });
+    await fake.close();
+  }
 });
 
-test("double send is refused when sent.json is already sent", () => {
+test("double send is refused when sent.json is already sent", async () => {
   const dir = mkdtempSync(join(tmpdir(), "celo-sent-"));
   const anchors = join(dir, "results", "evm", "anchors");
   mkdirSync(anchors, { recursive: true });
@@ -113,24 +198,30 @@ test("double send is refused when sent.json is already sent", () => {
     { mode: 0o600 },
   );
   chmodSync(join(anchors, "celo-week-2026-11-08.sent.json"), 0o600);
-  const r = spawnSync(
-    "npx",
-    ["tsx", join(ROOT, "scripts/celo-weekly-root.ts"), "--csv", FIXTURE, "--week", "2026-11-08", "--send"],
-    { cwd: dir, encoding: "utf8", env: { ...process.env, VET402_ANCHOR_SEND: "celo", VET402_DAILY_NOW: String(Date.parse("2026-11-09T00:00:01Z") / 1000) } },
-  );
-  assert.equal(r.status, 0);
-  assert.match(r.stdout, /already sent/);
-  rmSync(dir, { recursive: true });
+  const fake = await fakeCeloRpc();
+  try {
+    const r = await spawnRoot(["--csv", FIXTURE, "--week", "2026-11-08", "--send"], fake.url, { cwd: dir, anchorSend: true });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /already sent/);
+    assert.deepEqual(fake.calls, []);
+  } finally {
+    rmSync(dir, { recursive: true });
+    await fake.close();
+  }
 });
 
-test("--send rejects --csv", () => {
-  const r = spawnSync("npx", ["tsx", join(ROOT, "scripts/celo-weekly-root.ts"), "--csv", FIXTURE, "--week", "2026-11-08", "--send"], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: { ...process.env, VET402_ANCHOR_SEND: "celo", VET402_DAILY_NOW: String(Date.parse("2026-11-09T00:00:01Z") / 1000) },
-  });
-  assert.notEqual(r.status, 0);
-  assert.match(r.stderr + r.stdout, /omit --csv/);
+test("--send rejects --csv", async () => {
+  const fake = await fakeCeloRpc();
+  const dir = mkdtempSync(join(tmpdir(), "celo-csv-"));
+  try {
+    const r = await spawnRoot(["--csv", FIXTURE, "--week", "2026-11-08", "--send"], fake.url, { cwd: dir, anchorSend: true });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr + r.stdout, /omit --csv/);
+    assert.deepEqual(fake.calls, []);
+  } finally {
+    rmSync(dir, { recursive: true });
+    await fake.close();
+  }
 });
 
 test("buildCeloRootsFile validates proofs", () => {
