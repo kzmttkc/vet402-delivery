@@ -1,0 +1,16 @@
+{
+  "kind": "vet402-evm-roots",
+  "version": 0,
+  "lane": "celo",
+  "chain": "eip155:42220",
+  "cadence": "weekly",
+  "source": "https://vet402.com/api/v1/observatory/export.csv",
+  "contract": {
+    "address": "0x3050Ae4C0D77Eb27C64f4Cc5dd1B07F93C593855",
+    "writer": "0xd326A383a2DEAA47aE3f055a70704175Aa9FF611",
+    "deployTx": "0x09334ea83c010c08e9e2f452a5daba91104b31395d2cc69fe7d28054d927468a"
+  },
+  "leafRule": "digest = keccak256(utf8(the record as canonical JSON)); leaf = keccak256(0x00 || digest); node = keccak256(0x01 || min(a, b) || max(a, b)); an odd node is carried up. Canonical JSON: object keys sorted by UTF-16 code unit (JavaScript's default sort), no whitespace, null kept, strings escaped exactly as JavaScript's JSON.stringify does (only \\\" \\\\ and control characters: \\b \\f \\n \\r \\t, the others as \\u00xx in lowercase hex; non-ASCII characters and / are not escaped; a lone UTF-16 surrogate, which UTF-8 cannot carry, is written as \\udxxx in lowercase hex, as JSON.stringify does since ES2019), integers in plain decimal. DeliveryRoots.verify(dayNumber, digest, proof) on the contract returns true for a record of that day. Each leaf is a vet402-evm-purchase record from one export row: salt = 0x + sha256(utf8 \"vet402/celo-weekly/v0/eip155:42220/\" + purchase_id) as lowercase hex; network eip155:42220 and spent_units > 0; attempted_at, purchase_id, resource_key, request_query, request_body, spent_units, confirmed_units, tx_hash, http_status_paid, l2_reading; amountAtomic is confirmed_units when that is a positive integer, otherwise null; payer is vet402's EVM wallet; payTo is null (not in the export); asset is Celo USDC; responseBytes and bodyHash are null. Rows are sorted by attempted_at then purchase_id. Week = UTC Monday 00:00 through Sunday 24:00; record(day, root, n) uses day = that Sunday's dayNumber.",
+  "policy": "A leaf holds facts only, taken from the public observatory export; no verdict is in the root. Every purchase in the week is published with its record and proof.",
+  "days": []
+}
