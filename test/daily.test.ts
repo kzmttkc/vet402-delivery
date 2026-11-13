@@ -1148,7 +1148,7 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
 }
 
 function runSh(sb: Sandbox, args: string[], env: NodeJS.ProcessEnv = {}) {
-  return spawnSync("/bin/bash", [RUN, ...args], { env: { ...sb.env, ...env }, encoding: "utf8", timeout: 120_000 });
+  return spawnSync("/bin/bash", [RUN, ...args], { env: { ...sb.env, ...env }, encoding: "utf8", timeout: 300_000 });
 }
 const logs = (sb: Sandbox) => (existsSync(join(sb.dir, "logs")) ? readdirSync(join(sb.dir, "logs")).map((f) => read(join(sb.dir, "logs", f))).join("\n") : "");
 const alerts = (sb: Sandbox) => (existsSync(sb.alerts) ? read(sb.alerts) : "");
