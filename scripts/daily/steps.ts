@@ -3,9 +3,10 @@
  *
  *   npx tsx scripts/daily/steps.ts check-plan <dry-run.json> --chain solana|tempo --day YYYY-MM-DD --per-payto N [--ledger <file>]
  *       the estimate leaves out slots the spend ledger already holds (bought earlier that day)
- *       exit 0 pay, 10 nothing to buy, 11 skip this chain today (the Tempo purchase key cannot sign; others go on),
- *       4 stop (over a cap, the month, the balance, or not today's plan). A second line "WARN: ..." is something to
- *       act on soon (the Tempo purchase key expires within three days).
+ *       exit 0 pay, 10 nothing to buy, 11 skip this chain today (the Tempo purchase key cannot sign, or the payer
+ *       balance is short; others go on), 4 stop (over the run cap, the month, or not today's plan). A second line
+ *       "WARN: ..." is something to act on soon (the Tempo purchase key expires within three days, or the payer balance
+ *       covers fewer than five runs).
  *   npx tsx scripts/daily/steps.ts run-outcome <result.json> --since <ISO time>
  *       exit 0 when exactly one run started since then and ended without a stop, 5 when it ended at the month cap
  *       (what it bought is published; buying resumes next month), else 4

@@ -523,9 +523,9 @@ remeasure() {
   warn="$(printf '%s\n' "$verdict" | /usr/bin/sed -n 's/^WARN: //p' | head -1)"
   [ -n "$warn" ] && notice "$warn"
   if [ $rc -eq 10 ]; then return 0; fi
-  # This chain is left out today (the Tempo purchase key cannot sign); the other chains buy and publish.
+  # This chain is left out today (the Tempo purchase key cannot sign, or the payer balance is short); the other chains buy and publish.
   if [ $rc -eq 11 ]; then
-    continues "remeasure $chain" "$(printf '%s\n' "$verdict" | head -1). Nothing paid on $chain; see README (Tempo access key) to renew it"
+    continues "remeasure $chain" "$(printf '%s\n' "$verdict" | head -1). Nothing paid on $chain today; the next run pays once this is fixed"
     return 0
   fi
   if [ $rc -ne 0 ]; then

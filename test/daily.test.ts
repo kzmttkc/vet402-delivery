@@ -658,7 +658,6 @@ test("plan: pays within the caps; stops over the run cap, the month, the balance
   const stops: [ReturnType<typeof plan>, RegExp][] = [
     [plan({ est: "3.500000" }), /over the run cap 3\.000000/],
     [plan({ est: "2.000000", monthLeft: "1.500000" }), /over what is left this month/],
-    [plan({ est: "2.000000", bal: "1.000000" }), /over the payer balance/],
     [plan({ day: "2026-09-30" }), /not UTC day 2026-10-01/],
     [plan({ per: 2 }), /--per-payto 2, not 1/],
     [{ ...plan(), kind: "something else" }, /not a remeasure dry run/],
@@ -671,6 +670,17 @@ test("plan: pays within the caps; stops over the run cap, the month, the balance
   }
   const none = planVerdict(plan({ would: 0, est: "0.000000" }), "solana", "2026-10-01", 1);
   assert.ok(!none.pay && !none.stop);
+});
+
+test("plan: a short payer balance leaves the chain out today without halting, and a low balance warns first", () => {
+  const short = planVerdict({ ...plan({ est: "2.000000", bal: "1.000000" }), payer: "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu" }, "solana", "2026-10-01", 1);
+  assert.ok(!short.pay && !short.stop && short.skip, short.line);
+  assert.match(short.line, /not buying today, estimate 2\.000000 is over the payer balance 1\.000000; add USDC to 9VaAPD1C/);
+  const low = planVerdict(plan({ est: "0.935000", bal: "2.000000" }), "solana", "2026-10-01", 1);
+  assert.ok(low.pay, low.line);
+  assert.match(low.warn ?? "", /covers about 2 more runs at today's estimate 0\.935000; add USDC to the payer before it runs out/);
+  const ok = planVerdict(plan({ est: "0.500000", bal: "45.000000" }), "solana", "2026-10-01", 1);
+  assert.ok(ok.pay && !ok.warn, String(ok.warn));
 });
 
 test("plan: slots already in the spend ledger are left out of the estimate (a second run the same day)", () => {

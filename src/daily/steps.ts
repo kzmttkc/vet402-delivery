@@ -54,7 +54,12 @@ interface DryRunFile {
   /** Slots the dry run left out, with the cap or check that refused them (src/remeasure/loop.ts). */
   skipped?: { reason?: string; detail?: string }[];
   signer?: PlanSigner;
+  /** The payer address the dry run read the balance of (src/remeasure). */
+  payer?: string;
 }
+
+/** Warn while the payer balance covers fewer than this many runs at today's estimate, so funds arrive before a stop. */
+export const RUNWAY_WARN_RUNS = 5n;
 
 /** Keys the spend ledger already holds (Solana budget-solana-YYYY-MM.json purchases, Tempo day ledger entries). */
 export function ledgerKeys(ledger: unknown): Set<string> {
@@ -102,8 +107,18 @@ export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: st
   const what = chain === "tempo" ? `estimate ${fmt(est)} + fee reserve = ${fmt(need)}` : `estimate ${fmt(need)}`;
   if (need > perRun) return stop(`${what} is over the run cap ${fmt(perRun)}`);
   if (need > monthLeft) return stop(`${what} is over what is left this month ${fmt(monthLeft)}`);
-  if (need > balance) return stop(`${what} is over the payer balance ${fmt(balance)}`);
-  return withWarn({ pay: true, line: `${chain}: ${would} purchases${skipped ? ` (${skipped} already in the ledger)` : ""}, ${what} within run cap ${fmt(perRun)}, month left ${fmt(monthLeft)}, balance ${fmt(balance)}` });
+  const payer = typeof plan.payer === "string" && plan.payer ? plan.payer : "the payer";
+  // A short balance leaves this chain out today, said loudly, without halting the lane: the other chain still buys
+  // and publishes, and the next run pays again once USDC has arrived. Funds are a top-up, not a fault to clear by hand.
+  if (need > balance) {
+    return withWarn({ pay: false, stop: false, skip: true, line: `${chain}: not buying today, ${what} is over the payer balance ${fmt(balance)}; add USDC to ${payer}` });
+  }
+  // Early warning: say so while the balance still covers a few runs, so the top-up arrives before a day is lost.
+  const low = need > 0n && balance < need * RUNWAY_WARN_RUNS
+    ? `${chain}: the payer balance ${fmt(balance)} covers about ${(balance / need).toString()} more runs at today's ${what}; add USDC to ${payer} before it runs out`
+    : undefined;
+  const v: PlanVerdict = withWarn<PlanVerdict>({ pay: true, line: `${chain}: ${would} purchases${skipped ? ` (${skipped} already in the ledger)` : ""}, ${what} within run cap ${fmt(perRun)}, month left ${fmt(monthLeft)}, balance ${fmt(balance)}` });
+  return low && v.pay ? { ...v, warn: v.warn ? `${v.warn}. ${low}` : low } : v;
 }
 
 interface ResultFile {
