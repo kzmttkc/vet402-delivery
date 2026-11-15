@@ -50,6 +50,8 @@ const VET402_SKIPPED = new Set([
   "placeholder_input",
   // Tempo: payable, but Mercator declared no input for a call that needs one (src/remeasure/tempo.ts inputPayRefusal).
   "no_input_example",
+  // Tempo: vet402's own hold on an unsettled payTo, not the seller's fault (src/remeasure/tempo.ts notSettledHoldRefusal).
+  "not_settled_hold",
 ]);
 
 function refusalCategory(reason: string, where: string): ReasonCategory {

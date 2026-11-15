@@ -46,6 +46,7 @@ import {
   RM_TEMPO_MAX_PER_RUN_ATOMIC,
   type RemeasureChain,
 } from "../src/remeasure/constants.js";
+import { holdNoticeLines, lockAndReadHolds, notSettledStateFromDir } from "../src/remeasure/not-settled-hold.js";
 import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
 import { readResultFile, resultPath, runDirs, writeJsonAtomic, type RemeasureRow, type RunInfo } from "../src/remeasure/results.js";
 import { reconcileSolana, reconcileTempo } from "../src/remeasure/reconcile.js";
@@ -240,7 +241,7 @@ async function solana(slotsAll: ReturnType<typeof selectSlots>, targets: Target[
 
 // ---------- Tempo ----------
 
-async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]) {
+async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[], notSettledState?: ReturnType<typeof notSettledStateFromDir>) {
   const tchain = await import("../src/tempo/chain.js");
   const { Ledger } = await import("../src/tempo/ledger.js");
   const { dayLedgerPath, dryRunTempo, liveChainView, monthCommittedElsewhere, payTempo } = await import("../src/remeasure/tempo.js");
@@ -277,6 +278,8 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
       caps: { perPurchase: "0.100000", perRun: atomicToUnits(RM_TEMPO_MAX_PER_RUN_ATOMIC), perMonth: atomicToUnits(RM_TEMPO_MAX_PER_MONTH_ATOMIC), monthLeft: atomicToUnits(monthLeft), feeReservePerPurchase: "0.002000 (counted unless the live 402 is sponsored)" },
       summary: { payTos: slotsAll.payTos, resources: slotsAll.resources, slots: slotsAll.slots.length, ...sum, payerUsdcEBefore: atomicToUnits(before), payerUsdcEAfter: atomicToUnits(after) },
       excluded: slotsAll.excluded,
+      holdEnded: slotsAll.holdEnded,
+      holdEndedUnreadable: notSettledState?.unreadable ?? [],
       inputRepair,
       rows: res.rows,
       skipped: res.skipped,
@@ -292,7 +295,8 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
   }
 
   const { realSleep } = await import("../src/remeasure/loop.js");
-  const release = lockOrExit(join(OUT, "tempo.lock"));
+  for (const line of holdNoticeLines(slotsAll.holdEnded, notSettledState?.unreadable ?? [])) console.log(line);
+  const { release, holds: payNotSettledHolds } = lockAndReadHolds(() => lockOrExit(join(OUT, "tempo.lock")), OUT, DATE);
   let ledger: InstanceType<typeof Ledger> | null = null;
   try {
     await tchain.assertMainnet();
@@ -322,7 +326,7 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
         findTx: { head: () => tchain.headBlock(), search: (e, from) => tchain.findPayerTransfers(e, from), known: () => keyLedgerTxs(TEMPO_KEY_LEDGERS, TEMPO_PAYER).known },
       },
       // payOne's chain check: outflow since the census start <= this day ledger + every other ledger of the key.
-      { date: DATE, ledger, keyLedgers: TEMPO_KEY_LEDGERS, chain: chainView, monthElsewhere, sleep: realSleep, onRow: (r) => (runRows.push(r), result.rows.push(r), save(), logRow(r)) },
+      { date: DATE, ledger, keyLedgers: TEMPO_KEY_LEDGERS, chain: chainView, monthElsewhere, sleep: realSleep, notSettledHolds: payNotSettledHolds, onRow: (r) => (runRows.push(r), result.rows.push(r), save(), logRow(r)) },
     ), () => runRows);
     run.endedAt = new Date().toISOString();
     run.stopped = res.stopped;
@@ -409,5 +413,6 @@ const allTargets = repair.targets;
 inputRepair.push(...repair.lines);
 /** reconcile finds a crashed purchase by payTo and URL: the repaired targets, plus the ones not bought today. */
 const reconcileTargets = [...allTargets, ...originalTargets.filter((t) => !allTargets.some((r) => r.chain === t.chain && r.url === t.url && r.payTo === t.payTo && r.service === t.service))];
-const slots = selectSlots(allTargets, perPayTo);
-process.exitCode = chain === "solana" ? await solana(slots, reconcileTargets) : await tempo(slots, reconcileTargets);
+const notSettledState = chain === "tempo" ? notSettledStateFromDir(OUT, DATE) : undefined;
+const slots = selectSlots(allTargets, perPayTo, notSettledState?.holds, notSettledState?.ended);
+process.exitCode = chain === "solana" ? await solana(slots, reconcileTargets) : await tempo(slots, reconcileTargets, notSettledState);

@@ -12,6 +12,7 @@ import type { PlanEntry as SolanaPlanEntry } from "../pay.js";
 import type { PlanEntry as TempoPlanEntry } from "../tempo/census.js";
 import { PAYER_ADDRESS as TEMPO_PAYER, normAddr } from "../tempo/constants.js";
 import { RM_QUARANTINED, type RemeasureChain } from "./constants.js";
+import type { NotSettledHold } from "./not-settled-hold.js";
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -155,7 +156,8 @@ export interface Selection {
   slots: { target: Target; slot: number }[];
   payTos: number;
   resources: number;
-  excluded: { url: string; payTo: string; reason: string }[];
+  excluded: { url: string; payTo: string; reason: string; holdDate?: string; holdKey?: string }[];
+  holdEnded: { url: string; payTo: string; holdDate: string; holdKey: string }[];
 }
 
 /**
@@ -164,7 +166,12 @@ export interface Selection {
  * so the same resource is measured every day and piles up counted purchases; slot i takes resource
  * i mod n.
  */
-export function selectSlots(targets: readonly Target[], perPayTo: number): Selection {
+export function selectSlots(
+  targets: readonly Target[],
+  perPayTo: number,
+  notSettledHolds?: ReadonlyMap<string, NotSettledHold>,
+  notSettledEnded?: ReadonlyMap<string, NotSettledHold>,
+): Selection {
   if (!Number.isInteger(perPayTo) || perPayTo < 1) throw new Error(`perPayTo ${perPayTo}`);
   const own = new Set([PAYER_ADDRESS, normAddr(TEMPO_PAYER)]);
   const quarantined = new Set(RM_QUARANTINED.map((q) => `${q.chain} ${normAddr(q.payTo)}`));
@@ -183,6 +190,13 @@ export function selectSlots(targets: readonly Target[], perPayTo: number): Selec
     if (quarantined.has(`${t.chain} ${t.payTo}`)) {
       excluded.push({ url: t.url, payTo: t.payTo, reason: "quarantined" });
       continue;
+    }
+    if (t.chain === "tempo" && notSettledHolds) {
+      const hold = notSettledHolds.get(normAddr(t.payTo));
+      if (hold) {
+        excluded.push({ url: t.url, payTo: t.payTo, reason: "not_settled_hold", holdDate: hold.holdDate, holdKey: hold.holdKey });
+        continue;
+      }
     }
     const k = `${t.chain} ${t.payTo} ${t.requestUrl} ${t.service ?? ""}`;
     if (seen.has(k)) {
@@ -208,5 +222,17 @@ export function selectSlots(targets: readonly Target[], perPayTo: number): Selec
   for (let slot = 0; slot < perPayTo; slot++) {
     for (const [, g] of groups) slots.push({ target: g[slot % g.length]!, slot });
   }
-  return { slots, payTos: groups.length, resources: seen.size, excluded };
+  const holdEnded: Selection["holdEnded"] = [];
+  const holdEndedSeen = new Set<string>();
+  if (notSettledEnded) {
+    for (const { target } of slots) {
+      const payTo = normAddr(target.payTo);
+      if (holdEndedSeen.has(payTo)) continue;
+      const hold = notSettledEnded.get(payTo);
+      if (!hold) continue;
+      holdEndedSeen.add(payTo);
+      holdEnded.push({ url: hold.url, payTo, holdDate: hold.holdDate, holdKey: hold.holdKey });
+    }
+  }
+  return { slots, payTos: groups.length, resources: seen.size, excluded, holdEnded };
 }

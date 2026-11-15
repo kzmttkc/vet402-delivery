@@ -12,7 +12,7 @@ import { Abis, Transaction } from "viem/tempo";
 import { MEASURE_SPACING_MS, PAYER_ADDRESS, SOLANA_MAINNET, USDC_MINT } from "../src/constants.js";
 import { SellerPacer } from "../src/measure.js";
 import type { PayDeps } from "../src/pay.js";
-import { TEMPO_MAINNET_CHAIN_ID, USDC_E, FEE_RESERVE_ATOMIC } from "../src/tempo/constants.js";
+import { TEMPO_MAINNET_CHAIN_ID, USDC_E, FEE_RESERVE_ATOMIC, normAddr } from "../src/tempo/constants.js";
 import { mppChallengesFromHeader, tempoChargeRequest } from "../src/tempo/challenge.js";
 import { Ledger, type LedgerEntry } from "../src/tempo/ledger.js";
 import { payOne as tempoPayOne, type PayDeps as TempoPayDeps } from "../src/tempo/pay.js";
@@ -22,6 +22,7 @@ import { aggregate, rank } from "../src/rank/score.js";
 import type { Attempt } from "../src/rank/types.js";
 import { RemeasureBudget, budgetKey } from "../src/remeasure/budget.js";
 import { RM_PROD_DIR, RM_QUARANTINED, RM_SOLANA_MAX_PER_MONTH_ATOMIC, RM_SOLANA_MAX_PER_RUN_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "../src/remeasure/constants.js";
+import { notSettledHoldsFromDir, notSettledStateFromDir } from "../src/remeasure/not-settled-hold.js";
 import { selectSlots, solanaFromCensus, solanaFromGate1, tempoFromLedger, type Target } from "../src/remeasure/targets.js";
 import { dryRunSolana, paySolana } from "../src/remeasure/solana.js";
 import { dayLedgerPath, dryRunTempo, firstBlockAtOrAfter, monthCommittedElsewhere, payTempo, type TempoChainView } from "../src/remeasure/tempo.js";
@@ -38,6 +39,8 @@ const P2 = (await generateKeyPairSigner()).address;
 const P3 = (await generateKeyPairSigner()).address;
 const OTHER_SOL = (await generateKeyPairSigner()).address;
 const SIG = "5".repeat(88);
+/** Settled tx from test/fixtures/tempo-not-settled-1108 (orth-seltz row); not a placeholder hash. */
+const TEMPO_NOT_SETTLED_HEAL_TX = "0xba0cd0ce7e74abef2392c06f635da9cf57322cde1110d18615d90564b1e585d1" as const;
 const DATE = "2026-10-01";
 const tmp = () => mkdtempSync(join(tmpdir(), "rm-"));
 const read = (p: string) => JSON.parse(readFileSync(join(import.meta.dirname, "..", "data", p), "utf8"));
@@ -81,6 +84,106 @@ test("targets: vet402's own hosts and payers are never selected; slots go round 
   assert.deepEqual(new Set(s.slots.slice(0, 2).map((x) => x.target.payTo)), new Set([P2, P3]));
   // P2: c (cheaper) then b then c again
   assert.deepEqual(s.slots.filter((x) => x.target.payTo === P2).map((x) => x.target.host), ["c.example", "b.example", "c.example"]);
+});
+
+test("targets: a payTo held after not_settled is left out with holdDate and holdKey for seven UTC days", () => {
+  const dir = tmp();
+  try {
+  const codex = "0xc12b5d802da90d14a8b35dec1cfb6fd5ceede60b";
+  const body = readFileSync(join(import.meta.dirname, "fixtures", "tempo-not-settled-1108", "tempo-2026-11-08.json"), "utf8");
+  writeFileSync(join(dir, "tempo-2026-11-08.json"), body);
+  const holds = notSettledHoldsFromDir(dir, "2026-11-09");
+  assert.equal(holds.size, 1);
+  assert.ok(holds.has(codex.toLowerCase()));
+  const other = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+  const holdOnly = new Map([[other, { url: "https://e.example/r", holdDate: "2026-11-08", holdKey: `2026-11-08|${other}|0` }]]);
+  const t = tempoTarget("e", "1000", other);
+  t.url = "https://e.example/r";
+  t.requestUrl = t.url;
+  t.tempo!.plan.request.url = t.url;
+  const ex = selectSlots([t], 1, holdOnly).excluded[0]!;
+  assert.deepEqual([ex.reason, ex.holdDate, ex.holdKey], ["not_settled_hold", "2026-11-08", `2026-11-08|${other}|0`]);
+  assert.equal(notSettledHoldsFromDir(dir, "2026-11-16").size, 0);
+  const healed = JSON.parse(body) as ResultFile;
+  const last = healed.rows.at(-1)!;
+  last.settled = true;
+  last.tx = TEMPO_NOT_SETTLED_HEAL_TX;
+  last.at = "2026-11-10T12:00:00.000Z";
+  healed.date = "2026-11-10";
+  writeFileSync(join(dir, "tempo-2026-11-10.json"), JSON.stringify(healed));
+  assert.equal(notSettledHoldsFromDir(dir, "2026-11-11").size, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("not_settled_hold: settled null sent in day ledger after settled false keeps hold on 2026-11-15, ended on 2026-11-16", () => {
+  const dir = tmp();
+  try {
+    const body = readFileSync(join(import.meta.dirname, "fixtures", "tempo-not-settled-1108", "tempo-2026-11-08.json"), "utf8");
+    writeFileSync(join(dir, "tempo-2026-11-08.json"), body);
+    const file = JSON.parse(body) as ResultFile;
+    const row = file.rows[28]!;
+    const pay = normAddr(row.expectedPayTo);
+    writeFileSync(
+      join(dir, "tempo-ledger-2026-11-10.json"),
+      JSON.stringify({
+        version: 1,
+        payer: file.payer,
+        capAtomic: "1000000",
+        entries: [
+          {
+            key: `2026-11-10|${pay}|0`,
+            url: row.url,
+            recipient: pay,
+            amount: "1000",
+            status: "sent",
+            settled: null,
+            reservedAt: "2026-11-10T12:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    assert.ok(notSettledHoldsFromDir(dir, "2026-11-15").has(pay));
+    const state16 = notSettledStateFromDir(dir, "2026-11-16");
+    assert.equal(state16.holds.size, 0);
+    assert.ok(state16.ended.has(pay));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("not_settled_hold: day ledger sent with settled null only does not hold", () => {
+  const dir = tmp();
+  try {
+    const body = readFileSync(join(import.meta.dirname, "fixtures", "tempo-not-settled-1108", "tempo-2026-11-08.json"), "utf8");
+    const file = JSON.parse(body) as ResultFile;
+    const row = file.rows[28]!;
+    const pay = normAddr(row.expectedPayTo);
+    writeFileSync(
+      join(dir, "tempo-ledger-2026-11-10.json"),
+      JSON.stringify({
+        version: 1,
+        payer: file.payer,
+        capAtomic: "1000000",
+        entries: [
+          {
+            key: `2026-11-10|${pay}|0`,
+            url: row.url,
+            recipient: pay,
+            amount: "1000",
+            status: "sent",
+            settled: null,
+            reservedAt: "2026-11-10T12:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    assert.equal(notSettledHoldsFromDir(dir, "2026-11-15").size, 0);
+    assert.equal(notSettledStateFromDir(dir, "2026-11-16").ended.size, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("targets: a quarantined seller is left out and listed with its reason", () => {

@@ -33,6 +33,7 @@ import { checkInput, INPUT_REJECT_STATUSES, lacksCatalogInput, type InputCheck }
 import { RM_PAID_TIMEOUT_MS, RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
 import { budgetKey } from "./budget.js";
 import { runSlots, type AttemptResult, type LoopResult, type Slot } from "./loop.js";
+import type { NotSettledHold } from "./not-settled-hold.js";
 import type { RemeasureRow } from "./results.js";
 
 export const DAY_LEDGER = /^tempo-ledger-(\d{4}-\d{2})-(\d{2})\.json$/;
@@ -123,7 +124,7 @@ export function targetInput(s: Slot): InputCheck | null {
   }
 }
 
-export type InputPayRefusal = { refused: "placeholder_input" | "no_input_example"; detail: string };
+export type InputPayRefusal = { refused: "placeholder_input" | "no_input_example" | "not_settled_hold"; detail: string };
 
 /**
  * Vet402's own skip before payOne: requests the census already showed were vet402's mistake, or a call that
@@ -143,6 +144,15 @@ export function inputPayRefusal(s: Slot, input: InputCheck | null): InputPayRefu
     return { refused: "no_input_example", detail: "no cataloged input for a request that needs parameters" };
   }
   return null;
+}
+
+function notSettledHoldRefusal(s: Slot, holds?: ReadonlyMap<string, NotSettledHold>): InputPayRefusal | null {
+  if (!holds?.size) return null;
+  const payTo = normAddr(s.target.payTo);
+  const locked = s.target.tempo?.plan.lockedRecipient ? normAddr(s.target.tempo.plan.lockedRecipient) : null;
+  const hold = holds.get(payTo) ?? (locked ? holds.get(locked) : undefined);
+  if (!hold) return null;
+  return { refused: "not_settled_hold", detail: `holdDate=${hold.holdDate} holdKey=${hold.holdKey}` };
 }
 
 export function tempoRow(
@@ -223,6 +233,7 @@ export interface TempoRunDeps {
   sleep: (ms: number) => Promise<void>;
   pacer?: SellerPacer;
   onRow?: (row: RemeasureRow) => void;
+  notSettledHolds?: ReadonlyMap<string, NotSettledHold>;
 }
 
 function paidAmount(ledger: Ledger, key: string): string | null {
@@ -252,6 +263,8 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
     attempt: async (s): Promise<AttemptResult> => {
       const at = now().toISOString();
       const entry = entryFor(s, deps.date);
+      const holdSkip = notSettledHoldRefusal(s, deps.notSettledHolds);
+      if (holdSkip) return { row: tempoRow(s, { result: "refused", refusal: holdSkip }, at, { key: entry.serviceId, livePayTo: null, amountAtomic: null }), stop: null };
       const skip = inputPayRefusal(s, targetInput(s));
       if (skip) return { row: tempoRow(s, { result: "refused", refusal: skip }, at, { key: entry.serviceId, livePayTo: null, amountAtomic: null }), stop: null };
       const o = await payOne(entry, { ...pay, paidTimeoutMs: pay.paidTimeoutMs ?? RM_PAID_TIMEOUT_MS, ledger: deps.ledger, chainSpent });
