@@ -30,7 +30,8 @@
     "program:build": "cargo-build-sbf --arch v3 --manifest-path solana-program/programs/observation-roots/Cargo.toml && cargo-build-sbf --arch v3 --manifest-path solana-program/programs/delivery-gate-example/Cargo.toml && cargo-build-sbf --arch v3 --manifest-path solana-program/programs/delivery-escrow-example/Cargo.toml",
     "program:test": "node --import tsx --test solana-program/tests/*.test.ts",
     "program:test:mainnet-features": "ROOTS_FEATURES_FROM=https://api.mainnet-beta.solana.com node --import tsx --test solana-program/tests/*.test.ts",
-    "program:devnet": "tsx scripts/roots-devnet.ts"
+    "program:devnet": "tsx scripts/roots-devnet.ts",
+    "keeta-keygen": "tsx scripts/keeta-keygen.ts"
   },
   "bin": {
     "vet402-check": "packages/check/bin/vet402-check.mjs"
@@ -56,6 +57,7 @@
     "@x402/core": "2.27.0",
     "@x402/evm": "2.27.0",
     "@x402/fetch": "2.27.0",
+    "@x402/keeta": "2.31.0",
     "@x402/svm": "2.27.0",
     "mppx": "0.11.0",
     "pg": "8.23.0",

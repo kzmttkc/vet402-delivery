@@ -1,7 +1,7 @@
 #!/bin/bash
 # vet402 daily runner, started by launchd (scripts/daily/launchd/). One fixed order, no judgment calls:
 #
-#   scripts/daily/run.sh am       10:17 JST  Solana, then Tempo: remeasure (one purchase per payTo), then publish
+#   scripts/daily/run.sh am       10:17 JST  Solana, then Tempo: remeasure (one purchase per payTo), then publish (with keeta-enabled, Keeta after the publish)
 #   scripts/daily/run.sh pm       22:17 JST  Solana only, the second purchase per payTo (--per-payto 2), then publish
 #   scripts/daily/run.sh records  09:05 JST  every closed UTC day with purchases and no anchored root, oldest first
 #                                            (at most 3 a run): build-receipts --day, verify-receipt on every record,
@@ -72,6 +72,7 @@
 # A run that ends at the month cap is said (a notice), not halted; buying resumes on the first of the next month.
 # A Tempo purchase key that cannot sign (an access key past its expiry, src/tempo/access-key.ts) leaves Tempo out
 # for the day (said, not halted) while Solana buys and publishes; three days before its expiry it is said daily.
+# With keeta-enabled, Keeta buys on mainnet after Solana and Tempo are published (am only). Without the flag it does not run.
 #
 # Settings: KEY=value lines in ~/.config/vet402-daily/env (outside the repository). Without that file, or without
 # VET402_ALERTS_FILE in it, nothing runs: the stop is logged and shown as a notification.
@@ -82,6 +83,7 @@
 #   ~/.config/vet402-daily/records-enabled  present: records sends the anchor; absent: records runs as a dry run
 #   ~/.config/vet402-daily/tempo-anchor-enabled  present: records also writes each root on Tempo; absent (default): Solana only
 #   ~/.config/vet402-daily/evm-roots-enabled  present: records also writes the EVM lanes' daily roots; absent (default): not
+#   ~/.config/vet402-daily/keeta-enabled  present: am also buys on Keeta (keeta:21378) after the other chains are published. Absent (default): not
 #   VET402_DAILY_LOGS    default ~/Library/Logs/vet402-daily
 #   VET402_DAILY_STATE   lock, HALT files, plans                                  default ~/.local/state/vet402-daily
 #   VET402_DAILY_END     first JST day with no am/pm/publish runs (YYYY-MM-DD)    default none (no end)
@@ -93,6 +95,7 @@
 #   VET402_DAILY_NOTIFY  0 turns the macOS notification off
 #   VET402_NET_WAIT_MAX  seconds to wait for the network before a stop               default 1800
 #   VET402_NET_WAIT_STEP seconds between two network checks while waiting           default 60
+#   VET402_KEETA_MAX_SECONDS  wall-clock limit for one keeta-lane invocation (dry run or --pay)  default 600
 #   VET402_DAILY_NOW     epoch seconds to use as now (tests)
 
 # Everything runs inside main(), read in full before it starts, so a git pull that rewrites this file
@@ -501,7 +504,140 @@ pay_lane() {
   # 2: a --pay run failed or stopped: nothing more, not even the publish, until a person has looked.
   [ $rc -eq 2 ] && return 2
   publish_remeasure || return $?
+  if [ "$per" = 1 ]; then
+    if [ -f "$CONF/keeta-enabled" ]; then
+      if [ $rc -ne 0 ] || [ -f "$STATE/HALT-pay" ]; then
+        notice "keeta: not buying today, the other chains stopped this run (HALT-pay or a refused plan)"
+      else
+        keeta_lane || true
+      fi
+    fi
+  fi
   return $rc
+}
+
+# keeta_limited <command...>: run a keeta-lane command under a wall-clock cap (VET402_KEETA_MAX_SECONDS).
+keeta_limited() {
+  local limit="${VET402_KEETA_MAX_SECONDS:-600}" pid start now elapsed child
+  case "$limit" in
+    ''|*[!0-9]*) limit=600 ;;
+  esac
+  if [ "$limit" -lt 1 ] 2>/dev/null; then limit=600; fi
+  # exec makes $! the command itself (env execs tsx), and the node body is its child, stopped through pgrep -P.
+  (cd "$REPO" && exec "$@") &
+  pid=$!
+  KEETA_LIMITED_LAST_PID=$pid
+  start="$(/bin/date +%s)"
+  while kill -0 "$pid" 2>/dev/null; do
+    now="$(/bin/date +%s)"
+    elapsed=$((now - start))
+    if [ "$elapsed" -ge "$limit" ]; then
+      for child in $(/usr/bin/pgrep -P "$pid" 2>/dev/null); do
+        kill -TERM "$child" 2>/dev/null || true
+      done
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 5
+      for child in $(/usr/bin/pgrep -P "$pid" 2>/dev/null); do
+        if kill -0 "$child" 2>/dev/null; then kill -KILL "$child" 2>/dev/null || true; fi
+      done
+      if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+      wait "$pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+  done
+  wait "$pid"
+  return $?
+}
+
+# keeta_halt <message>: Keeta alone stops, and other chains are unaffected. One alert line and HALT-keeta (no HALT-pay, no ALERTED).
+keeta_halt() {
+  local when line
+  when="$(TZ=Asia/Tokyo /bin/date '+%Y-%m-%d %H:%M')"
+  line="## ⚠️ [$when] [vet402_daily] $MODE$([ "$DRY" = 1 ] && echo ' (dry run)'): keeta lane stopped, other chains unaffected: $1 (log: $LOG)"
+  log "KEETA HALT: $1"
+  mkdir -p "$(dirname "$ALERTS")"
+  printf '\n%s\n' "$line" >>"$ALERTS"
+  notify "$MODE: keeta lane stopped: $1"
+  printf '%s\n' "$line" >"$STATE/HALT-keeta"
+}
+
+keeta_lane() {
+  local plan="$STATE/plan-keeta" start rc verdict file
+  if [ ! -f "$CONF/keeta-enabled" ]; then
+    return 0
+  fi
+  if [ -e "$RMDIR/keeta.lock" ]; then
+    keeta_halt "keeta.lock is present ($RMDIR/keeta.lock): another Keeta --pay run, or one that was killed"
+    return 0
+  fi
+  if [ -f "$STATE/HALT-keeta" ]; then
+    continues "keeta lane" "Keeta is halted ($STATE/HALT-keeta); remove the file after a person has looked"
+    return 0
+  fi
+  if [ ! -f "$REPO/scripts/keeta-lane.ts" ]; then
+    continues "keeta lane" "scripts/keeta-lane.ts is not on $BRANCH"
+    return 0
+  fi
+  rm -rf "$plan" && mkdir -p "$plan"
+  local klimit="${VET402_KEETA_MAX_SECONDS:-600}"
+  case "$klimit" in
+    ''|*[!0-9]*) klimit=600 ;;
+  esac
+  if [ "$klimit" -lt 1 ] 2>/dev/null; then klimit=600; fi
+  run "keeta dry run" keeta_limited "$TSX" scripts/keeta-lane.ts --dry-run --out "$plan"
+  local kdr=$?
+  if [ "$kdr" -eq 124 ]; then
+    keeta_halt "keeta-lane (dry run) ran over ${klimit}s and was stopped (pid ${KEETA_LIMITED_LAST_PID:-?})"
+    return 0
+  fi
+  if [ "$kdr" -ne 0 ]; then
+    continues "keeta lane" "keeta-lane --dry-run failed"
+    return 0
+  fi
+  file="$(ls "$plan"/keeta-*.dry-run.json 2>/dev/null | tail -1)"
+  [ -n "$file" ] || { continues "keeta lane" "keeta dry run wrote no plan"; return 0; }
+  verdict="$(daily_steps check-plan "$file" --chain keeta --day "$UTC_DAY" --per-payto 1 --ledger "$RMDIR/budget-keeta-${UTC_DAY%-*}.json")"
+  rc=$?
+  log "keeta plan: $verdict"
+  local warn
+  warn="$(printf '%s\n' "$verdict" | /usr/bin/sed -n 's/^WARN: //p' | head -1)"
+  [ -n "$warn" ] && notice "$warn"
+  if [ $rc -eq 10 ]; then return 0; fi
+  if [ $rc -eq 11 ]; then
+    continues "keeta lane" "$(printf '%s\n' "$verdict" | head -1). Nothing paid on keeta today"
+    return 0
+  fi
+  if [ $rc -ne 0 ]; then
+    log "keeta: not paying: $verdict"
+    keeta_halt "$verdict"
+    return 0
+  fi
+  if [ "$DRY" = 1 ]; then
+    log "dry run: would pay now (keeta-lane --pay)"
+    return 0
+  fi
+  start="$(/bin/date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+  run "keeta --pay" keeta_limited env VET402_KEETA_PAY=1 "$TSX" scripts/keeta-lane.ts --pay --plan "$file"
+  rc=$?
+  if [ "$rc" -eq 124 ]; then
+    keeta_halt "keeta-lane (--pay) ran over ${klimit}s and was stopped (pid ${KEETA_LIMITED_LAST_PID:-?})"
+    return 0
+  fi
+  local out
+  out="$(daily_steps run-outcome "$RMDIR/keeta-$UTC_DAY.json" --since "$start")"
+  local orc=$?
+  log "keeta outcome: $out"
+  if [ $rc -eq 0 ] && [ $orc -eq 5 ]; then
+    notice "keeta reached the month cap: $out"
+    return 0
+  fi
+  if [ $rc -ne 0 ] || [ $orc -ne 0 ]; then
+    log "keeta --pay exit $rc: $out"
+    keeta_halt "keeta --pay exit $rc: $out"
+    return 0
+  fi
+  return 0
 }
 
 remeasure() {

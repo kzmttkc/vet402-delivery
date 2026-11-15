@@ -1,7 +1,7 @@
 /**
  * Decisions for scripts/daily/run.sh (src/daily/steps.ts). No key, no network, no payment.
  *
- *   npx tsx scripts/daily/steps.ts check-plan <dry-run.json> --chain solana|tempo --day YYYY-MM-DD --per-payto N [--ledger <file>]
+ *   npx tsx scripts/daily/steps.ts check-plan <dry-run.json> --chain solana|tempo|keeta --day YYYY-MM-DD --per-payto N [--ledger <file>]
  *       the estimate leaves out slots the spend ledger already holds (bought earlier that day)
  *       exit 0 pay, 10 nothing to buy, 11 skip this chain today (the Tempo purchase key cannot sign, or the payer
  *       balance is short; others go on), 4 stop (over the run cap, the month, or not today's plan). A second line
@@ -44,7 +44,7 @@ if (cmd === "check-plan") {
   const per = Number(opt("--per-payto"));
   const ledger = opt("--ledger");
   const [file] = args;
-  if ((chain !== "solana" && chain !== "tempo") || !day || !file || !Number.isInteger(per)) usage("check-plan needs <file> --chain --day --per-payto");
+  if ((chain !== "solana" && chain !== "tempo" && chain !== "keeta") || !day || !file || !Number.isInteger(per)) usage("check-plan needs <file> --chain --day --per-payto");
   const v = planVerdict(readJson(file), chain, day, per, ledger && existsSync(ledger) ? ledgerKeys(readJson(ledger)) : new Set());
   console.log(v.line);
   if (!v.stop && v.warn) console.log(`WARN: ${v.warn}`);

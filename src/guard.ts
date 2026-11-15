@@ -156,8 +156,20 @@ export class Budget {
     readonly maxTotal: bigint = MAX_TOTAL_ATOMIC,
     readonly maxCount: number = MAX_PURCHASES,
     readonly maxPer: bigint = MAX_PER_PURCHASE_ATOMIC,
+    /** In-memory month ledger for dry-run planning when file is null (nothing is persisted). */
+    monthSeed?: { spent: bigint; count: number },
   ) {
     this.state = this.load();
+    if (monthSeed && !file) {
+      this.state.spentAtomic = monthSeed.spent.toString();
+      if (monthSeed.count > 0) {
+        this.state.purchases = Array.from({ length: monthSeed.count }, (_, i) => ({
+          key: `__month_seed_${i}__`,
+          amount: "0",
+          at: "",
+        }));
+      }
+    }
   }
 
   private load(): LedgerState {

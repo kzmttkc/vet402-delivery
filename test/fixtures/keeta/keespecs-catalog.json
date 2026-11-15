@@ -1,0 +1,462 @@
+{
+  "capturedAt": "2026-11-15T13:14:00Z",
+  "url": "https://keespecs.xyz/.well-known/x402",
+  "body": {
+    "x402Version": 2,
+    "service": "KeeSpecs",
+    "price": "0.01 USDC",
+    "resources": [
+      {
+        "url": "https://keespecs.xyz/api/token/rules",
+        "method": "GET",
+        "description": "Who controls a Keeta token: owner, admins, who can mint or burn, who can change permissions, and where minted supply went. From the ledger. A bad query returns 400 and is not charged. A token address that is not on the ledger returns 200 with status not_on_ledger and is not charged. Not an audit.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "20000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/convert-check",
+        "method": "GET",
+        "description": "Use when an agent is about to convert or bridge on Keeta and needs go, caution, or no-go first. kind=convert (from, to, amount) or kind=bridge (token, toChain, amount). Checks peg, settlement time, ledger activity, anchor liveness and route; each input shows its rule. Wrong-kind or missing params return 400, not charged. Not a quote or a guarantee.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "20000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/stablecoin-fx",
+        "method": "GET",
+        "description": "Peg check for Keeta's $K/$KB same-currency anchor (mainnet, thin). Only $KB\u2192$K is offered today. Not an FX rate or a quote. reason is direction_not_offered when the pair is not listed in serviceMetadata, no_ratio_returned when it is listed but the price call returned no ratio, and upstream_error when the anchor call fails or times out. USDC and EURC are not pairs on this anchor.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/regime",
+        "method": "GET",
+        "description": "The deepest Base pool for KTA over the last hour, and whether Keeta's own rail is quiet or slow. The score is not a forecast and not a social mood.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/status",
+        "method": "GET",
+        "description": "Three checks for this minute. The ledger produced transactions or it did not. Settlement's median representative p95 is within 5 seconds across a 15-minute window, or it is not. Fewer than 3 representatives is unknown. The price marks agree within 1% of their median, or they do not. Each line is pass, fail, or unknown. There is no score.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/prices",
+        "method": "GET",
+        "description": "The deepest Base pool and Keeta's pricing anchor are the marks. agree is true when both answered and each is within 1% of their median. keeta-fx is published as tradable and is not part of agree. No blended price. Keeta USDC is treated as $1.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/price-crossings",
+        "method": "GET",
+        "description": "When the Base pool, Keeta's pricing anchor, and Keeta's FX anchor crossed the 1% line, or came back inside it. moved may be keeta-fx. Samples that stay on the same side are omitted. The first sample is a baseline.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/bridge-route",
+        "method": "GET",
+        "description": "Use when an agent is about to bridge a token between two chains and must know whether a published one-hop path exists. Checks LayerZero, Bridge.xyz and Keeta's Base bridge (Corridor). canMove is false when no provider publishes a path: stop. A missing or unknown chain returns 400, not charged. Not a quote, not a fee, and not a transfer.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/corridors/choose",
+        "method": "GET",
+        "description": "The one eligible local rail with the lowest published fixed fee, plus the rails set aside and why. Default direction is out. Basis points are returned and not used to rank, because the fee unit is not named. Not a quote.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/changes",
+        "method": "GET",
+        "description": "What moved since a date: corridor rails and fees, the KTA dollar price, and samples of the live rate and settlement time. The first copy of each series is a baseline. verification.designator is compared.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/corridors/changes",
+        "method": "GET",
+        "description": "Rails added or removed, and published fees that changed, since KeeSpecs' previous copy of provider metadata. The first copy is a baseline and lists no changes. verification.designator is compared.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/desk",
+        "method": "GET",
+        "description": "One market call: the KTA dollar price, supply of KTA, USDC, EURC, and cbBTC, the send ranks, and the AlpacaDEX pools with 24-hour volume. The price alone is free. Supply, movers, and Alpaca stay separate. Not a forecast.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "20000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/network",
+        "method": "GET",
+        "description": "Live throughput and settlement time in one call. last60sTps is the live rate. lifetimeTps is the average since 22 Sep 2025. Settlement is a 15-minute window across representatives, in milliseconds. Pulse and settlement remain separate 0.01 calls.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "20000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/corridors",
+        "method": "GET",
+        "description": "Where money can move between Keeta and a bank or card: provider, rail, recipient fields, exclusions, and the fee that provider published. Not a quote and not an FX rate. Pass a country, currency, or location.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/anchors",
+        "method": "GET",
+        "description": "The newest movement of the Base anchor or the Bivo anchor in one activity page, and the median block fee. An empty list is not an outage.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/alpaca",
+        "method": "GET",
+        "description": "AlpacaDEX pools that had 24-hour volume, with price and market cap in KTA. Not a 12-hour figure, not dollars, and not operated by Keeta.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/movers",
+        "method": "GET",
+        "description": "Community tokens and official stablecoins ranked by how many times they were sent. covers12h is true only when the activity page reaches back 12 hours. Not dollar volume and not an exchange rate.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/settlement",
+        "method": "GET",
+        "description": "Median and 95th percentile of settlement time, in milliseconds, across representatives in a rolling 15-minute window. The lifetime histogram from one representative is not used. Fewer than 3 representatives with 100 samples is unknown, not a failure.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/token/check",
+        "method": "GET",
+        "description": "Use when an agent is about to send, swap, or price a Keeta token named by ticker or address and must know it is the official one. Pass symbol or token. Returns the official address, every token with that code, and warnings such as same_code_as_official or admin_can_mint. A bad query returns 400, not charged. Not an audit.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/pulse",
+        "method": "GET",
+        "description": "Ledger totals, tx/s over the last minute, blocks per second, the busiest second, the median gap between blocks, and the latest blocks. lifetimeTps is the average since 22 Sep 2025, not the live rate.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/address-check",
+        "method": "GET",
+        "description": "Whether a Keeta address has at least one block, its type, balances, and a score from 0 to 100. The four parts are age (40), block count (30), counterparties (20), and a keeta.xyz username (10). The formula is at /docs/address-check#score. Not proof of personhood. The name is from keeta.xyz, not the ledger.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/bridge-speed",
+        "method": "GET",
+        "description": "How fast and how reliably transfers move into and out of Keeta. window is 1h, 24h, or 7d. direction is in, out, or all. asset is an optional keeta_ token. timing_label is Keeta settlement time. Measured on Keeta only. Does not include time spent on the Corridor chain. timing_method same_staple_amount_token is an internal hop: median_ms and p95_ms, and median_seconds and p95_seconds to one decimal. It is not full settlement. score is null, label is unknown, and reason is settlement_not_observable. Fewer than 20 transfers is bridge_unknown. If no interval can be measured, reason is timing_not_observable. Not a guarantee of future transfer times.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "10000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://keespecs.xyz/api/persist-check",
+        "method": "GET",
+        "description": "Use when an agent is about to store data on Keeta for an account and needs ready, caution, or blocked first. Combines storage quotas, account existence, permissions and status checks; reasons and the rule are included. A bad address returns 400 and is not charged. Does not store anything. Not a guarantee. Rule: /docs/persist-check#rule.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "20000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      },
+      {
+        "url": "https://clear.keespecs.xyz/api/clear/check",
+        "method": "POST",
+        "description": "Advisory pre-send check for Keeta USDC to Keeta USDC. Returns go, caution, or no-go with a signed receipt. Not a send, not custody, not a legal attestation. Advisory check, not a guarantee or a legal attestation. The sender decides whether to pay.",
+        "mimeType": "application/json",
+        "accepts": [
+          {
+            "scheme": "exact",
+            "network": "keeta:21378",
+            "amount": "20000",
+            "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+            "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+            "maxTimeoutSeconds": 300,
+            "extra": {}
+          }
+        ]
+      }
+    ],
+    "freeTier": {
+      "permanent": [
+        "https://keespecs.xyz/api/token",
+        "https://keespecs.xyz/api/block",
+        "https://keespecs.xyz/api/balance",
+        "https://keespecs.xyz/api/supply",
+        "https://keespecs.xyz/api/representatives",
+        "https://keespecs.xyz/api/directory",
+        "https://keespecs.xyz/api/ecosystem",
+        "https://keespecs.xyz/api/providers",
+        "https://keespecs.xyz/api/corridors/index",
+        "https://keespecs.xyz/api/account",
+        "https://keespecs.xyz/api/portfolio",
+        "https://keespecs.xyz/api/activity",
+        "https://keespecs.xyz/api/outbox",
+        "https://keespecs.xyz/api/permissions",
+        "https://keespecs.xyz/api/storage-quotas",
+        "https://keespecs.xyz/api/stablecoins",
+        "https://keespecs.xyz/api/fx-reference"
+      ],
+      "whilePaymentsDown": [
+        "https://keespecs.xyz/api/status",
+        "https://keespecs.xyz/api/prices",
+        "https://keespecs.xyz/api/price-crossings",
+        "https://keespecs.xyz/api/regime",
+        "https://keespecs.xyz/api/settlement",
+        "https://keespecs.xyz/api/pulse",
+        "https://keespecs.xyz/api/token/check",
+        "https://keespecs.xyz/api/movers",
+        "https://keespecs.xyz/api/alpaca",
+        "https://keespecs.xyz/api/anchors",
+        "https://keespecs.xyz/api/corridors",
+        "https://keespecs.xyz/api/corridors/choose",
+        "https://keespecs.xyz/api/bridge-route",
+        "https://keespecs.xyz/api/changes",
+        "https://keespecs.xyz/api/corridors/changes",
+        "https://keespecs.xyz/api/stablecoin-fx",
+        "https://keespecs.xyz/api/address-check",
+        "https://keespecs.xyz/api/bridge-speed"
+      ],
+      "active": false,
+      "status": "https://keespecs.xyz/api/x402-health"
+    }
+  }
+}

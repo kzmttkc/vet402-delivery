@@ -905,6 +905,44 @@ function git(cwd: string, ...args: string[]) {
   return r.stdout.trim();
 }
 
+const FAKE_KEETA_LANE = `import { appendFileSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+const a = process.argv.slice(2), v = (n) => a[a.indexOf(n) + 1];
+appendFileSync(process.env.FAKE_CALLS, "keeta-lane " + a.join(" ") + "\\n");
+const day = new Date(Number(process.env.VET402_DAILY_NOW) * 1000).toISOString().slice(0, 10);
+const out = v("--out");
+if (a.includes("--dry-run")) {
+  const mode = process.env.FAKE_KEETA_PLAN ?? "ok";
+  if (mode === "hang") {
+    const pidFile = process.env.FAKE_KEETA_HANG_PID;
+    if (pidFile) writeFileSync(pidFile, String(process.pid));
+    await new Promise(() => { setInterval(() => {}, 1000); });
+  } else {
+  const signer = mode === "nokey" ? { signer: { problem: "no Keeta purchase key (keeta-payer.pub not found in the key folder)" } } : mode === "monthcap" ? { signer: { warn: "Keeta month cap: 1 of 5 payable routes fit in what is left this month (0.010000 USDC), buying those" } } : mode === "overcap" ? {} : {};
+  const estimate = mode === "overcap" ? "1.000000" : mode === "monthcap" ? "0.010000" : "0.010000";
+  const perRun = mode === "overcap" ? "0.010000" : "0.250000";
+  const rows = mode === "overcap"
+    ? [{ key: day + "|u", outcome: "would_pay", priceUsdc: "1.000000" }]
+    : mode === "monthcap"
+      ? [{ key: day + "|u", outcome: "would_pay", priceUsdc: "0.010000" }]
+      : [{ key: day + "|u", outcome: "would_pay", priceUsdc: "0.010000" }];
+  mkdirSync(out, { recursive: true });
+  writeFileSync(out + "/keeta-" + day + ".dry-run.json", JSON.stringify({ kind: "vet402-remeasure-dry-run", chain: "keeta", createdAt: day + "T01:18:00.000Z", perPayTo: 1,
+    caps: { perRun: perRun, monthLeft: "6.000000" }, summary: { would: 1, estimate, payerUsdcBefore: "5.000000" }, rows, ...signer }));
+  process.exit(0);
+  }
+}
+if (a.includes("--pay")) {
+  if (process.env.VET402_KEETA_PAY !== "1") process.exit(6);
+  if (!a.includes("--plan")) process.exit(2);
+  mkdirSync("results/remeasure", { recursive: true });
+  const at = new Date().toISOString();
+  writeFileSync("results/remeasure/keeta-" + day + ".json", JSON.stringify({ kind: "vet402-remeasure", chain: "keeta", date: day,
+    runs: [{ startedAt: at, endedAt: at, perPayTo: 1, stopped: null }], rows: [] }));
+  process.exit(0);
+}
+process.exit(2);
+`;
+
 const FAKE_REMEASURE = `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 const a = process.argv.slice(2), v = (n) => a[a.indexOf(n) + 1];
 appendFileSync(process.env.FAKE_CALLS, a.join(" ") + "\\n");
@@ -1066,7 +1104,7 @@ exit 0
 }
 
 /** A bare origin, a clone on main that looks like this repository to run.sh, and fake scripts. */
-function sandbox(opts: { records?: boolean } = {}): Sandbox {
+function sandbox(opts: { records?: boolean; keeta?: boolean } = {}): Sandbox {
   const dir = tmp();
   const home = join(dir, "home");
   const origin = join(dir, "origin.git");
@@ -1082,6 +1120,7 @@ function sandbox(opts: { records?: boolean } = {}): Sandbox {
   writeFileSync(join(seed, "fake", "remeasure.mjs"), FAKE_REMEASURE);
   writeFileSync(join(seed, "fake", "rank.mjs"), FAKE_RANK);
   writeFileSync(join(seed, "scripts", "build-site.ts"), FAKE_BUILD_SITE);
+  if (opts.keeta) writeFileSync(join(seed, "scripts", "keeta-lane.ts"), FAKE_KEETA_LANE);
   if (opts.records) {
     mkdirSync(join(seed, "src", "receipt"), { recursive: true });
     writeFileSync(join(seed, "src", "receipt", "sources.ts"), "export function assertDaySourcesCurrent() {}\n");
@@ -2295,5 +2334,134 @@ test("run.sh records: a Tempo ledger without its result stops the day instead of
   assert.doesNotMatch(calls(sb), /build-receipts .*--day 2026-10-04/);
   assert.match(alerts(sb), /tempo-ledger-2026-10-04\.json is there without tempo-2026-10-04\.json/);
   assert.ok(existsSync(join(sb.state, "HALT-records")));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: without keeta-enabled the am run is unchanged: no keeta call, no keeta line", () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-15.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-15", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-15T01:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!/keeta-lane/.test(calls(sb)));
+  assert.ok(!/keeta/i.test(alerts(sb)));
+  assert.ok(!/keeta/i.test(logs(sb)));
+  assert.match(calls(sb), /--chain solana --dry-run/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: without keeta-enabled pm and publish are unchanged: no keeta call, no keeta line", { skip: process.env.VET402_SLOW_TESTS !== "1" && "set VET402_SLOW_TESTS=1" }, () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.rmdir, "solana-2026-10-20.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-20", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const pm = runSh(sb, ["pm", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-20T13:17:00Z") });
+  assert.equal(pm.status, 0, logs(sb));
+  assert.ok(!/keeta-lane/.test(calls(sb)));
+  assert.ok(!/keeta/i.test(alerts(sb)));
+  assert.ok(!/keeta/i.test(logs(sb)));
+  const pub = runSh(sb, ["publish", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-20T01:17:00Z") });
+  assert.equal(pub.status, 0, logs(sb));
+  assert.ok(!/keeta-lane/.test(calls(sb)));
+  assert.ok(!/keeta/i.test(alerts(sb)));
+  assert.ok(!/keeta/i.test(logs(sb)));
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: keeta-enabled with no Keeta key: one line, Keeta left out, Solana still buys and publishes, no HALT-pay, no HALT-keeta", () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "keeta-enabled"), "");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-16.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-16", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-16T01:17:00Z"), FAKE_KEETA_PLAN: "nokey" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(calls(sb), /keeta-lane --dry-run/);
+  assert.match(alerts(sb), /keeta lane failed, publish continues: keeta: not buying today/);
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.ok(!existsSync(join(sb.state, "HALT-keeta")));
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-16 remeasure on Solana/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: keeta-enabled and a Keeta plan over its cap: HALT-keeta only; Solana still published; the next am still buys on Solana", { skip: process.env.VET402_SLOW_TESTS !== "1" && "set VET402_SLOW_TESTS=1" }, () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "keeta-enabled"), "");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-17.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-17", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-17T01:17:00Z"), FAKE_KEETA_PLAN: "overcap" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(existsSync(join(sb.state, "HALT-keeta")));
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.match(alerts(sb), /keeta lane stopped, other chains unaffected/);
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-17 remeasure on Solana/);
+  const r2 = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-18T01:17:00Z") });
+  assert.equal(r2.status, 0);
+  assert.match(calls(sb), /--chain solana --dry-run/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: a stale keeta.lock stops only Keeta: Solana still buys and publishes", { skip: process.env.VET402_SLOW_TESTS !== "1" && "set VET402_SLOW_TESTS=1" }, () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "keeta-enabled"), "");
+  writeFileSync(join(sb.rmdir, "keeta.lock"), "");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-19.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-19", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-19T01:17:00Z") });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!/keeta-lane/.test(calls(sb)));
+  assert.match(alerts(sb), /keeta lane stopped, other chains unaffected.*keeta\.lock/);
+  assert.ok(existsSync(join(sb.state, "HALT-keeta")));
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-19 remeasure on Solana/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: when the same am run halts the pay lane, Keeta does not buy and says so in one notice line", { skip: process.env.VET402_SLOW_TESTS !== "1" && "set VET402_SLOW_TESTS=1" }, () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "keeta-enabled"), "");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-01.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-01", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-01T01:17:00Z"), FAKE_ESTIMATE_TEMPO: "1.500000" });
+  assert.equal(r.status, 1, logs(sb));
+  assert.ok(existsSync(join(sb.state, "HALT-pay")));
+  assert.ok(!existsSync(join(sb.state, "HALT-keeta")));
+  assert.ok(!/keeta-lane/.test(calls(sb)));
+  const keetaNotices = alerts(sb)
+    .split("\n")
+    .filter((l) => l.includes("keeta: not buying today, the other chains stopped this run (HALT-pay or a refused plan)"));
+  assert.equal(keetaNotices.length, 1);
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-01 remeasure on Solana/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: keeta-enabled and a plan cut by the month cap: one notice line, no HALT-keeta, Solana still published", { skip: process.env.VET402_SLOW_TESTS !== "1" && "set VET402_SLOW_TESTS=1" }, () => {
+  const sb = sandbox({ keeta: true });
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "keeta-enabled"), "");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-21.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-21", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], { VET402_DAILY_NOW: at("2026-10-21T01:17:00Z"), FAKE_KEETA_PLAN: "monthcap" });
+  assert.equal(r.status, 0, logs(sb));
+  assert.ok(!existsSync(join(sb.state, "HALT-keeta")));
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.match(alerts(sb), /Keeta month cap: 1 of 5 payable routes/);
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-21 remeasure on Solana/);
+  rmSync(sb.dir, { recursive: true });
+});
+
+test("run.sh: a keeta-lane that never ends is stopped at VET402_KEETA_MAX_SECONDS: one keeta line, HALT-keeta, no HALT-pay, Solana still published, the stuck process is gone", { skip: process.env.VET402_SLOW_TESTS !== "1" && "set VET402_SLOW_TESTS=1" }, () => {
+  const sb = sandbox({ keeta: true });
+  const pidFile = join(sb.dir, "keeta-hang.pid");
+  writeFileSync(join(sb.home, ".config", "vet402-daily", "keeta-enabled"), "");
+  writeFileSync(join(sb.rmdir, "solana-2026-10-22.json"), JSON.stringify({ kind: "vet402-remeasure", chain: "solana", date: "2026-10-22", runs: [], rows: [{ host: "a.example", outcome: "sent", settled: true, delivered: true, detail: "{}" }] }));
+  const r = runSh(sb, ["am", "--dry-run"], {
+    VET402_DAILY_NOW: at("2026-10-22T01:17:00Z"),
+    FAKE_KEETA_PLAN: "hang",
+    FAKE_KEETA_HANG_PID: pidFile,
+    VET402_KEETA_MAX_SECONDS: "2",
+  });
+  assert.equal(r.status, 0, logs(sb));
+  assert.match(alerts(sb), /ran over 2s and was stopped/);
+  assert.ok(existsSync(join(sb.state, "HALT-keeta")));
+  assert.ok(!existsSync(join(sb.state, "HALT-pay")));
+  assert.match(logs(sb), /commit [0-9a-f]{40}: data: 2026-10-22 remeasure on Solana/);
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  assert.throws(() => process.kill(pid, 0), (e: NodeJS.ErrnoException) => e.code === "ESRCH");
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    /* already gone */
+  }
   rmSync(sb.dir, { recursive: true });
 });

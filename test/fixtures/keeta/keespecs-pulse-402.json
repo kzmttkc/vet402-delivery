@@ -1,0 +1,56 @@
+{
+  "capturedAt": "2026-11-15T13:12:34Z",
+  "url": "https://keespecs.xyz/api/pulse",
+  "method": "GET",
+  "status": 402,
+  "headers": {
+    "content-type": "application/json",
+    "payment-required": "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9rZWVzcGVjcy54eXovYXBpL3B1bHNlIiwiZGVzY3JpcHRpb24iOiJMZWRnZXIgdG90YWxzLCB0eC9zIG92ZXIgdGhlIGxhc3QgbWludXRlLCBibG9ja3MgcGVyIHNlY29uZCwgdGhlIGJ1c2llc3Qgc2Vjb25kLCB0aGUgbWVkaWFuIGdhcCBiZXR3ZWVuIGJsb2NrcywgYW5kIHRoZSBsYXRlc3QgYmxvY2tzLiBsaWZldGltZVRwcyBpcyB0aGUgYXZlcmFnZSBzaW5jZSAyMiBTZXAgMjAyNSwgbm90IHRoZSBsaXZlIHJhdGUuIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sImFjY2VwdHMiOlt7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6ImtlZXRhOjIxMzc4IiwiYW1vdW50IjoiMTAwMDAiLCJhc3NldCI6ImtlZXRhX2FtbmtnZTc0eGl0aWk1ZHNvYnN0bGRhdHYzaXJteWltdWpmam90ZnR4N3BsYWFhc2VhbTRibnRiN3dubmEiLCJwYXlUbyI6ImtlZXRhX2FhYno2enhiczJuNHI3aWlvYmNsbmRvYnJub3d4ZGY0cGpyYjVsd2U2YnZwZW81NjRib3Q2a3JqYnJzYmJ2eSIsIm1heFRpbWVvdXRTZWNvbmRzIjozMDAsImV4dHJhIjp7fX1dLCJleHRlbnNpb25zIjp7ImJhemFhciI6eyJpbmZvIjp7ImlucHV0Ijp7InR5cGUiOiJodHRwIiwibWV0aG9kIjoiR0VUIn0sIm91dHB1dCI6eyJ0eXBlIjoianNvbiIsImV4YW1wbGUiOnsicHJvZHVjdCI6ImtlZXNwZWNzLnB1bHNlIiwibmV0d29yayI6Im1haW4iLCJsZWRnZXIiOnsidHJhbnNhY3Rpb25Db3VudCI6MCwiYmxvY2tDb3VudCI6MCwibGlmZXRpbWVUcHMiOjB9fX19fX19"
+  },
+  "body": {
+    "x402Version": 2,
+    "error": "Payment required",
+    "resource": {
+      "url": "https://keespecs.xyz/api/pulse",
+      "description": "Ledger totals, tx/s over the last minute, blocks per second, the busiest second, the median gap between blocks, and the latest blocks. lifetimeTps is the average since 22 Sep 2025, not the live rate.",
+      "mimeType": "application/json"
+    },
+    "accepts": [
+      {
+        "scheme": "exact",
+        "network": "keeta:21378",
+        "amount": "10000",
+        "asset": "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna",
+        "payTo": "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+        "maxTimeoutSeconds": 300,
+        "extra": {}
+      }
+    ],
+    "extensions": {
+      "bazaar": {
+        "info": {
+          "input": {
+            "type": "http",
+            "method": "GET"
+          },
+          "output": {
+            "type": "json",
+            "example": {
+              "product": "keespecs.pulse",
+              "network": "main",
+              "ledger": {
+                "transactionCount": 0,
+                "blockCount": 0,
+                "lifetimeTps": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "product": "keespecs.pulse",
+    "price": "0.01 USDC",
+    "facilitator": "https://x402.keespecs.xyz (fallback https://facilitator.x402.keeta.com). You don't call it; just retry with PAYMENT-SIGNATURE. Check /api/x402-health first.",
+    "skill": "https://keeta.ai/skills/x402-payments/SKILL.md"
+  }
+}

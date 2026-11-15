@@ -71,14 +71,14 @@ export function ledgerKeys(ledger: unknown): Set<string> {
  * Pay only when the dry run of the same UTC day and chain says the run fits: estimate (plus the Tempo fee
  * reserve) within the run cap, the month left and the payer balance. Nothing to buy is not a stop.
  */
-export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: string, perPayTo: number, bought: ReadonlySet<string> = new Set()): PlanVerdict {
+export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo" | "keeta", day: string, perPayTo: number, bought: ReadonlySet<string> = new Set()): PlanVerdict {
   const stop = (line: string): PlanVerdict => ({ pay: false, stop: true, line: `${chain}: ${line}` });
   if (plan.kind !== "vet402-remeasure-dry-run" || plan.chain !== chain) return stop("the plan is not a remeasure dry run for this chain");
   if (!DAY.test(day) || plan.createdAt?.slice(0, 10) !== day) return stop(`the plan is from ${plan.createdAt ?? "?"}, not UTC day ${day}`);
   if (plan.perPayTo !== perPayTo) return stop(`the plan is for --per-payto ${plan.perPayTo}, not ${perPayTo}`);
   // The Tempo purchase key: one that cannot sign (expired, revoked, not registered) leaves Tempo out today, said
   // without halting the lane, so Solana still buys and publishes; nothing is signed with it.
-  const signer = chain === "tempo" ? plan.signer : undefined;
+  const signer = chain === "tempo" || chain === "keeta" ? plan.signer : undefined;
   if (signer && typeof signer.problem === "string" && signer.problem) {
     return { pay: false, stop: false, skip: true, line: `${chain}: not buying today, the purchase key cannot sign: ${signer.problem}` };
   }
@@ -99,7 +99,7 @@ export function planVerdict(plan: DryRunFile, chain: "solana" | "tempo", day: st
     est = toBuy.reduce((a, r) => a + toAtomic(r.priceUsdc), 0n);
     perRun = toAtomic(plan.caps?.perRun);
     monthLeft = toAtomic(plan.caps?.monthLeft);
-    balance = toAtomic(chain === "solana" ? plan.summary?.payerUsdcBefore : plan.summary?.payerUsdcEBefore);
+    balance = toAtomic(chain === "tempo" ? plan.summary?.payerUsdcEBefore : plan.summary?.payerUsdcBefore);
   } catch (e) {
     return stop(`the plan is missing an amount (${(e as Error).message})`);
   }
