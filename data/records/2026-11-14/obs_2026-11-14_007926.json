@@ -1,0 +1,117 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-11-14_007926",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 7926
+  },
+  "issuedAt": 1794718315,
+  "verdict": {
+    "code": "NOT_DELIVERED",
+    "reason": "Payment settled; the seller answered HTTP 500.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 500,
+      "bodyNonEmpty": null,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://api.xona-agent.com/token/pumpfun-trending",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "42rYNuJ3mFuw1sEz6ixWPgKD4mYaSv4D8MMiEd9dcGi2KzJGrhTQ4foihkeWB2s9ASa4aWMS6sBWPTAA6FYgKse5",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "9VaDVp1Wb78G4Wm6VuTiMrpESjrUymXefQTHcJGRSTEA",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "100000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0x14ee853f87e5ed09fc247e193e71b06e429c040b326dd2bb6a75569d3f62d21d",
+    "params_hash": "0x2029301054a90a5ade2b6eac0abdadda3de7380ade17c0bc785cc5587bdbffb7",
+    "params_salted": true,
+    "ts": "2026-11-14T05:00:06.633Z"
+  },
+  "response": {
+    "status": 500,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-11-14",
+    "row": "rows[45]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-11-14",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "54UpmEqevAMQZ3prcRBp1tyr67fEYqEJTYpRmzzqY2tFDwich6qtj7sdq6LMgBiQFkBHfm6ora3pRtgpQEt1uE7T",
+    "root": "0x194828e38a0a742dfab0f3b2fb657a59a5e96af21a955248f3413e98f5d397cf",
+    "leafIndex": 38,
+    "proof": [
+      "0x6fc18249bb11773fa982c32ef1c2c423a66ac84bd05e926bfa3381119d9181f9",
+      "0x20f0dc92eea18dc91c6da75d6dd6d73f6228405b165df061ecb46723a3040b0d",
+      "0x5bbeb8244a8d2b5b083dea192993aef28e7d01fd9911c10666f5a8f221d643fd",
+      "0xe5b8f03f2e2e53f76d0fd3017ac7361e8404e38d765341b1b64f3462b87e6249",
+      "0x9c72e139775f2a5578315c91ad03f6d5560694377f7c8d6f48f1c02ce2daa646",
+      "0x397b85c811d2d7da5edacdd5d04dbc4123801fec1c58e8da209045faa91ac37a",
+      "0x9ebfa7fa1f52b9b9b89e1f3a6b115655fecb211d11d155cb3d04849c58985d88"
+    ],
+    "count": 93,
+    "sequenceRange": [
+      7888,
+      7980
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-11-15T04:55:16.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x57625fb52637a197c24d1253afbb6da24516523b250cb0357c5f8f3c8906dfe51d7b7e0408227fba5f2894332d1329ce37a457a0492d39473b2a786e7b44cdbc1c"
+  }
+}

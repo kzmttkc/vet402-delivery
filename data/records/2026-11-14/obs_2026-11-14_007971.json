@@ -1,0 +1,117 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-11-14_007971",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 7971
+  },
+  "issuedAt": 1794718315,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/tako/v1/tako_tools_description",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0xd25f084866a50d7205ecd51ec4fd76405aa314982b856929627d2c7127ec5b3f",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0x8e4A08ac4A195FA8BFd9d4573D4859A9C9882145",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "23000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xfba4e9f0aff3036030218b730b67e44a13dd62883ff4cc3a025625aac1480bbf",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-11-14T05:28:00.024Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 3344,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-11-14",
+    "row": "rows[16]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-11-14",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "54UpmEqevAMQZ3prcRBp1tyr67fEYqEJTYpRmzzqY2tFDwich6qtj7sdq6LMgBiQFkBHfm6ora3pRtgpQEt1uE7T",
+    "root": "0x194828e38a0a742dfab0f3b2fb657a59a5e96af21a955248f3413e98f5d397cf",
+    "leafIndex": 83,
+    "proof": [
+      "0xcafb4683768329ddefea23e2c89a77c343c0f19f4691aafa1e5270f85dd1c752",
+      "0x11fbc36c760d33a03422a6f4b6804ca54da59c0d3e673fc2ff703988c90a2af1",
+      "0xa8e88cef5e67269ac7e7f6f8d1cfb9af751cddbf02c5629ffe64af11d29d4d9f",
+      "0x3cdba69361c05d8f2dd3991e60eb51e365305edc0d312703dce5d951ba9227ec",
+      "0xc1c9c7822be6877d4f6366f739868bc890755f48d020436893ad0da3cdb5e343",
+      "0x9cc40eec0782ba92e336eb29f8b99dcbf06b628ef21c1e64a2e9588d191ade11"
+    ],
+    "count": 93,
+    "sequenceRange": [
+      7888,
+      7980
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-11-15T04:55:16.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x2d407da784ca4b1f28c893adc0d268176e1b75d4715d467478d1872d91f26ac03741b9ce8c2f20ed5e7d5bd044e9ed980288f255862295cb06a985ced1351cf11b"
+  }
+}
