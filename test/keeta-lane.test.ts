@@ -26,6 +26,7 @@ import {
   KEETA_SELLERS,
   KEETA_USDC,
   keetaLockPath,
+  keetaSellerMaxPerRun,
 } from "../src/keeta/constants.js";
 import { writeKeetaKey } from "../src/keeta/keygen.js";
 import { fenceKeetaSigner, loadKeetaAccount, makeKeetaCreatePayment } from "../src/keeta/sign.js";
@@ -33,7 +34,14 @@ import { KEETA_VERIFY_TRIES, publicKeetaReader, readKeetaUsdcBalance, verifyKeet
 import type { ClientKeetaSigner } from "@x402/keeta";
 import { fetchCatalog } from "../src/keeta/catalog.js";
 import { probePayable } from "../src/keeta/probe.js";
-import { buyKeetaOne, emptyKeetaResult, readKeetaPayPlan, readKeetaResultFile, type KeetaBuyDeps } from "../src/keeta/buy.js";
+import {
+  buyKeetaOne,
+  emptyKeetaResult,
+  readKeetaPayPlan,
+  readKeetaResultFile,
+  type KeetaBuyDeps,
+  type KeetaResultFile,
+} from "../src/keeta/buy.js";
 import { buildKeetaPlan } from "../src/keeta/plan.js";
 import { runKeetaPayRun } from "../src/keeta/pay-run.js";
 import { acquireRunLock } from "../src/first-buyer/lock.js";
@@ -45,9 +53,12 @@ const TSX = join(ROOT, "node_modules", ".bin", "tsx");
 
 const pulse = JSON.parse(readFileSync(join(FIX, "keespecs-pulse-402.json"), "utf8"));
 const catalog = JSON.parse(readFileSync(join(FIX, "keespecs-catalog.json"), "utf8"));
+const ktaCatalog = JSON.parse(readFileSync(join(FIX, "kta-oracle-catalog.json"), "utf8"));
 const probe = JSON.parse(readFileSync(join(FIX, "keespecs-probe-2026-11-15.json"), "utf8"));
 
 const PAYTO = KEETA_SELLERS[0]!.payTo;
+const KTA_ORACLE = KEETA_SELLERS[1]!;
+const KTA_PAYTO = KTA_ORACLE.payTo;
 const lock = { payTo: PAYTO, maxAtomic: KEETA_MAX_PER_PURCHASE_ATOMIC };
 
 test("keeta: the real keespecs 402 (fixture) parses to one exact accept on keeta:21378 for 0.01 USDC to the pinned payTo", () => {
@@ -64,6 +75,43 @@ test("keeta: the real keespecs 402 (fixture) parses to one exact accept on keeta
     assert.equal(picked.accept.payTo, PAYTO);
     assert.equal(picked.accept.asset, KEETA_USDC);
   }
+});
+
+test("keeta: pickKeetaAccept chooses Keeta USDC, not KTA, when both are listed", () => {
+  const ktaAsset = "keeta_anqdilpazdekdu4acw65fj7smltcp26wbrildkqtszqvverljpwpezmd44ssg";
+  const accepts = [
+    normalizeKeetaAccept({
+      scheme: "exact",
+      network: KEETA_CAIP2,
+      amount: "1000000000000000",
+      asset: ktaAsset,
+      payTo: KTA_PAYTO,
+    }),
+    normalizeKeetaAccept({
+      scheme: "exact",
+      network: KEETA_CAIP2,
+      amount: "1000",
+      asset: KEETA_USDC,
+      payTo: KTA_PAYTO,
+    }),
+  ];
+  const picked = pickKeetaAccept(accepts, { payTo: KTA_PAYTO, maxAtomic: KEETA_MAX_PER_PURCHASE_ATOMIC });
+  assert.ok("accept" in picked);
+  assert.equal(picked.accept.asset, KEETA_USDC);
+  assert.equal(picked.accept.amount, "1000");
+});
+
+test("keeta: kta-oracle catalog yields GET routes with USDC accepts only", () => {
+  const routes = keetaCandidatesFromCatalog(ktaCatalog, KTA_ORACLE);
+  assert.ok(routes.length >= 3);
+  for (const r of routes) assert.equal(new URL(r.url).host, "kta-oracle.top");
+  assert.equal(routes[0]!.accept.asset, KEETA_USDC);
+});
+
+test("keeta: keetaSellerMaxPerRun keeps 12 + 3 = 15 across sellers", () => {
+  assert.equal(keetaSellerMaxPerRun(KEETA_SELLERS[0]!), 12);
+  assert.equal(keetaSellerMaxPerRun(KTA_ORACLE), 3);
+  assert.equal(keetaSellerMaxPerRun(KEETA_SELLERS[0]!) + keetaSellerMaxPerRun(KTA_ORACLE), KEETA_MAX_PURCHASES_PER_RUN);
 });
 
 test("keeta: a testnet accept (keeta:1413829460), another asset, another payTo, a bad amount and a price over the cap are refused before any signer is touched", async () => {
@@ -1110,6 +1158,96 @@ test("keeta: runKeetaPayRun releases keeta.lock when loadAccount, readResult or 
   rmSync(keyDir, { recursive: true });
 });
 
+test("keeta: runKeetaPayRun enforces per-seller cap (kta-oracle 3)", async () => {
+  const resultsDir = mkdtempSync(join(tmpdir(), "keeta-sellercap-"));
+  const keyDir = mkdtempSync(join(tmpdir(), "keeta-sellercap-k-"));
+  const day = "2026-11-16";
+  const planFile = join(resultsDir, "plan.json");
+  const ktaUrls = [
+    "https://kta-oracle.top/network/pulse",
+    "https://kta-oracle.top/network/pulse?a=1",
+    "https://kta-oracle.top/network/pulse?a=2",
+    "https://kta-oracle.top/network/pulse?a=3",
+  ];
+  writeFileSync(
+    planFile,
+    JSON.stringify({
+      kind: "vet402-remeasure-dry-run",
+      chain: "keeta",
+      createdAt: day + "T01:00:00.000Z",
+      rows: ktaUrls.map((url) => ({
+        outcome: "would_pay",
+        url,
+        host: "kta-oracle.top",
+        priceUsdc: "0.001000",
+      })),
+    }),
+  );
+  const fakeAccount = KeetaNet.lib.Account.fromSeed(Buffer.alloc(32, 22).toString("hex"), 0);
+  const payer = fakeAccount.publicKeyString.toString();
+  writeFileSync(join(keyDir, "keeta-payer.pub"), `${payer}\n`);
+  chmodSync(join(keyDir, "keeta-payer.pub"), 0o600);
+  let buyCalls = 0;
+  let written: KeetaResultFile | undefined;
+  await runKeetaPayRun({
+    planFile,
+    date: day,
+    now: new Date("2026-11-16T12:00:00Z"),
+    resultsDir,
+    fetchImpl: fetch,
+    hooks: {
+      pubFile: join(keyDir, "keeta-payer.pub"),
+      keyFile: join(keyDir, "keeta-payer.json"),
+      loadAccount: async () => fakeAccount,
+      makeReader: () => ({ getBlock: async () => null, onLedger: async () => false, destroy: async () => undefined }),
+      readResult: () => emptyKeetaResult(day, payer),
+      readPlan: readKeetaPayPlan,
+      readBalance: async () => 1_000_000n,
+      acquireLock: (f, now) => acquireRunLock(f, now),
+      statPubMode: () => 0o600,
+      readPubAddress: () => payer,
+      writeResult: (_p, data) => {
+        written = data;
+      },
+      log: () => undefined,
+      error: () => undefined,
+      buyOne: async (entry, _deps, _date, slot) => {
+        buyCalls += 1;
+        return {
+          row: {
+            at: new Date().toISOString(),
+            chain: "keeta",
+            host: entry.host,
+            service: null,
+            url: entry.url,
+            requestUrl: entry.url,
+            payTo: entry.expectedPayTo,
+            expectedPayTo: entry.expectedPayTo,
+            outcome: "refused",
+            reason: "no_keeta_accept",
+            detail: "mock",
+            settled: null,
+            delivered: null,
+            httpStatus: 404,
+            bodyBytes: null,
+            tx: null,
+            sellerTx: null,
+            priceUsdc: null,
+            slot,
+            key: keetaBudgetKey(day, entry.url),
+          },
+        };
+      },
+    },
+  });
+  assert.equal(buyCalls, 3);
+  assert.equal(written?.rows.length, 4);
+  assert.equal(written?.rows[3]?.reason, "purchase_count_reached");
+  assert.match(written?.rows[3]?.detail ?? "", /cap 3/);
+  rmSync(resultsDir, { recursive: true });
+  rmSync(keyDir, { recursive: true });
+});
+
 test("keeta: runKeetaPayRun releases keeta.lock when signer.destroy never answers", async () => {
   const resultsDir = mkdtempSync(join(tmpdir(), "keeta-payrun-d-"));
   const keyDir = mkdtempSync(join(tmpdir(), "keeta-payrun-dk-"));
@@ -1317,6 +1455,304 @@ test("keeta-lane --pay releases keeta.lock when the result file was written for 
   rmSync(resultsDir, { recursive: true });
   rmSync(keyDir, { recursive: true });
   rmSync(planDir, { recursive: true });
+});
+
+test("keeta: freeTrial buy sends payment on the first GET when unpaid would be 200", async () => {
+  const budget = new KeetaBudget(null);
+  let paidGets = 0;
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+    maxTimeoutSeconds: 300,
+  });
+  const deps: KeetaBuyDeps = {
+    fetch: async (_u, init) => {
+      const hdr = (init?.headers ?? {}) as Record<string, string>;
+      if (hdr["payment-signature"] || hdr["PAYMENT-SIGNATURE"]) {
+        paidGets += 1;
+        return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response('{"free":true}', { status: 200, headers: { "content-type": "application/json" } });
+    },
+    payer: "keeta_p",
+    createPayment: async () => ({ headers: { "payment-signature": "x" }, blockHash: "bh_ft", blockBase64: "eA==" }),
+    reader: {
+      getBlock: async () => ({
+        account: "keeta_p",
+        network: "0x5382",
+        operations: [{ type: "SEND", to: KTA_PAYTO, amount: "1000", token: KEETA_USDC }],
+      }),
+      onLedger: async () => true,
+      destroy: async () => undefined,
+    },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    {
+      url: "https://kta-oracle.top/network/pulse",
+      host: "kta-oracle.top",
+      expectedPayTo: KTA_PAYTO,
+      freeTrial: true,
+      catalogAccept,
+      plannedPriceAtomic: "1000",
+    },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(paidGets, 1);
+  assert.equal(out.row.outcome, "sent");
+  assert.equal(out.row.settled, true);
+});
+
+test("keeta: freeTrial pay-first with ledger notFound and 200 body keeps commit (keeta_tx_not_found)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeta-free-"));
+  const budget = new KeetaBudget(join(dir, "b.json"), KEETA_MAX_PER_RUN_ATOMIC, KEETA_MAX_PURCHASES_PER_RUN, "2026-11-16");
+  const url = "https://kta-oracle.top/network/pulse";
+  const key = keetaBudgetKey("2026-11-16", url);
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+  });
+  const deps: KeetaBuyDeps = {
+    fetch: async (_u, init) => {
+      if (!init || !("headers" in init) || !(init.headers as Record<string, string>)["payment-signature"]) {
+        return new Response('{"trial":true}', { status: 200 });
+      }
+      return new Response('{"sandbox":true}', { status: 200 });
+    },
+    payer: "keeta_p",
+    createPayment: async () => ({ headers: { "payment-signature": "x" }, blockHash: "bh_free", blockBase64: "eA==" }),
+    reader: { getBlock: async () => null, onLedger: async () => false, destroy: async () => undefined },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    { url, host: "kta-oracle.top", expectedPayTo: KTA_PAYTO, freeTrial: true, catalogAccept, plannedPriceAtomic: "1000" },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(out.row.outcome, "sent");
+  assert.match(out.stop ?? "", /^keeta_tx_not_found:/);
+  const again = budget.reserve(1000n, key, 1_000_000n);
+  assert.ok("refused" in again && again.refused === "already_bought");
+  rmSync(dir, { recursive: true });
+});
+
+test("keeta: freeTrial unpaid 200 with empty body is free_response without signing", async () => {
+  const budget = new KeetaBudget(null);
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+  });
+  let signed = 0;
+  const deps: KeetaBuyDeps = {
+    fetch: async () => new Response("", { status: 200 }),
+    payer: "keeta_p",
+    createPayment: async () => {
+      signed++;
+      return { headers: {}, blockHash: "h", blockBase64: "eA==" };
+    },
+    reader: { getBlock: async () => null, onLedger: async () => false, destroy: async () => undefined },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    { url: "https://kta-oracle.top/network/pulse", host: "kta-oracle.top", expectedPayTo: KTA_PAYTO, freeTrial: true, catalogAccept },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(out.row.outcome, "free_response");
+  assert.equal(signed, 0);
+});
+
+test("keeta: freeTrial pay-first paid GET 402 does not sign twice and keeps commit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "keeta-402paid-"));
+  const budget = new KeetaBudget(join(dir, "b.json"), KEETA_MAX_PER_RUN_ATOMIC, KEETA_MAX_PURCHASES_PER_RUN, "2026-11-16");
+  const url = "https://kta-oracle.top/network/pulse";
+  const key = keetaBudgetKey("2026-11-16", url);
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+  });
+  let signed = 0;
+  const deps: KeetaBuyDeps = {
+    fetch: async (_u, init) => {
+      if (!init || !("headers" in init) || !(init.headers as Record<string, string>)["payment-signature"]) {
+        return new Response('{"trial":true}', { status: 200 });
+      }
+      return new Response("{}", { status: 402 });
+    },
+    payer: "keeta_p",
+    createPayment: async () => {
+      signed++;
+      return { headers: { "payment-signature": "x" }, blockHash: "bh_402paid", blockBase64: "eA==" };
+    },
+    reader: { getBlock: async () => null, onLedger: async () => false, destroy: async () => undefined },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    { url, host: "kta-oracle.top", expectedPayTo: KTA_PAYTO, freeTrial: true, catalogAccept, plannedPriceAtomic: "1000" },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(signed, 1);
+  assert.equal(out.row.outcome, "refused");
+  assert.equal(out.row.reason, "paid_get_402");
+  assert.ok(!out.stop);
+  const again = budget.reserve(1000n, key, 1_000_000n);
+  assert.ok("refused" in again && again.refused === "already_bought");
+  rmSync(dir, { recursive: true });
+});
+
+test("keeta: freeTrial unpaid 404 does not sign", async () => {
+  const budget = new KeetaBudget(null);
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+  });
+  let signed = 0;
+  const deps: KeetaBuyDeps = {
+    fetch: async () => new Response("{}", { status: 404 }),
+    payer: "keeta_p",
+    createPayment: async () => {
+      signed++;
+      return { headers: {}, blockHash: "h", blockBase64: "eA==" };
+    },
+    reader: { getBlock: async () => null, onLedger: async () => false, destroy: async () => undefined },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    { url: "https://kta-oracle.top/network/pulse", host: "kta-oracle.top", expectedPayTo: KTA_PAYTO, freeTrial: true, catalogAccept },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(out.row.reason, "no_keeta_accept");
+  assert.equal(signed, 0);
+});
+
+test("keeta: freeTrial refuses payTo mismatch against KEETA_SELLERS", async () => {
+  const budget = new KeetaBudget(null);
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+  });
+  let signed = 0;
+  const deps: KeetaBuyDeps = {
+    fetch: async () => new Response("{}", { status: 200 }),
+    payer: "keeta_p",
+    createPayment: async () => {
+      signed++;
+      return { headers: {}, blockHash: "h", blockBase64: "eA==" };
+    },
+    reader: { getBlock: async () => null, onLedger: async () => false, destroy: async () => undefined },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    {
+      url: "https://kta-oracle.top/network/pulse",
+      host: "kta-oracle.top",
+      expectedPayTo: "keeta_wrong",
+      freeTrial: true,
+      catalogAccept,
+    },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(out.row.reason, "payto_mismatch");
+  assert.equal(signed, 0);
+});
+
+test("keeta: freeTrial falls back to the 402 path when unpaid GET returns 402", async () => {
+  const budget = new KeetaBudget(null);
+  const catalogAccept = normalizeKeetaAccept({
+    scheme: "exact",
+    network: KEETA_CAIP2,
+    amount: "1000",
+    asset: KEETA_USDC,
+    payTo: KTA_PAYTO,
+  });
+  let signed = 0;
+  const deps: KeetaBuyDeps = {
+    fetch: async (_u, init) => {
+      if (!init || !("headers" in init) || !(init.headers as Record<string, string>)["payment-signature"]) {
+        const body402 = { x402Version: 2, accepts: [{ scheme: "exact", network: KEETA_CAIP2, amount: "1000", asset: KEETA_USDC, payTo: KTA_PAYTO }] };
+        return new Response(JSON.stringify(body402), { status: 402, headers: { "content-type": "application/json" } });
+      }
+      return new Response('{"ok":true}', { status: 200 });
+    },
+    payer: "keeta_p",
+    createPayment: async () => {
+      signed++;
+      return { headers: { "payment-signature": "x" }, blockHash: "bh_402", blockBase64: "eA==" };
+    },
+    reader: {
+      getBlock: async (h) =>
+        h === "bh_402"
+          ? { account: "keeta_p", network: "0x5382", operations: [{ type: "SEND", to: KTA_PAYTO, amount: "1000", token: KEETA_USDC }] }
+          : null,
+      onLedger: async (h) => h === "bh_402",
+      destroy: async () => undefined,
+    },
+    budget,
+    balance: async () => 1_000_000n,
+    now: () => new Date("2026-11-16T12:00:00Z"),
+    sleep: async () => undefined,
+  };
+  const out = await buyKeetaOne(
+    {
+      url: "https://kta-oracle.top/network/pulse",
+      host: "kta-oracle.top",
+      expectedPayTo: KTA_PAYTO,
+      freeTrial: true,
+      catalogAccept,
+      plannedPriceAtomic: "1000",
+    },
+    deps,
+    "2026-11-16",
+    1,
+  );
+  assert.equal(signed, 1);
+  assert.equal(out.row.outcome, "sent");
 });
 
 test("keeta-lane --pay without VET402_KEETA_PAY=1 exits 6 and reads no key", () => {

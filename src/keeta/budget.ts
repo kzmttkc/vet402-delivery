@@ -1,6 +1,7 @@
 /**
  * Keeta caps on top of Budget (src/guard.ts). Keys are `<date>|<url>`: one purchase per URL per UTC day.
- * payTo does not vary between routes on keespecs.xyz, so the URL is the purchase identity (not payTo|slot).
+ * On Keeta sellers pinned in KEETA_SELLERS, payTo does not vary between routes on a host, so the URL is the
+ * purchase identity (not payTo|slot) — true for keespecs.xyz and kta-oracle.top.
  *
  * runCap / runMaxCount are per UTC day (shared across --pay runs that day via the month ledger's purchase keys).
  */

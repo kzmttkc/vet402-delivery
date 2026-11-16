@@ -11,10 +11,16 @@ import { RM_NOTE, RM_PAID_TIMEOUT_MS } from "../remeasure/constants.js";
 import type { RemeasureRow } from "../remeasure/results.js";
 import { cutDetail } from "../daily/detail-cut.js";
 import { toAtomic } from "../daily/steps.js";
-import { normalizeKeetaAccept, parseKeeta402, pickKeetaAccept, type KeetaAccept } from "./challenge.js";
+import {
+  normalizeKeetaAccept,
+  parseKeeta402,
+  paymentRequiredFromCatalogAccept,
+  pickKeetaAccept,
+  type KeetaAccept,
+} from "./challenge.js";
 import { keetaBudgetKey, normalizeKeetaPurchaseUrl, type KeetaBudget } from "./budget.js";
 import { KEETA_VERIFY_TRIES, KEETA_VERIFY_WAIT_MS, verifyKeetaPayment, type KeetaLedgerReader } from "./ledger.js";
-import { KEETA_CAIP2, KEETA_MAX_PER_PURCHASE_ATOMIC, KEETA_SELLERS } from "./constants.js";
+import { KEETA_CAIP2, KEETA_MAX_PER_PURCHASE_ATOMIC, KEETA_SELLERS, KEETA_USDC } from "./constants.js";
 import { KeetaSignTimeoutError } from "./sign.js";
 
 export type KeetaRemeasureRow = Omit<RemeasureRow, "chain"> & { chain: "keeta"; sellerTx?: string | null };
@@ -25,6 +31,9 @@ export interface KeetaBuyEntry {
   expectedPayTo: string;
   /** Atomic USDC from the dry-run plan. Live 402 amounts above this are refused (price_raised). */
   plannedPriceAtomic?: string;
+  freeTrial?: boolean;
+  /** Catalog USDC accept for pay-first (freeTrial) buys. */
+  catalogAccept?: KeetaAccept;
 }
 
 export interface KeetaBuyDeps {
@@ -64,6 +73,9 @@ export async function buyKeetaOne(entry: KeetaBuyEntry, deps: KeetaBuyDeps, date
     };
   }
 
+  const seller = sellerForHost(entry.host);
+  const freeTrial = entry.freeTrial ?? seller?.freeTrial ?? false;
+
   let res: Response;
   try {
     res = await deps.fetch(requestUrl, { method: "GET", headers: { accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(20_000) });
@@ -76,9 +88,39 @@ export async function buyKeetaOne(entry: KeetaBuyEntry, deps: KeetaBuyDeps, date
     }) };
   }
 
-  const httpStatus = res.status;
+  let httpStatus = res.status;
   let body: unknown;
   let pr: PaymentRequired | null = null;
+
+  if (freeTrial && httpStatus !== 402 && entry.catalogAccept) {
+    if (httpStatus >= 200 && httpStatus < 300) {
+      const buf = new Uint8Array(await res.arrayBuffer());
+      const bodyBytes = buf.byteLength;
+      const preview = new TextDecoder().decode(buf).slice(0, 300);
+      if (bodyBytes > 0) {
+        return payFirstFromCatalog(at, entry, key, slot, lock, deps, requestUrl, date);
+      }
+      return {
+        row: row(at, entry, key, slot, {
+          outcome: "free_response",
+          reason: "free_response",
+          detail: cutDetail(preview || null, 200),
+          httpStatus,
+          bodyBytes,
+        }),
+      };
+    }
+    await res.body?.cancel().catch(() => undefined);
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "refused",
+        reason: "no_keeta_accept",
+        detail: `unpaid request returned ${httpStatus}`,
+        httpStatus,
+      }),
+    };
+  }
+
   if (httpStatus === 402) {
     try {
       const text = await res.text();
@@ -292,6 +334,235 @@ export async function buyKeetaOne(entry: KeetaBuyEntry, deps: KeetaBuyDeps, date
   };
 }
 
+async function payFirstFromCatalog(
+  at: string,
+  entry: KeetaBuyEntry,
+  key: string,
+  slot: number,
+  lock: { payTo: string; maxAtomic: bigint },
+  deps: KeetaBuyDeps,
+  requestUrl: string,
+  date: string,
+): Promise<BuyKeetaOneResult> {
+  const catalogAccept = normalizeKeetaAccept(entry.catalogAccept as unknown as Record<string, unknown>);
+  const pr = paymentRequiredFromCatalogAccept(catalogAccept);
+  const picked = pickKeetaAccept([catalogAccept], lock);
+  if ("refused" in picked) {
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "refused",
+        reason: picked.refused,
+        detail: picked.detail,
+        httpStatus: null,
+        payTo: catalogAccept.payTo,
+      }),
+    };
+  }
+  const accept = picked.accept;
+  if (accept.payTo !== entry.expectedPayTo) {
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "refused",
+        reason: "payto_mismatch",
+        detail: `catalog payTo ${accept.payTo} != recorded ${entry.expectedPayTo}`,
+        httpStatus: null,
+        payTo: accept.payTo,
+      }),
+    };
+  }
+  if (entry.plannedPriceAtomic !== undefined && BigInt(accept.amount) > BigInt(entry.plannedPriceAtomic)) {
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "refused",
+        reason: "price_raised",
+        detail: `amount ${accept.amount} > planned ${entry.plannedPriceAtomic}`,
+        httpStatus: null,
+        payTo: accept.payTo,
+        priceUsdc: atomicToUsdc(accept.amount),
+      }),
+    };
+  }
+
+  let bal: bigint | null = null;
+  try {
+    bal = await deps.balance();
+  } catch {
+    bal = null;
+  }
+  const resv = deps.budget.reserve(BigInt(accept.amount), key, bal);
+  if ("refused" in resv) {
+    return { row: row(at, entry, key, slot, {
+      outcome: "refused",
+      reason: resv.refused,
+      detail: resv.detail,
+      httpStatus: null,
+      payTo: accept.payTo,
+      priceUsdc: atomicToUsdc(accept.amount),
+    }) };
+  }
+
+  let blockHash: string;
+  let payHeaders: Record<string, string>;
+  try {
+    const created = await deps.createPayment(pr, accept);
+    blockHash = created.blockHash;
+    payHeaders = created.headers;
+  } catch (e) {
+    deps.budget.release(resv.id);
+    if (e instanceof KeetaSignTimeoutError) {
+      return {
+        row: row(at, entry, key, slot, {
+          outcome: "not_sent",
+          reason: "keeta_sign_timeout",
+          detail: firstSentence((e as Error).message).slice(0, 300),
+          httpStatus: null,
+          payTo: accept.payTo,
+          priceUsdc: atomicToUsdc(accept.amount),
+        }),
+        stop: `keeta_sign_timeout: ${firstSentence((e as Error).message)}`,
+      };
+    }
+    if (e instanceof PayloadNotCreatedError) {
+      return { row: row(at, entry, key, slot, {
+        outcome: "not_sent",
+        reason: "payload_not_created",
+        detail: firstSentence((e as Error).message).slice(0, 300),
+        httpStatus: null,
+        payTo: accept.payTo,
+        priceUsdc: atomicToUsdc(accept.amount),
+      }) };
+    }
+    throw e;
+  }
+  deps.budget.commit(resv.id);
+
+  let paidStatus: number | null = null;
+  let bodyBytes: number | null = null;
+  let detail: string | null = null;
+  let sellerTx: string | null = null;
+  try {
+    const paid = await deps.fetch(requestUrl, {
+      method: "GET",
+      headers: { accept: "application/json", ...payHeaders },
+      redirect: "manual",
+      signal: AbortSignal.timeout(deps.paidTimeoutMs ?? RM_PAID_TIMEOUT_MS),
+    });
+    paidStatus = paid.status;
+    if (paidStatus === 402) {
+      await paid.body?.cancel().catch(() => undefined);
+      return {
+        row: row(at, entry, key, slot, {
+          outcome: "refused",
+          reason: "paid_get_402",
+          detail: "paid GET returned 402 after payment signature was sent",
+          httpStatus: paidStatus,
+          payTo: accept.payTo,
+          priceUsdc: atomicToUsdc(accept.amount),
+          tx: blockHash,
+        }),
+      };
+    }
+    const buf = new Uint8Array(await paid.arrayBuffer());
+    bodyBytes = buf.byteLength;
+    const preview = new TextDecoder().decode(buf).slice(0, 300);
+    detail = preview || null;
+    try {
+      const settled = httpClient.getPaymentSettleResponse(headerGetter(paid.headers)) as { transaction?: string };
+      if (settled.transaction) {
+        sellerTx = settled.transaction;
+        if (settled.transaction !== blockHash) {
+          detail = `${cutDetail(detail, 160) ?? ""} Seller transaction ${settled.transaction} differs from vet402's block ${blockHash}.`.slice(0, 200);
+        }
+      }
+    } catch {
+      /* no settlement header */
+    }
+  } catch (e) {
+    detail = `paid fetch: ${(e as Error).message}`.slice(0, 200);
+  }
+
+  let verified;
+  try {
+    verified = await verifyKeetaPayment(
+      deps.reader,
+      { blockHash, payer: deps.payer, payTo: accept.payTo, amount: accept.amount, asset: accept.asset },
+      { tries: KEETA_VERIFY_TRIES, waitMs: KEETA_VERIFY_WAIT_MS, sleep: deps.sleep },
+    );
+  } catch (e) {
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "sent",
+        reason: "sent",
+        detail: cutDetail(detail, 200),
+        httpStatus: paidStatus,
+        bodyBytes,
+        payTo: accept.payTo,
+        priceUsdc: atomicToUsdc(accept.amount),
+        settled: null,
+        delivered: null,
+        tx: blockHash,
+      }),
+      stop: `keeta_ledger_unreadable: ${(e as Error).message}`,
+    };
+  }
+
+  if (verified.settled === false) {
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "sent",
+        reason: "sent",
+        detail: cutDetail(`${verified.detail}. ${detail ?? ""}`, 200),
+        httpStatus: paidStatus,
+        bodyBytes,
+        payTo: accept.payTo,
+        priceUsdc: atomicToUsdc(accept.amount),
+        settled: false,
+        delivered: null,
+        tx: blockHash,
+      }),
+      stop: `keeta_tx_mismatch: ${verified.detail}`,
+    };
+  }
+  if ("notFound" in verified && verified.notFound) {
+    const nfDetail = `${cutDetail(detail, 160) ?? ""} ${verified.detail}`.slice(0, 200);
+    return {
+      row: row(at, entry, key, slot, {
+        outcome: "sent",
+        reason: "sent",
+        detail: nfDetail,
+        httpStatus: paidStatus,
+        bodyBytes,
+        payTo: accept.payTo,
+        priceUsdc: atomicToUsdc(accept.amount),
+        settled: null,
+        delivered: null,
+        tx: blockHash,
+        sellerTx,
+      }),
+      stop: `keeta_tx_not_found: ${verified.detail}`,
+    };
+  }
+
+  const settled = verified.settled === true ? true : verified.settled === false ? false : null;
+  const delivered = settled === true && paidStatus !== null && paidStatus >= 200 && paidStatus < 300 && (bodyBytes ?? 0) > 0;
+
+  return {
+    row: row(at, entry, key, slot, {
+      outcome: "sent",
+      reason: "sent",
+      detail: cutDetail(detail, 200),
+      httpStatus: paidStatus,
+      bodyBytes,
+      payTo: accept.payTo,
+      priceUsdc: atomicToUsdc(accept.amount),
+      settled,
+      delivered,
+      tx: blockHash,
+      sellerTx,
+    }),
+  };
+}
+
 function row(
   at: string,
   entry: KeetaBuyEntry,
@@ -391,11 +662,23 @@ export function readKeetaPayPlan(file: string, day: string, log: (msg: string) =
       continue;
     }
     const planned = toAtomic(r.priceUsdc).toString();
+    const catalogAccept: KeetaAccept | undefined = seller.freeTrial
+      ? {
+          scheme: "exact",
+          network: KEETA_CAIP2,
+          amount: planned,
+          asset: KEETA_USDC,
+          payTo: seller.payTo,
+          maxTimeoutSeconds: 300,
+        }
+      : undefined;
     out.push({
       url: r.url,
       host: seller.host,
       expectedPayTo: seller.payTo,
       plannedPriceAtomic: planned,
+      freeTrial: seller.freeTrial,
+      catalogAccept,
     });
   }
   return out;

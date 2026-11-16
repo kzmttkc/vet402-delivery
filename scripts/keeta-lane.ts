@@ -10,7 +10,7 @@ import { atomicToUsdc } from "../src/constants.js";
 import { toAtomic } from "../src/daily/steps.js";
 import { keetaCandidatesFromCatalog } from "../src/keeta/challenge.js";
 import { fetchCatalog } from "../src/keeta/catalog.js";
-import { probePayable } from "../src/keeta/probe.js";
+import { probePayableWithCatalog } from "../src/keeta/probe.js";
 import type { KeetaRemeasureRow } from "../src/keeta/buy.js";
 import {
   KEETA_MAX_PER_MONTH_ATOMIC,
@@ -20,6 +20,7 @@ import {
   KEETA_RESULTS_DIR,
   KEETA_SELLERS,
   KEETA_USDC,
+  keetaSellerMaxPerRun,
   keetaBudgetPath,
   keetaDryRunPath,
 } from "../src/keeta/constants.js";
@@ -83,11 +84,15 @@ async function runDry(fetchImpl: typeof fetch): Promise<void> {
   const rows: KeetaRemeasureRow[] = [];
   for (const seller of KEETA_SELLERS) {
     const catalog = await fetchCatalog(seller.catalog, fetchImpl);
-    const urls = keetaCandidatesFromCatalog(catalog, seller);
-    for (const { url, payTo } of urls) {
-      const row = await probePayable(url, payTo, fetchImpl, { at: NOW.toISOString(), date: DATE });
+    const candidates = keetaCandidatesFromCatalog(catalog, seller);
+    let sellerWould = 0;
+    const sellerCap = keetaSellerMaxPerRun(seller);
+    for (const { url, payTo } of candidates) {
+      const row = await probePayableWithCatalog(url, payTo, seller, catalog, fetchImpl, { at: NOW.toISOString(), date: DATE });
       if (!row) continue;
       rows.push(row);
+      if (row.outcome === "would_pay") sellerWould += 1;
+      if (sellerWould >= sellerCap) break;
       if (rows.filter((r) => r.outcome === "would_pay").length >= KEETA_MAX_PURCHASES_PER_RUN) break;
     }
   }

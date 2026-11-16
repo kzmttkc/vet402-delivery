@@ -258,4 +258,10 @@ export class Budget {
   commit(id: string): void {
     this.open.delete(id);
   }
+
+  protected purchaseAmountForKey(key: string): bigint | null {
+    const p = this.state.purchases.find((x) => x.key === key);
+    if (!p) return null;
+    return BigInt(p.amount);
+  }
 }

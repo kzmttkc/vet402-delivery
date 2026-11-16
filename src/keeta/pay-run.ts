@@ -7,12 +7,13 @@ import {
   buyKeetaOne,
   readKeetaPayPlan,
   readKeetaResultFile,
+  sellerForHost,
   type KeetaBuyDeps,
   type KeetaBuyEntry,
   type KeetaRemeasureRow,
   type KeetaResultFile,
 } from "./buy.js";
-import { KeetaBudget, isKeetaMonthCapRefusal, isKeetaRunCapRefusal } from "./budget.js";
+import { KeetaBudget, isKeetaMonthCapRefusal, isKeetaRunCapRefusal, keetaBudgetKey } from "./budget.js";
 import {
   KEETA_KEY_FILE,
   KEETA_MAX_PER_RUN_ATOMIC,
@@ -23,6 +24,7 @@ import {
   keetaBudgetPath,
   keetaLockPath,
   keetaResultPath,
+  keetaSellerMaxPerRun,
 } from "./constants.js";
 import { publicKeetaReader, readKeetaUsdcBalance, withKeetaTimeout, type KeetaLedgerReader } from "./ledger.js";
 import { accountToSigner, loadKeetaAccount, makeKeetaCreatePayment } from "./sign.js";
@@ -136,7 +138,39 @@ export async function runKeetaPayRun(opts: {
         sleep,
       };
       try {
+        const sellerRunCount = new Map<string, number>();
         for (const entry of entries) {
+          const seller = sellerForHost(entry.host);
+          if (seller) {
+            const cap = keetaSellerMaxPerRun(seller);
+            const n = sellerRunCount.get(entry.host) ?? 0;
+            if (n >= cap) {
+              rows.push({
+                at: opts.now.toISOString(),
+                chain: "keeta",
+                host: entry.host,
+                service: null,
+                url: entry.url,
+                requestUrl: entry.url,
+                payTo: entry.expectedPayTo,
+                expectedPayTo: entry.expectedPayTo,
+                outcome: "refused",
+                reason: "purchase_count_reached",
+                detail: `seller ${entry.host}: ${n} purchases >= cap ${cap}`,
+                settled: null,
+                delivered: null,
+                httpStatus: null,
+                bodyBytes: null,
+                tx: null,
+                sellerTx: null,
+                priceUsdc: null,
+                slot: rows.length + 1,
+                key: keetaBudgetKey(opts.date, entry.url),
+              });
+              continue;
+            }
+            sellerRunCount.set(entry.host, n + 1);
+          }
           const out = await h.buyOne(entry, deps, opts.date, rows.length + 1);
           rows.push(out.row);
           if (out.stop) {

@@ -11,13 +11,35 @@ export const KEETA_TESTNET_CAIP2 = "keeta:1413829460";
 export const KEETA_USDC = "keeta_amnkge74xitii5dsobstldatv3irmyimujfjotftx7plaaaseam4bntb7wnna";
 export const KEETA_USDC_DECIMALS = 6;
 
-export const KEETA_SELLERS = [
+export type KeetaSeller = {
+  host: string;
+  catalog: string;
+  payTo: string;
+  /** Seller may answer unpaid GET with 200; vet402 pays from the catalog accept before the resource GET. */
+  freeTrial?: boolean;
+  /** Max would_pay routes from this seller per dry-run / run slice (keespecs 12 + kta-oracle 3 = 15). */
+  maxPerRun?: number;
+};
+
+export const KEETA_SELLERS: readonly KeetaSeller[] = [
   {
     host: "keespecs.xyz",
     catalog: "https://keespecs.xyz/.well-known/x402",
     payTo: "keeta_aabz6zxbs2n4r7iiobclndobrnowxdf4pjrb5lwe6bvpeo564bot6krjbrsbbvy",
+    maxPerRun: 12,
   },
-] as const;
+  {
+    host: "kta-oracle.top",
+    catalog: "https://kta-oracle.top/.well-known/x402",
+    payTo: "keeta_aab4y4nd5ug4nnzjtp5fslfsrdv7pnxfbeexafwolqs4mgxrb2ppontfqb64tzi",
+    freeTrial: true,
+    maxPerRun: 3,
+  },
+];
+
+export function keetaSellerMaxPerRun(seller: KeetaSeller): number {
+  return seller.maxPerRun ?? KEETA_MAX_PURCHASES_PER_RUN;
+}
 
 export const KEETA_MAX_PER_PURCHASE_ATOMIC = 20_000n;
 export const KEETA_MAX_PER_RUN_ATOMIC = 250_000n;

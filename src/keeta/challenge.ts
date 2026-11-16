@@ -10,7 +10,7 @@ import {
   KEETA_MAX_PER_PURCHASE_ATOMIC,
   KEETA_TESTNET_CAIP2,
   KEETA_USDC,
-  KEETA_SELLERS,
+  type KeetaSeller,
 } from "./constants.js";
 
 const parser = new x402HTTPClient(new x402Client());
@@ -100,11 +100,15 @@ export interface KeetaCatalog {
   resources?: CatalogResource[];
 }
 
-export function keetaCandidatesFromCatalog(
-  catalog: KeetaCatalog,
-  seller: (typeof KEETA_SELLERS)[number],
-): { url: string; payTo: string }[] {
-  const out: { url: string; payTo: string }[] = [];
+export interface KeetaCatalogCandidate {
+  url: string;
+  payTo: string;
+  accept: KeetaAccept;
+}
+
+export function keetaCandidatesFromCatalog(catalog: KeetaCatalog, seller: KeetaSeller): KeetaCatalogCandidate[] {
+  const out: KeetaCatalogCandidate[] = [];
+  const lock = { payTo: seller.payTo, maxAtomic: KEETA_MAX_PER_PURCHASE_ATOMIC };
   for (const r of catalog.resources ?? []) {
     if ((r.method ?? "GET").toUpperCase() !== "GET") continue;
     let host: string;
@@ -115,11 +119,26 @@ export function keetaCandidatesFromCatalog(
     }
     if (host !== seller.host) continue;
     const accepts = (r.accepts ?? []).map((x) => normalizeKeetaAccept(x as Record<string, unknown>));
-    const lock = { payTo: seller.payTo, maxAtomic: KEETA_MAX_PER_PURCHASE_ATOMIC };
     if (accepts.length === 0) continue;
-    const ok = accepts.every((a) => checkKeetaAccept(a, lock) === null);
-    if (!ok) continue;
-    out.push({ url: r.url, payTo: seller.payTo });
+    const picked = pickKeetaAccept(accepts, lock);
+    if ("refused" in picked) continue;
+    out.push({ url: r.url, payTo: seller.payTo, accept: picked.accept });
   }
   return out;
+}
+
+export function paymentRequiredFromCatalogAccept(accept: KeetaAccept): PaymentRequired {
+  return { x402Version: 2, accepts: [accept] } as PaymentRequired;
+}
+
+export function catalogAcceptForUrl(catalog: KeetaCatalog, seller: KeetaSeller, url: string): KeetaAccept | null {
+  const norm = url.replace(/\/$/, "");
+  for (const r of catalog.resources ?? []) {
+    const ru = r.url.replace(/\/$/, "");
+    if (ru !== norm && ru !== url) continue;
+    const accepts = (r.accepts ?? []).map((x) => normalizeKeetaAccept(x as Record<string, unknown>));
+    const picked = pickKeetaAccept(accepts, { payTo: seller.payTo, maxAtomic: KEETA_MAX_PER_PURCHASE_ATOMIC });
+    if ("accept" in picked) return picked.accept;
+  }
+  return null;
 }

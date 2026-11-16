@@ -14,7 +14,15 @@ import { RM_NOTE, RM_PROD_DIR, REMEASURE_CHAINS } from "./constants.js";
  * "unknown_after_sign": the ledger holds a reservation that may have been signed and sent, and the run
  * ended before writing its result; added by the next --pay run (./reconcile.ts). It is never paid again.
  */
-export type RowOutcome = "sent" | "refused" | "not_sent" | "unknown" | "unknown_after_sign" | "would_pay";
+export type RowOutcome =
+  | "sent"
+  | "refused"
+  | "not_sent"
+  | "unknown"
+  | "unknown_after_sign"
+  | "would_pay"
+  /** Keeta: paid GET returned 200 but the ledger shows no vet402 payment (sandbox / ignored payment). */
+  | "free_response";
 
 export interface RemeasureRow {
   at: string;

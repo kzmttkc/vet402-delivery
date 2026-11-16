@@ -103,6 +103,10 @@ function rowToAttempt(r: RemeasureRow, source: string, where: string): Attempt {
   } else if (r.outcome === "refused" || r.outcome === "not_sent") {
     rawReason = r.reason;
     category = refusalCategory(r.reason, where);
+  } else if (r.outcome === "free_response") {
+    rawReason = r.reason;
+    category = "vet402_skipped";
+    settled = false;
   } else {
     throw new Error(`${where}: outcome "${String(r.outcome)}" does not belong in a result file`);
   }
