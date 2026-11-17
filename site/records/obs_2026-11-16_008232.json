@@ -1,0 +1,119 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-11-16_008232",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 8232
+  },
+  "issuedAt": 1794874040,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://mpp.orthogonal.com/sixtyfour/enrich-lead",
+  "payment": {
+    "network": "eip155:4217",
+    "scheme": "mpp-charge",
+    "transaction": "0xb055cc3520189c95a134b5f2be6310c4dc749c150b069ee6598d95a66496ab7f",
+    "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+    "payTo": "0xbB06ad903e615Cc1A50421b60D70e47b11A5677F",
+    "asset": "0x20c000000000000000000000b9537d11c60e8b50",
+    "amount": "100000",
+    "decimals": 6,
+    "assetSymbol": "USDC.e",
+    "settledAt": null
+  },
+  "request": {
+    "method": null,
+    "url_hash": "0xdd10800b98cec9e1d95cfcaeb39d28eff62b1783f81f69a2fdc0805368d0a4c5",
+    "params_hash": null,
+    "params_salted": false,
+    "ts": "2026-11-16T01:56:55.822Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": 147,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.method",
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "request.params_hash: request body not recorded",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-tempo-2026-11-16",
+    "row": "rows[26]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-11-16",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "JcW88chk6buFYsFvjZUqbuVV8Q1QRHuvdPcfu7fiptRdH15XQ4GvrGQv6k4ZyB6UPisCo7ES6cn713tyLBqTQSF",
+    "root": "0x5d8dc802335047f7c00ec64cc3e762c2058bc5209e62b09aa552027b5f26b367",
+    "leafIndex": 87,
+    "proof": [
+      "0x5d9763a08469034d8a27996980f46d64adbcc1c9d07d8ae9c5fe1256fb1e1df5",
+      "0xd113804880673fd4bd7d539f8b718e757e77693e202b9337e42735b74940bbd5",
+      "0x24426150610a3253f74dcdd5399b763150f8f6d868322df1f78a7e4f06be36cb",
+      "0xf728359af8809cc5a8680b502fd47a893826a85f9dc88fe7399a66f3a773e40f",
+      "0xcea501609b7eab12231474d99c88d864dd50210f91fe67d1a6cdbfc676d869a7",
+      "0xa389a02078959bef98a8aa756f73aebdea5016c90efbc0ec6db8c4c9f2119956",
+      "0xc153e45523ce506608da8ab0806b4f9a6a8a55abee349b0dc13f949962acb103",
+      "0xff4f66903cc46cad0221930c9983f5bdcefb22f822d02b8449da8b91adf6c0ac"
+    ],
+    "count": 164,
+    "sequenceRange": [
+      8145,
+      8308
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-11-17T00:11:26.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x59205be941912a22245cbf361795fb134511389bc5a061471ac22a048ba877ad6fa1f2c335e76264d902f44c6f9a28da67a1d81f1c546487b83fed17fde906b91c"
+  }
+}
