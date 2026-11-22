@@ -1,0 +1,88 @@
+{
+  "kind": "vet402-remeasure",
+  "version": 1,
+  "chain": "tempo",
+  "date": "2026-11-22",
+  "payer": "0x9B59aBF3dc92E7f60A6eeB7c1dEDC6dEB0bB4E51",
+  "note": "Repeat test purchase by vet402 from a seller it paid before. Not organic demand.",
+  "runs": [
+    {
+      "startedAt": "2026-11-22T01:30:15.854Z",
+      "endedAt": "2026-11-22T01:32:22.534Z",
+      "perPayTo": 1,
+      "stopped": "chain_spend_exceeds_ledger",
+      "chainCheck": {
+        "checkedAt": "2026-11-22T01:32:42.746Z",
+        "from": "2026-11-22T01:30:15.854Z",
+        "to": "2026-11-22T01:32:22.534Z",
+        "txs": 0,
+        "recorded": 0,
+        "added": [],
+        "unmatched": [],
+        "duplicates": []
+      }
+    }
+  ],
+  "rows": [
+    {
+      "at": "2026-11-22T01:30:47.691Z",
+      "chain": "tempo",
+      "host": "mpp.orthogonal.com",
+      "service": "orth-agentphone",
+      "url": "https://mpp.orthogonal.com/agentphone/v1/messages",
+      "requestUrl": "https://mpp.orthogonal.com/agentphone/v1/messages",
+      "payTo": null,
+      "expectedPayTo": "0x0477aec8513f73adfe6e3c813650b25a28cba54a",
+      "outcome": "refused",
+      "reason": "placeholder_input",
+      "detail": "placeholders: agent_id, to_number, body",
+      "settled": null,
+      "delivered": null,
+      "httpStatus": null,
+      "bodyBytes": null,
+      "tx": null,
+      "priceUsdc": "0.030000",
+      "slot": 0,
+      "key": "2026-11-22|0x0477aec8513f73adfe6e3c813650b25a28cba54a|0",
+      "input": {
+        "source": "mercator_example",
+        "placeholders": [
+          "agent_id",
+          "to_number",
+          "body"
+        ],
+        "missingRequired": null
+      },
+      "answer": null
+    },
+    {
+      "at": "2026-11-22T01:31:12.634Z",
+      "chain": "tempo",
+      "host": "mpp.orthogonal.com",
+      "service": "orth-seltz",
+      "url": "https://mpp.orthogonal.com/seltz/v1/search",
+      "requestUrl": "https://mpp.orthogonal.com/seltz/v1/search",
+      "payTo": null,
+      "expectedPayTo": "0x059a69c76cea4d2b319cc05021a093ab3fd9bafb",
+      "outcome": "refused",
+      "reason": "chain_spend_exceeds_ledger",
+      "detail": "on-chain outflow 398936 > ledger 0",
+      "settled": null,
+      "delivered": null,
+      "httpStatus": null,
+      "bodyBytes": null,
+      "tx": null,
+      "priceUsdc": "0.006250",
+      "slot": 0,
+      "key": "2026-11-22|0x059a69c76cea4d2b319cc05021a093ab3fd9bafb|0",
+      "input": {
+        "source": "mercator_example",
+        "placeholders": [
+          "query"
+        ],
+        "missingRequired": null
+      },
+      "answer": null
+    }
+  ]
+}
