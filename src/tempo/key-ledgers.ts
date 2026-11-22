@@ -169,3 +169,47 @@ export function unaccountedChainSpent(
     return d > 0n ? d : 0n;
   };
 }
+
+/**
+ * Before a --pay run: every transaction that moved USDC.e out of the key since CENSUS_START_BLOCK must carry
+ * a txHash on some ledger of the key. `unaccountedChainSpent` compares totals, so an outcome recorded as
+ * unknown (counted as spent) leaves room in which a transfer on no ledger can pass; this check names each
+ * transaction instead. Returns the hashes found on no ledger (lowercase, each once). A chain read that fails
+ * throws: the caller must treat it as "could not check", never as "none missing".
+ */
+export async function chainTxsNotInLedgers(
+  chainTxs: () => Promise<readonly string[]>,
+  payer: string,
+  set: KeyLedgerSet = TEMPO_KEY_LEDGERS,
+): Promise<string[]> {
+  const known = new Set<string>();
+  for (const f of keyLedgerFiles(set))
+    for (const e of new Ledger(f, payer, MAX_TOTAL_ATOMIC).entries()) if (e.txHash) known.add(e.txHash.toLowerCase());
+  const txs = await chainTxs();
+  if (!Array.isArray(txs)) throw new KeyLedgerError("chain read returned no list of transactions");
+  const out: string[] = [];
+  for (const t of txs) {
+    const h = String(t).toLowerCase();
+    if (!known.has(h) && !out.includes(h)) out.push(h);
+  }
+  return out;
+}
+
+/**
+ * The stop for payTempo: null when every transfer out of the key is on a ledger, otherwise the reason.
+ * A failed read is a stop too (chain_tx_unreadable), so an RPC outage never reads as "nothing missing".
+ */
+export async function chainTxLedgerStop(
+  chainTxs: () => Promise<readonly string[]>,
+  payer: string,
+  set: KeyLedgerSet = TEMPO_KEY_LEDGERS,
+): Promise<string | null> {
+  let missing: string[];
+  try {
+    missing = await chainTxsNotInLedgers(chainTxs, payer, set);
+  } catch (e) {
+    return `chain_tx_unreadable: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`;
+  }
+  if (missing.length === 0) return null;
+  return `chain_tx_not_in_ledger: ${missing.length} transfer(s) out of the key on no ledger: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}`;
+}

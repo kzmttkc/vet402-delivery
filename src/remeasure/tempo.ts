@@ -26,8 +26,8 @@ import { Ledger } from "../tempo/ledger.js";
 import { payOne, stopReason, type PayDeps, type PayOutcome } from "../tempo/pay.js";
 import { probeUnpaid } from "../tempo/probe.js";
 import type { FetchLike } from "../tempo/mercator.js";
-import { CENSUS_START_BLOCK, publicClient, usdcOutflowSinceStart } from "../tempo/chain.js";
-import { assertDayLedgersPresent, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
+import { CENSUS_START_BLOCK, headBlock, payerTransfers, publicClient, usdcOutflowSinceStart } from "../tempo/chain.js";
+import { assertDayLedgersPresent, chainTxLedgerStop, unaccountedChainSpent, type KeyLedgerSet } from "../tempo/key-ledgers.js";
 import type { PlanEntry } from "../tempo/census.js";
 import { checkInput, INPUT_REJECT_STATUSES, lacksCatalogInput, type InputCheck } from "../tempo/answer.js";
 import { RM_PAID_TIMEOUT_MS, RM_TEMPO_MAX_PER_MONTH_ATOMIC, RM_TEMPO_MAX_PER_RUN_ATOMIC } from "./constants.js";
@@ -61,6 +61,12 @@ export interface TempoChainView {
   outflowSinceCensusStart(): Promise<bigint>;
   /** USDC.e that left the key since the first block of `month` (YYYY-MM, UTC). */
   outflowSinceMonthStart(month: string): Promise<bigint>;
+  /**
+   * Hashes of every transaction with a USDC.e transfer out of the key since CENSUS_START_BLOCK. When given,
+   * payTempo checks each against the ledgers before the first purchase (key-ledgers.ts chainTxLedgerStop).
+   * The live view always gives it.
+   */
+  txsSinceCensusStart?(): Promise<string[]>;
 }
 
 /** First block whose timestamp is at or after `tsSec`, searched in [lo, head]. */
@@ -98,6 +104,10 @@ export function liveChainView(owner: string = PAYER_ADDRESS): TempoChainView {
   const monthStart = new Map<string, bigint>();
   return {
     outflowSinceCensusStart: () => usdcOutflowSinceStart(owner),
+    async txsSinceCensusStart() {
+      const head = await headBlock();
+      return [...new Set((await payerTransfers(owner, CENSUS_START_BLOCK, head)).map((t) => t.tx.toLowerCase()))];
+    },
     async outflowSinceMonthStart(month) {
       let b = monthStart.get(month);
       if (b === undefined) {
@@ -247,6 +257,12 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
   if (!deps.ledger.path) throw new Error("payTempo: the day ledger needs a file");
   const chainSpent = unaccountedChainSpent(deps.ledger.path, () => deps.chain.outflowSinceCensusStart(), pay.payer, deps.keyLedgers);
   const month = deps.date.slice(0, 7);
+  // Every transfer out of the key must be on a ledger before anything is signed; a failed read stops too.
+  if (deps.chain.txsSinceCensusStart) {
+    const read = deps.chain.txsSinceCensusStart.bind(deps.chain);
+    const stop = await chainTxLedgerStop(read, pay.payer, deps.keyLedgers);
+    if (stop) return { rows: [], skipped: [], stopped: stop };
+  }
   return runSlots(slots, {
     pacer: deps.pacer ?? new SellerPacer(),
     sleep: deps.sleep,
