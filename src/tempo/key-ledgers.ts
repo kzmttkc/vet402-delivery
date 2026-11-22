@@ -204,6 +204,12 @@ export async function chainTxLedgerStop(
   payer: string,
   set: KeyLedgerSet = TEMPO_KEY_LEDGERS,
 ): Promise<string | null> {
+  // A listed day ledger that is gone is named as such (the same stop the slot check gives), not as a chain read.
+  try {
+    assertDayLedgersPresent(set);
+  } catch (e) {
+    return `key_ledger_missing: ${(e as Error).message}`;
+  }
   let missing: string[];
   try {
     missing = await chainTxsNotInLedgers(chainTxs, payer, set);

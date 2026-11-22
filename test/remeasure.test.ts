@@ -516,7 +516,7 @@ function tempoEnv(o: { censusSlack?: boolean; liveFor?: (url: string) => { recip
     balance: async () => 10_000_000n,
     verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
   };
-  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.month };
+  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.month, txsSinceCensusStart: async () => [] };
   const ft = fakeTime();
   // as the script does: list the day in the index (refused when it was deleted), then open the ledger
   const dayLedger = (date: string) => {

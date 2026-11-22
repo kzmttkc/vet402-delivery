@@ -62,11 +62,10 @@ export interface TempoChainView {
   /** USDC.e that left the key since the first block of `month` (YYYY-MM, UTC). */
   outflowSinceMonthStart(month: string): Promise<bigint>;
   /**
-   * Hashes of every transaction with a USDC.e transfer out of the key since CENSUS_START_BLOCK. When given,
-   * payTempo checks each against the ledgers before the first purchase (key-ledgers.ts chainTxLedgerStop).
-   * The live view always gives it.
+   * Hashes of every transaction with a USDC.e transfer out of the key since CENSUS_START_BLOCK. payTempo checks
+   * each against the ledgers before the first purchase (key-ledgers.ts chainTxLedgerStop); a view without it stops.
    */
-  txsSinceCensusStart?(): Promise<string[]>;
+  txsSinceCensusStart(): Promise<string[]>;
 }
 
 /** First block whose timestamp is at or after `tsSec`, searched in [lo, head]. */
@@ -258,11 +257,11 @@ export async function payTempo(slots: readonly Slot[], pay: Omit<PayDeps, "ledge
   const chainSpent = unaccountedChainSpent(deps.ledger.path, () => deps.chain.outflowSinceCensusStart(), pay.payer, deps.keyLedgers);
   const month = deps.date.slice(0, 7);
   // Every transfer out of the key must be on a ledger before anything is signed; a failed read stops too.
-  if (deps.chain.txsSinceCensusStart) {
-    const read = deps.chain.txsSinceCensusStart.bind(deps.chain);
-    const stop = await chainTxLedgerStop(read, pay.payer, deps.keyLedgers);
-    if (stop) return { rows: [], skipped: [], stopped: stop };
-  }
+  // A view without the per-transaction read is a stop, never a silent pass.
+  if (typeof deps.chain.txsSinceCensusStart !== "function")
+    return { rows: [], skipped: [], stopped: "chain_tx_unreadable: the chain view has no per-transaction read (txsSinceCensusStart)" };
+  const stop = await chainTxLedgerStop(() => deps.chain.txsSinceCensusStart(), pay.payer, deps.keyLedgers);
+  if (stop) return { rows: [], skipped: [], stopped: stop };
   return runSlots(slots, {
     pacer: deps.pacer ?? new SellerPacer(),
     sleep: deps.sleep,

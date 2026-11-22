@@ -144,7 +144,7 @@ function env(paid: (url: string) => Response, charge: { recipient: string; amoun
     fetchImpl, signer, payer: throwaway.address, balance: async () => 10_000_000n,
     verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }),
   };
-  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.total };
+  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.total, txsSinceCensusStart: async () => [] };
   const clock = { t: Date.parse("2026-10-01T00:00:00Z") };
   registerDayLedger(set, DATE, throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
   const ledger = new Ledger(dayLedgerPath(set.remeasureDir, DATE), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);

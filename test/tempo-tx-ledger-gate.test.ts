@@ -85,6 +85,9 @@ test("payTempo stops before any purchase when a transfer is on no ledger or the 
     assert.equal(r1.rows.length, 0);
     const r2 = await payTempo([slot], pay, { ...base, chain: view(async () => { throw new Error("socket hang up"); }) });
     assert.match(r2.stopped ?? "", /^chain_tx_unreadable: socket hang up/);
+    const noRead = { outflowSinceCensusStart: async () => 0n, outflowSinceMonthStart: async () => 0n } as unknown as TempoChainView;
+    const r3 = await payTempo([slot], pay, { ...base, chain: noRead });
+    assert.match(r3.stopped ?? "", /^chain_tx_unreadable: the chain view has no per-transaction read/);
     assert.deepEqual(touched, []);
     assert.equal(ledger.entries().length, 1);
   } finally {

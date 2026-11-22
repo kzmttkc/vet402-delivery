@@ -294,7 +294,7 @@ test("remeasure tempo: the unpaid 402 check and the paid call both carry the rep
     },
   };
   const pay: Omit<TempoPayDeps, "ledger" | "chainSpent"> = { fetchImpl, signer, payer: throwaway.address, balance: async () => 10_000_000n, verify: async () => ({ settled: true, detail: "transfer found", feePaid: "30" }) };
-  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.total };
+  const view: TempoChainView = { outflowSinceCensusStart: async () => chain.total, outflowSinceMonthStart: async () => chain.total, txsSinceCensusStart: async () => [] };
   const clock = { t: Date.parse(`${TODAY}T00:00:00Z`) };
   registerDayLedger(set, TODAY, throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
   const ledger = new Ledger(dayLedgerPath(set.remeasureDir, TODAY), throwaway.address, RM_TEMPO_MAX_PER_RUN_ATOMIC);
