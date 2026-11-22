@@ -632,6 +632,22 @@ test("tempo B1: deleting a past day ledger stops the next day's run before signi
   await assert.rejects(censusCheck(), /missing: 2026-10-01/);
 });
 
+test("tempo B1: a past day ledger deleted after the run's first check still stops before signing (per-slot check)", async () => {
+  const e = tempoEnv();
+  const slots = selectSlots([tempoTarget("a")], 1).slots;
+  await e.run(slots, "2026-10-01");
+  assert.equal(e.signs(), 1);
+  // The ledger goes missing between the per-transaction check (already passed) and the first slot.
+  e.view.txsSinceCensusStart = async () => {
+    rmSync(dayLedgerPath(e.set.remeasureDir, "2026-10-01"));
+    return [];
+  };
+  const r = await e.run(slots, "2026-10-02");
+  assert.equal(e.signs(), 1);
+  assert.equal(r.rows.length, 0);
+  assert.match(r.stopped!, /^key_ledger_missing: .*2026-10-01/);
+});
+
 test("tempo Q3: a small past day hidden by this ledger's unused fee reserves is still caught by the index", async () => {
   // day 1: one purchase of 0.0001 (130 left the key). Day 2: two purchases reserve 2 x 2,000 fee but pay 2 x 30,
   // so the day-2 ledger has 3,940 of room: the chain check alone would not notice day 1 missing.
