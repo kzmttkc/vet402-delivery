@@ -2465,3 +2465,33 @@ test("run.sh: a keeta-lane that never ends is stopped at VET402_KEETA_MAX_SECOND
   }
   rmSync(sb.dir, { recursive: true });
 });
+
+test("run outcome: outcome_unknown is ok only when the chain check read every unknown purchase settled and recorded (2026-11-26 orth-signalbase)", () => {
+  const since = "2026-11-26T01:32:59.000Z";
+  const KEY = "2026-11-26|0xdd51ae794f2cbbc69ef791be8aa4476d6d48c7ce|0";
+  const TX = "0x9eee6744fa48e4cb3bc62110f763d26784e8eab29e14412b916b872419667d06";
+  const sent = { at: "2026-11-26T02:00:00.000Z", outcome: "sent", settled: true, delivered: true, key: "2026-11-26|0xaa|0", tx: "0x01" };
+  const unk = { at: "2026-11-26T02:08:37.562Z", outcome: "unknown", settled: true, delivered: null, key: KEY, tx: TX };
+  const cc = { added: [{ key: KEY, tx: TX }], unmatched: [] as unknown[], duplicates: [] as unknown[] };
+  const file = (rows: Record<string, unknown>[], chainCheck: Record<string, unknown> | undefined, stopped = "outcome_unknown") => ({
+    runs: [{ startedAt: "2026-11-26T01:33:00.339Z", endedAt: "2026-11-26T02:12:47.844Z", perPayTo: 1, stopped, ...(chainCheck ? { chainCheck } : {}) }],
+    rows,
+  });
+  const ok = runOutcome(file([sent, unk], cc), since);
+  assert.equal(ok.ok, true, ok.line);
+  assert.equal(ok.monthCap, undefined);
+  assert.match(ok.line, /stopped at outcome_unknown, and the chain check read each unknown purchase settled on chain \(tx 0x9eee6744/);
+  // Each of these still halts.
+  const halts: [string, ReturnType<typeof file>][] = [
+    ["no chain check", file([sent, unk], undefined)],
+    ["an unmatched payment", file([sent, unk], { ...cc, unmatched: [{ tx: "0x02" }] })],
+    ["a duplicate", file([sent, unk], { ...cc, duplicates: ["0x01"] })],
+    ["the unknown row has no tx", file([sent, { ...unk, tx: null, settled: null }], { ...cc, added: [] })],
+    ["the unknown row is not settled", file([sent, { ...unk, settled: false }], cc)],
+    ["the tx was not added by the check", file([sent, unk], { ...cc, added: [] })],
+    ["a second unknown row is unresolved", file([sent, unk, { ...unk, key: "2026-11-26|0xbb|0", tx: null, settled: null }], cc)],
+    ["another stop", file([sent, unk], cc, "chain_spend_exceeds_ledger")],
+    ["no unknown row in the run", file([sent, { ...unk, at: "2026-11-26T03:00:00.000Z" }], cc)],
+  ];
+  for (const [why, f] of halts) assert.equal(runOutcome(f, since).ok, false, why);
+});

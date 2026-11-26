@@ -342,8 +342,11 @@ async function tempo(slotsAll: ReturnType<typeof selectSlots>, targets: Target[]
     save();
     console.log(`results: ${file}`);
     // The month cap is an end, not a fault: the runner reads it from the result (src/daily/steps.ts runOutcome).
-    const { isMonthCapStop } = await import("../src/daily/steps.js");
-    return res.stopped && !isMonthCapStop(res.stopped) ? 2 : checked ? 0 : 3;
+    const { isMonthCapStop, unknownResolvedOnChain } = await import("../src/daily/steps.js");
+    // A timed-out purchase the chain check then found settled and recorded is known: not a stop (2026-11-25, 11-26).
+    const resolved = checked && res.stopped === "outcome_unknown" && unknownResolvedOnChain(result, run).ok;
+    if (resolved) console.log("outcome_unknown resolved: the chain check read each unknown purchase settled on chain and recorded it; not paid again");
+    return res.stopped && !isMonthCapStop(res.stopped) && !resolved ? 2 : checked ? 0 : 3;
   } finally {
     ledger?.release();
     release();

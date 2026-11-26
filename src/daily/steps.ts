@@ -125,8 +125,37 @@ interface ResultFile {
   kind?: string;
   chain?: string;
   date?: string;
-  runs?: { startedAt: string; endedAt: string | null; perPayTo: number; stopped: string | null }[];
-  rows?: { outcome?: string; settled?: boolean | null; delivered?: boolean | null }[];
+  runs?: RunLike[];
+  rows?: { outcome?: string; settled?: boolean | null; delivered?: boolean | null; at?: string; key?: string; tx?: string | null }[];
+}
+
+interface RunLike {
+  startedAt: string;
+  endedAt: string | null;
+  perPayTo: number;
+  stopped: string | null;
+  chainCheck?: { added?: { key: string; tx: string }[]; unmatched?: unknown[]; duplicates?: unknown[] };
+}
+
+/**
+ * A run stopped at outcome_unknown (a paid request timed out, 2026-11-25 and 11-26 orth-signalbase) whose post-run
+ * chain check then read every unknown purchase of the run on chain: each unknown row is settled, carries a tx, and
+ * that key and tx are in the check's "added"; the check has no unmatched and no duplicate payment. The payment
+ * is then known, paid once and recorded: the stop kept it from being paid again, and nothing is left to halt for.
+ * The purchases after the stop are not bought in that run. Any other unknown (no tx found) still halts.
+ */
+export function unknownResolvedOnChain(result: ResultFile, run: RunLike): { ok: boolean; txs: string[] } {
+  const no = { ok: false, txs: [] };
+  if (run.stopped !== "outcome_unknown" || !run.endedAt) return no;
+  const cc = run.chainCheck;
+  if (!cc || (cc.unmatched?.length ?? 1) !== 0 || (cc.duplicates?.length ?? 1) !== 0) return no;
+  const added = new Set((cc.added ?? []).map((a) => `${a.key} ${a.tx}`));
+  const unknown = (result.rows ?? []).filter((x) => x.outcome === "unknown" && typeof x.at === "string" && x.at >= run.startedAt && x.at <= run.endedAt!);
+  if (unknown.length === 0) return no;
+  for (const x of unknown) {
+    if (x.settled !== true || typeof x.tx !== "string" || !x.key || !added.has(`${x.key} ${x.tx}`)) return no;
+  }
+  return { ok: true, txs: unknown.map((x) => x.tx as string) };
 }
 
 /**
@@ -148,6 +177,8 @@ export function runOutcome(result: ResultFile, since: string): { ok: boolean; mo
   const r = runs[0]!;
   if (!r.endedAt) return { ok: false, line: `the run started ${r.startedAt} has no end (killed or still running)` };
   if (isMonthCapStop(r.stopped)) return { ok: true, monthCap: true, line: `run ${r.startedAt}..${r.endedAt} ended at the month cap (${r.stopped}); ${tally(result)}` };
+  const resolved = unknownResolvedOnChain(result, r);
+  if (resolved.ok) return { ok: true, line: `run ${r.startedAt}..${r.endedAt} stopped at outcome_unknown, and the chain check read each unknown purchase settled on chain (tx ${resolved.txs.join(", ")}): paid once, recorded, not paid again; ${tally(result)}` };
   if (r.stopped) return { ok: false, line: `the run stopped: ${r.stopped}` };
   return { ok: true, line: `run ${r.startedAt}..${r.endedAt} ended without a stop; ${tally(result)}` };
 }
