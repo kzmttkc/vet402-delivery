@@ -1,0 +1,115 @@
+{
+  "type": "x402-observation",
+  "version": 0,
+  "id": "obs_2026-11-26_009277",
+  "observer": {
+    "id": "did:web:vet402.com#obs-key-2026-09",
+    "address": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "sequence": 9277
+  },
+  "issuedAt": 1795738252,
+  "verdict": {
+    "code": "DELIVERED",
+    "reason": "Payment settled; HTTP 200, non-empty body.",
+    "recheck": null,
+    "checks": {
+      "paymentSettled": true,
+      "httpStatus": 200,
+      "bodyNonEmpty": true,
+      "declaredFormatMatched": null,
+      "sellerReceiptValid": null,
+      "responseHashMatchesSeller": null
+    }
+  },
+  "resourceUrl": "https://x402-api.vybenetwork.xyz/v4/markets",
+  "payment": {
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "scheme": "x402-exact",
+    "transaction": "5ojR8vsQNV8yihoPGkVUbXbwkggsbvF1yF7Q7C7rSPh18y8F31HcH81UNk8bixJ9USeQ8pAKxbbF4t2oUAun4Bzi",
+    "payer": "9VaAPD1CPE4i8pquaRwE7LvZXMmvGdgffD4Q8xJgaQRu",
+    "payTo": "HJHeNjURYf3Lwp5iTnfSt8ktn3oGGTV3A8atJHLn281K",
+    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "12000",
+    "decimals": 6,
+    "assetSymbol": "USDC",
+    "settledAt": null
+  },
+  "request": {
+    "method": "GET",
+    "url_hash": "0xc6aef9bb1832797872b68f6b63e335ca201b38ce3de86b5ce12dfe9011b24b2b",
+    "params_hash": "0xed4d1463d86b98c7081f59893c8fe0532ac89268bb92625f18855ac712db66a8",
+    "params_salted": true,
+    "ts": "2026-11-26T13:31:22.724Z"
+  },
+  "response": {
+    "status": 200,
+    "responseHash": null,
+    "responseHashAlg": null,
+    "responseHashEncoding": null,
+    "responseHashNote": "hash not recorded (the daily remeasure run does not hash the response)",
+    "contentType": null,
+    "bytes": null,
+    "receivedAt": null,
+    "latencyMs": null
+  },
+  "offer": null,
+  "sellerReceipt": null,
+  "scope": {
+    "proves": [
+      "observer-signed-at-time",
+      "payment-on-chain",
+      "response-status-at-time",
+      "existed-by-anchor-time"
+    ],
+    "doesNotProve": [
+      "content-correctness",
+      "seller-trustworthiness",
+      "seller-availability-now",
+      "refund-entitlement"
+    ],
+    "vantage": "Seen from vet402's network only.",
+    "text": "Proves vet402 paid and what HTTP status came back at this time. Does not prove the content is correct."
+  },
+  "notRecorded": [
+    "request.ts: the time recorded is when the spend was reserved, just before the paid request",
+    "response.contentType",
+    "response.bytes",
+    "response.receivedAt",
+    "response.latencyMs",
+    "payment.settledAt",
+    "declared output format (not checked in this run)",
+    "response.responseHash: hash not recorded (the daily remeasure run does not hash the response)"
+  ],
+  "source": {
+    "dataset": "remeasure-solana-2026-11-26",
+    "row": "rows[269]"
+  },
+  "contact": "https://vet402.com/",
+  "anchor": {
+    "status": "anchored",
+    "day": "2026-11-26",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "tx": "F3QPhsbcAxNEKXz87LsMLHkNsiJu4YjZdo4P8NSkyBGkx4XeEhMDHJMxBauPwqBkjHtGPvcM1arHi2HLvzJgZJg",
+    "root": "0x0167c63ab35f5bf147f5eaa8e87c784c8034ebc4dfacecb48d2ccc204f9f0ec0",
+    "leafIndex": 144,
+    "proof": [
+      "0x32a65377a2e7ad32692f7e8e6bfbeaf744408c8508e465f3325ef6490ef07f53",
+      "0x9e96ea72ad1b3ba32f5517a6d9bd494f786667680fad8ce16ae589591ebf68c7",
+      "0x24db14cc7f0f76a6bc133c183cbb202a7690c923dd65b8711fd65d88f80b30fa",
+      "0x6525f467a465b10252a5040e743363cf16652f8d26e847475464448173681f86",
+      "0x71d6d8045e712e5cdc6640f51ab47c0b152bb0982f8b19a175288161edb88a54"
+    ],
+    "count": 151,
+    "sequenceRange": [
+      9133,
+      9283
+    ],
+    "observerAddress": "0x6232335B5264f7aa62a51f8ACc4676D22511Ff3C",
+    "anchoredAt": "2026-11-27T00:14:20.000Z"
+  },
+  "corrections": [],
+  "signature": {
+    "format": "eip712",
+    "signature": "0x0d8e3cd7503ef1549a89d95b0fb61289a6ab6da56a2f12b6ecf1d5063f35dedf3c4133c52634082d2dfdfd181950d09936cf7b4d3ef624764cbfe3356b55f2581b"
+  }
+}
